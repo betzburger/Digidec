@@ -51,6 +51,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/Models/RTTYSettings.swift $S/App/RTTYSettingsStore.swift \
     $S/DSP/SpectrumAnalyzer.swift $S/DSP/WaterfallProcessor.swift $S/DSP/WaterfallColorMap.swift \
     $S/Decoders/RTTY/FldigiRTTYCore.swift $S/Decoders/RTTY/RTTYSignalGenerator.swift \
+    $S/Decoders/RTTY/RTTYDecoder.swift $S/Decoders/RTTY/RTTYController.swift $S/Log/DecodeLogger.swift \
     "$OUT"/fldigi/obj/*.o -lc++
 
 # 4. Ausführen

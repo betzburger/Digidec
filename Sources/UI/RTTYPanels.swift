@@ -1,0 +1,223 @@
+import SwiftUI
+import AppKit
+
+// MARK: - Empfangstext
+
+struct ReceivePanel: View {
+    @ObservedObject var controller: RTTYController
+    @ObservedObject var textModel: ReceiveTextModel
+
+    init(controller: RTTYController) {
+        self.controller = controller
+        textModel = controller.textModel
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                ActivityLED(lastChar: controller.lastCharacterDate)
+                Text("\(textModel.characterCount) Zeichen")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                Spacer()
+                Button {
+                    controller.logEnabled.toggle()
+                } label: {
+                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Log-Ordner im Finder zeigen")
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(controller.textModel.text, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Gesamten Empfangstext kopieren")
+                Button {
+                    controller.clearText()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Anzeige leeren (das Log bleibt erhalten)")
+            }
+            ReceiveTextView(model: controller.textModel)
+                .background(RadioTheme.bgDeep)
+                .cornerRadius(6)
+        }
+    }
+}
+
+/// Leuchtet grün, solange Zeichen ankommen
+private struct ActivityLED: View {
+    let lastChar: Date?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { ctx in
+            let active = lastChar.map { ctx.date.timeIntervalSince($0) < 1.0 } ?? false
+            Circle()
+                .fill(active ? RadioTheme.vfdGreen : RadioTheme.bgPanel)
+                .overlay(Circle().stroke(RadioTheme.borderSubtle, lineWidth: 1))
+                .shadow(color: active ? RadioTheme.vfdGreen.opacity(0.7) : .clear, radius: 3)
+                .frame(width: 8, height: 8)
+        }
+        .help("Leuchtet, solange Zeichen decodiert werden")
+    }
+}
+
+// MARK: - Abstimmanzeige (XY-Scope + Signal)
+
+struct TuningPanel: View {
+    @ObservedObject var controller: RTTYController
+    @ObservedObject var settings: RTTYSettingsStore
+
+    var body: some View {
+        VStack(spacing: 6) {
+            XYScopeView(points: controller.scope)
+                .frame(height: 124)
+            SignalBar(metric: controller.status?.metric ?? 0, squelch: settings.options.squelchOn ? settings.options.squelch : nil)
+            HStack {
+                readout("S/N", controller.status.map { String(format: "%.0f dB", $0.snrDB) } ?? "–")
+                Spacer()
+                readout("AFC", settings.options.afc == .off ? "aus"
+                        : controller.status.map { String(format: "%+.1f Hz", $0.freqError) } ?? "–")
+                Spacer()
+                readout("MITTE", "\(Int(settings.centerHz.rounded())) Hz")
+            }
+        }
+    }
+
+    private func readout(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+            Text(value)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundColor(RadioTheme.vfdCyan)
+        }
+        .help(label == "S/N" ? "S/N wie in fldigi (Messfenster zwischen Mark und Space; bei starken Signalen niedrig)" : "")
+    }
+}
+
+/// Kreuzellipsen-Anzeige wie fldigi: Mark auf der waagerechten, Space auf der senkrechten Achse.
+private struct XYScopeView: View {
+    let points: [CGPoint]
+
+    var body: some View {
+        Canvas { ctx, size in
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let r = min(size.width, size.height) / 2 - 4
+            var cross = Path()
+            cross.move(to: CGPoint(x: c.x - r, y: c.y))
+            cross.addLine(to: CGPoint(x: c.x + r, y: c.y))
+            cross.move(to: CGPoint(x: c.x, y: c.y - r))
+            cross.addLine(to: CGPoint(x: c.x, y: c.y + r))
+            ctx.stroke(cross, with: .color(RadioTheme.borderSubtle), lineWidth: 1)
+            ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                       with: .color(RadioTheme.borderSubtle.opacity(0.5)), lineWidth: 1)
+            guard points.count > 1 else { return }
+            // fldigi normiert auf ≈ ±0,8; 1,2 als Reserve
+            let scale = r / 0.8
+            var trace = Path()
+            for (i, p) in points.enumerated() {
+                let q = CGPoint(x: c.x + max(-1.2, min(1.2, p.x)) * scale, y: c.y - max(-1.2, min(1.2, p.y)) * scale)
+                if i == 0 { trace.move(to: q) } else { trace.addLine(to: q) }
+            }
+            ctx.stroke(trace, with: .color(RadioTheme.vfdGreen.opacity(0.85)), lineWidth: 1)
+        }
+        .background(RadioTheme.bgDeep)
+        .cornerRadius(6)
+        .help("XY-Scope: waagerecht = Mark, senkrecht = Space. Richtig abgestimmt: zwei rechtwinklige Ellipsen")
+    }
+}
+
+/// Signalqualität 0…100 (fldigi-Metrik) mit Squelch-Schwelle
+private struct SignalBar: View {
+    let metric: Double
+    let squelch: Double?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("SIG")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2).fill(RadioTheme.bgDeep)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(open ? RadioTheme.vfdGreen : RadioTheme.vfdAmber)
+                        .frame(width: geo.size.width * CGFloat(min(100, max(0, metric)) / 100))
+                    if let squelch {
+                        Rectangle()
+                            .fill(RadioTheme.ledRed)
+                            .frame(width: 2)
+                            .offset(x: geo.size.width * CGFloat(squelch / 100) - 1)
+                    }
+                }
+            }
+            .frame(height: 8)
+            Text(String(format: "%3.0f", metric))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textMuted)
+                .frame(width: 26, alignment: .trailing)
+        }
+        .help("Signalqualität wie fldigi (0–100). Roter Strich: Squelch-Schwelle")
+    }
+
+    private var open: Bool { squelch.map { metric >= $0 } ?? true }
+}
+
+// MARK: - Schnellschalter unter den Presets
+
+struct RTTYQuickControls: View {
+    @ObservedObject var settings: RTTYSettingsStore
+    @Binding var showSettings: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Button("REV") { settings.toggleReverse() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.isReversed))
+                    .help("Mark und Space vertauschen (Reverse)")
+                Button("AFC") {
+                    settings.options.afc = settings.options.afc == .off ? .normal : .off
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc != .off))
+                .help("Automatische Frequenznachführung (\(settings.options.afc.label))")
+                Button("SQL") { settings.options.squelchOn.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
+                    .help("Squelch: Text nur bei ausreichender Signalqualität")
+                Spacer()
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Alle RTTY-Einstellungen")
+            }
+            if settings.options.squelchOn {
+                HStack(spacing: 6) {
+                    Slider(value: Binding(get: { settings.options.squelch }, set: { settings.options.squelch = $0.rounded() }),
+                           in: 0...100)
+                        .tint(RadioTheme.ledRed)
+                    Text("\(Int(settings.options.squelch))")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundColor(RadioTheme.vfdCyan)
+                        .frame(width: 26, alignment: .trailing)
+                }
+                .help(settings.parameters.shift < 100 ? "Bei 85 Hz Shift erreicht die Signalqualität nur ≈ 30 – Squelch höchstens ≈ 20" : "Squelch-Schwelle")
+            }
+        }
+    }
+}

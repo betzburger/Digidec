@@ -510,5 +510,105 @@ do {
     check(g.baudotCodes(for: "A1 B") == [0x1F, 0x03, 0x1B, 0x17, 0x04, 0x19], "Baudot mit FIGS und Unshift-on-Space")
 }
 
+// MARK: - RTTY-Einstellungen (M5)
+do {
+    let store = RTTYSettingsStore()
+    store.select(presetID: "dwd-lw")
+    check(store.parameters.ita2 && store.parameters.shift == 85, "DWD LW mit ITA2")
+    check(!RTTYPreset.preset(id: "ham")!.parameters.ita2, "Amateur mit US-TTY wie fldigi")
+    // Reverse je Preset, ohne das Preset zu verlassen
+    let wasRev = store.isReversed
+    store.toggleReverse()
+    check(store.isReversed == !wasRev && store.presetID == "dwd-lw", "REV schaltet im Preset um")
+    store.select(presetID: "dwd-kw")
+    let kwRev = store.isReversed
+    store.select(presetID: "dwd-lw")
+    check(store.isReversed == !wasRev, "REV bleibt je Preset gespeichert")
+    store.toggleReverse()
+    check(store.isReversed == wasRev, "REV zurück")
+    _ = kwRev
+    // Parameter ändern legt „Eigene“ an, festes Preset bleibt
+    var p = store.parameters
+    p.baud = 75
+    store.update(parameters: p)
+    check(store.presetID == "custom" && store.parameters.baud == 75 && store.parameters.shift == 85, "Änderung -> Eigene mit übernommenen Werten")
+    check(RTTYPreset.preset(id: "dwd-lw")!.parameters.baud == 50, "Festes Preset unverändert")
+    // AFC: Mitte folgt ohne Rundung, manuelle Mitte zählt Revision hoch
+    store.select(presetID: "ham")
+    store.setCenter(1000)
+    let rev = store.manualCenterRevision
+    store.followAFC(1003.4)
+    check(abs(store.centerHz - 1003.4) < 1e-9 && store.manualCenterRevision == rev, "AFC ungerundet, keine Revision")
+    store.setCenter(1500.4)
+    check(store.centerHz == 1500 && store.manualCenterRevision == rev + 1, "Mitte von Hand gerundet, Revision +1")
+    store.setCenter(1000)
+    // Speicherformat: alte Parameter ohne ITA2-Feld lesbar, Optionen Rundreise
+    let old = #"{"shift":450,"baud":50,"bits":5,"parity":"none","stopBits":1.5,"reverse":true}"#
+    let decoded = try? JSONDecoder().decode(RTTYParameters.self, from: Data(old.utf8))
+    check(decoded?.shift == 450 && decoded?.reverse == true && decoded?.ita2 == false, "Alte Parameter ohne ITA2 lesbar")
+    var o = RTTYDecodeOptions()
+    o.afc = .fast; o.squelchOn = true; o.squelch = 12; o.tones = .spaceOnly; o.filterK = 1.25
+    let round = try? JSONDecoder().decode(RTTYDecodeOptions.self, from: JSONEncoder().encode(o))
+    check(round == o, "Optionen Rundreise")
+    let def = RTTYDecodeOptions()
+    check(def.afc == .normal && !def.squelchOn && def.tones == .both && def.unshiftOnSpace && def.filterK == 1.4 && def.trueScope,
+          "Standard wie fldigi")
+    let co = RTTYDecoder.coreOptions(RTTYPreset.preset(id: "dwd-kw")!.parameters, o)
+    check(co.afcOn && co.afcSpeed == 2 && co.squelchOn && co.cwi == 2 && co.ita2 && co.filterK == 1.25, "Optionen -> Kern")
+    var off = RTTYDecodeOptions()
+    off.afc = .off
+    check(!RTTYDecoder.coreOptions(RTTYPreset.preset(id: "ham")!.parameters, off).afcOn, "AFC aus -> Kern aus")
+}
+
+// MARK: - Anzeige-Text und Log
+do {
+    check(RTTYController.displayText("ZCZC\r\nWODL45\u{07} EDZW\r\r\n") == "ZCZC\nWODL45 EDZW\n", "CR/Klingel entfernt, LF bleibt")
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("digidec_log_\(getpid())", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let log = DecodeLogger(mode: "RTTY", directory: dir)
+    let t0 = ISO8601DateFormatter().date(from: "2026-09-30T23:59:58Z")!
+    log.markSession("RTTY DWD LW · Test")
+    log.append("ABC", now: t0)
+    log.append("DEF", now: t0)
+    let t1 = t0.addingTimeInterval(4)       // nach Mitternacht UTC -> neue Datei
+    log.append("GHI", now: t1)
+    log.close()
+    let f0 = (try? String(contentsOf: log.fileURL(for: t0), encoding: .utf8)) ?? ""
+    let f1 = (try? String(contentsOf: log.fileURL(for: t1), encoding: .utf8)) ?? ""
+    check(log.fileURL(for: t0).lastPathComponent == "RTTY-2026-09-30.txt", "Dateiname nach UTC-Datum")
+    check(f0.contains("=== 2026-09-30 23:59:58 UTC · RTTY DWD LW · Test ===\nABCDEF"), "Kopfzeile einmal, Text angehängt, got \(f0.debugDescription)")
+    check(f0.components(separatedBy: "===").count == 3, "Nur eine Kopfzeile")
+    check(f1.contains("Fortsetzung ===\nGHI"), "Neue Tagesdatei mit Fortsetzungs-Kopf, got \(f1.debugDescription)")
+}
+
+// MARK: - Ende-zu-Ende: Pipeline -> fldigi-Kern -> Text (wie in der App)
+do {
+    let pipeline = AudioPipeline()
+    let decoder = RTTYDecoder(pipeline: pipeline)
+    let params = RTTYPreset.preset(id: "dwd-lw")!.parameters
+    decoder.configure(parameters: params, options: RTTYDecodeOptions(), centerHz: 1500)
+    pipeline.start(inputRate: 48_000)
+    // Signal bei 48 kHz erzeugen, wie es vom USB-Codec käme
+    var gen = RTTYSignalGenerator(parameters: params, centerHz: 1500)
+    gen.sampleRate = 48_000
+    gen.ita2 = true
+    let text = "ZCZC WODL45 EDZW 301200 +12 = "
+    let samples = gen.samples(for: text)
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    while i < samples.count {                      // in Häppchen, damit der 2-s-Ringpuffer nicht überläuft
+        let n = min(24_000, samples.count - i)
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.08)
+    }
+    Thread.sleep(forTimeInterval: 0.4)
+    let out = decoder.takeOutput()
+    check(out.text == text, "Pipeline 48 kHz -> 8 kHz -> fldigi: exakt, got \(out.text.debugDescription)")
+    check(out.status != nil && !out.scope.isEmpty, "Status und XY-Scope geliefert")
+    check(decoder.takeOutput().text.isEmpty, "Text nur einmal abholbar")
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

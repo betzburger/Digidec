@@ -66,6 +66,11 @@ public final class AudioPipeline: @unchecked Sendable {
         sinkLock.withLock { _ = sinks.removeValue(forKey: id) }
     }
 
+    /// Führt `work` auf der Verarbeitungs-Queue aus – dort laufen auch die Senken (Decoder-Zustand ohne Locks ändern).
+    public func perform(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
+    }
+
     /// Anzahl der seit `start` an die Senken gelieferten Samples (Decoder-Rate). Für Statusanzeige und Tests.
     public var deliveredSampleCount: Int {
         queue.sync { deliveredSamples }

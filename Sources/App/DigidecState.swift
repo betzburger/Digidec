@@ -16,11 +16,13 @@ public final class DigidecState: ObservableObject {
     public let audio: AudioInputManager
     public let rtty = RTTYSettingsStore()
     public let waterfall: WaterfallModel
+    public let rttyController: RTTYController
     private var audioStarted = false
 
     private init() {
         audio = AudioInputManager()
         waterfall = WaterfallModel(pipeline: audio.pipeline)
+        rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
     }
 
     /// Beim Programmstart: Mikrofon-Freigabe abwarten (nötig für den Eingang der virtuellen Soundkarte),
@@ -56,6 +58,9 @@ public final class DigidecState: ObservableObject {
                 if let center = request.centerHz {
                     rtty.setCenter(center)
                 }
+            }
+            rttyController.sourceDescription = request.sourceDisplayName.map { name in
+                name + (request.rigctlPort.map { " (rigctld \($0))" } ?? "")
             }
             if audioStarted {
                 audio.apply(request: request)

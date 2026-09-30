@@ -21,15 +21,32 @@ public struct RTTYParameters: Equatable, Codable, Sendable {
     public var stopBits: Double
     /// Mark und Space vertauscht (zusätzlich zur Seitenband-Korrektur)
     public var reverse: Bool
+    /// ITA2-Ziffernsatz (europäisch, z. B. `+` `=`); sonst US-TTY wie fldigi-Standard
+    public var ita2: Bool
 
     public init(shift: Double, baud: Double, bits: Int = 5, parity: RTTYParity = .none,
-                stopBits: Double = 1.5, reverse: Bool = false) {
+                stopBits: Double = 1.5, reverse: Bool = false, ita2: Bool = false) {
         self.shift = shift
         self.baud = baud
         self.bits = bits
         self.parity = parity
         self.stopBits = stopBits
         self.reverse = reverse
+        self.ita2 = ita2
+    }
+
+    private enum CodingKeys: String, CodingKey { case shift, baud, bits, parity, stopBits, reverse, ita2 }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        shift = try c.decode(Double.self, forKey: .shift)
+        baud = try c.decode(Double.self, forKey: .baud)
+        bits = try c.decode(Int.self, forKey: .bits)
+        parity = try c.decode(RTTYParity.self, forKey: .parity)
+        stopBits = try c.decode(Double.self, forKey: .stopBits)
+        reverse = try c.decode(Bool.self, forKey: .reverse)
+        // ab 0.6.0; ältere gespeicherte Werte haben das Feld nicht
+        ita2 = try c.decodeIfPresent(Bool.self, forKey: .ita2) ?? false
     }
 
     /// Mark- und Space-Ton im Audio bei gegebener Mittenfrequenz.
@@ -60,12 +77,13 @@ public struct RTTYPreset: Identifiable, Equatable, Sendable {
     public static let all: [RTTYPreset] = [
         RTTYPreset(id: "ham", name: "Amateur",
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
-                   note: "Amateurfunk-Standard, ITA2"),
+                   note: "Amateurfunk-Standard, Baudot mit US-TTY-Ziffern (fldigi-Standard)"),
+        // DWD: europäischer ITA2-Ziffernsatz (beim ersten Empfang zu bestätigen, PLAN.md 5.2)
         RTTYPreset(id: "dwd-kw", name: "DWD KW",
-                   parameters: RTTYParameters(shift: 450, baud: 50),
+                   parameters: RTTYParameters(shift: 450, baud: 50, ita2: true),
                    note: "DWD Pinneberg 4583 / 7646 / 10100,8 / 11039 / 14467,3 kHz"),
         RTTYPreset(id: "dwd-lw", name: "DWD LW",
-                   parameters: RTTYParameters(shift: 85, baud: 50),
+                   parameters: RTTYParameters(shift: 85, baud: 50, ita2: true),
                    note: "DWD DDH47 147,3 kHz"),
         RTTYPreset(id: "custom", name: "Eigene",
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
@@ -75,4 +93,45 @@ public struct RTTYPreset: Identifiable, Equatable, Sendable {
     public static func preset(id: String) -> RTTYPreset? {
         all.first { $0.id == id }
     }
+}
+
+/// Empfangsoptionen (fldigi: Modem/TTY/Rx). Gelten für alle Presets.
+public struct RTTYDecodeOptions: Equatable, Codable, Sendable {
+    public enum AFC: Int, CaseIterable, Codable, Sendable {
+        case off = -1, slow = 0, normal = 1, fast = 2
+        public var label: String {
+            switch self {
+            case .off: return "Aus"
+            case .slow: return "Langsam"
+            case .normal: return "Normal"
+            case .fast: return "Schnell"
+            }
+        }
+    }
+    /// fldigi rtty_cwi
+    public enum Tones: Int, CaseIterable, Codable, Sendable {
+        case both = 0, markOnly = 1, spaceOnly = 2
+        public var label: String {
+            switch self {
+            case .both: return "Mark-Space"
+            case .markOnly: return "Nur Mark"
+            case .spaceOnly: return "Nur Space"
+            }
+        }
+    }
+
+    public var afc: AFC = .normal
+    public var squelchOn = false
+    /// 0 … 100 gegen die fldigi-Metrik; bei DWD LW (85 Hz) höchstens ≈ 20
+    public var squelch: Double = 15
+    public var tones: Tones = .both
+    public var unshiftOnSpace = true
+    /// Filter-Formfaktor; fldigi 4.2.13 rechnet fest mit 1,4
+    public var filterK: Double = 1.4
+    /// XY-Scope aus den Mark/Space-Filtern (sonst Pseudo-Scope aus den Beträgen)
+    public var trueScope = true
+
+    public init() {}
+
+    public static let filterKRange: ClosedRange<Double> = 1.0...2.0
 }

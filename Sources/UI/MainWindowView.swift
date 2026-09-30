@@ -3,6 +3,7 @@ import AppKit
 
 public struct MainWindowView: View {
     @ObservedObject public var state: DigidecState
+    @State private var showRTTYSettings = false
 
     public init(state: DigidecState) {
         self.state = state
@@ -19,26 +20,24 @@ public struct MainWindowView: View {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(spacing: 10) {
                         WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
-                            .frame(height: 300)
+                            .frame(height: 260)
                             .radioCard(title: "Wasserfall")
 
-                        PlaceholderPanel(icon: "text.alignleft",
-                                         text: "Decodierter Text",
-                                         detail: "Erscheint hier, sobald der RTTY-Kern eingebunden ist (M5)")
+                        ReceivePanel(controller: state.rttyController)
                             .frame(maxHeight: .infinity)
                             .radioCard(title: "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
                     VStack(spacing: 10) {
-                        PlaceholderPanel(icon: "circle.dashed",
-                                         text: "XY-Scope",
-                                         detail: "Kreuzellipse Mark/Space (M5)")
-                            .frame(height: 170)
+                        TuningPanel(controller: state.rttyController, settings: state.rtty)
                             .radioCard(title: "Abstimmanzeige")
 
-                        PresetPanel(rtty: state.rtty)
-                            .radioCard(title: "Preset")
+                        VStack(spacing: 8) {
+                            PresetPanel(rtty: state.rtty)
+                            RTTYQuickControls(settings: state.rtty, showSettings: $showRTTYSettings)
+                        }
+                        .radioCard(title: "Preset")
 
                         InputPanelView(audio: state.audio)
                             .radioCard(title: "Eingang")
@@ -53,7 +52,10 @@ public struct MainWindowView: View {
             }
             .padding(.bottom, 8)
         }
-        .frame(minWidth: 1060, minHeight: 760)
+        .frame(minWidth: 1060, minHeight: 730)
+        .sheet(isPresented: $showRTTYSettings) {
+            RTTYSettingsSheet(settings: state.rtty)
+        }
     }
 }
 

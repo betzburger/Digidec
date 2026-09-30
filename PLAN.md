@@ -379,7 +379,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M2 | Audio-Eingang | ✅ 30.09.2026 (v0.3.0): direkt vom USB-Codec des Funkgeräts, portunabhängig; VALHost 2ch manuell wählbar |
 | M3 | Wasserfall | ✅ 30.09.2026 (v0.4.1): vDSP-FFT, Spektrumkurve, Mark/Space-Marker, Klick/Ziehen setzt Mitte, Zoom, Dynamik; Presets wählbar |
 | M4 | fldigi-RTTY-Kern herausgelöst | ✅ 30.09.2026 (v0.5.0): `Vendor/FldigiRTTY` + C-API, Signalverarbeitung zeilengleich mit fldigi 4.2.13, alle Presets synthetisch fehlerfrei |
-| M5 | RTTY in der App | Text, Presets, Einstellungsdialog (alle Optionen aus 5.1), XY-Scope, AFC, Squelch, Log |
+| M5 | RTTY in der App | ✅ 30.09.2026 (v0.6.1): Text, Log, XY-Scope, Signalanzeige, REV/AFC/SQL, Einstellungsdialog; Bedienung durch den Nutzer noch zu prüfen |
 | M6 | Qualitätsnachweis | Testdaten + Vergleich mit fldigi (Abschnitt 8), DWD-Polarität in 5.2 eingetragen |
 | M7 | rigctld-Anbindung | Frequenz/Mode in der Kopfzeile und im Log |
 | M8 | URL-Schema + Buttons in beiden Commandern | „RTTY decodieren“ startet den Decoder mit Preset, Gerät und Quelle; Versionen der Commander erhöht |
@@ -482,7 +482,26 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - fldigi nutzt standardmäßig den **US-TTY**-Ziffernsatz. Für die DWD-Presets **ITA2** vorsehen und beim ersten Empfang prüfen.
     - Die fldigi-S/N-Anzeige ist bei starken Signalen niedrig oder negativ (Messfenster zwischen Mark und Space). Die Metrik (0–100) ist das bessere Anzeigemaß.
     - Bei DWD LW (85 Hz) erreicht die Metrik nur ≈ 30 → Squelch-Vorgabe für dieses Preset höchstens ≈ 20.
-- **Nächster Schritt:** M5 (RTTY in der App: Text, Einstellungsdialog, XY-Scope, AFC, Squelch, Log).
+- **M5 erledigt (v0.6.0 / 0.6.1):**
+  - `Sources/Decoders/RTTY/RTTYDecoder.swift`: fldigi-Kern als Senke der Pipeline. Alle Kern-Aufrufe laufen auf deren Verarbeitungs-Queue (`AudioPipeline.perform`). Text, Status und XY-Punkte werden thread-sicher mit `takeOutput()` abgeholt.
+  - `RTTYController` (@MainActor): verbindet Einstellungen → Decoder (neu konfigurieren bei Parameter-/Optionsänderung, Mitte bei Handwahl), fragt mit 20 Hz ab.
+    Die AFC führt die Mitte nach (`followAFC`), ausgenommen 0,3 s nach einer Handwahl, damit ein veralteter Status sie nicht zurücksetzt.
+  - `ReceiveTextModel` + `ReceiveTextView` (NSTextView): Text wird nur angehängt, die Ansicht scrollt mit, wenn man am Ende steht. Obergrenze 200 000 Zeichen.
+    CR, BEL und Steuerzeichen werden entfernt, LF bricht um. **Skalarweise**, weil Swift „\r\n“ als ein Character behandelt.
+  - `DecodeLogger`: Tagesdateien `~/Documents/Digidec/Logs/RTTY-JJJJ-MM-TT.txt` (UTC), Kopfzeile je Sitzung bzw. Einstellungsänderung mit Preset, Parametern, REV, Mitte und Quelle. Standard: an.
+  - Einstellungen (`RTTYSettingsStore`): `RTTYDecodeOptions` (AFC aus/langsam/normal/schnell, Squelch + Wert, Mark-Space/nur Mark/nur Space, Unshift on Space, Filter K, XY-Scope klassisch/pseudo).
+    Reverse je Preset (REV-Knopf). `ita2` in `RTTYParameters`: DWD-Presets ITA2, Amateur US-TTY wie fldigi.
+    Ändert man Übertragungsparameter eines festen Presets, wird eine Kopie als „Eigene“ angelegt.
+  - UI:
+    - Abstimmanzeige: XY-Scope (Kreuzellipse), Signalqualität 0–100 mit Squelch-Strich, S/N (fldigi-Formel), AFC-Fehler, Mitte.
+    - Unter den Presets: REV / AFC / SQL, Squelch-Regler, Knopf für den Einstellungsdialog `RTTYSettingsSheet` (alle Optionen aus 5.1).
+    - Empfangstext mit Aktivitäts-LED, LOG, Log-Ordner, Kopieren, Löschen.
+  - Logiktests: 180 Prüfungen. Neu: Store-Logik, Speicherformat abwärtskompatibel, Optionen → Kern, Anzeige-Text, Log (Kopfzeile, Tageswechsel UTC) und **Ende-zu-Ende** 48 kHz → Resampler → fldigi-Kern → exakter Text (DWD LW, ITA2).
+  - Am echten System: Live-Decodierung läuft (auf Rauschen ohne Squelch zufällige Zeichen wie in fldigi, Signalanzeige ≈ 2–4, Scope-Knäuel); Auftrag setzt Preset und Mitte.
+  - v0.6.1: Wasserfall 260 pt, Scope 124 pt, Mindesthöhe 730 pt (Bildschirm des Nutzers 900 pt hoch).
+  - **Nicht selbst geprüft:** Bedienung (Knöpfe, Regler, Einstellungsdialog, Kopieren/Ordner) – kein Zugriff auf Maus/Tastatur.
+  - Beobachtung: Ohne Squelch wandert die AFC auf reinem Rauschen langsam (fldigi-Verhalten). Mit SQL an greift die AFC nur oberhalb der Schwelle.
+- **Nächster Schritt:** Erster echter Empfang DDH47 (147,3 kHz, 05–22 UTC) durch den Nutzer: Polarität (REV) und Ziffernsatz (ITA2) für die DWD-Presets bestätigen und in 5.2 eintragen. Danach M6 (Qualitätsvergleich mit fldigi) bzw. M7 (rigctld).
 
 ---
 
