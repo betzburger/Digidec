@@ -312,5 +312,96 @@ do {
     check((try? WAVFileSource(url: URL(fileURLWithPath: "/nicht/da.wav"))) == nil, "WAV: fehlende Datei -> Fehler")
 }
 
+// MARK: - Spektrum (vDSP-FFT, Hann, dBFS)
+do {
+    let an = SpectrumAnalyzer(size: 2048, sampleRate: 8000)!
+    check(abs(an.binWidth - 3.90625) < 1e-9, "Binbreite 3,9 Hz")
+    check(SpectrumAnalyzer(size: 1000, sampleRate: 8000) == nil, "Nur Zweierpotenzen")
+    var out = [Float](repeating: 0, count: 1024)
+    for (freq, amp) in [(1000.0, 1.0), (1000.0, 0.5), (2210.0, 0.1), (957.5, 0.5)] {
+        let x = (0..<2048).map { Float(amp * sin(2 * Double.pi * freq * Double($0) / 8000)) }
+        x.withUnsafeBufferPointer { an.process($0.baseAddress!, into: &out) }
+        let peak = out.indices.max { out[$0] < out[$1] }!
+        check(abs(an.frequency(ofBin: peak) - freq) <= an.binWidth / 2 + 1e-9, "Spitze bei \(freq) Hz, got \(an.frequency(ofBin: peak))")
+        let expected = Float(20 * log10(amp))
+        // Hann: Pegel auf dem Bin exakt, zwischen zwei Bins bis −1,42 dB (Scalloping)
+        check(out[peak] <= expected + 0.05 && out[peak] >= expected - 1.5, "Pegel \(freq) Hz / \(amp): \(out[peak]) dB, erwartet \(expected)")
+    }
+    let silence = [Float](repeating: 0, count: 2048)
+    silence.withUnsafeBufferPointer { an.process($0.baseAddress!, into: &out) }
+    check(out.allSatisfy { $0 <= -139 }, "Stille -> Boden")
+}
+
+// MARK: - Wasserfall-Zeilen
+do {
+    let wf = WaterfallProcessor(sampleRate: 8000)
+    let tone = (0..<8000).map { Float(0.3 * sin(2 * Double.pi * 1500 * Double($0) / 8000)) }
+    tone.withUnsafeBufferPointer { buf in
+        var i = 0
+        while i < buf.count {     // ungleichmäßige Blöcke wie aus der Pipeline
+            let n = min(333, buf.count - i)
+            wf.consume(UnsafeBufferPointer(rebasing: buf[i..<(i + n)]))
+            i += n
+        }
+    }
+    let rows = wf.takeRows()
+    check(rows.count == 8000 / WaterfallProcessor.hop, "1 s -> \(8000 / WaterfallProcessor.hop) Zeilen, got \(rows.count)")
+    check(wf.takeRows().isEmpty, "Zeilen nur einmal abholbar")
+    if let last = rows.last {
+        let peak = last.indices.max { last[$0] < last[$1] }!
+        check(abs(Double(peak) * wf.binWidth - 1500) <= wf.binWidth, "Wasserfall-Spitze bei 1500 Hz")
+    }
+    let snap = wf.snapshot()
+    check(snap.noiseFloor < -60, "Rauschboden weit unter dem Ton, got \(snap.noiseFloor)")
+    check(abs(wf.rowsPerSecond - 31.25) < 1e-9, "31,25 Zeilen/s")
+}
+
+// MARK: - Farbskala
+do {
+    let lut = WaterfallColorMap.lut
+    check(lut.count == 256, "256 Farben")
+    check(lut.allSatisfy { $0 >> 24 == 0xFF }, "Alle Farben deckend")
+    func luminance(_ c: UInt32) -> Double { Double(c & 0xFF) * 0.3 + Double((c >> 8) & 0xFF) * 0.59 + Double((c >> 16) & 0xFF) * 0.11 }
+    check(luminance(lut[0]) < luminance(lut[128]) && luminance(lut[128]) < luminance(lut[255]), "Helligkeit steigt")
+    check(WaterfallColorMap.index(db: -200, floorDB: -90, rangeDB: 50) == 0, "Unter Boden -> 0")
+    check(WaterfallColorMap.index(db: 0, floorDB: -90, rangeDB: 50) == 255, "Über Bereich -> 255")
+    check(WaterfallColorMap.index(db: -65, floorDB: -90, rangeDB: 50) == 127, "Mitte -> 127")
+}
+
+// MARK: - RTTY-Presets und Mark/Space (PLAN.md 5.2)
+do {
+    let ham = RTTYPreset.preset(id: "ham")!.parameters
+    let kw = RTTYPreset.preset(id: "dwd-kw")!.parameters
+    let lw = RTTYPreset.preset(id: "dwd-lw")!.parameters
+    check(ham.baud == 45.45 && ham.shift == 170 && ham.bits == 5 && ham.stopBits == 1.5 && ham.parity == .none, "Preset Amateur")
+    check(kw.baud == 50 && kw.shift == 450 && kw.bits == 5 && kw.stopBits == 1.5, "Preset DWD KW")
+    check(lw.baud == 50 && lw.shift == 85 && lw.bits == 5 && lw.stopBits == 1.5, "Preset DWD LW")
+    check(RTTYPreset.all.map(\.id) == DecoderModuleInfo.rtty.presetIDs, "Presets = IDs im URL-Schema")
+    // Abstimmhilfe aus PLAN.md: DWD LW, USB-Dial 146,300 kHz -> Töne 957,5 / 1042,5 Hz bei Mitte 1000 Hz
+    let t = lw.tones(center: 1000)
+    check(t.mark == 1042.5 && t.space == 957.5, "DWD LW: Mark 1042,5 / Space 957,5")
+    var rev = lw
+    rev.reverse = true
+    check(rev.tones(center: 1000).mark == 957.5, "Reverse vertauscht Mark/Space")
+    check(kw.tones(center: 1000) == (1225, 775), "DWD KW: 1225 / 775 Hz")
+    check(ham.summary == "45,45 Bd · 170 Hz · 5/1,5", "Kurzbeschreibung, got \(ham.summary)")
+}
+
+// MARK: - Mittenfrequenz begrenzen
+do {
+    let store = RTTYSettingsStore()
+    store.select(presetID: "dwd-kw")
+    store.setCenter(50)
+    check(store.centerHz == 245, "Mitte unten begrenzt (Space ≥ 20 Hz), got \(store.centerHz)")
+    store.setCenter(3990)
+    check(store.centerHz == 3755, "Mitte oben begrenzt (Mark ≤ 3980 Hz), got \(store.centerHz)")
+    store.setCenter(1012.6)
+    check(store.centerHz == 1013, "Mitte auf ganze Hz, got \(store.centerHz)")
+    store.select(presetID: "gibtsnicht")
+    check(store.presetID == "dwd-kw", "Unbekanntes Preset ignoriert")
+    store.select(presetID: "ham")
+    store.setCenter(1000)
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

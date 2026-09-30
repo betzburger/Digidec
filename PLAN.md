@@ -377,7 +377,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M0 | Plan (diese Datei) | ✅ 30.09.2026 |
 | M1 | Projektgerüst | ✅ 30.09.2026 (v0.1.0): Package.swift, build_app.sh (inkl. `digidec://` + Launch-Services-Registrierung), AppVersion, Fenster im RadioTheme mit Platzhaltern, URL-Parser, LogicTests (26 Prüfungen) |
 | M2 | Audio-Eingang | ✅ 30.09.2026 (v0.3.0): direkt vom USB-Codec des Funkgeräts, portunabhängig; VALHost 2ch manuell wählbar |
-| M3 | Wasserfall | vDSP-FFT, Klick setzt Mittenfrequenz, Mark/Space-Marker |
+| M3 | Wasserfall | ✅ 30.09.2026 (v0.4.1): vDSP-FFT, Spektrumkurve, Mark/Space-Marker, Klick/Ziehen setzt Mitte, Zoom, Dynamik; Presets wählbar |
 | M4 | fldigi-RTTY-Kern herausgelöst | `Vendor/FldigiRTTY` kompiliert eigenständig, C-API, synthetischer Test decodiert Text fehlerfrei |
 | M5 | RTTY in der App | Text, Presets, Einstellungsdialog (alle Optionen aus 5.1), XY-Scope, AFC, Squelch, Log |
 | M6 | Qualitätsnachweis | Testdaten + Vergleich mit fldigi (Abschnitt 8), DWD-Polarität in 5.2 eingetragen |
@@ -446,7 +446,21 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - Logiktests: 99 Prüfungen, darunter Umstecken, veraltete UID im Auftrag, beide Funkgeräte gleichzeitig.
   - Für M8 (Commander-Buttons): Die Commander schicken `source=` **und** die frisch ermittelte `device=`-UID ihres Codecs.
 - **Hinweis:** Ändert sich der Mikrofon-Hinweistext in `build_app.sh`, fragt macOS die Freigabe neu ab.
-- **Nächster Schritt:** M3 (Wasserfall).
+- **M3 erledigt (v0.4.0 / 0.4.1):**
+  - `Sources/DSP`:
+    - `SpectrumAnalyzer`: vDSP-FFT mit Hann-Fenster, dBFS; ein Sinus der Amplitude 1 ergibt 0 dB.
+    - `WaterfallProcessor`: Senke an der Pipeline, FFT 2048 bei 8 kHz, also 3,9 Hz je Bin; Vorschub 256 ergibt 31,25 Zeilen/s. Rauschboden = geglätteter Median.
+    - `WaterfallColorMap`: Farbverlauf im RadioTheme, bgDeep → Blau → Cyan → Grün → Amber → Rot → Weiß.
+  - `Sources/UI`:
+    - `WaterfallModel`: 30 Hz, Bild 1024 × 360 Zeilen (≈ 11,5 s); Rauschen wird 8 dB über Schwarz dargestellt.
+    - `WaterfallView`: Frequenzskala, Spektrumkurve, Wasserfall, Bandbreite und M/S-Marker, Klick oder Ziehen setzt die Mitte, Zoom 4 kHz / 2 kHz / 1 kHz / 500 Hz um die Mitte, Dynamik 20–90 dB.
+  - `Sources/Models/RTTYSettings.swift`: `RTTYParameters` (Werte wie fldigi) und `RTTYPreset` (ham, dwd-kw, dwd-lw, custom). Mark = Mitte + Shift/2 wie in fldigi, `reverse` vertauscht.
+  - `Sources/App/RTTYSettingsStore.swift`: Preset, eigene Parameter, Mittenfrequenz (100–3900 Hz, begrenzt, sodass Mark und Space im Band bleiben); wird gespeichert. Aufträge setzen Preset und `center`.
+  - Die Preset-Knöpfe sind jetzt wählbar.
+  - Logiktests: 133 Prüfungen, darunter Spektrum-Pegel/-Frequenz, Zeilenzahl, Farbskala, Presets laut Plan, Abstimmhilfe DWD LW (957,5 / 1042,5 Hz).
+  - Am echten System geprüft: PCR-1500-Rauschen mit Durchlasskurve sichtbar; Auftrag `preset=dwd-lw&center=1500` setzt Marker auf 1458 / 1543 Hz.
+  - **Nicht selbst geprüft** (keine Bedienrechte für Maus/Tastatur): Klick/Ziehen zum Abstimmen, Zoom- und Dynamik-Knöpfe, Preset-Knöpfe. Test durch den Nutzer steht aus.
+- **Nächster Schritt:** M4 (fldigi-RTTY-Kern herauslösen).
 
 ---
 

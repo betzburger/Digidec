@@ -18,10 +18,8 @@ public struct MainWindowView: View {
 
                 HStack(alignment: .top, spacing: 10) {
                     VStack(spacing: 10) {
-                        PlaceholderPanel(icon: "waveform",
-                                         text: "Wasserfall & Spektrum",
-                                         detail: "Mark/Space-Marker, Klick setzt die Mittenfrequenz (M3)")
-                            .frame(height: 170)
+                        WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
+                            .frame(height: 300)
                             .radioCard(title: "Wasserfall")
 
                         PlaceholderPanel(icon: "text.alignleft",
@@ -39,7 +37,7 @@ public struct MainWindowView: View {
                             .frame(height: 170)
                             .radioCard(title: "Abstimmanzeige")
 
-                        PresetPanel(state: state)
+                        PresetPanel(rtty: state.rtty)
                             .radioCard(title: "Preset")
 
                         InputPanelView(audio: state.audio)
@@ -55,7 +53,7 @@ public struct MainWindowView: View {
             }
             .padding(.bottom, 8)
         }
-        .frame(minWidth: 980, minHeight: 700)
+        .frame(minWidth: 1060, minHeight: 760)
     }
 }
 
@@ -175,32 +173,37 @@ private struct ModuleBar: View {
     }
 }
 
-// MARK: - Preset (Anzeige; Auswahl und Einstellungen folgen mit M5)
+// MARK: - Preset (Auswahl; weitere Einstellungen folgen mit M5)
 
 private struct PresetPanel: View {
-    @ObservedObject var state: DigidecState
-
-    private let presets: [(id: String, name: String, detail: String)] = [
-        ("ham",    "Amateur", "45,45 Bd · 170 Hz"),
-        ("dwd-kw", "DWD KW",  "50 Bd · 450 Hz"),
-        ("dwd-lw", "DWD LW",  "50 Bd · 85 Hz"),
-        ("custom", "Eigene",  "frei")
-    ]
+    @ObservedObject var rtty: RTTYSettingsStore
 
     var body: some View {
-        let selected = state.currentRequest?.presetID ?? "ham"
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-            ForEach(presets, id: \.id) { preset in
-                VStack(spacing: 2) {
-                    Text(preset.name)
-                    Text(preset.detail)
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .foregroundColor(RadioTheme.textDim)
+            ForEach(RTTYPreset.all) { preset in
+                Button {
+                    rtty.select(presetID: preset.id)
+                } label: {
+                    VStack(spacing: 2) {
+                        Text(preset.name)
+                        Text(detail(for: preset))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .modifier(ModeLabelLook(isSelected: preset.id == rtty.presetID))
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity)
-                .modifier(ModeLabelLook(isSelected: preset.id == selected))
+                .buttonStyle(.plain)
+                .help(preset.note)
             }
         }
+    }
+
+    private func detail(for preset: RTTYPreset) -> String {
+        let p = preset.id == "custom" ? rtty.customParameters : preset.parameters
+        let b = p.baud == p.baud.rounded() ? String(format: "%.0f", p.baud) : String(format: "%.2f", p.baud).replacingOccurrences(of: ".", with: ",")
+        return "\(b) Bd · \(Int(p.shift)) Hz"
     }
 }
 

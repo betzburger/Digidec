@@ -33,7 +33,9 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     Tools/LogicTests/main.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift \
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \
-    $S/Audio/AudioPipeline.swift $S/Audio/WAVFileSource.swift
+    $S/Audio/AudioPipeline.swift $S/Audio/WAVFileSource.swift \
+    $S/Models/RTTYSettings.swift $S/App/RTTYSettingsStore.swift \
+    $S/DSP/SpectrumAnalyzer.swift $S/DSP/WaterfallProcessor.swift $S/DSP/WaterfallColorMap.swift
 
 # 3. Ausführen
 "$OUT/logic_tests"

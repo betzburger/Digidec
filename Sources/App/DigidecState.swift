@@ -13,10 +13,15 @@ public final class DigidecState: ObservableObject {
     /// Meldung zum letzten abgelehnten Auftrag, für die Statuszeile.
     @Published public private(set) var lastRequestError: String?
 
-    public let audio = AudioInputManager()
+    public let audio: AudioInputManager
+    public let rtty = RTTYSettingsStore()
+    public let waterfall: WaterfallModel
     private var audioStarted = false
 
-    private init() {}
+    private init() {
+        audio = AudioInputManager()
+        waterfall = WaterfallModel(pipeline: audio.pipeline)
+    }
 
     /// Beim Programmstart: Mikrofon-Freigabe abwarten (nötig für den Eingang der virtuellen Soundkarte),
     /// dann den Live-Eingang starten. Kam der Start per Auftrag, hat `handle(url:)` das schon erledigt.
@@ -46,6 +51,12 @@ public final class DigidecState: ObservableObject {
             currentRequest = request
             activeModule = request.module
             lastRequestError = nil
+            if request.module == .rtty {
+                rtty.select(presetID: request.presetID)
+                if let center = request.centerHz {
+                    rtty.setCenter(center)
+                }
+            }
             if audioStarted {
                 audio.apply(request: request)
             } else {
