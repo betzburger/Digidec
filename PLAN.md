@@ -375,7 +375,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | # | Meilenstein | Ergebnis / Abnahme |
 |---|---|---|
 | M0 | Plan (diese Datei) | ✅ 30.09.2026 |
-| M1 | Projektgerüst | Package.swift, build_app.sh, AppVersion 0.1.0 Alpha, leeres Fenster im RadioTheme, LogicTests-Gerüst |
+| M1 | Projektgerüst | ✅ 30.09.2026 (v0.1.0): Package.swift, build_app.sh (inkl. `digidec://` + Launch-Services-Registrierung), AppVersion, Fenster im RadioTheme mit Platzhaltern, URL-Parser, LogicTests (26 Prüfungen) |
 | M2 | Audio-Eingang | Geräteauswahl (Standard **VALHost 2ch**, alternativ BlackHole 16ch u. a.), Kanalwahl, Pegelanzeige, WAV-Dateiquelle |
 | M3 | Wasserfall | vDSP-FFT, Klick setzt Mittenfrequenz, Mark/Space-Marker |
 | M4 | fldigi-RTTY-Kern herausgelöst | `Vendor/FldigiRTTY` kompiliert eigenständig, C-API, synthetischer Test decodiert Text fehlerfrei |
@@ -399,7 +399,15 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - Name festgelegt: **Digidec** (Ordner umbenannt).
 - Entscheidungen: Standardgerät VALHost 2ch, lokales Git ohne Remote, fldigi v4.2.13 (nach `Vendor/_upstream/` geklont).
 - Git-Repository angelegt, Plan als erster Commit.
-- **Nächster Schritt:** M1 (Projektgerüst).
+- **M1 erledigt (v0.1.0 Alpha):**
+  - `Sources/App`: `DigidecApp` (einzelnes `Window`, URL-Aufträge über `AppDelegate.application(_:open:)`, damit kein zweites Fenster aufgeht), `DigidecState` (Singleton, `handle(url:)`), `AppVersion`.
+  - `Sources/Models`: `DecoderModuleInfo` (RTTY verfügbar; NAVTEX, CW, WEFAX, FT8 geplant), `DecodeRequest` + `DecodeRequestParser` (Parameter aus 3.1, Prüfung von Port 1025–65535 und Mitte 100–4000 Hz, Dezimalkomma erlaubt).
+  - `Sources/UI`: `Theme.swift` (identische Kopie aus beiden Commandern), `MainWindowView` (Kopfzeile mit Version, Quelle und UTC-Uhr, Modul-Leiste, Platzhalter für Wasserfall, Text, Scope, Eingang, Preset-Anzeige, Statuszeile).
+  - `Tools/LogicTests`: Versionsabgleich AppVersion ↔ build_app.sh, 26 Prüfungen zum URL-Parser, alle bestanden.
+  - `swift build` ohne Warnungen; `Digidec.app` gebaut, signiert, `digidec://` bei Launch Services registriert.
+  - Noch **nicht** getestet: App-Start und echter URL-Aufruf (z. B. `open "digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532"`), wartet auf Freigabe des Nutzers.
+  - Kein App-Icon (`Resources/AppIcon.icns` fehlt noch).
+- **Nächster Schritt:** M2 (Audio-Eingang, Standard VALHost 2ch).
 
 ---
 
