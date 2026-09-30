@@ -1,7 +1,8 @@
 import Foundation
 import SwiftUI
+import AVFoundation
 
-/// Zentraler App-Zustand. Ab M2 kommen Audio-Eingang, ab M5 der RTTY-Decoder, ab M7 der rigctld-Client dazu.
+/// Zentraler App-Zustand. Ab M5 kommt der RTTY-Decoder, ab M7 der rigctld-Client dazu.
 @MainActor
 public final class DigidecState: ObservableObject {
     public static let shared = DigidecState()
@@ -12,7 +13,22 @@ public final class DigidecState: ObservableObject {
     /// Meldung zum letzten abgelehnten Auftrag, für die Statuszeile.
     @Published public private(set) var lastRequestError: String?
 
+    public let audio = AudioInputManager()
+
     private init() {}
+
+    /// Beim Programmstart: Mikrofon-Freigabe abwarten (nötig für den Eingang der virtuellen Soundkarte),
+    /// dann den Live-Eingang starten. Kam der Start per Auftrag, hat `handle(url:)` das schon erledigt.
+    public func startAudio() {
+        guard !audio.isRunning, audio.selectedDeviceUID == nil else { return }
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                Task { @MainActor in DigidecState.shared.audio.startLive() }
+            }
+        } else {
+            audio.startLive()
+        }
+    }
 
     public func handle(url: URL) {
         switch DecodeRequestParser.parse(url) {
@@ -20,6 +36,11 @@ public final class DigidecState: ObservableObject {
             currentRequest = request
             activeModule = request.module
             lastRequestError = nil
+            if let uid = request.deviceUID {
+                audio.startLive(requestedUID: uid)
+            } else if audio.selectedDeviceUID == nil {
+                startAudio()
+            }
         case .failure(let error):
             lastRequestError = error.description
         }
@@ -31,6 +52,6 @@ public final class DigidecState: ObservableObject {
     }
 
     public func cleanup() {
-        // Ab M2: Audio-Eingang asynchron auf der Audio-Queue stoppen (PLAN.md, Abschnitt 6).
+        audio.cleanup()
     }
 }

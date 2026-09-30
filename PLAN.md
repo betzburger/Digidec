@@ -376,7 +376,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 |---|---|---|
 | M0 | Plan (diese Datei) | ✅ 30.09.2026 |
 | M1 | Projektgerüst | ✅ 30.09.2026 (v0.1.0): Package.swift, build_app.sh (inkl. `digidec://` + Launch-Services-Registrierung), AppVersion, Fenster im RadioTheme mit Platzhaltern, URL-Parser, LogicTests (26 Prüfungen) |
-| M2 | Audio-Eingang | Geräteauswahl (Standard **VALHost 2ch**, alternativ BlackHole 16ch u. a.), Kanalwahl, Pegelanzeige, WAV-Dateiquelle |
+| M2 | Audio-Eingang | 🟡 30.09.2026 (v0.2.0) umgesetzt; offen: Live-Test mit echtem Ton über VALHost 2ch durch den Nutzer (siehe Abschnitt 11) |
 | M3 | Wasserfall | vDSP-FFT, Klick setzt Mittenfrequenz, Mark/Space-Marker |
 | M4 | fldigi-RTTY-Kern herausgelöst | `Vendor/FldigiRTTY` kompiliert eigenständig, C-API, synthetischer Test decodiert Text fehlerfrei |
 | M5 | RTTY in der App | Text, Presets, Einstellungsdialog (alle Optionen aus 5.1), XY-Scope, AFC, Squelch, Log |
@@ -409,7 +409,27 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     Fehler behoben: Bei laufender App kam das Fenster nicht nach vorne, weil macOS 14+ `activate(ignoringOtherApps:)` ignoriert. Jetzt `NSApp.activate()` plus `makeKeyAndOrderFront` im `AppDelegate` (`@MainActor`).
     Für M8 merken: Die Commander sollen mit `NSWorkspace.OpenConfiguration` (`activates = true`) öffnen.
   - Kein App-Icon (`Resources/AppIcon.icns` fehlt noch).
-- **Nächster Schritt:** M2 (Audio-Eingang, Standard VALHost 2ch).
+- **M2 umgesetzt (v0.2.0 Alpha):**
+  - `Sources/Audio`:
+    - `AudioInputDevice` + `AudioDeviceSelection` (Reihenfolge: Gerät aus Auftrag → zuletzt gewählt → VALHost 2ch → erstes virtuelles Kabel → erstes Gerät).
+    - `AudioDeviceCatalog` (CoreAudio: Geräte mit Eingangskanälen, UID, Nennrate).
+    - `LiveAudioCapture` (AudioQueue wie in den Commandern, Gerät per `kAudioQueueProperty_CurrentDevice`, 48 kHz Float stereo; Start/Stop auf eigener Queue; Callback ohne Allokation).
+    - `AudioPipeline` (Ringpuffer → 20-ms-Takt → Pegel → Wandlung auf 8 kHz → Senken). Hier hängt ab M3/M5 der Wasserfall und der Decoder an (`addSink`).
+    - `SampleRateConverter`: **eigener** Polyphasen-Sinc-Resampler mit Kaiser-Fenster (β = 9, 24 Nulldurchgänge, 128 Phasen).
+      AVAudioConverter wurde verworfen: Im Streaming-Betrieb verlor er je nach Blockgröße Samples (≈ 54/s bei 4800er-Blöcken), das hätte den Bit-Takt verfälscht.
+      Jetzt exakt 8000 Samples/s, bitgleich bei jeder Blockgröße, 6 kHz um > 60 dB gedämpft, ≈ 2000× Echtzeit.
+    - `WAVFileSource` (WAV/AIFF/CAF in Echtzeit in die Pipeline), `AudioBasics` (Kanalwahl L/R/L+R, Pegel, Ringpuffer).
+    - `AudioInputManager` (@MainActor; Pegel in eigenem `LevelModel` mit 20 Hz, damit nur das Messinstrument neu zeichnet; reagiert auf An-/Abstecken von Geräten).
+  - UI: Karte „Eingang“ mit LIVE/DATEI, L/R/L+R, Gerätemenü, Pegelanzeige −60…0 dBFS (Balken = Effektivwert, Strich = Spitze mit Haltezeit), Status.
+  - Auftrag mit `device=<UID>` schaltet auf dieses Gerät um.
+  - Logiktests: 70 Prüfungen (Ringpuffer, Kanalwahl, Pegel, Resampler inkl. Blockgrößen- und Alias-Test, Pipeline Ende-zu-Ende, Gerätewahl, WAV öffnen), alle bestanden.
+  - **Am echten System geprüft:** App startet mit VALHost 2ch, Status grün. Aufnahme funktioniert nachweislich (USB-Codec: Rauschen −72 dBFS; Webcam-Mikrofon: Raumgeräusche).
+  - **Offen / ungeklärt:** Ein Testton, der aus der Claude-Code-Umgebung auf VALHost 2ch **oder** BlackHole 16ch gespielt wurde, kam bei keinem Aufnahmeprogramm an, auch nicht bei ffmpeg.
+    Digidec ist damit nicht die Ursache. Vermutlich blockiert die Sandbox der Claude-Code-Shell die Tonausgabe; das ließ sich nicht prüfen.
+    → Der Nutzer testet mit einem Commander (Ausgabe auf VALHost 2ch) oder mit `afplay` im eigenen Terminal.
+  - **Risiko VALDriver:** `ReadInput` in `VALDriver.c` setzt jedes gelesene Sample auf 0. Liest ein zweites Programm von VALHost 2ch, zum Beispiel weil VALHost 2ch auch **Standard-Eingang** des Systems ist (Teams, Siri, Diktat), bekommt nur das schnellere Programm den Ton.
+    Abhilfe, falls nötig: Standard-Eingang des Systems auf ein anderes Gerät stellen, oder VALDriver so ändern, dass er nicht mehr löscht (wie BlackHole).
+- **Nächster Schritt:** Live-Test durch den Nutzer, dann M3 (Wasserfall).
 
 ---
 

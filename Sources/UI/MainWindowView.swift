@@ -42,15 +42,12 @@ public struct MainWindowView: View {
                         PresetPanel(state: state)
                             .radioCard(title: "Preset")
 
-                        PlaceholderPanel(icon: "speaker.wave.2",
-                                         text: "Audio-Eingang",
-                                         detail: "Standard: VALHost 2ch (M2)")
-                            .frame(height: 90)
+                        InputPanelView(audio: state.audio)
                             .radioCard(title: "Eingang")
 
                         Spacer(minLength: 0)
                     }
-                    .frame(width: 300)
+                    .frame(width: 330)
                 }
                 .padding(.horizontal, 14)
 
@@ -58,7 +55,7 @@ public struct MainWindowView: View {
             }
             .padding(.bottom, 8)
         }
-        .frame(minWidth: 980, minHeight: 640)
+        .frame(minWidth: 980, minHeight: 700)
     }
 }
 

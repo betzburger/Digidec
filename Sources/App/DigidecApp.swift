@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import AVFoundation
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -44,12 +43,6 @@ struct DigidecApp: App {
         signal(SIGPIPE, SIG_IGN)
         NSApplication.shared.setActivationPolicy(.regular)
 
-        // Audio-Eingang von der virtuellen Soundkarte braucht die Mikrofon-Freigabe (TCC)
-        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                print("Digidec: Microphone permission granted: \(granted)")
-            }
-        }
     }
 
     var body: some Scene {
@@ -57,6 +50,7 @@ struct DigidecApp: App {
         Window("Digidec", id: "main") {
             MainWindowView(state: state)
                 .preferredColorScheme(.dark)
+                .onAppear { state.startAudio() }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
