@@ -20,9 +20,24 @@ let package = Package(
                 .headerSearchPath("src")
             ]
         ),
+        // SYNOP/SHIP/BUOY-Decoder aus fldigi 4.2.13 (GPLv3), siehe Vendor/FldigiSynop/UPSTREAM.md
+        .target(
+            name: "FldigiSynop",
+            path: "Vendor/FldigiSynop",
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("src"),
+                .unsafeFlags(["-w"])          // GNU-Regex von 1993: alte C-Warnungen unterdrücken
+            ],
+            cxxSettings: [
+                .headerSearchPath("src"),
+                .headerSearchPath("compat")
+            ]
+        ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["FldigiRTTY"],
+            dependencies: ["FldigiRTTY", "FldigiSynop"],
             path: "Sources"
         )
     ],

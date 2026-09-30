@@ -413,6 +413,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M6 | Qualitätsnachweis | ✅ 30.09.2026 (v0.8.0): Werkzeuge fertig; echte DDK2-Aufnahme: Digidec und fldigi 4.2.13 zeichengleich, beide 0,79 % (Abschnitt 8.0) |
 | M7 | rigctld-Anbindung | ✅ 30.09.2026 (v0.7.1): Frequenz/Mode in Kopfzeile und Log, automatische Seitenband-Korrektur (AUTO/USB/LSB) |
 | M8 | URL-Schema + Buttons in beiden Commandern | ✅ 30.09.2026: Knopf DIGIDEC in PCR-1500 Commander 0.22.0 und FT-991A Commander 0.6.0; automatische DWD-Erkennung mit NF-Mitte; Klick durch den Nutzer noch zu prüfen |
+| M5b | SYNOP-Klartext | ✅ 30.09.2026 (v0.9.0): SYNOP/SHIP/BUOY-Decoder aus fldigi, Klartext in Amber unter den Meldungen, Schalter SYNOP |
 | M9+ | weitere Module | Vorschlag: NAVTEX (fldigi), CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
 
 ---
@@ -571,6 +572,22 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - `Tools/DecodeFile` (Offline-Decoder, ≈ 140× Echtzeit, Auswertung `--loop ddk2`, `--compare`) und `Tools/fldigi_rtty.py` (XML-RPC: prepare / status / fetch).
   - Ablauf in Abschnitt 8.0. Gefunden und behoben: Der Testgenerator verschluckte „\r\n“ (ein Character in Swift) → jetzt skalarweise.
   - Logiktests: 216 Prüfungen (Dateiname, Aufnahme Ende-zu-Ende 48 kHz → WAV, Begleitdatei).
+- **M5b SYNOP-Klartext (v0.9.0, Wunsch des Nutzers):**
+  - `Vendor/FldigiSynop`: SYNOP-Decoder aus fldigi 4.2.13 samt GNU-Regex, Koordinaten, Locator, Tabellen-Lader und Ersatzteilen für KML, ADIF und FLTK.
+    Herkunft, Dateien und Abweichungen: `Vendor/FldigiSynop/UPSTREAM.md`.
+  - **Zwei Fehler in fldigi gefunden und behoben:**
+    1. Array-Zugriff mit Index −1 in `AddOtherTok` (Absturz)
+    2. `mktime` statt `timegm` (UTC-Zeit um die Ortszeit verschoben)
+  - Stationslisten (2,4 MB, alter fldigi-Stand) in `Resources/Synop`, im App-Bundle `Contents/Resources/Synop`. Sie werden beim Start auf der Verarbeitungs-Queue geladen.
+  - `SynopDecoder.swift`: Hülle (Singleton wie in fldigi), Ausgabe als `TextSegment` (Rohtext / Klartext). UTF-8, weil synop.cpp „°C“ in UTF-8 enthält.
+  - `RTTYDecoder`: Mit `options.synopDecoding` (Standard an) laufen die Zeichen wie in fldigi `rtty::rx()` durch den SYNOP-Decoder. Die Ausgabe erfolgt „interleaved“: Rohtext unverändert, Klartextblöcke dazwischen.
+  - Anzeige: Klartext in Amber, 11,5 pt, eigene Zeilen, eingerückt. Schalter **SYNOP** in der Empfangstext-Leiste und im Einstellungsdialog. Das Log enthält beides.
+  - `decode_file.sh --synop` schreibt `<aufnahme>.synop.txt`.
+  - Logiktests: 232 Prüfungen, darunter die empfangene SHIP-Meldung 62170 (51,4° N 2,0° E, 20,2 °C, Taupunkt 19,3 °C, 1014 hPa, 18:00 UTC), Wuerzburg = WMO 10655 und der Weg DWD-RTTY → SYNOP-Klartext.
+  - Offen:
+    - Echter Empfang eines SYNOP-Blocks (DDK2: 00:35, 06:10, 12:10, 18:10 UTC Landstationen; SHIP 02:00, 07:35, 13:35, 19:35 UTC).
+    - Deutsche Übersetzung der Klartexte (731 englische Texte) wäre eine eigene Aufgabe.
+    - Stationslisten aktualisieren (neuere Quellen: OSCAR/WMO, NDBC).
 - **Nächster Schritt:**
   - ~~Vergleich mit fldigi~~ → erledigt 30.09.2026: zeichengleich (Abschnitt 8.0).
   - Weitere Vergleiche bei schwierigen Bedingungen (Fading, DDH47 auf LW) sind sinnvoll, aber nicht zwingend.

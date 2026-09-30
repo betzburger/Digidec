@@ -14,6 +14,7 @@ func usage() -> Never {
       --out <datei.txt>     decodierten Text speichern (Standard: <aufnahme>.digidec.txt)
       --loop ddk2           Auswertung gegen die bekannte DWD-Testschleife (DDK2/DDH7/DDK9)
       --compare <datei.txt> Übereinstimmung mit einem anderen Text (z. B. fldigi) messen
+      --synop               SYNOP/SHIP/BUOY-Klartext zusätzlich nach <aufnahme>.synop.txt schreiben
     """)
     exit(2)
 }
@@ -30,6 +31,7 @@ var lsb = false
 var outPath: String?
 var loop: String?
 var comparePath: String?
+var synopOut = false
 while !args.isEmpty {
     let a = args.removeFirst()
     func value() -> String { guard !args.isEmpty else { usage() }; return args.removeFirst() }
@@ -41,6 +43,7 @@ while !args.isEmpty {
     case "--out": outPath = value()
     case "--loop": loop = value()
     case "--compare": comparePath = value()
+    case "--synop": synopOut = true
     case "--help", "-h": usage()
     default: print("Unbekannte Option \(a)"); usage()
     }
@@ -84,8 +87,17 @@ let rate = file.processingFormat.sampleRate
 let duration = Double(file.length) / rate
 guard let src = SampleRateConverter(inputRate: rate, outputRate: FldigiRTTYCore.sampleRate) else { exit(1) }
 var text = ""
+var synopText = ""
+var synop: SynopDecoder?
+if synopOut {
+    SynopDecoder.loadStations()
+    synop = SynopDecoder { seg in
+        synopText += seg.decoded ? RTTYController.displayDecoded(seg.text) : RTTYController.displayText(seg.text)
+    }
+}
 let core = FldigiRTTYCore(parameters: parameters, options: RTTYDecoder.coreOptions(parameters, options), centerHz: centerHz) {
     text.append($0)
+    synop?.feed($0)
 }
 let started = Date()
 let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
@@ -94,6 +106,12 @@ while true {
     try? file.read(into: buf, frameCount: 48_000)
     guard buf.frameLength > 0 else { break }
     src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { core.process($0) }
+}
+synop?.flush()
+if synopOut {
+    let url = wavURL.deletingPathExtension().appendingPathExtension("synop.txt")
+    try? synopText.write(to: url, atomically: true, encoding: .utf8)
+    print("SYNOP-Klartext -> \(url.lastPathComponent)")
 }
 let clean = RTTYController.displayText(text)
 let out = outPath.map { URL(fileURLWithPath: $0) } ?? wavURL.deletingPathExtension().appendingPathExtension("digidec.txt")

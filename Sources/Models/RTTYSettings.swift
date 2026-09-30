@@ -136,8 +136,25 @@ public struct RTTYDecodeOptions: Equatable, Codable, Sendable {
     public var filterK: Double = 1.4
     /// XY-Scope aus den Mark/Space-Filtern (sonst Pseudo-Scope aus den Beträgen)
     public var trueScope = true
+    /// SYNOP/SHIP/BUOY-Meldungen im Text erkennen und als Klartext darunter ausgeben (fldigi-Decoder)
+    public var synopDecoding = true
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey { case afc, squelchOn, squelch, tones, filterK, trueScope, synopDecoding }
+
+    /// Fehlende Felder (ältere gespeicherte Einstellungen) bekommen den Standardwert
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = RTTYDecodeOptions()
+        afc = try c.decodeIfPresent(AFC.self, forKey: .afc) ?? d.afc
+        squelchOn = try c.decodeIfPresent(Bool.self, forKey: .squelchOn) ?? d.squelchOn
+        squelch = try c.decodeIfPresent(Double.self, forKey: .squelch) ?? d.squelch
+        tones = try c.decodeIfPresent(Tones.self, forKey: .tones) ?? d.tones
+        filterK = try c.decodeIfPresent(Double.self, forKey: .filterK) ?? d.filterK
+        trueScope = try c.decodeIfPresent(Bool.self, forKey: .trueScope) ?? d.trueScope
+        synopDecoding = try c.decodeIfPresent(Bool.self, forKey: .synopDecoding) ?? d.synopDecoding
+    }
 
     public static let filterKRange: ClosedRange<Double> = 1.0...2.0
 }

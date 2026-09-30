@@ -6,9 +6,13 @@ import os
 /// mit `takeOutput()` ab (Text seit dem letzten Abruf, letzter Status, XY-Punkte).
 public final class RTTYDecoder: @unchecked Sendable {
     public struct Output: Sendable {
-        public var text: String
+        /// Empfangstext in Abschnitten: Rohtext und (bei SYNOP) Klartextblöcke
+        public var segments: [TextSegment]
         public var status: FldigiRTTYCore.Status?
         public var scope: [CGPoint]
+
+        /// Nur der Rohtext (ohne Klartextblöcke)
+        public var text: String { segments.filter { !$0.decoded }.map(\.text).joined() }
     }
 
     private let pipeline: AudioPipeline
@@ -16,22 +20,32 @@ public final class RTTYDecoder: @unchecked Sendable {
     private var core: FldigiRTTYCore?
     private var enabled = true
     private var samplesSinceScope = 0
+    private var synop: SynopDecoder?
+    private var synopOn = false
 
     // Geteilt mit der Anzeige
     private let lock = OSAllocatedUnfairLock()
-    private var pendingText = ""
+    private var pending: [TextSegment] = []
     private var lastStatus: FldigiRTTYCore.Status?
     private var lastScope: [CGPoint] = []
 
     public init(pipeline: AudioPipeline) {
         self.pipeline = pipeline
         pipeline.addSink { [weak self] samples in self?.consume(samples) }
+        // Stationslisten und SYNOP-Decoder auf der Verarbeitungs-Queue anlegen (dort laufen alle Aufrufe)
+        pipeline.perform { [weak self] in
+            SynopDecoder.loadStations()
+            self?.synop = SynopDecoder { [weak self] seg in self?.appendSegment(seg) }
+        }
     }
 
     /// Kern anlegen oder umstellen (wie fldigi `restart()` bei geänderten Einstellungen).
     public func configure(parameters: RTTYParameters, options: RTTYDecodeOptions, centerHz: Double) {
         let coreOptions = Self.coreOptions(parameters, options)
+        let synopWanted = options.synopDecoding
         pipeline.perform { [self] in
+            if synopOn && !synopWanted { synop?.flush() }
+            synopOn = synopWanted
             if let core {
                 if core.parameters != parameters || core.options != coreOptions {
                     core.configure(parameters: parameters, options: coreOptions)
@@ -56,8 +70,8 @@ public final class RTTYDecoder: @unchecked Sendable {
 
     public func takeOutput() -> Output {
         lock.withLockUnchecked {
-            defer { pendingText = "" }
-            return Output(text: pendingText, status: lastStatus, scope: lastScope)
+            defer { pending.removeAll(keepingCapacity: true) }
+            return Output(segments: pending, status: lastStatus, scope: lastScope)
         }
     }
 
@@ -79,9 +93,22 @@ public final class RTTYDecoder: @unchecked Sendable {
         }
     }
 
+    /// Zeichen aus dem RTTY-Kern: bei aktiver SYNOP-Decodierung durch den SYNOP-Decoder (wie fldigi rtty::rx())
     private func append(_ ch: Character) {
+        if synopOn, let synop {
+            synop.feed(ch)
+        } else {
+            appendSegment(TextSegment(String(ch)))
+        }
+    }
+
+    private func appendSegment(_ seg: TextSegment) {
         lock.withLockUnchecked {
-            pendingText.append(ch)
+            if let last = pending.last, last.decoded == seg.decoded {
+                pending[pending.count - 1].text += seg.text
+            } else {
+                pending.append(seg)
+            }
         }
     }
 

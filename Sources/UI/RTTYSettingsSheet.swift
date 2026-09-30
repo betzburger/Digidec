@@ -152,6 +152,12 @@ struct RTTYSettingsSheet: View {
                 }
                 .help("Raised-Cosine-Formfaktor. fldigi 4.2.13 verwendet fest 1,4 (der Dialogwert dort ist wirkungslos)")
             }
+            row("SYNOP") {
+                Toggle("", isOn: $settings.options.synopDecoding)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .help("Wettermeldungen (SYNOP/SHIP/BUOY) als Klartext unter den Zifferngruppen – Decoder aus fldigi")
+            }
             row("XY-Scope") {
                 segmented([true, false], selected: o.trueScope, label: { $0 ? "Klassisch" : "Pseudo" }) { v in settings.options.trueScope = v }
             }

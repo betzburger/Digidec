@@ -22,6 +22,10 @@ if [ -f "$DIR/Resources/AppIcon.icns" ]; then
     cp "$DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 fi
 
+# Stationslisten für den SYNOP-Decoder (aus fldigi 4.2.13, siehe Vendor/FldigiSynop/UPSTREAM.md)
+mkdir -p "$APP_BUNDLE/Contents/Resources/Synop"
+cp "$DIR"/Resources/Synop/* "$APP_BUNDLE/Contents/Resources/Synop/"
+
 echo "=== 3. Writing Info.plist ==="
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -39,9 +43,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.8.0</string>
+    <string>0.9.0</string>
     <key>CFBundleVersion</key>
-    <string>0.8.0</string>
+    <string>0.9.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>

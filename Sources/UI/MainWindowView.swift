@@ -23,7 +23,7 @@ public struct MainWindowView: View {
                             .frame(height: 260)
                             .radioCard(title: "Wasserfall")
 
-                        ReceivePanel(controller: state.rttyController)
+                        ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             .frame(maxHeight: .infinity)
                             .radioCard(title: "Empfangstext")
                     }

@@ -24,7 +24,7 @@ struct ReceiveTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.textView = tv
         coordinator.scrollView = scroll
-        model.onAppend = { [weak coordinator] s in coordinator?.append(s) }
+        model.onAppend = { [weak coordinator] s, decoded in coordinator?.append(s, decoded: decoded) }
         model.onClear = { [weak coordinator] in coordinator?.clear() }
         return scroll
     }
@@ -35,17 +35,24 @@ struct ReceiveTextView: NSViewRepresentable {
 
     static let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .medium)
     static let color = NSColor(red: 0.00, green: 0.95, blue: 0.45, alpha: 1)   // RadioTheme.vfdGreen
+    /// SYNOP-Klartext: etwas kleiner, in Amber
+    static let decodedFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+    static let decodedColor = NSColor(red: 1.00, green: 0.72, blue: 0.10, alpha: 1)   // RadioTheme.vfdAmber
 
     @MainActor
     final class Coordinator {
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
 
-        func append(_ s: String) {
+        func append(_ s: String, decoded: Bool) {
             guard let tv = textView, let storage = tv.textStorage else { return }
             let atEnd = isScrolledToEnd
-            storage.append(NSAttributedString(string: s, attributes: [.font: ReceiveTextView.font,
-                                                                       .foregroundColor: ReceiveTextView.color]))
+            let attrs: [NSAttributedString.Key: Any] = decoded
+                ? [.font: ReceiveTextView.decodedFont, .foregroundColor: ReceiveTextView.decodedColor]
+                : [.font: ReceiveTextView.font, .foregroundColor: ReceiveTextView.color]
+            // Klartext auf eigenen Zeilen
+            let text = decoded && !(storage.string.hasSuffix("\n") || storage.length == 0) ? "\n" + s : s
+            storage.append(NSAttributedString(string: text, attributes: attrs))
             if atEnd { tv.scrollToEndOfDocument(nil) }
         }
 

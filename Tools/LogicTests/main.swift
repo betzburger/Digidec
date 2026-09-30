@@ -801,5 +801,52 @@ do {
     store.select(presetID: "ham")
 }
 
+// MARK: - SYNOP/SHIP-Decoder aus fldigi (empfangen an DDK2 am 30.09.2026, 19:37 UTC)
+do {
+    check(SynopDecoder.loadStations(), "Stationslisten geladen aus \(SynopDecoder.stationDirectory?.path ?? "-")")
+    check(SynopDecoder.stationName(wmo: 10655) == "Wuerzburg", "WMO 10655 = Wuerzburg")
+    var segs: [TextSegment] = []
+    let syn = SynopDecoder { segs.append($0) }
+    let ship = "SMVX41 EDZW 301800\r\nBBXX\r\n62170 30184 99514 10020 46/96 /1610 10202 20193 40146 22200 =\r\n"
+    for ch in ship.unicodeScalars { syn.feed(Character(ch)) }
+    syn.flush()
+    let raw = segs.filter { !$0.decoded }.map(\.text).joined()
+    let dec = segs.filter { $0.decoded }.map(\.text).joined()
+    check(raw.contains("62170 30184 99514 10020 46/96 /1610 10202 20193 40146 22200"), "Rohtext läuft durch")
+    for want in ["WMO Station=62170", "Latitude=51.4", "Longitude=2.0", "Visibility=4 km", "Wind speed=10 knots",
+                 "Temperature=20.2 °C", "Dewpoint temperature=19.3 °C", "Sea level pressure=1014 hPa"] {
+        check(dec.contains(want), "SHIP-Klartext enthält „\(want)“")
+    }
+    // fldigi-Fehler behoben: UTC-Zeit darf nicht in Ortszeit verrutschen (mktime -> timegm)
+    check(dec.contains("30 18:00"), "Beobachtungszeit 18:00 UTC, got \(dec.components(separatedBy: "\n").first { $0.contains("observation time") } ?? "-")")
+    check(RTTYController.displayDecoded("\tLatitude=51.4 \n\tLongitude=2.0 \n") == "    Latitude=51.4\n    Longitude=2.0\n", "Klartext-Formatierung")
+    let oldOpts = #"{"afc":1,"squelchOn":false,"squelch":15,"tones":0,"filterK":1.4,"trueScope":true}"#
+    check((try? JSONDecoder().decode(RTTYDecodeOptions.self, from: Data(oldOpts.utf8)))?.synopDecoding == true, "Alte Optionen: SYNOP an")
+
+    // Ende-zu-Ende: DWD-RTTY mit SHIP-Meldung -> Pipeline -> fldigi-RTTY -> fldigi-SYNOP
+    let pipeline = AudioPipeline()
+    let decoder = RTTYDecoder(pipeline: pipeline)
+    let params = RTTYPreset.preset(id: "dwd-kw")!.parameters
+    decoder.configure(parameters: params, options: RTTYDecodeOptions(), centerHz: 1700)
+    pipeline.start(inputRate: 8_000)
+    var gen = RTTYSignalGenerator(parameters: params, centerHz: 1700)
+    gen.ita2 = true
+    let samples = gen.samples(for: "RYRYRY\r\n" + ship)
+    Thread.sleep(forTimeInterval: 0.6)             // Stationslisten laden auf der Verarbeitungs-Queue
+    var i = 0
+    while i < samples.count {
+        let n = min(8_000, samples.count - i)
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    let out = decoder.takeOutput()
+    check(out.text == "RYRYRY\r\n" + ship, "Rohtext unverändert trotz SYNOP, got \(out.text.debugDescription)")
+    let decText = out.segments.filter { $0.decoded }.map(\.text).joined()
+    check(decText.contains("Latitude=51.4") && decText.contains("Temperature=20.2"), "Klartext über den ganzen Weg")
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

@@ -9,19 +9,20 @@ public final class ReceiveTextModel: ObservableObject {
 
     public private(set) var text = ""
     /// Wird von der Textansicht gesetzt: hängt neuen Text an bzw. leert die Anzeige
-    var onAppend: ((String) -> Void)?
+    var onAppend: ((String, Bool) -> Void)?
     var onClear: (() -> Void)?
     @Published public private(set) var characterCount = 0
 
-    func append(_ s: String) {
+    /// `decoded`: Klartext einer SYNOP-Meldung (andere Farbe)
+    func append(_ s: String, decoded: Bool = false) {
         guard !s.isEmpty else { return }
         text += s
         if text.count > Self.maxCharacters {
             text = String(text.suffix(Self.maxCharacters * 3 / 4))
             onClear?()
-            onAppend?(text)
+            onAppend?(text, false)
         } else {
-            onAppend?(s)
+            onAppend?(s, decoded)
         }
         characterCount = text.count
     }
@@ -112,11 +113,12 @@ public final class RTTYController: ObservableObject {
 
     private func poll() {
         let out = decoder.takeOutput()
-        if !out.text.isEmpty {
-            let clean = Self.displayText(out.text)
-            textModel.append(clean)
+        for seg in out.segments {
+            let clean = seg.decoded ? Self.displayDecoded(seg.text) : Self.displayText(seg.text)
+            guard !clean.isEmpty else { continue }
+            textModel.append(clean, decoded: seg.decoded)
             if logEnabled { logger.append(clean) }
-            lastCharacterDate = Date()
+            if !seg.decoded { lastCharacterDate = Date() }
         }
         if let s = out.status {
             status = s
@@ -180,6 +182,15 @@ public final class RTTYController: ObservableObject {
     }
 
     /// RTTY-Steuerzeichen für die Anzeige: CR entfällt (LF bricht um), Klingel und andere Steuerzeichen entfallen.
+    /// Klartextblock des SYNOP-Decoders: fldigi rückt mit Tabulator ein und hängt Leerzeichen an
+    nonisolated static func displayDecoded(_ raw: String) -> String {
+        let t = raw.replacingOccurrences(of: "\t", with: "    ")
+        let lines = t.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            String(line.reversed().drop(while: { $0 == " " }).reversed())
+        }
+        return displayText(lines.joined(separator: "\n"))
+    }
+
     /// Skalarweise, weil Swift „\r\n“ als ein einziges Character behandelt.
     nonisolated static func displayText(_ raw: String) -> String {
         var out = String.UnicodeScalarView()

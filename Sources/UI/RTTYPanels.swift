@@ -6,9 +6,11 @@ import AppKit
 struct ReceivePanel: View {
     @ObservedObject var controller: RTTYController
     @ObservedObject var textModel: ReceiveTextModel
+    @ObservedObject var settings: RTTYSettingsStore
 
-    init(controller: RTTYController) {
+    init(controller: RTTYController, settings: RTTYSettingsStore) {
         self.controller = controller
+        self.settings = settings
         textModel = controller.textModel
     }
 
@@ -30,6 +32,13 @@ struct ReceivePanel: View {
                 .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
                 .help("Eingangssignal als WAV aufnehmen (mit Begleitdatei der Einstellungen) – für den Vergleich mit fldigi. "
                       + "Ordner: ~/Documents/Digidec/Recordings")
+                Button {
+                    settings.options.synopDecoding.toggle()
+                } label: {
+                    Text("SYNOP")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.options.synopDecoding))
+                .help("Wettermeldungen (SYNOP/SHIP/BUOY) erkennen und als Klartext in Amber darunter anzeigen (fldigi-Decoder)")
                 Button {
                     controller.logEnabled.toggle()
                 } label: {
