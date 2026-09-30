@@ -105,7 +105,11 @@ struct RTTYSettingsSheet: View {
                 Toggle("", isOn: Binding(get: { settings.isReversed }, set: { _ in settings.toggleReverse() }))
                     .toggleStyle(.switch)
                     .labelsHidden()
-                    .help("Mark und Space vertauschen – gilt für das gewählte Preset")
+                    .help("Mark auf der tieferen HF (bezogen auf USB, wie fldigi „Rev“). DWD: an. Gilt für das gewählte Preset")
+            }
+            row("Seitenband") {
+                segmented(SidebandMode.allCases, selected: settings.sidebandMode, label: { $0.label }) { v in settings.sidebandMode = v }
+                    .help("AUTO: Mode vom Funkgerät über rigctld. Bei LSB dreht Digidec Mark/Space automatisch um")
             }
         }
     }

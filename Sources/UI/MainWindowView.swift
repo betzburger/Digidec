@@ -48,7 +48,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state)
+                StatusBar(state: state, rtty: state.rtty)
             }
             .padding(.bottom, 8)
         }
@@ -95,7 +95,7 @@ private struct HeaderBar: View {
 
             Spacer()
 
-            SourceBadge(request: state.currentRequest)
+            RigBadge(rig: state.rig, audio: state.audio)
             UTCClock()
         }
         .padding(.horizontal, 14)
@@ -103,32 +103,50 @@ private struct HeaderBar: View {
     }
 }
 
-private struct SourceBadge: View {
-    let request: DecodeRequest?
+/// Funkgerät, Frequenz und Mode laut rigctld des Commanders
+private struct RigBadge: View {
+    @ObservedObject var rig: RigModel
+    @ObservedObject var audio: AudioInputManager
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(request == nil ? RadioTheme.textDim : RadioTheme.vfdGreen)
+                .fill(color)
                 .frame(width: 7, height: 7)
             Text(label)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(request == nil ? RadioTheme.textDim : RadioTheme.vfdGreen)
+                .foregroundColor(color)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(RadioTheme.bgDeep)
         .cornerRadius(4)
-        .help("Aufrufendes Hauptprogramm und dessen rigctld-Port")
+        .help(help)
+    }
+
+    private var color: Color {
+        if rig.radio == nil { return RadioTheme.textDim }
+        return rig.state.connected ? RadioTheme.vfdGreen : RadioTheme.ledYellow
     }
 
     private var label: String {
-        guard let request else { return "KEINE QUELLE" }
-        var text = (request.sourceDisplayName ?? "Unbekannte Quelle").uppercased()
-        if let port = request.rigctlPort {
-            text += " · RIGCTL \(port)"
+        if audio.sourceKind == .file { return "DATEI" }
+        guard let radio = rig.radio else {
+            return (audio.activeInput?.device.name ?? "KEIN EINGANG").uppercased()
         }
-        return text
+        guard rig.state.connected else { return "\(radio.displayName) · RIGCTLD ?" }
+        var s = radio.displayName.uppercased()
+        if let f = rig.state.frequencyText { s += " · \(f)" }
+        if let m = rig.state.mode { s += " · \(m)" }
+        return s
+    }
+
+    private var help: String {
+        guard let radio = rig.radio else { return "Kein Funkgerät – Frequenz und Mode unbekannt" }
+        let port = rig.state.port.map { String($0) } ?? "?"
+        return rig.state.connected
+            ? "\(radio.displayName): Frequenz und Mode vom Commander (rigctld \(port), nur lesend)"
+            : "\(radio.displayName): rigctld \(port) nicht erreichbar – läuft der Commander mit aktivem rigctld-Server?"
     }
 }
 
@@ -232,25 +250,47 @@ private struct ModeLabelLook: ViewModifier {
 
 private struct StatusBar: View {
     @ObservedObject var state: DigidecState
+    @ObservedObject var rtty: RTTYSettingsStore
 
     var body: some View {
         HStack(spacing: 10) {
+            Text(current)
+                .foregroundColor(RadioTheme.textMuted)
+                .lineLimit(1)
+            Spacer()
             if let error = state.lastRequestError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .foregroundColor(RadioTheme.ledYellow)
-            } else if let request = state.currentRequest {
-                Text("Auftrag: \(request.module.displayName) · Preset \(request.presetID)"
-                     + (request.centerHz.map { String(format: " · Mitte %.0f Hz", $0) } ?? ""))
-                    .foregroundColor(RadioTheme.textMuted)
+            } else if let request = state.currentRequest, let date = state.lastRequestDate {
+                Text("Auftrag von \(request.sourceDisplayName ?? "unbekannt") · \(Self.time.string(from: date)) UTC")
+                    .foregroundColor(RadioTheme.textDim)
             } else {
-                Text("Bereit – wartet auf Auftrag eines Hauptprogramms (digidec://decode?…)")
+                Text("Bereit für Aufträge (digidec://decode?…)")
                     .foregroundColor(RadioTheme.textDim)
             }
-            Spacer()
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
         .padding(.horizontal, 14)
     }
+
+    /// Aktueller Decoder-Stand, z. B. „RTTY · DWD KW · 50 Bd · 450 Hz · 5/1,5 · REV · LSB (auto) · Mitte 1696 Hz“
+    private var current: String {
+        let p = rtty.parameters
+        var s = "\(state.activeModule.displayName) · \(rtty.preset.name) · \(p.summary)"
+        if p.reverse { s += " · REV" }
+        s += p.ita2 ? " · ITA2" : " · US-TTY"
+        s += " · \(rtty.effectiveLSB ? "LSB" : "USB")"
+        if rtty.sidebandMode == .auto { s += rtty.rigIsLSB == nil ? " (auto, unbekannt)" : " (auto)" }
+        s += " · Mitte \(Int(rtty.centerHz.rounded())) Hz"
+        return s
+    }
+
+    private static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
 }
 
 // MARK: - Platzhalter für spätere Meilensteine

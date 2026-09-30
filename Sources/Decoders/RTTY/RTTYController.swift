@@ -59,13 +59,17 @@ public final class RTTYController: ObservableObject {
     public var sourceDescription: String? {
         didSet { if sourceDescription != oldValue { markSession() } }
     }
+    /// Funkgerät mit Frequenz und Mode (rigctld) für die Log-Kopfzeile
+    public var rigDescription: String? {
+        didSet { if rigDescription != oldValue { markSession() } }
+    }
 
     public init(pipeline: AudioPipeline, settings: RTTYSettingsStore) {
         self.settings = settings
         decoder = RTTYDecoder(pipeline: pipeline)
         logEnabled = UserDefaults.standard.object(forKey: "rttyLogEnabled") as? Bool ?? true
 
-        decoder.configure(parameters: settings.parameters, options: settings.options, centerHz: settings.centerHz)
+        decoder.configure(parameters: settings.decoderParameters, options: settings.options, centerHz: settings.centerHz)
         markSession()
 
         // Übertragungsparameter, Reverse und Optionen → Decoder neu konfigurieren
@@ -84,7 +88,7 @@ public final class RTTYController: ObservableObject {
     private var appliedCenterRevision = -1
 
     private func settingsChanged() {
-        let p = settings.parameters
+        let p = settings.decoderParameters
         let o = settings.options
         if p != appliedParameters || o != appliedOptions {
             appliedParameters = p
@@ -125,8 +129,11 @@ public final class RTTYController: ObservableObject {
 
     public func markSession() {
         let p = settings.parameters
-        var header = "RTTY \(settings.preset.name) · \(p.summary)\(p.reverse ? " · REV" : "") · Mitte \(Int(settings.centerHz.rounded())) Hz"
-        if let src = sourceDescription { header += " · \(src)" }
+        var header = "RTTY \(settings.preset.name) · \(p.summary)\(p.reverse ? " · REV" : "")"
+        header += " · \(settings.effectiveLSB ? "LSB" : "USB")\(settings.sidebandMode == .auto ? "" : " (fest)")"
+        header += " · Mitte \(Int(settings.centerHz.rounded())) Hz"
+        if let rig = rigDescription { header += " · \(rig)" }
+        if let src = sourceDescription { header += " · via \(src)" }
         logger.markSession(header)
     }
 

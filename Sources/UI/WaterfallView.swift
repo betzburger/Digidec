@@ -28,7 +28,7 @@ struct WaterfallView: View {
                                 .frame(height: Self.spectrumHeight)
                             waterfallImage(range: range)
                         }
-                        SignalMarkers(range: range, center: rtty.centerHz, parameters: rtty.parameters, hoverHz: hoverHz)
+                        SignalMarkers(range: range, center: rtty.centerHz, parameters: rtty.decoderParameters, hoverHz: hoverHz)
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { value in

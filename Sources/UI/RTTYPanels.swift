@@ -183,6 +183,14 @@ struct RTTYQuickControls: View {
     @ObservedObject var settings: RTTYSettingsStore
     @Binding var showSettings: Bool
 
+    private var sidebandLabel: String {
+        switch settings.sidebandMode {
+        case .auto: return settings.rigIsLSB == nil ? "AUTO" : (settings.effectiveLSB ? "A·LSB" : "A·USB")
+        case .usb: return "USB"
+        case .lsb: return "LSB"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -197,6 +205,10 @@ struct RTTYQuickControls: View {
                 Button("SQL") { settings.options.squelchOn.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
                     .help("Squelch: Text nur bei ausreichender Signalqualität")
+                Button(sidebandLabel) { settings.cycleSidebandMode() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.sidebandMode != .auto))
+                    .help("Seitenband für die Kehrlage-Korrektur: AUTO (vom Funkgerät per rigctld) → USB → LSB. "
+                          + "REV bezieht sich immer auf USB – bei LSB dreht Digidec automatisch um (wie fldigi).")
                 Spacer()
                 Button {
                     showSettings = true

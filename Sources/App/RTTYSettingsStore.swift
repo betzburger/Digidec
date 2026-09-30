@@ -19,13 +19,21 @@ public final class RTTYSettingsStore: ObservableObject {
     @Published public private(set) var centerHz: Double
     /// Erhöht sich bei jeder Mittenwahl von Hand oder per Auftrag – nicht bei AFC-Nachführung
     @Published public private(set) var manualCenterRevision = 0
+    /// Seitenband: automatisch aus rigctld oder von Hand
+    @Published public var sidebandMode: SidebandMode {
+        didSet { save() }
+    }
+    /// Kehrlage laut Funkgerät (rigctld), `nil` = unbekannt. Wird nicht gespeichert.
+    @Published public var rigIsLSB: Bool?
 
     private enum Keys {
         static let preset = "rttyPresetID"
         static let custom = "rttyCustomParameters"
         static let center = "rttyCenterHz"
-        static let reverse = "rttyReverseByPreset"
+        // „2“: ab 0.7.0 ist Reverse auf USB bezogen (DWD-Presets tragen reverse = true); alte Schalterstände verworfen
+        static let reverse = "rttyReverseByPreset2"
         static let options = "rttyDecodeOptions"
+        static let sideband = "rttySidebandMode"
     }
 
     public init() {
@@ -38,6 +46,8 @@ public final class RTTYSettingsStore: ObservableObject {
             ?? RTTYDecodeOptions()
         let c = d.double(forKey: Keys.center)
         centerHz = Self.centerRange.contains(c) ? c : Self.defaultCenter
+        sidebandMode = d.string(forKey: Keys.sideband).flatMap(SidebandMode.init(rawValue:)) ?? .auto
+        d.removeObject(forKey: "rttyReverseByPreset")
     }
 
     public var preset: RTTYPreset { RTTYPreset.preset(id: presetID) ?? RTTYPreset.all[0] }
@@ -58,7 +68,29 @@ public final class RTTYSettingsStore: ObservableObject {
 
     public var isReversed: Bool { parameters.reverse }
 
-    public var tones: (mark: Double, space: Double) { parameters.tones(center: centerHz) }
+    /// Wirksames Seitenband: von Hand gewählt oder vom Funkgerät; unbekannt gilt als USB
+    public var effectiveLSB: Bool {
+        switch sidebandMode {
+        case .usb: return false
+        case .lsb: return true
+        case .auto: return rigIsLSB ?? false
+        }
+    }
+
+    /// Parameter für den Decoder und die Marker: Reverse nach Seitenband-Korrektur (fldigi: Rev xor LSB)
+    public var decoderParameters: RTTYParameters {
+        var p = parameters
+        p.reverse = p.reverse != effectiveLSB
+        return p
+    }
+
+    /// Mark/Space im NF, wie sie tatsächlich ankommen (nach Seitenband-Korrektur)
+    public var tones: (mark: Double, space: Double) { decoderParameters.tones(center: centerHz) }
+
+    public func cycleSidebandMode() {
+        let all = SidebandMode.allCases
+        sidebandMode = all[(all.firstIndex(of: sidebandMode)! + 1) % all.count]
+    }
 
     public func select(presetID id: String) {
         guard RTTYPreset.preset(id: id) != nil else { return }
@@ -125,5 +157,6 @@ public final class RTTYSettingsStore: ObservableObject {
         if let data = try? JSONEncoder().encode(options) {
             d.set(data, forKey: Keys.options)
         }
+        d.set(sidebandMode.rawValue, forKey: Keys.sideband)
     }
 }

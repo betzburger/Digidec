@@ -6,6 +6,7 @@
 // Exit-Code 0 = alle Prüfungen bestanden. Neue Quelldateien, von denen getestete Typen abhängen,
 // müssen im Skript ergänzt werden.
 import Foundation
+import Darwin
 import AVFoundation
 
 var failures = 0
@@ -377,13 +378,15 @@ do {
     check(kw.baud == 50 && kw.shift == 450 && kw.bits == 5 && kw.stopBits == 1.5, "Preset DWD KW")
     check(lw.baud == 50 && lw.shift == 85 && lw.bits == 5 && lw.stopBits == 1.5, "Preset DWD LW")
     check(RTTYPreset.all.map(\.id) == DecoderModuleInfo.rtty.presetIDs, "Presets = IDs im URL-Schema")
-    // Abstimmhilfe aus PLAN.md: DWD LW, USB-Dial 146,300 kHz -> Töne 957,5 / 1042,5 Hz bei Mitte 1000 Hz
+    // Abstimmhilfe aus PLAN.md: DWD LW, USB-Dial 146,300 kHz -> Töne 957,5 / 1042,5 Hz bei Mitte 1000 Hz.
+    // DWD sendet Mark auf der tieferen HF (bestätigt an DDK2) -> in USB liegt Mark unten
+    check(lw.reverse && kw.reverse && !ham.reverse, "DWD-Presets mit Reverse (bezogen auf USB), Amateur ohne")
     let t = lw.tones(center: 1000)
-    check(t.mark == 1042.5 && t.space == 957.5, "DWD LW: Mark 1042,5 / Space 957,5")
-    var rev = lw
-    rev.reverse = true
-    check(rev.tones(center: 1000).mark == 957.5, "Reverse vertauscht Mark/Space")
-    check(kw.tones(center: 1000) == (1225, 775), "DWD KW: 1225 / 775 Hz")
+    check(t.mark == 957.5 && t.space == 1042.5, "DWD LW in USB: Mark 957,5 / Space 1042,5")
+    var norm = lw
+    norm.reverse = false
+    check(norm.tones(center: 1000).mark == 1042.5, "Ohne Reverse Mark oben")
+    check(kw.tones(center: 1000) == (775, 1225), "DWD KW in USB: Mark 775 / Space 1225")
     check(ham.summary == "45,45 Bd · 170 Hz · 5/1,5", "Kurzbeschreibung, got \(ham.summary)")
 }
 
@@ -461,7 +464,9 @@ do {
     var rev = RTTYPreset.preset(id: "dwd-kw")!.parameters
     rev.reverse = true
     check(rttyDecode(rev, text).0 == text, "Reverse-Sender mit Reverse-Empfang")
-    check(rttyDecode(rev, text, decodeParameters: RTTYPreset.preset(id: "dwd-kw")!.parameters).0 != text, "Reverse-Sender ohne Reverse -> kein Text")
+    var noRev = rev
+    noRev.reverse = false
+    check(rttyDecode(rev, text, decodeParameters: noRev).0 != text, "Reverse-Sender ohne Reverse -> kein Text")
 
     // Ziffernsatz: ITA2 ('+', '=') gegenüber US-TTY ('"', ';')
     var ita = FldigiRTTYCore.Options()
@@ -608,6 +613,131 @@ do {
     check(out.status != nil && !out.scope.isEmpty, "Status und XY-Scope geliefert")
     check(decoder.takeOutput().text.isEmpty, "Text nur einmal abholbar")
     pipeline.stop()
+}
+
+// MARK: - Seitenband-Korrektur (M7, wie fldigi: reverse = Rev xor LSB)
+do {
+    let store = RTTYSettingsStore()
+    store.select(presetID: "dwd-kw")
+    store.sidebandMode = .auto
+    store.rigIsLSB = true
+    // Erster Empfang 30.09.2026: DDK2 in LSB ohne Umkehr korrekt (Mark im NF oben)
+    check(store.isReversed && !store.decoderParameters.reverse, "DWD KW in LSB: Decoder ohne Umkehr")
+    check(store.tones.mark > store.tones.space, "DWD KW in LSB: Mark im NF oben")
+    store.rigIsLSB = false
+    check(store.decoderParameters.reverse && store.tones.mark < store.tones.space, "DWD KW in USB: Decoder mit Umkehr, Mark unten")
+    store.rigIsLSB = nil
+    check(!store.effectiveLSB, "Unbekanntes Seitenband gilt als USB")
+    store.sidebandMode = .lsb
+    check(store.effectiveLSB && !store.decoderParameters.reverse, "Seitenband fest LSB")
+    store.rigIsLSB = false
+    check(store.effectiveLSB, "Fest LSB schlägt Funkgerät")
+    store.cycleSidebandMode()
+    check(store.sidebandMode == .auto, "Umschalten LSB -> AUTO")
+    store.select(presetID: "ham")
+    store.rigIsLSB = true
+    check(store.decoderParameters.reverse, "Amateur in LSB: Umkehr (fldigi-Verhalten)")
+    store.rigIsLSB = nil
+}
+
+// MARK: - rigctld: Antworten auswerten
+do {
+    let s = RigctlClient.parse(["4584700", "LSB", "2800"])
+    check(s.connected && s.frequencyHz == 4_584_700 && s.mode == "LSB" && s.passbandHz == 2800, "f + m ausgewertet")
+    check(s.isLSB == true && s.frequencyText == "4.584,700 kHz", "LSB erkannt, Anzeige \(s.frequencyText ?? "-")")
+    check(RigctlClient.parse(["147300", "USB", "2400"]).isLSB == false, "USB = Regellage")
+    check(RigctlClient.parse(["14467300.000000", "PKTLSB", "3000"]).frequencyHz == 14_467_300, "Frequenz mit Nachkommastellen")
+    check(RigctlClient.parse(["7646000", "RTTY", "500"]).isLSB == true, "Hamlib RTTY (RTTY-L) = Kehrlage")
+    check(RigctlClient.parse(["7646000", "RTTYR", "500"]).isLSB == false, "RTTYR = Regellage")
+    check(RigctlClient.parse(["7646000", "AM", "6000"]).isLSB == false, "AM = Regellage")
+    let err = RigctlClient.parse(["RPRT -11"])
+    check(err.connected && err.frequencyHz == nil && err.mode == nil && err.isLSB == nil, "Fehlerantwort -> unbekannt")
+    check(RigctlClient.parse(["4584700", "RPRT -1"]).mode == nil, "Mode-Fehler -> Mode unbekannt")
+    check(RigctlClient.defaultPort(for: .pcr1500) == 4532 && RigctlClient.defaultPort(for: .ft991a) == 4533
+          || UserDefaults(suiteName: "com.peterbetz.pcr1500commander")?.integer(forKey: "rigctldPort") != 0,
+          "Standardports 4532 / 4533")
+}
+
+// MARK: - rigctld: echter TCP-Austausch mit einem Test-Server
+do {
+    // Mini-rigctld auf einem freien Port: antwortet auf "f" und "m", protokolliert alle Befehle
+    final class FakeRigctld: @unchecked Sendable {
+        let port: UInt16
+        private let listenFD: Int32
+        private let lock = NSLock()
+        private var received: [String] = []
+        var commands: [String] { lock.withLock { received } }
+
+        init?() {
+            let s = socket(AF_INET, SOCK_STREAM, 0)
+            var one: Int32 = 1
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = 0
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            let b = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+            guard b == 0, listen(s, 1) == 0 else { close(s); return nil }
+            var bound = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            _ = withUnsafeMutablePointer(to: &bound) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(s, $0, &len) } }
+            port = UInt16(bigEndian: bound.sin_port)
+            listenFD = s
+            Thread.detachNewThread { [self] in self.serve() }
+        }
+
+        private func serve() {
+            let c = accept(listenFD, nil, nil)
+            guard c >= 0 else { return }
+            var buf = [UInt8](repeating: 0, count: 256)
+            var pending = ""
+            while true {
+                let n = recv(c, &buf, buf.count, 0)
+                if n <= 0 { break }
+                pending += String(decoding: buf[0..<n], as: UTF8.self)
+                while let nl = pending.firstIndex(of: "\n") {
+                    let cmd = String(pending[..<nl])
+                    pending = String(pending[pending.index(after: nl)...])
+                    lock.withLock { received.append(cmd) }
+                    let reply = cmd == "f" ? "10100800\n" : cmd == "m" ? "LSB\n2400\n" : "RPRT -4\n"
+                    _ = reply.withCString { send(c, $0, strlen($0), 0) }
+                }
+            }
+            close(c)
+        }
+
+        deinit { close(listenFD) }
+    }
+
+    if let fake = FakeRigctld() {
+        final class Box: @unchecked Sendable { let lock = NSLock(); var last = RigState() }
+        let box = Box()
+        let client = RigctlClient { s in box.lock.withLock { box.last = s } }
+        client.setPort(fake.port)
+        var waited = 0.0
+        while waited < 3, box.lock.withLock({ box.last.frequencyHz }) == nil {
+            Thread.sleep(forTimeInterval: 0.1)
+            waited += 0.1
+        }
+        let s = box.lock.withLock { box.last }
+        check(s.connected && s.frequencyHz == 10_100_800 && s.mode == "LSB" && s.port == fake.port, "rigctld über TCP gelesen, got \(s)")
+        Thread.sleep(forTimeInterval: 1.2)          // mindestens eine weitere Abfrage
+        let cmds = fake.commands
+        check(!cmds.isEmpty && cmds.allSatisfy { $0 == "f" || $0 == "m" }, "Nur Lesebefehle f/m gesendet, got \(cmds)")
+        client.setPort(nil)
+        Thread.sleep(forTimeInterval: 0.2)
+        check(!box.lock.withLock { box.last.connected }, "Trennen setzt Zustand zurück")
+    } else {
+        check(false, "Test-rigctld konnte nicht starten")
+    }
+    // Kein Server auf dem Port: nicht verbunden, kein Absturz
+    final class Box2: @unchecked Sendable { let lock = NSLock(); var last = RigState() }
+    let box2 = Box2()
+    let c2 = RigctlClient { s in box2.lock.withLock { box2.last = s } }
+    c2.setPort(1)                                    // Port 1: niemand hört zu
+    Thread.sleep(forTimeInterval: 0.5)
+    check(!box2.lock.withLock { box2.last.connected }, "Ohne Server nicht verbunden")
+    c2.setPort(nil)
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

@@ -385,7 +385,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M4 | fldigi-RTTY-Kern herausgelöst | ✅ 30.09.2026 (v0.5.0): `Vendor/FldigiRTTY` + C-API, Signalverarbeitung zeilengleich mit fldigi 4.2.13, alle Presets synthetisch fehlerfrei |
 | M5 | RTTY in der App | ✅ 30.09.2026 (v0.6.1): Text, Log, XY-Scope, Signalanzeige, REV/AFC/SQL, Einstellungsdialog; Bedienung durch den Nutzer noch zu prüfen |
 | M6 | Qualitätsnachweis | Testdaten + Vergleich mit fldigi (Abschnitt 8), DWD-Polarität in 5.2 eingetragen |
-| M7 | rigctld-Anbindung | Frequenz/Mode in der Kopfzeile und im Log |
+| M7 | rigctld-Anbindung | ✅ 30.09.2026 (v0.7.1): Frequenz/Mode in Kopfzeile und Log, automatische Seitenband-Korrektur (AUTO/USB/LSB) |
 | M8 | URL-Schema + Buttons in beiden Commandern | „RTTY decodieren“ startet den Decoder mit Preset, Gerät und Quelle; Versionen der Commander erhöht |
 | M9+ | weitere Module | Vorschlag: NAVTEX (fldigi), CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
 
@@ -508,7 +508,21 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - **Erster echter Empfang (30.09.2026, 19:22 UTC):** DDK2 4583 kHz über den PCR-1500 (LSB) sauber decodiert. Signalqualität 100, XY-Kreuz sauber, AFC hält bei ±0,1 Hz.
   Befund zur Polarität in Abschnitt 5.2. Vereinzelte Zeichen- und Umschaltfehler wie auf KW üblich.
 - **Kleiner Fehler:** Die Statuszeile zeigt den letzten Auftrag („Preset dwd-lw · Mitte 1000 Hz“), auch wenn danach von Hand ein anderes Preset gewählt wurde. Soll den aktuellen Stand zeigen.
-- **Nächster Schritt:** Statuszeile korrigieren. ITA2 bei einem Wetterbericht prüfen und DDH47 (LW) testen. Danach M7 (rigctld mit automatischer Seitenband-Korrektur) vorziehen und M6 (Vergleich mit fldigi).
+- **M7 erledigt (v0.7.0 / 0.7.1), vor M6 gezogen:**
+  - `Sources/Rig/RigctlClient.swift`: POSIX-TCP zu `127.0.0.1:<Port>`, jede Sekunde **nur `f` und `m`**, Zeitlimit 1 s, Neuverbindung alle 3 s.
+    `parse()` für das einfache rigctld-Protokoll, einschließlich „RPRT“-Fehlerzeilen.
+    `defaultPort(for:)` liest einen geänderten Port aus den Einstellungen der Commander (`rigctldPort` bzw. `ft991aRigctldPort`), sonst 4532 / 4533.
+  - `RigModel`: folgt dem Funkgerät, dessen Codec gerade gelesen wird (bei Dateiwiedergabe oder VALHost: keins). Der Port aus einem Auftrag hat Vorrang.
+  - **Seitenband-Korrektur wie fldigi:** `RTTYParameters.reverse` bezieht sich jetzt auf USB. Die **DWD-Presets tragen `reverse = true`** (Mark auf der tieferen HF).
+    Der Decoder bekommt `decoderParameters` mit `reverse xor LSB`. Kehrlage-Modes: LSB, PKTLSB, ECSSLSB, RTTY, CWR.
+    `SidebandMode` AUTO (rigctld; unbekannt = USB) / USB / LSB, gespeichert. Schalter unter den Presets, Eintrag im Einstellungsdialog.
+    Gespeicherte REV-Schalter aus älteren Versionen werden verworfen (neuer Schlüssel `rttyReverseByPreset2`).
+  - Kopfzeile: `RigBadge` mit „IC-PCR1500 · 4.584,700 kHz · LSB“, grün = rigctld verbunden, gelb = nicht erreichbar, grau = kein Funkgerät.
+  - Log-Kopfzeile mit Seitenband, Frequenz und Mode. Eine neue Kopfzeile entsteht bei jeder Änderung.
+  - Statuszeile korrigiert: Links steht der aktuelle Decoder-Stand, rechts der letzte Auftrag mit Uhrzeit oder ein Fehler.
+  - Logiktests: 203 Prüfungen, darunter Seitenband-Logik (DWD in LSB/USB), rigctld-Antworten und ein **echter TCP-Test gegen einen Test-rigctld**, der prüft, dass nur `f`/`m` gesendet werden.
+  - Am echten System geprüft (19:29 UTC): PCR-1500 auf 4584,700 kHz LSB wird angezeigt. DDK2 decodiert nach dem Neustart ohne Eingriff weiter (REV aus Preset + A·LSB).
+- **Nächster Schritt:** ITA2 bei einem DWD-Wetterbericht prüfen und DDH47 (LW) testen. Danach M6 (Vergleich mit fldigi) und M8 (Knöpfe in den Commandern).
 
 ---
 

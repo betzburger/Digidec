@@ -19,7 +19,8 @@ public struct RTTYParameters: Equatable, Codable, Sendable {
     public var bits: Int
     public var parity: RTTYParity
     public var stopBits: Double
-    /// Mark und Space vertauscht (zusätzlich zur Seitenband-Korrektur)
+    /// Mark und Space vertauscht, bezogen auf USB/Regellage (wie fldigi „Rev“).
+    /// `true` = Mark auf der tieferen HF (kommerzielles F1B, z. B. DWD). Bei LSB dreht Digidec zusätzlich um.
     public var reverse: Bool
     /// ITA2-Ziffernsatz (europäisch, z. B. `+` `=`); sonst US-TTY wie fldigi-Standard
     public var ita2: Bool
@@ -78,12 +79,13 @@ public struct RTTYPreset: Identifiable, Equatable, Sendable {
         RTTYPreset(id: "ham", name: "Amateur",
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
                    note: "Amateurfunk-Standard, Baudot mit US-TTY-Ziffern (fldigi-Standard)"),
-        // DWD: europäischer ITA2-Ziffernsatz (beim ersten Empfang zu bestätigen, PLAN.md 5.2)
+        // DWD: Mark auf der tieferen HF (bestätigt 30.09.2026 an DDK2, PLAN.md 5.2) -> reverse bezogen auf USB;
+        // europäischer ITA2-Ziffernsatz (noch zu bestätigen)
         RTTYPreset(id: "dwd-kw", name: "DWD KW",
-                   parameters: RTTYParameters(shift: 450, baud: 50, ita2: true),
+                   parameters: RTTYParameters(shift: 450, baud: 50, reverse: true, ita2: true),
                    note: "DWD Pinneberg 4583 / 7646 / 10100,8 / 11039 / 14467,3 kHz"),
         RTTYPreset(id: "dwd-lw", name: "DWD LW",
-                   parameters: RTTYParameters(shift: 85, baud: 50, ita2: true),
+                   parameters: RTTYParameters(shift: 85, baud: 50, reverse: true, ita2: true),
                    note: "DWD DDH47 147,3 kHz"),
         RTTYPreset(id: "custom", name: "Eigene",
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
@@ -134,4 +136,20 @@ public struct RTTYDecodeOptions: Equatable, Codable, Sendable {
     public init() {}
 
     public static let filterKRange: ClosedRange<Double> = 1.0...2.0
+}
+
+/// Seitenband für die Kehrlage-Korrektur (fldigi: `reverse = Rev xor LSB`)
+public enum SidebandMode: String, CaseIterable, Codable, Sendable {
+    /// aus dem Mode des Funkgeräts (rigctld); unbekannt = USB
+    case auto
+    case usb
+    case lsb
+
+    public var label: String {
+        switch self {
+        case .auto: return "AUTO"
+        case .usb: return "USB"
+        case .lsb: return "LSB"
+        }
+    }
 }

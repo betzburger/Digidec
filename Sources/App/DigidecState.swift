@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AVFoundation
+import Combine
 
 /// Zentraler App-Zustand. Ab M5 kommt der RTTY-Decoder, ab M7 der rigctld-Client dazu.
 @MainActor
@@ -12,17 +13,34 @@ public final class DigidecState: ObservableObject {
     @Published public private(set) var currentRequest: DecodeRequest?
     /// Meldung zum letzten abgelehnten Auftrag, für die Statuszeile.
     @Published public private(set) var lastRequestError: String?
+    /// Zeitpunkt des letzten angenommenen Auftrags
+    @Published public private(set) var lastRequestDate: Date?
 
     public let audio: AudioInputManager
     public let rtty = RTTYSettingsStore()
     public let waterfall: WaterfallModel
     public let rttyController: RTTYController
+    public let rig = RigModel()
     private var audioStarted = false
+    private var cancellables: Set<AnyCancellable> = []
 
     private init() {
         audio = AudioInputManager()
         waterfall = WaterfallModel(pipeline: audio.pipeline)
         rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
+
+        // rigctld des Funkgeräts, dessen Codec gerade gelesen wird (bei Dateiwiedergabe keins)
+        audio.$activeInput.combineLatest(audio.$sourceKind)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] input, kind in
+                self?.rig.follow(radio: kind == .live ? input?.radio : nil)
+            }
+            .store(in: &cancellables)
+        rig.onChange = { [weak self] state in
+            guard let self else { return }
+            rtty.rigIsLSB = state.isLSB
+            rttyController.rigDescription = rig.description
+        }
     }
 
     /// Beim Programmstart: Mikrofon-Freigabe abwarten (nötig für den Eingang der virtuellen Soundkarte),
@@ -53,15 +71,15 @@ public final class DigidecState: ObservableObject {
             currentRequest = request
             activeModule = request.module
             lastRequestError = nil
+            lastRequestDate = Date()
             if request.module == .rtty {
                 rtty.select(presetID: request.presetID)
                 if let center = request.centerHz {
                     rtty.setCenter(center)
                 }
             }
-            rttyController.sourceDescription = request.sourceDisplayName.map { name in
-                name + (request.rigctlPort.map { " (rigctld \($0))" } ?? "")
-            }
+            rttyController.sourceDescription = request.sourceDisplayName
+            rig.apply(request: request)
             if audioStarted {
                 audio.apply(request: request)
             } else {
