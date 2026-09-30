@@ -325,7 +325,13 @@ Das Design übernimmt `Sources/UI/Theme.swift` der Commander 1:1. Beide Commande
 
 | Datum | Aufnahme | Bedingungen | Digidec Fehler | fldigi Fehler | Abweichung |
 |---|---|---|---|---|---|
-| – | – | – | – | – | – |
+| 30.09.2026 | `RTTY_2026-09-30_195246Z_4584700Hz_LSB_DWD-KW.wav` (DDK2 4583 kHz, PCR-1500 LSB, 140 s) | KW abends, Signal gut bis mäßig | 0,79 % (6/758), 13/17 Zeilen fehlerfrei | 0,79 % (6/758), 13/17 Zeilen fehlerfrei | 0,66 % (nur Einschwingen erste Zeile) |
+
+**Ergebnis 30.09.2026:** Digidec und fldigi 4.2.13 liefern auf derselben Aufnahme **zeichengleichen Text**, einschließlich jedes einzelnen Fehlers.
+Einziger Unterschied ist die erste, angeschnittene Zeile beim Einsetzen des Signals: fldigi hatte vorher Rauschen verarbeitet, sein Filter- und AFC-Zustand war dadurch minimal anders.
+fldigi-Einstellungen: RTTY 450/50, 5 Bit, 1,5 Stopp, Unshift on Space aus, AFC normal, Mitte 1695 Hz, Reverse aus, Seitenband USB, ohne Funkgeräte-Verbindung.
+Hinweis zum Ablauf: fldigi war vor der Wiedergabe neu gestartet worden. Der Empfangstext enthielt deshalb Vorlauf, der für den Vergleich bis zum Wiedergabebeginn abgeschnitten wurde (`…fldigi_playback.txt`).
+**Achtung:** fldigi ist beim Nutzer per Hamlib mit `127.0.0.1:4533` (rigctld des FT-991A Commanders) verbunden. Während des Vergleichs den FT-991A Commander nicht laufen lassen, sonst kennt fldigi das Seitenband und dreht zusätzlich um.
 
 Selbsttest der Werkzeuge (synthetische Testschleife, DWD KW, 48 kHz): sauber 0,00 %, −6 dB 8,2 %, −9 dB kaum noch Zeilen erkannt.
 
@@ -404,7 +410,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M3 | Wasserfall | ✅ 30.09.2026 (v0.4.1): vDSP-FFT, Spektrumkurve, Mark/Space-Marker, Klick/Ziehen setzt Mitte, Zoom, Dynamik; Presets wählbar |
 | M4 | fldigi-RTTY-Kern herausgelöst | ✅ 30.09.2026 (v0.5.0): `Vendor/FldigiRTTY` + C-API, Signalverarbeitung zeilengleich mit fldigi 4.2.13, alle Presets synthetisch fehlerfrei |
 | M5 | RTTY in der App | ✅ 30.09.2026 (v0.6.1): Text, Log, XY-Scope, Signalanzeige, REV/AFC/SQL, Einstellungsdialog; Bedienung durch den Nutzer noch zu prüfen |
-| M6 | Qualitätsnachweis | 🟡 30.09.2026 (v0.8.0): Werkzeuge fertig (REC, `decode_file.sh`, `fldigi_rtty.py`), Polarität eingetragen; Vergleich mit echten Aufnahmen durch den Nutzer offen (Abschnitt 8.0) |
+| M6 | Qualitätsnachweis | ✅ 30.09.2026 (v0.8.0): Werkzeuge fertig; echte DDK2-Aufnahme: Digidec und fldigi 4.2.13 zeichengleich, beide 0,79 % (Abschnitt 8.0) |
 | M7 | rigctld-Anbindung | ✅ 30.09.2026 (v0.7.1): Frequenz/Mode in Kopfzeile und Log, automatische Seitenband-Korrektur (AUTO/USB/LSB) |
 | M8 | URL-Schema + Buttons in beiden Commandern | ✅ 30.09.2026: Knopf DIGIDEC in PCR-1500 Commander 0.22.0 und FT-991A Commander 0.6.0; automatische DWD-Erkennung mit NF-Mitte; Klick durch den Nutzer noch zu prüfen |
 | M9+ | weitere Module | Vorschlag: NAVTEX (fldigi), CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
@@ -566,7 +572,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - Ablauf in Abschnitt 8.0. Gefunden und behoben: Der Testgenerator verschluckte „\r\n“ (ein Character in Swift) → jetzt skalarweise.
   - Logiktests: 216 Prüfungen (Dateiname, Aufnahme Ende-zu-Ende 48 kHz → WAV, Begleitdatei).
 - **Nächster Schritt:**
-  - Der Nutzer macht eine Aufnahme von DDK2 (Testschleife) und führt den Vergleich nach Abschnitt 8.0 durch; Ergebnis in die Tabelle.
+  - ~~Vergleich mit fldigi~~ → erledigt 30.09.2026: zeichengleich (Abschnitt 8.0).
+  - Weitere Vergleiche bei schwierigen Bedingungen (Fading, DDH47 auf LW) sind sinnvoll, aber nicht zwingend.
   - Der Nutzer startet die Commander neu und prüft den Knopf DIGIDEC.
   - SYNOP-Zifferngruppen und ITA2 beim nächsten DWD-Block prüfen, DDH47 (LW) testen.
   - Danach M6 (Vergleich mit fldigi).
