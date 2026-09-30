@@ -405,7 +405,9 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - `Sources/UI`: `Theme.swift` (identische Kopie aus beiden Commandern), `MainWindowView` (Kopfzeile mit Version, Quelle und UTC-Uhr, Modul-Leiste, Platzhalter für Wasserfall, Text, Scope, Eingang, Preset-Anzeige, Statuszeile).
   - `Tools/LogicTests`: Versionsabgleich AppVersion ↔ build_app.sh, 26 Prüfungen zum URL-Parser, alle bestanden.
   - `swift build` ohne Warnungen; `Digidec.app` gebaut, signiert, `digidec://` bei Launch Services registriert.
-  - Noch **nicht** getestet: App-Start und echter URL-Aufruf (z. B. `open "digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532"`), wartet auf Freigabe des Nutzers.
+  - **v0.1.1:** App-Start und URL-Aufrufe am echten System getestet: Kaltstart per URL, zweiter Aufruf bei laufender App (kein zweites Fenster, Quelle/Preset/Mitte übernommen), abgelehnter Aufruf (`mode=navtex` → Meldung in der Statuszeile).
+    Fehler behoben: Bei laufender App kam das Fenster nicht nach vorne, weil macOS 14+ `activate(ignoringOtherApps:)` ignoriert. Jetzt `NSApp.activate()` plus `makeKeyAndOrderFront` im `AppDelegate` (`@MainActor`).
+    Für M8 merken: Die Commander sollen mit `NSWorkspace.OpenConfiguration` (`activates = true`) öffnen.
   - Kein App-Icon (`Resources/AppIcon.icns` fehlt noch).
 - **Nächster Schritt:** M2 (Audio-Eingang, Standard VALHost 2ch).
 

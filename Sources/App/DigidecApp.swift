@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
@@ -13,7 +14,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             DigidecState.shared.handle(url: url)
         }
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        bringMainWindowToFront()
+    }
+
+    /// Seit macOS 14 ist die Aktivierung kooperativ: `activate(ignoringOtherApps:)` wird ignoriert,
+    /// wenn Digidec bereits läuft. Deshalb das Fenster ausdrücklich nach vorne holen.
+    private func bringMainWindowToFront() {
+        NSApplication.shared.unhide(nil)
+        NSApplication.shared.activate()
+        for window in NSApplication.shared.windows where window.canBecomeMain {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
