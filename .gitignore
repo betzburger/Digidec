@@ -1,0 +1,11 @@
+# Build
+.build/
+*.app/
+DerivedData/
+.swiftpm/
+
+# fldigi-Originalquellen (nur Nachschlagewerk, siehe PLAN.md 4.1)
+Vendor/_upstream/
+
+# macOS
+.DS_Store
