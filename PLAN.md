@@ -378,7 +378,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M1 | Projektgerüst | ✅ 30.09.2026 (v0.1.0): Package.swift, build_app.sh (inkl. `digidec://` + Launch-Services-Registrierung), AppVersion, Fenster im RadioTheme mit Platzhaltern, URL-Parser, LogicTests (26 Prüfungen) |
 | M2 | Audio-Eingang | ✅ 30.09.2026 (v0.3.0): direkt vom USB-Codec des Funkgeräts, portunabhängig; VALHost 2ch manuell wählbar |
 | M3 | Wasserfall | ✅ 30.09.2026 (v0.4.1): vDSP-FFT, Spektrumkurve, Mark/Space-Marker, Klick/Ziehen setzt Mitte, Zoom, Dynamik; Presets wählbar |
-| M4 | fldigi-RTTY-Kern herausgelöst | `Vendor/FldigiRTTY` kompiliert eigenständig, C-API, synthetischer Test decodiert Text fehlerfrei |
+| M4 | fldigi-RTTY-Kern herausgelöst | ✅ 30.09.2026 (v0.5.0): `Vendor/FldigiRTTY` + C-API, Signalverarbeitung zeilengleich mit fldigi 4.2.13, alle Presets synthetisch fehlerfrei |
 | M5 | RTTY in der App | Text, Presets, Einstellungsdialog (alle Optionen aus 5.1), XY-Scope, AFC, Squelch, Log |
 | M6 | Qualitätsnachweis | Testdaten + Vergleich mit fldigi (Abschnitt 8), DWD-Polarität in 5.2 eingetragen |
 | M7 | rigctld-Anbindung | Frequenz/Mode in der Kopfzeile und im Log |
@@ -460,7 +460,29 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - Logiktests: 133 Prüfungen, darunter Spektrum-Pegel/-Frequenz, Zeilenzahl, Farbskala, Presets laut Plan, Abstimmhilfe DWD LW (957,5 / 1042,5 Hz).
   - Am echten System geprüft: PCR-1500-Rauschen mit Durchlasskurve sichtbar; Auftrag `preset=dwd-lw&center=1500` setzt Marker auf 1458 / 1543 Hz.
   - **Nicht selbst geprüft** (keine Bedienrechte für Maus/Tastatur): Klick/Ziehen zum Abstimmen, Zoom- und Dynamik-Knöpfe, Preset-Knöpfe. Test durch den Nutzer steht aus.
-- **Nächster Schritt:** M4 (fldigi-RTTY-Kern herauslösen).
+- **M4 erledigt (v0.5.0):**
+  - `Vendor/FldigiRTTY`: Empfangsteil von fldigi 4.2.13 (`rtty_rx`, `fftfilt`, `gfft.h`) plus C-Schnittstelle `fldigi_rtty.h`.
+    Herkunft, Dateizuordnung und **alle Abweichungen**: `Vendor/FldigiRTTY/UPSTREAM.md`.
+    Maschinell geprüft: Die Signalverarbeitung ist zeilengleich mit dem Original. Abweichungen gibt es nur bei Einstellungen (cfg statt progdefaults), Ausgabe (Rückruf) und entfernter GUI.
+  - `wf->powerDensity()` (Signalmaß für Squelch und S/N) aus dem fldigi-Wasserfall ist durch Goertzel auf denselben 1-Hz-Bins ersetzt.
+  - Swift: `Sources/Decoders/RTTY/FldigiRTTYCore.swift` (Hülle, Optionen, Status, XY-Scope) und `RTTYSignalGenerator.swift` (AFSK mit Baudot, ITA2/US, Versatz, Rauschen mit S/N in 3 kHz).
+  - `Package.swift`: C++-Target `FldigiRTTY` (C++17). Die Logiktests übersetzen den Kern mit.
+  - Logiktests (158 Prüfungen): alle Presets sauber exakt, andere Mittenfrequenzen, Reverse, ITA2/US-Ziffern, nur Mark / nur Space, AFC (15 Hz Versatz, Mitte wird nachgeführt), Squelch, Rauschen.
+  - **Gemessene Zeichenfehlerrate** (S/N in 3 kHz, synthetisch, Mittel aus 3 Läufen):
+
+    | S/N | −12 dB | −9 dB | −6 dB | −3 dB | 0 dB | +6 dB |
+    |---|---|---|---|---|---|---|
+    | Amateur 45,45/170 | 60 % | 19 % | 1,1 % | 0 % | 0 % | 0 % |
+    | DWD LW 50/85 | 66 % | 21 % | 1,7 % | 0 % | 0 % | 0 % |
+
+    Ein Kommentar in fldigi nennt bei −9 dB 0,5 % Fehler, die S/N-Definition dort ist aber unbekannt. Deshalb ist die Werte-Tabelle **nicht** mit fldigi vergleichbar.
+    Der echte Vergleich folgt in M6: dieselben WAV-Dateien durch fldigi und Digidec.
+  - **Befunde für M5:**
+    - Der „Filter Shape Factor“ in fldigi 4.2.13 ist wirkungslos, dort gilt fest K = 1,4. Digidec übernimmt 1,4, der Wert bleibt als Expertenoption einstellbar.
+    - fldigi nutzt standardmäßig den **US-TTY**-Ziffernsatz. Für die DWD-Presets **ITA2** vorsehen und beim ersten Empfang prüfen.
+    - Die fldigi-S/N-Anzeige ist bei starken Signalen niedrig oder negativ (Messfenster zwischen Mark und Space). Die Metrik (0–100) ist das bessere Anzeigemaß.
+    - Bei DWD LW (85 Hz) erreicht die Metrik nur ≈ 30 → Squelch-Vorgabe für dieses Preset höchstens ≈ 20.
+- **Nächster Schritt:** M5 (RTTY in der App: Text, Einstellungsdialog, XY-Scope, AFC, Squelch, Log).
 
 ---
 

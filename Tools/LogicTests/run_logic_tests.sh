@@ -28,14 +28,30 @@ for key in CFBundleShortVersionString CFBundleVersion; do
     fi
 done
 
-# 2. Testprogramm mit den getesteten Quellen bauen
+# 2. fldigi-RTTY-Kern (C++) wie im Package.swift übersetzen, Modul-Map für "import FldigiRTTY"
+V=Vendor/FldigiRTTY
+mkdir -p "$OUT/fldigi/obj" "$OUT/fldigi/module"
+for c in $V/src/*.cpp; do
+    clang++ -std=c++17 -O2 -I$V/include -I$V/src -c "$c" -o "$OUT/fldigi/obj/${c:t:r}.o"
+done
+cat > "$OUT/fldigi/module/module.modulemap" <<MAP
+module FldigiRTTY {
+    header "$ROOT/$V/include/fldigi_rtty.h"
+    export *
+}
+MAP
+
+# 3. Testprogramm mit den getesteten Quellen bauen
 swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
+    -I "$OUT/fldigi/module" \
     Tools/LogicTests/main.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift \
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \
     $S/Audio/AudioPipeline.swift $S/Audio/WAVFileSource.swift \
     $S/Models/RTTYSettings.swift $S/App/RTTYSettingsStore.swift \
-    $S/DSP/SpectrumAnalyzer.swift $S/DSP/WaterfallProcessor.swift $S/DSP/WaterfallColorMap.swift
+    $S/DSP/SpectrumAnalyzer.swift $S/DSP/WaterfallProcessor.swift $S/DSP/WaterfallColorMap.swift \
+    $S/Decoders/RTTY/FldigiRTTYCore.swift $S/Decoders/RTTY/RTTYSignalGenerator.swift \
+    "$OUT"/fldigi/obj/*.o -lc++
 
-# 3. Ausführen
+# 4. Ausführen
 "$OUT/logic_tests"

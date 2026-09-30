@@ -403,5 +403,112 @@ do {
     store.setCenter(1000)
 }
 
+// MARK: - RTTY-Kern aus fldigi 4.2.13 (M4)
+@MainActor func rttyDecode(_ p: RTTYParameters, _ text: String, snrDB: Double? = nil, center: Double = 1000,
+                           offset: Double = 0, genIta2: Bool = false, options: FldigiRTTYCore.Options = .init(),
+                           decodeParameters: RTTYParameters? = nil, seed: UInt64 = 1, silence: Bool = false) -> (String, FldigiRTTYCore) {
+    var gen = RTTYSignalGenerator(parameters: p, centerHz: center)
+    gen.offsetHz = offset
+    gen.ita2 = genIta2
+    var samples = silence ? [Float](repeating: 0, count: 8000 * 10) : gen.samples(for: text)
+    if let snrDB { RTTYSignalGenerator.addNoise(to: &samples, amplitude: gen.amplitude, snrDB: snrDB, seed: seed) }
+    final class Box { var s = "" }
+    let box = Box()
+    let core = FldigiRTTYCore(parameters: decodeParameters ?? p, options: options, centerHz: center) { box.s.append($0) }
+    samples.withUnsafeBufferPointer { buf in
+        var i = 0
+        while i < buf.count {             // Blöcke wie aus der Pipeline (20 ms)
+            let n = min(160, buf.count - i)
+            core.process(UnsafeBufferPointer(rebasing: buf[i..<(i + n)]))
+            i += n
+        }
+    }
+    return (box.s, core)
+}
+/// Zeichenfehlerrate (Levenshtein-Abstand / Länge der Vorlage)
+@MainActor func charErrorRate(_ ref: String, _ got: String) -> Double {
+    let a = Array(ref), b = Array(got)
+    guard !a.isEmpty else { return b.isEmpty ? 0 : 1 }
+    guard !b.isEmpty else { return 1 }
+    var d = Array(0...b.count)
+    for i in 1...a.count {
+        var prev = d[0]
+        d[0] = i
+        for j in 1...b.count {
+            let tmp = d[j]
+            d[j] = min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] == b[j - 1] ? 0 : 1))
+            prev = tmp
+        }
+    }
+    return Double(d[b.count]) / Double(a.count)
+}
+do {
+    let text = "RYRYRY THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG 0123456789 WODL45 EDZW 301200 "
+    for preset in RTTYPreset.all where preset.id != "custom" {
+        let (got, core) = rttyDecode(preset.parameters, text)
+        check(got == text, "\(preset.name) sauber exakt, got \(got.debugDescription)")
+        // Squelch-Maß wie fldigi: gutes Signal = 100. (fldigis S/N-Formel misst das "Rauschen" zwischen Mark und
+        // Space; bei sauberen Signalen liegen dort Seitenbänder der Tastung – der S/N-Wert ist daher kein Prüfmaß.)
+        // DWD LW (85 Hz Shift): das Messfenster in der Mitte liegt im Signal, fldigi-Metrik nur ≈ 30 -> Squelch dort niedrig halten
+        let minMetric = preset.parameters.shift < 100 ? 25.0 : 90.0
+        check(core.status.metric > minMetric, "\(preset.name): Metrik > \(minMetric) bei sauberem Signal, got \(core.status.metric)")
+    }
+    // Andere Mittenfrequenzen (DWD LW bei 1500 Hz, Amateur klassisch 2210 Hz)
+    check(rttyDecode(RTTYPreset.preset(id: "dwd-lw")!.parameters, text, center: 1500).0 == text, "DWD LW bei 1500 Hz")
+    check(rttyDecode(RTTYPreset.preset(id: "ham")!.parameters, text, center: 2210).0 == text, "Amateur bei 2210 Hz")
+
+    // Reverse: Sender mit vertauschtem Mark/Space
+    var rev = RTTYPreset.preset(id: "dwd-kw")!.parameters
+    rev.reverse = true
+    check(rttyDecode(rev, text).0 == text, "Reverse-Sender mit Reverse-Empfang")
+    check(rttyDecode(rev, text, decodeParameters: RTTYPreset.preset(id: "dwd-kw")!.parameters).0 != text, "Reverse-Sender ohne Reverse -> kein Text")
+
+    // Ziffernsatz: ITA2 ('+', '=') gegenüber US-TTY ('"', ';')
+    var ita = FldigiRTTYCore.Options()
+    ita.ita2 = true
+    let figText = "TEMP +12 = 5 "
+    check(rttyDecode(RTTYPreset.preset(id: "dwd-kw")!.parameters, figText, genIta2: true, options: ita).0 == figText, "ITA2 '+' und '='")
+    check(rttyDecode(RTTYPreset.preset(id: "dwd-kw")!.parameters, figText, genIta2: true).0 == "TEMP \"12 ; 5 ", "Gleiche Codes als US-TTY")
+
+    // Nur Mark / nur Space decodieren (CWI-Unterdrückung)
+    for cwi in [1, 2] {
+        var o = FldigiRTTYCore.Options()
+        o.cwi = cwi
+        // fldigi decodiert im Modus "nur Space" vor der ersten Synchronisation ggf. ein Zeichen aus dem Vorlauf
+        let got = rttyDecode(RTTYPreset.preset(id: "ham")!.parameters, text, options: o).0
+        check(got.hasSuffix(text) && got.count <= text.count + 1, "CWI-Modus \(cwi) sauber, got \(got.debugDescription)")
+    }
+
+    // AFC: Sender 15 Hz neben der eingestellten Mitte
+    let (afcText, afcCore) = rttyDecode(RTTYPreset.preset(id: "ham")!.parameters, text + text, offset: 15)
+    check(charErrorRate(text + text, afcText) < 0.02, "AFC: 15 Hz Versatz decodiert, CER \(charErrorRate(text + text, afcText))")
+    check(afcCore.status.centerHz > 1008, "AFC zieht die Mitte nach (Ziel 1015), got \(afcCore.status.centerHz)")
+    var noAfc = FldigiRTTYCore.Options()
+    noAfc.afcOn = false
+    check(rttyDecode(RTTYPreset.preset(id: "ham")!.parameters, text, offset: 15, options: noAfc).1.status.centerHz == 1000,
+          "Ohne AFC bleibt die Mitte")
+
+    // Rauschen: Zeichenfehlerrate unter der Schwelle, S/N in 3 kHz
+    let long = String(repeating: "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG 1234567890 ", count: 3)
+    for (id, snr, limit) in [("ham", -3.0, 0.01), ("ham", -6.0, 0.05), ("dwd-lw", -3.0, 0.01), ("dwd-kw", -3.0, 0.01)] {
+        let got = rttyDecode(RTTYPreset.preset(id: id)!.parameters, long, snrDB: snr, seed: 7).0
+        let cer = charErrorRate(long, got)
+        check(cer < limit, "\(id) bei \(snr) dB: CER \(String(format: "%.3f", cer)) < \(limit)")
+    }
+
+    // Squelch: reines Rauschen erzeugt keinen Text, ein gutes Signal kommt durch
+    var sq = FldigiRTTYCore.Options()
+    sq.squelchOn = true
+    sq.squelch = 40
+    check(rttyDecode(RTTYPreset.preset(id: "ham")!.parameters, "", snrDB: 0, options: sq, silence: true).0.isEmpty, "Squelch hält Rauschen zurück")
+    let noiseOnly = rttyDecode(RTTYPreset.preset(id: "ham")!.parameters, "", snrDB: 0, silence: true).1
+    check(noiseOnly.status.metric < 20, "Reines Rauschen: Metrik niedrig, got \(noiseOnly.status.metric)")
+    check(rttyDecode(RTTYPreset.preset(id: "ham")!.parameters, text, snrDB: 10, options: sq).0 == text, "Squelch lässt gutes Signal durch")
+
+    // Generator: Baudot-Codes mit Umschaltung
+    let g = RTTYSignalGenerator(parameters: RTTYPreset.preset(id: "ham")!.parameters, centerHz: 1000)
+    check(g.baudotCodes(for: "A1 B") == [0x1F, 0x03, 0x1B, 0x17, 0x04, 0x19], "Baudot mit FIGS und Unshift-on-Space")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)
