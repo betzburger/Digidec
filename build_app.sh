@@ -39,9 +39,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
+    <string>0.3.0</string>
     <key>CFBundleVersion</key>
-    <string>0.2.0</string>
+    <string>0.3.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -49,7 +49,7 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Zugriff auf die virtuelle Soundkarte (VALHost 2ch), um das Empfangsaudio von FT-991A und PCR-1500 Commander zu decodieren.</string>
+    <string>Zugriff auf den USB-Audio-Codec von IC-PCR1500 und FT-991A (oder eine virtuelle Soundkarte), um das Empfangsaudio zu decodieren.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

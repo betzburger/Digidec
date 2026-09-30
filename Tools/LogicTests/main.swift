@@ -210,22 +210,81 @@ do {
     pipeline.stop()
 }
 
-// MARK: - Audio: Gerätewahl (Standard VALHost 2ch)
+// MARK: - Audio: Funkgeräte-Codec über den eingebauten USB-Hub finden (unabhängig vom Port)
 do {
+    typealias L = RadioCodecLocator
+    check(L.parentHubLocation(0x03114320) == 0x03114300, "Hub von 0x03114320")
+    check(L.parentHubLocation(0x03114310) == 0x03114300, "Hub von 0x03114310")
+    check(L.parentHubLocation(0x03112100) == 0x03112000, "Hub von 0x03112100")
+    check(L.locationFromCodecUID("AppleUSBAudioEngine:Burr-Brown from TI:USB Audio CODEC:3114310:2") == 0x03114310, "Position aus Codec-UID")
+    check(L.locationFromCodecUID("com.val.VALDriver.device") == nil, "Virtuelles Gerät hat keine USB-Position")
+    check(L.locationFromCodecUID("BlackHole16ch_UID") == nil, "BlackHole hat keine USB-Position")
+    check(L.locationFromPortName("/dev/cu.usbserial-3114320") == 0x03114320, "Position aus Portname")
+    check(L.locationFromPortName("/dev/cu.Bluetooth-Incoming-Port") == nil, "Bluetooth-Port ohne Position")
+
     let dev = { (id: String, name: String) in
-        AudioInputDevice(id: id, name: name, inputChannels: 2, nominalSampleRate: 44100,
+        AudioInputDevice(id: id, name: name, inputChannels: 2, nominalSampleRate: 48000,
                          isVirtualCable: AudioDeviceSelection.isVirtualCable(name: name))
     }
-    let usb = dev("usb", "USB Audio Device"), bh = dev("bh", "BlackHole 16ch"), val = dev("val", "VALHost 2ch")
-    let all = [usb, bh, val]
-    check(AudioDeviceSelection.preferred(from: all) == val, "Standard VALHost 2ch")
-    check(AudioDeviceSelection.preferred(from: all, savedUID: "bh") == bh, "Gespeichertes Gerät vor Standard")
-    check(AudioDeviceSelection.preferred(from: all, requestedUID: "usb", savedUID: "bh") == usb, "Auftrag vor Gespeichertem")
-    check(AudioDeviceSelection.preferred(from: all, requestedUID: "weg", savedUID: "weg") == val, "Unbekannte UIDs -> Standard")
-    check(AudioDeviceSelection.preferred(from: [usb, bh]) == bh, "Ohne VALHost: erstes virtuelles Kabel")
-    check(AudioDeviceSelection.preferred(from: [usb]) == usb, "Nur Hardware: erstes Gerät")
-    check(AudioDeviceSelection.preferred(from: []) == nil, "Keine Geräte")
-    check(!AudioDeviceSelection.isVirtualCable(name: "Mac mini-Lautsprecher"), "Lautsprecher nicht virtuell")
+    // Stand am Mac des Nutzers (30.09.2026) plus ein angeschlossener FT-991A
+    let pcrCodec = dev("AppleUSBAudioEngine:Burr-Brown from TI:USB Audio CODEC:3114310:2", "USB Audio CODEC")
+    let ftCodec  = dev("AppleUSBAudioEngine:Burr-Brown from TI:USB Audio CODEC:3112200:2", "USB Audio CODEC")
+    let via      = dev("AppleUSBAudioEngine:VIA Technologies Inc.:USB Audio Device:3113000:2", "USB Audio Device")
+    let val      = dev("com.val.VALDriver.device", "VALHost 2ch")
+    let bh       = dev("BlackHole16ch_UID", "BlackHole 16ch")
+    let devices = [via, ftCodec, bh, pcrCodec, val]
+    let pcrPort = USBSerialPortInfo(path: "/dev/cu.usbserial-3114320", usbSerialNumber: "IC-PCR1500 2301040",
+                                    usbProductName: "CP2101 USB to UART Bridge Controller", idProduct: 0xEA60, usbLocationID: 0x03114320)
+    let ftPort0 = USBSerialPortInfo(path: "/dev/cu.usbserial-01A22C9D0", usbSerialNumber: "01A22C9D",
+                                    usbProductName: "CP2105 Dual USB to UART Bridge Controller", idProduct: 0xEA70, usbLocationID: 0x03112100)
+    let prolific = USBSerialPortInfo(path: "/dev/cu.PL2303G-USBtoUART311410", usbSerialNumber: "A=BBk19B617",
+                                     usbProductName: "USB-Serial Controller", idProduct: 0x23A3, usbLocationID: 0x03114100)
+    let ports = [prolific, ftPort0, pcrPort]
+
+    check(L.codec(of: .pcr1500, devices: devices, ports: ports) == pcrCodec, "PCR-1500: Codec am selben Hub")
+    check(L.codec(of: .ft991a, devices: devices, ports: ports) == ftCodec, "FT-991A: Codec am selben Hub, nicht der des PCR")
+    check(L.codec(of: .pcr1500, devices: devices, ports: [prolific, ftPort0]) == nil, "PCR-1500 ohne Port -> nicht angeschlossen")
+    check(L.codec(of: .ft991a, devices: [via, pcrCodec, val], ports: ports) == nil, "FT-991A ohne Codec -> nicht angeschlossen")
+    check(L.radio(owning: pcrCodec, devices: devices, ports: ports) == .pcr1500, "Codec gehört zum PCR-1500")
+    check(L.radio(owning: via, devices: devices, ports: ports) == nil, "VIA-Karte gehört zu keinem Funkgerät")
+
+    // PCR-1500 an einen anderen Port umgesteckt: neue Positionen, neue UID
+    let movedCodec = dev("AppleUSBAudioEngine:Burr-Brown from TI:USB Audio CODEC:1223410:2", "USB Audio CODEC")
+    let movedPort = USBSerialPortInfo(path: "/dev/cu.usbserial-1223420", usbSerialNumber: "IC-PCR1500 2301040",
+                                      usbProductName: nil, idProduct: 0xEA60, usbLocationID: 0x01223420)
+    let movedDevices = [via, ftCodec, movedCodec, val]
+    check(L.codec(of: .pcr1500, devices: movedDevices, ports: [ftPort0, movedPort]) == movedCodec, "PCR-1500 nach Umstecken wiedergefunden")
+    // Ohne IORegistry-Position: aus dem Portnamen
+    let noLoc = USBSerialPortInfo(path: "/dev/cu.usbserial-1223420", usbSerialNumber: "IC-PCR1500 2301040",
+                                  usbProductName: nil, idProduct: nil, usbLocationID: nil)
+    check(L.codec(of: .pcr1500, devices: movedDevices, ports: [noLoc]) == movedCodec, "Position aus Portname als Rückfall")
+
+    // Auswahl auflösen
+    typealias S = AudioDeviceSelection
+    check(S.resolve(.radio(.pcr1500), devices: devices, ports: ports) == ResolvedInput(device: pcrCodec, radio: .pcr1500), "Wahl PCR-1500")
+    check(S.resolve(.radio(.pcr1500), devices: movedDevices, ports: [movedPort]) == ResolvedInput(device: movedCodec, radio: .pcr1500),
+          "Gespeicherte Wahl PCR-1500 übersteht Umstecken")
+    check(S.resolve(.radio(.pcr1500), devices: [via, val], ports: []) == nil, "PCR-1500 fehlt -> kein Ausweichen auf andere Quelle")
+    check(S.resolve(.radio(.pcr1500), uidHint: pcrCodec.id, devices: devices, ports: []) == ResolvedInput(device: pcrCodec, radio: .pcr1500),
+          "UID aus dem Auftrag hat Vorrang")
+    check(S.resolve(.radio(.pcr1500), uidHint: "veraltet", devices: devices, ports: ports) == ResolvedInput(device: pcrCodec, radio: .pcr1500),
+          "Veraltete UID aus dem Auftrag -> Hub-Suche")
+    check(S.resolve(.device(uid: val.id), devices: devices, ports: ports) == ResolvedInput(device: val, radio: nil), "Wahl VALHost 2ch")
+    check(S.resolve(.device(uid: "weg"), devices: devices, ports: ports) == nil, "Gewähltes Gerät fehlt")
+    check(S.resolve(nil, devices: devices, ports: ports) == ResolvedInput(device: pcrCodec, radio: .pcr1500), "Standard: PCR-1500 vor FT-991A")
+    check(S.resolve(nil, devices: devices, ports: [ftPort0]) == ResolvedInput(device: ftCodec, radio: .ft991a), "Standard: FT-991A, wenn allein")
+    check(S.resolve(nil, devices: [via, bh, val], ports: []) == ResolvedInput(device: val, radio: nil), "Standard ohne Funkgerät: VALHost 2ch")
+    check(S.resolve(nil, devices: [via, bh], ports: []) == ResolvedInput(device: bh, radio: nil), "Ohne VALHost: erstes virtuelles Kabel")
+    check(S.resolve(nil, devices: [via], ports: []) == ResolvedInput(device: via, radio: nil), "Nur Hardware: erstes Gerät")
+    check(S.resolve(nil, devices: [], ports: []) == nil, "Keine Geräte")
+    check(S.selection(for: pcrCodec, devices: devices, ports: ports) == .radio(.pcr1500), "Codec im Menü -> als Funkgerät gespeichert")
+    check(S.selection(for: val, devices: devices, ports: ports) == .device(uid: val.id), "VALHost im Menü -> als Gerät gespeichert")
+    for sel in [InputSelection.radio(.pcr1500), .radio(.ft991a), .device(uid: "AppleUSBAudioEngine:x:y:3113000:2")] {
+        check(InputSelection(storageValue: sel.storageValue) == sel, "Speicherformat \(sel.storageValue)")
+    }
+    check(InputSelection(storageValue: "radio:ic7300") == nil, "Unbekanntes Funkgerät im Speicher")
+    check(!S.isVirtualCable(name: "Mac mini-Lautsprecher"), "Lautsprecher nicht virtuell")
+    check(RadioSource(requestSource: "PCR1500") == .pcr1500 && RadioSource(requestSource: "wsjtx") == nil, "Quelle aus Auftrag")
 }
 
 // MARK: - Audio: Datei öffnen

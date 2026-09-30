@@ -35,7 +35,12 @@ public final class AudioInputManager: ObservableObject {
     public let levelModel = LevelModel()
 
     @Published public private(set) var devices: [AudioInputDevice] = []
-    @Published public private(set) var selectedDeviceUID: String?
+    /// Gewählter Eingang: bei Aufträgen die Quelle des Commanders (nur für diese Sitzung), sonst die gespeicherte Wahl
+    @Published public private(set) var selection: InputSelection?
+    /// Tatsächlich benutztes Gerät; `nil`, wenn die gewählte Quelle nicht angeschlossen ist
+    @Published public private(set) var activeInput: ResolvedInput?
+    /// Codecs der angeschlossenen Funkgeräte, für das Gerätemenü
+    @Published public private(set) var radioCodecs: [RadioSource: AudioInputDevice] = [:]
     @Published public var channelMode: ChannelMode {
         didSet {
             capture.channelMode = channelMode
@@ -52,7 +57,7 @@ public final class AudioInputManager: ObservableObject {
     @Published public private(set) var isFilePlaying = false
 
     private enum Keys {
-        static let deviceUID = "audioInputDeviceUID"
+        static let selection = "audioInputSelection"
         static let channelMode = "audioInputChannelMode"
     }
 
@@ -60,6 +65,11 @@ public final class AudioInputManager: ObservableObject {
     private var fileSource: WAVFileSource?
     private var levelTimer: Timer?
     private var deviceListener: AudioObjectPropertyListenerBlock?
+    private var ports: [USBSerialPortInfo] = []
+    /// UID aus dem letzten Auftrag (vom Commander frisch ermittelt), gilt nur zusammen mit dessen Quelle
+    private var uidHint: String?
+    /// UID, auf der die Aufnahme gerade läuft oder startet
+    private var captureUID: String?
 
     public init() {
         capture = LiveAudioCapture(pipeline: pipeline)
@@ -75,8 +85,16 @@ public final class AudioInputManager: ObservableObject {
         installDeviceListener()
     }
 
-    public var selectedDevice: AudioInputDevice? {
-        devices.first { $0.id == selectedDeviceUID }
+    public var selectedDeviceUID: String? { activeInput?.device.id }
+
+    /// Geräte, die keinem Funkgerät gehören (virtuelle Kabel, andere Soundkarten)
+    public var otherDevices: [AudioInputDevice] {
+        let codecIDs = Set(radioCodecs.values.map(\.id))
+        return devices.filter { !codecIDs.contains($0.id) }
+    }
+
+    private var savedSelection: InputSelection? {
+        UserDefaults.standard.string(forKey: Keys.selection).flatMap(InputSelection.init(storageValue:))
     }
 
     /// Kurzbeschreibung der Wandlung für die Statuszeile, z. B. „48 kHz → 8 kHz“
@@ -87,31 +105,88 @@ public final class AudioInputManager: ObservableObject {
 
     // MARK: - Live-Eingang
 
-    /// Beim Programmstart und bei Aufträgen: bevorzugtes Gerät wählen und Aufnahme starten.
-    public func startLive(requestedUID: String? = nil) {
-        refreshDevices()
-        let saved = UserDefaults.standard.string(forKey: Keys.deviceUID)
-        guard let device = AudioDeviceSelection.preferred(from: devices, requestedUID: requestedUID, savedUID: saved) else {
-            setStatus("Kein Audiogerät mit Eingang gefunden", warning: true)
+    /// Programmstart ohne Auftrag: gespeicherte Wahl, sonst Codec eines angeschlossenen Funkgeräts.
+    public func startLive() {
+        stopFile()
+        fileSource = nil
+        fileName = nil
+        sourceKind = .live
+        selection = savedSelection
+        uidHint = nil
+        resolveAndStart(force: true)
+    }
+
+    /// Auftrag eines Commanders: dessen Funkgerät für diese Sitzung verwenden, die gespeicherte Wahl bleibt.
+    public func apply(request: DecodeRequest) {
+        if let radio = RadioSource(requestSource: request.source) {
+            selection = .radio(radio)
+            uidHint = request.deviceUID
+        } else if let uid = request.deviceUID {
+            selection = .device(uid: uid)
+            uidHint = nil
+        } else {
             return
         }
-        var note: String?
-        if let requestedUID, requestedUID != device.id {
-            note = "Gerät aus Auftrag nicht gefunden"
-        }
-        select(device: device, persist: requestedUID == nil, note: note)
+        stopFile()
+        fileSource = nil
+        fileName = nil
+        sourceKind = .live
+        resolveAndStart(force: false)
+    }
+
+    /// Wahl im Gerätemenü (wird gespeichert).
+    public func select(radio: RadioSource) {
+        store(.radio(radio))
     }
 
     public func select(device: AudioInputDevice) {
-        select(device: device, persist: true, note: nil)
+        store(AudioDeviceSelection.selection(for: device, devices: devices, ports: ports))
     }
 
-    private func select(device: AudioInputDevice, persist: Bool, note: String?) {
+    private func store(_ newSelection: InputSelection) {
+        UserDefaults.standard.set(newSelection.storageValue, forKey: Keys.selection)
         stopFile()
+        fileSource = nil
+        fileName = nil
         sourceKind = .live
-        selectedDeviceUID = device.id
-        if persist {
-            UserDefaults.standard.set(device.id, forKey: Keys.deviceUID)
+        selection = newSelection
+        uidHint = nil
+        resolveAndStart(force: false)
+    }
+
+    public func refreshDevices() {
+        devices = AudioDeviceCatalog.inputDevices()
+        ports = RadioCodecLocator.serialPorts()
+        var codecs: [RadioSource: AudioInputDevice] = [:]
+        for radio in RadioSource.allCases {
+            codecs[radio] = RadioCodecLocator.codec(of: radio, devices: devices, ports: ports)
+        }
+        radioCodecs = codecs
+    }
+
+    /// Gerät zur aktuellen Wahl bestimmen und die Aufnahme (neu) starten, wenn es sich geändert hat.
+    /// Wird auch bei jedem An- und Abstecken aufgerufen: So wird ein Funkgerät an einem anderen USB-Port wiedergefunden.
+    private func resolveAndStart(force: Bool) {
+        guard sourceKind == .live else { return }
+        refreshDevices()
+        let resolved = AudioDeviceSelection.resolve(selection, uidHint: uidHint, devices: devices, ports: ports)
+        // Ein Hinweis, der nicht (mehr) passt, darf die Hub-Suche nicht dauerhaft übersteuern
+        if let hint = uidHint, resolved?.device.id != hint {
+            uidHint = nil
+        }
+        activeInput = resolved
+
+        guard let input = resolved else {
+            if captureUID != nil {
+                capture.stop()
+                captureUID = nil
+            }
+            isRunning = false
+            setStatus("\(missingSourceName) nicht angeschlossen – wartet", warning: true)
+            return
+        }
+        if !force, input.device.id == captureUID, isRunning {
+            return
         }
 
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -123,16 +198,19 @@ public final class AudioInputManager: ObservableObject {
             break
         }
 
-        setStatus("Starte \(device.name) …", warning: false)
-        capture.start(deviceUID: device.id) { [weak self] result in
+        let uid = input.device.id
+        captureUID = uid
+        isRunning = false
+        setStatus("Starte \(input.displayName) …", warning: false)
+        capture.start(deviceUID: uid) { [weak self] result in
             Task { @MainActor in
-                guard let self, self.selectedDeviceUID == device.id, self.sourceKind == .live else { return }
+                guard let self, self.captureUID == uid, self.sourceKind == .live else { return }
                 switch result {
                 case .success:
                     self.isRunning = true
-                    let base = "\(device.name) · \(self.rateDescription)"
-                    self.setStatus(note.map { "\($0) – \(base)" } ?? base, warning: note != nil)
+                    self.setStatus("\(input.displayName) · \(self.rateDescription)", warning: false)
                 case .failure(let error):
+                    self.captureUID = nil
                     self.isRunning = false
                     self.setStatus(error.description, warning: true)
                 }
@@ -140,8 +218,12 @@ public final class AudioInputManager: ObservableObject {
         }
     }
 
-    public func refreshDevices() {
-        devices = AudioDeviceCatalog.inputDevices()
+    private var missingSourceName: String {
+        switch selection {
+        case .radio(let r): return r.displayName
+        case .device(let uid): return devices.first { $0.id == uid }?.name ?? "Gewähltes Audiogerät"
+        case nil: return "Audiogerät"
+        }
     }
 
     // MARK: - Datei
@@ -155,6 +237,7 @@ public final class AudioInputManager: ObservableObject {
             return
         }
         capture.stop()
+        captureUID = nil
         fileSource?.stop()
         fileSource = source
         source.channelMode = channelMode
@@ -192,12 +275,13 @@ public final class AudioInputManager: ObservableObject {
         }
     }
 
-    /// Zurück zum Live-Eingang mit dem zuletzt gewählten Gerät.
+    /// Zurück zum Live-Eingang mit der zuletzt gültigen Wahl.
     public func switchToLive() {
         stopFile()
         fileSource = nil
         fileName = nil
-        startLive()
+        sourceKind = .live
+        resolveAndStart(force: true)
     }
 
     public func cleanup() {
@@ -228,16 +312,11 @@ public final class AudioInputManager: ObservableObject {
     }
 
     private func devicesChanged() {
-        refreshDevices()
-        guard sourceKind == .live, let uid = selectedDeviceUID else { return }
-        if !devices.contains(where: { $0.id == uid }) {
-            capture.stop()
-            isRunning = false
-            setStatus("Audiogerät getrennt", warning: true)
-        } else if !isRunning, let device = selectedDevice {
-            // Gerät ist zurück (z. B. nach Neustart von coreaudiod)
-            select(device: device, persist: false, note: nil)
+        guard sourceKind == .live else {
+            refreshDevices()
+            return
         }
+        resolveAndStart(force: false)
     }
 
     static func kHz(_ rate: Double) -> String {

@@ -376,7 +376,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 |---|---|---|
 | M0 | Plan (diese Datei) | ✅ 30.09.2026 |
 | M1 | Projektgerüst | ✅ 30.09.2026 (v0.1.0): Package.swift, build_app.sh (inkl. `digidec://` + Launch-Services-Registrierung), AppVersion, Fenster im RadioTheme mit Platzhaltern, URL-Parser, LogicTests (26 Prüfungen) |
-| M2 | Audio-Eingang | 🟡 30.09.2026 (v0.2.0) umgesetzt; offen: Live-Test mit echtem Ton über VALHost 2ch durch den Nutzer (siehe Abschnitt 11) |
+| M2 | Audio-Eingang | ✅ 30.09.2026 (v0.3.0): direkt vom USB-Codec des Funkgeräts, portunabhängig; VALHost 2ch manuell wählbar |
 | M3 | Wasserfall | vDSP-FFT, Klick setzt Mittenfrequenz, Mark/Space-Marker |
 | M4 | fldigi-RTTY-Kern herausgelöst | `Vendor/FldigiRTTY` kompiliert eigenständig, C-API, synthetischer Test decodiert Text fehlerfrei |
 | M5 | RTTY in der App | Text, Presets, Einstellungsdialog (alle Optionen aus 5.1), XY-Scope, AFC, Squelch, Log |
@@ -429,7 +429,24 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     → Der Nutzer testet mit einem Commander (Ausgabe auf VALHost 2ch) oder mit `afplay` im eigenen Terminal.
   - **Risiko VALDriver:** `ReadInput` in `VALDriver.c` setzt jedes gelesene Sample auf 0. Liest ein zweites Programm von VALHost 2ch, zum Beispiel weil VALHost 2ch auch **Standard-Eingang** des Systems ist (Teams, Siri, Diktat), bekommt nur das schnellere Programm den Ton.
     Abhilfe, falls nötig: Standard-Eingang des Systems auf ein anderes Gerät stellen, oder VALDriver so ändern, dass er nicht mehr löscht (wie BlackHole).
-- **Nächster Schritt:** Live-Test durch den Nutzer, dann M3 (Wasserfall).
+- **Befund Live-Test (30.09.2026, PCR-1500 Commander lief, Ausgabe auf VALHost 2ch):**
+  Am Codec des PCR-1500 kamen −14,6 dBFS an, auf VALHost 2ch nur Nullen, auch mit ffmpeg als einzigem Leser.
+  Digidec direkt am Codec zeigte −15 dB. Ob der Commander nichts ausgab oder der Loopback in VALDriver versagt, ist **nicht geklärt**.
+- **Entscheidung (Nutzer, 30.09.2026): Digidec liest direkt vom USB-Codec des Funkgeräts.** VALHost 2ch und andere Geräte bleiben manuell wählbar.
+  Vorteile: keine virtuelle Soundkarte als Fehlerquelle, mehrere Leser am USB-Gerät möglich, unbearbeitetes Empfängersignal ohne Rauschminderung/Notch des Commanders.
+- **v0.3.0 – Funkgeräte-Codec unabhängig vom USB-Port:**
+  - `RadioCodecLocator`: Der Seriell-Wandler ist eindeutig (PCR-1500: USB-Seriennummer „IC-PCR1500…“, CP2101; FT-991A: CP2105 0xEA70). Der Codec ist das Gerät am selben eingebauten Hub.
+    Gleiche Logik wie `findPCR1500AudioCodec` / `findFT991AAudioCodec` in den Commandern. Nur Lesen aus der IORegistry, **Digidec öffnet keine seriellen Ports**.
+  - Gespeichert wird die **Quelle** (`radio:pcr1500`), nicht die UID. Die UID enthält die USB-Position und ändert sich beim Umstecken. UserDefaults-Schlüssel `audioInputSelection`.
+  - Auftrag mit `source=pcr1500|ft991a`: Dieses Funkgerät gilt für die Sitzung, die mitgeschickte `device`-UID hat Vorrang; passt sie nicht, sucht Digidec über den Hub.
+  - Ist das gewählte Funkgerät nicht angeschlossen: Meldung „… nicht angeschlossen – wartet“, **kein** Ausweichen auf eine andere Quelle. Beim Anstecken, auch an einem anderen Port, startet die Aufnahme automatisch.
+  - Ohne gespeicherte Wahl: PCR-1500 vor FT-991A, sonst VALHost 2ch, sonst erstes virtuelles Kabel.
+  - Gerätemenü: Abschnitt „Funkgeräte“ mit Anschlussstatus, darunter „Weitere Eingänge“.
+  - Am echten System geprüft: IC-PCR1500 (Port 0x03114320) → Codec 0x03114310 korrekt gefunden. FT-991A war nicht angeschlossen.
+  - Logiktests: 99 Prüfungen, darunter Umstecken, veraltete UID im Auftrag, beide Funkgeräte gleichzeitig.
+  - Für M8 (Commander-Buttons): Die Commander schicken `source=` **und** die frisch ermittelte `device=`-UID ihres Codecs.
+- **Hinweis:** Ändert sich der Mikrofon-Hinweistext in `build_app.sh`, fragt macOS die Freigabe neu ab.
+- **Nächster Schritt:** M3 (Wasserfall).
 
 ---
 

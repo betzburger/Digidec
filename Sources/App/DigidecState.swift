@@ -14,19 +14,29 @@ public final class DigidecState: ObservableObject {
     @Published public private(set) var lastRequestError: String?
 
     public let audio = AudioInputManager()
+    private var audioStarted = false
 
     private init() {}
 
     /// Beim Programmstart: Mikrofon-Freigabe abwarten (nötig für den Eingang der virtuellen Soundkarte),
     /// dann den Live-Eingang starten. Kam der Start per Auftrag, hat `handle(url:)` das schon erledigt.
     public func startAudio() {
-        guard !audio.isRunning, audio.selectedDeviceUID == nil else { return }
+        guard !audioStarted else { return }
+        audioStarted = true
+        let start: @MainActor () -> Void = {
+            let state = DigidecState.shared
+            if let request = state.currentRequest, RadioSource(requestSource: request.source) != nil || request.deviceUID != nil {
+                state.audio.apply(request: request)
+            } else {
+                state.audio.startLive()
+            }
+        }
         if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
             AVCaptureDevice.requestAccess(for: .audio) { _ in
-                Task { @MainActor in DigidecState.shared.audio.startLive() }
+                Task { @MainActor in start() }
             }
         } else {
-            audio.startLive()
+            start()
         }
     }
 
@@ -36,9 +46,9 @@ public final class DigidecState: ObservableObject {
             currentRequest = request
             activeModule = request.module
             lastRequestError = nil
-            if let uid = request.deviceUID {
-                audio.startLive(requestedUID: uid)
-            } else if audio.selectedDeviceUID == nil {
+            if audioStarted {
+                audio.apply(request: request)
+            } else {
                 startAudio()
             }
         case .failure(let error):

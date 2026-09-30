@@ -32,7 +32,7 @@ done
 swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     Tools/LogicTests/main.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift \
-    $S/Audio/AudioInputDevice.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \
+    $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \
     $S/Audio/AudioPipeline.swift $S/Audio/WAVFileSource.swift
 
 # 3. Ausführen

@@ -61,27 +61,41 @@ private struct DevicePicker: View {
 
     var body: some View {
         Menu {
-            ForEach(audio.devices) { device in
-                Button {
-                    audio.select(device: device)
-                } label: {
-                    Label(device.name + (device.id == audio.selectedDeviceUID ? "  ✓" : ""),
-                          systemImage: device.isVirtualCable ? "cable.connector" : "mic")
+            Section("Funkgeräte (direkt vom USB-Codec)") {
+                ForEach(RadioSource.allCases) { radio in
+                    let codec = audio.radioCodecs[radio]
+                    Button {
+                        audio.select(radio: radio)
+                    } label: {
+                        Label(radio.displayName + (codec == nil ? "  (nicht angeschlossen)" : "")
+                              + (audio.selection == .radio(radio) ? "  ✓" : ""),
+                              systemImage: "antenna.radiowaves.left.and.right")
+                    }
+                }
+            }
+            Section("Weitere Eingänge") {
+                ForEach(audio.otherDevices) { device in
+                    Button {
+                        audio.select(device: device)
+                    } label: {
+                        Label(device.name + (audio.selection == .device(uid: device.id) ? "  ✓" : ""),
+                              systemImage: device.isVirtualCable ? "cable.connector" : "mic")
+                    }
                 }
             }
             Divider()
             Button("Liste aktualisieren") { audio.refreshDevices() }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: audio.selectedDevice?.isVirtualCable == true ? "cable.connector" : "mic")
-                Text(audio.selectedDevice?.name ?? "Kein Gerät")
+                Image(systemName: icon)
+                Text(title)
                     .lineLimit(1)
                 Spacer()
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 8, weight: .bold))
             }
             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .foregroundColor(RadioTheme.vfdCyan)
+            .foregroundColor(audio.activeInput == nil ? RadioTheme.ledYellow : RadioTheme.vfdCyan)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(RadioTheme.bgDeep)
@@ -91,7 +105,19 @@ private struct DevicePicker: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .onAppear { audio.refreshDevices() }
-        .help("Eingangsgerät – Standard ist VALHost 2ch, auf das die Commander ausgeben")
+        .help("Eingang – Funkgeräte werden unabhängig vom USB-Port an ihrem eingebauten Hub erkannt")
+    }
+
+    private var title: String {
+        if let input = audio.activeInput { return input.radio?.displayName ?? input.device.name }
+        if case .radio(let r) = audio.selection { return r.displayName }
+        return "Kein Gerät"
+    }
+
+    private var icon: String {
+        if audio.activeInput?.radio != nil { return "antenna.radiowaves.left.and.right" }
+        if case .radio = audio.selection { return "antenna.radiowaves.left.and.right" }
+        return audio.activeInput?.device.isVirtualCable == true ? "cable.connector" : "mic"
     }
 }
 
