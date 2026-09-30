@@ -34,7 +34,9 @@ public struct RTTYSignalGenerator {
         for ch in text.uppercased() {
             if ch == " " {
                 codes.append(Self.space)
-                inFigures = false        // Empfänger mit Unshift-on-Space fällt zurück auf Buchstaben
+                // Sender, die mit Unshift-on-Space rechnen (Amateurfunk), schalten danach neu um;
+                // der DWD sendet FIGS nur einmal und bleibt über Leerzeichen hinweg in den Ziffern
+                if parameters.unshiftOnSpace { inFigures = false }
                 continue
             }
             if let i = Self.letters.firstIndex(of: ch), i != 0, i != Self.space {

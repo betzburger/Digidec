@@ -386,7 +386,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M5 | RTTY in der App | ✅ 30.09.2026 (v0.6.1): Text, Log, XY-Scope, Signalanzeige, REV/AFC/SQL, Einstellungsdialog; Bedienung durch den Nutzer noch zu prüfen |
 | M6 | Qualitätsnachweis | Testdaten + Vergleich mit fldigi (Abschnitt 8), DWD-Polarität in 5.2 eingetragen |
 | M7 | rigctld-Anbindung | ✅ 30.09.2026 (v0.7.1): Frequenz/Mode in Kopfzeile und Log, automatische Seitenband-Korrektur (AUTO/USB/LSB) |
-| M8 | URL-Schema + Buttons in beiden Commandern | „RTTY decodieren“ startet den Decoder mit Preset, Gerät und Quelle; Versionen der Commander erhöht |
+| M8 | URL-Schema + Buttons in beiden Commandern | ✅ 30.09.2026: Knopf DIGIDEC in PCR-1500 Commander 0.22.0 und FT-991A Commander 0.6.0; automatische DWD-Erkennung mit NF-Mitte; Klick durch den Nutzer noch zu prüfen |
 | M9+ | weitere Module | Vorschlag: NAVTEX (fldigi), CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
 
 ---
@@ -522,7 +522,28 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - Statuszeile korrigiert: Links steht der aktuelle Decoder-Stand, rechts der letzte Auftrag mit Uhrzeit oder ein Fehler.
   - Logiktests: 203 Prüfungen, darunter Seitenband-Logik (DWD in LSB/USB), rigctld-Antworten und ein **echter TCP-Test gegen einen Test-rigctld**, der prüft, dass nur `f`/`m` gesendet werden.
   - Am echten System geprüft (19:29 UTC): PCR-1500 auf 4584,700 kHz LSB wird angezeigt. DDK2 decodiert nach dem Neustart ohne Eingriff weiter (REV aus Preset + A·LSB).
-- **Nächster Schritt:** ITA2 bei einem DWD-Wetterbericht prüfen und DDH47 (LW) testen. Danach M6 (Vergleich mit fldigi) und M8 (Knöpfe in den Commandern).
+- **M8 erledigt (30.09.2026):**
+  - **PCR-1500 Commander 0.21.1 → 0.22.0**, **FT-991A Commander 0.5.1 → 0.6.0.** Sicherung jeweils in `_Backup_<alt>_vor_Digidec/` (Quellen, Tests, GEMINI.md, altes App-Bundle).
+  - Neu in beiden: `Sources/Models/DigidecLauncher.swift` (identisch) und `Sources/UI/DigidecHeaderButton.swift`. Der Knopf **DIGIDEC** steht in der Kopfzeile links neben HAMLIB. GEMINI.md beider Projekte hat einen Abschnitt „Anbindung an den Decoder Digidec“.
+  - Menü:
+    - „RTTY decodieren – DDK2 erkannt (Mitte 1700 Hz)“ bzw. „RTTY decodieren (Amateurfunk)“.
+    - Dazu die drei Presets einzeln. Passt das gewählte Preset zum erkannten DWD-Sender, wird die Mitte mitgeschickt.
+  - DWD-Erkennung: Sender liegt bei der Dial-Frequenz im NF-Durchlass 100–3900 Hz. USB: Mitte = Sender − Dial, LSB: Dial − Sender.
+    Kehrlage: PCR `.lsb`; FT-991A `.lsb`, `.dataL`, `.rttyL`, `.cwL`.
+  - Übergabe: `source=pcr1500|ft991a`, `rigctl=<Port>` (nur wenn der rigctld-Server aktiv ist), `device=<frisch ermittelte Codec-UID>` (Doppelpunkte als %3A), `center=`.
+    Öffnen mit `NSWorkspace.OpenConfiguration.activates = true`. Ist Digidec nicht registriert, erscheint ein Hinweis.
+  - Tests: PCR-Logiktests (22 111 Prüfungen) und FT-991A-Logiktests (76 Prüfungen) bestanden, darunter je 11 neue für den Launcher (DDK2/LSB → 1700 Hz, DDH47/USB → 1000 Hz, URL, UID-Rundreise).
+    Im FT-991A-Test musste der feste Versionsvergleich (0.5.1) auf 0.6.0 nachgezogen werden.
+  - Geprüft: Die vom Launcher erzeugte URL (DDK2, 4584,700 kHz LSB, PCR-Codec) wurde von Digidec angenommen: Preset DWD KW, Mitte 1700 Hz, Statuszeile „Auftrag von PCR-1500 Commander“.
+  - **Nicht geprüft:** Klick auf den Knopf in den Commandern. Der PCR-1500 Commander lief mit der alten Version weiter und wurde nicht neu gestartet (Projektregel). Der FT-991A war nicht angeschlossen.
+- **Befund Unshift on Space (v0.7.2):** Bei DWD-SYNOP-Meldungen (DDK2, 19:37 UTC) kamen die Zifferngruppen nach dem ersten Leerzeichen als Buchstaben („62198 QPPQY …“ statt „62198 10016 …“).
+  Ursache: „Unshift on Space“ (fldigi-Standard an). Der DWD sendet FIGS nur einmal je Zeile. Die Option ist jetzt eine **Preset-Eigenschaft** (`RTTYParameters.unshiftOnSpace`): Amateur an, **DWD aus**.
+  Sie steht im Einstellungsdialog unter „Übertragung“. Der Generator bildet beide Senderarten nach, und ein Test reproduziert das beobachtete Fehlerbild (209 Prüfungen).
+  In fldigi müsste man für den DWD „RX – unshift on space“ ebenfalls ausschalten.
+- **Nächster Schritt:**
+  - Der Nutzer startet die Commander neu und prüft den Knopf DIGIDEC.
+  - SYNOP-Zifferngruppen und ITA2 beim nächsten DWD-Block prüfen, DDH47 (LW) testen.
+  - Danach M6 (Vergleich mit fldigi).
 
 ---
 

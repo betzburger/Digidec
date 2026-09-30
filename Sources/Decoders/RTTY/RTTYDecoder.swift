@@ -92,7 +92,7 @@ public final class RTTYDecoder: @unchecked Sendable {
         c.squelchOn = o.squelchOn
         c.squelch = o.squelch
         c.cwi = o.tones.rawValue
-        c.unshiftOnSpace = o.unshiftOnSpace
+        c.unshiftOnSpace = p.unshiftOnSpace
         c.ita2 = p.ita2
         c.trueScope = o.trueScope
         c.filterK = o.filterK

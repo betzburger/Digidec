@@ -24,9 +24,12 @@ public struct RTTYParameters: Equatable, Codable, Sendable {
     public var reverse: Bool
     /// ITA2-Ziffernsatz (europäisch, z. B. `+` `=`); sonst US-TTY wie fldigi-Standard
     public var ita2: Bool
+    /// Nach einem Leerzeichen zurück auf Buchstaben. Eigenschaft des Senders: Amateurfunk ja,
+    /// DWD nein (sendet FIGS nur einmal je Zeile, SYNOP-Zifferngruppen wären sonst Buchstaben – beobachtet 30.09.2026)
+    public var unshiftOnSpace: Bool
 
     public init(shift: Double, baud: Double, bits: Int = 5, parity: RTTYParity = .none,
-                stopBits: Double = 1.5, reverse: Bool = false, ita2: Bool = false) {
+                stopBits: Double = 1.5, reverse: Bool = false, ita2: Bool = false, unshiftOnSpace: Bool = true) {
         self.shift = shift
         self.baud = baud
         self.bits = bits
@@ -34,9 +37,10 @@ public struct RTTYParameters: Equatable, Codable, Sendable {
         self.stopBits = stopBits
         self.reverse = reverse
         self.ita2 = ita2
+        self.unshiftOnSpace = unshiftOnSpace
     }
 
-    private enum CodingKeys: String, CodingKey { case shift, baud, bits, parity, stopBits, reverse, ita2 }
+    private enum CodingKeys: String, CodingKey { case shift, baud, bits, parity, stopBits, reverse, ita2, unshiftOnSpace }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -48,6 +52,7 @@ public struct RTTYParameters: Equatable, Codable, Sendable {
         reverse = try c.decode(Bool.self, forKey: .reverse)
         // ab 0.6.0; ältere gespeicherte Werte haben das Feld nicht
         ita2 = try c.decodeIfPresent(Bool.self, forKey: .ita2) ?? false
+        unshiftOnSpace = try c.decodeIfPresent(Bool.self, forKey: .unshiftOnSpace) ?? true   // ab 0.7.2
     }
 
     /// Mark- und Space-Ton im Audio bei gegebener Mittenfrequenz.
@@ -80,12 +85,12 @@ public struct RTTYPreset: Identifiable, Equatable, Sendable {
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
                    note: "Amateurfunk-Standard, Baudot mit US-TTY-Ziffern (fldigi-Standard)"),
         // DWD: Mark auf der tieferen HF (bestätigt 30.09.2026 an DDK2, PLAN.md 5.2) -> reverse bezogen auf USB;
-        // europäischer ITA2-Ziffernsatz (noch zu bestätigen)
+        // europäischer ITA2-Ziffernsatz (noch zu bestätigen); kein Unshift on Space (SYNOP-Gruppen, beobachtet 30.09.2026)
         RTTYPreset(id: "dwd-kw", name: "DWD KW",
-                   parameters: RTTYParameters(shift: 450, baud: 50, reverse: true, ita2: true),
+                   parameters: RTTYParameters(shift: 450, baud: 50, reverse: true, ita2: true, unshiftOnSpace: false),
                    note: "DWD Pinneberg 4583 / 7646 / 10100,8 / 11039 / 14467,3 kHz"),
         RTTYPreset(id: "dwd-lw", name: "DWD LW",
-                   parameters: RTTYParameters(shift: 85, baud: 50, reverse: true, ita2: true),
+                   parameters: RTTYParameters(shift: 85, baud: 50, reverse: true, ita2: true, unshiftOnSpace: false),
                    note: "DWD DDH47 147,3 kHz"),
         RTTYPreset(id: "custom", name: "Eigene",
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
@@ -127,7 +132,6 @@ public struct RTTYDecodeOptions: Equatable, Codable, Sendable {
     /// 0 … 100 gegen die fldigi-Metrik; bei DWD LW (85 Hz) höchstens ≈ 20
     public var squelch: Double = 15
     public var tones: Tones = .both
-    public var unshiftOnSpace = true
     /// Filter-Formfaktor; fldigi 4.2.13 rechnet fest mit 1,4
     public var filterK: Double = 1.4
     /// XY-Scope aus den Mark/Space-Filtern (sonst Pseudo-Scope aus den Beträgen)

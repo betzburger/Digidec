@@ -37,7 +37,7 @@ struct RTTYSettingsSheet: View {
                     settings.options = RTTYDecodeOptions()
                 }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("AFC normal, Squelch aus, Mark-Space, Unshift on Space an, K = 1,4, XY-Scope klassisch")
+                .help("AFC normal, Squelch aus, Mark-Space, K = 1,4, XY-Scope klassisch")
                 Spacer()
                 Button("Fertig") { dismiss() }
                     .buttonStyle(ModeButtonStyle(isSelected: true))
@@ -101,6 +101,12 @@ struct RTTYSettingsSheet: View {
                 segmented([true, false], selected: p.ita2, label: { $0 ? "ITA2" : "US-TTY" }) { v in set { $0.ita2 = v } }
                     .help("ITA2 (europäisch: + =) oder US-TTY (fldigi-Standard: \" ;)")
             }
+            row("Unshift on Space") {
+                Toggle("", isOn: Binding(get: { p.unshiftOnSpace }, set: { v in set { $0.unshiftOnSpace = v } }))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .help("Nach einem Leerzeichen zurück auf Buchstaben. Amateurfunk: an. DWD: aus (Zifferngruppen)")
+            }
             row("Reverse") {
                 Toggle("", isOn: Binding(get: { settings.isReversed }, set: { _ in settings.toggleReverse() }))
                     .toggleStyle(.switch)
@@ -137,12 +143,6 @@ struct RTTYSettingsSheet: View {
             row("Decodieren") {
                 segmented(RTTYDecodeOptions.Tones.allCases, selected: o.tones, label: { $0.label }) { v in settings.options.tones = v }
                     .help("Nur Mark / nur Space hilft, wenn ein Ton durch Störungen (CWI) überdeckt wird")
-            }
-            row("Unshift on Space") {
-                Toggle("", isOn: $settings.options.unshiftOnSpace)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .help("Nach einem Leerzeichen zurück auf Buchstaben")
             }
             row("Filter K") {
                 Stepper(value: $settings.options.filterK, in: RTTYDecodeOptions.filterKRange, step: 0.05) {

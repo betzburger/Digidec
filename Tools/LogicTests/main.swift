@@ -471,9 +471,12 @@ do {
     // Ziffernsatz: ITA2 ('+', '=') gegenüber US-TTY ('"', ';')
     var ita = FldigiRTTYCore.Options()
     ita.ita2 = true
+    ita.unshiftOnSpace = false            // DWD-Sender (Preset ohne Unshift on Space)
+    var us = FldigiRTTYCore.Options()
+    us.unshiftOnSpace = false
     let figText = "TEMP +12 = 5 "
     check(rttyDecode(RTTYPreset.preset(id: "dwd-kw")!.parameters, figText, genIta2: true, options: ita).0 == figText, "ITA2 '+' und '='")
-    check(rttyDecode(RTTYPreset.preset(id: "dwd-kw")!.parameters, figText, genIta2: true).0 == "TEMP \"12 ; 5 ", "Gleiche Codes als US-TTY")
+    check(rttyDecode(RTTYPreset.preset(id: "dwd-kw")!.parameters, figText, genIta2: true, options: us).0 == "TEMP \"12 ; 5 ", "Gleiche Codes als US-TTY")
 
     // Nur Mark / nur Space decodieren (CWI-Unterdrückung)
     for cwi in [1, 2] {
@@ -556,7 +559,7 @@ do {
     let round = try? JSONDecoder().decode(RTTYDecodeOptions.self, from: JSONEncoder().encode(o))
     check(round == o, "Optionen Rundreise")
     let def = RTTYDecodeOptions()
-    check(def.afc == .normal && !def.squelchOn && def.tones == .both && def.unshiftOnSpace && def.filterK == 1.4 && def.trueScope,
+    check(def.afc == .normal && !def.squelchOn && def.tones == .both && def.filterK == 1.4 && def.trueScope,
           "Standard wie fldigi")
     let co = RTTYDecoder.coreOptions(RTTYPreset.preset(id: "dwd-kw")!.parameters, o)
     check(co.afcOn && co.afcSpeed == 2 && co.squelchOn && co.cwi == 2 && co.ita2 && co.filterK == 1.25, "Optionen -> Kern")
@@ -738,6 +741,25 @@ do {
     Thread.sleep(forTimeInterval: 0.5)
     check(!box2.lock.withLock { box2.last.connected }, "Ohne Server nicht verbunden")
     c2.setPort(nil)
+}
+
+// MARK: - Unshift on Space je Sender (DWD-SYNOP, beobachtet 30.09.2026 an DDK2)
+do {
+    let dwd = RTTYPreset.preset(id: "dwd-kw")!.parameters
+    check(!dwd.unshiftOnSpace && !RTTYPreset.preset(id: "dwd-lw")!.parameters.unshiftOnSpace, "DWD-Presets ohne Unshift on Space")
+    check(RTTYPreset.preset(id: "ham")!.parameters.unshiftOnSpace, "Amateur mit Unshift on Space")
+    let synop = "62198 10016 30016 41/// "
+    var o = FldigiRTTYCore.Options()
+    o.ita2 = true
+    o.unshiftOnSpace = dwd.unshiftOnSpace
+    check(rttyDecode(dwd, synop, options: o).0 == synop, "SYNOP-Gruppen mit DWD-Preset als Ziffern")
+    // Der Fehler aus dem Live-Empfang: gleicher Sender, Empfänger mit Unshift on Space -> Gruppen als Buchstaben
+    o.unshiftOnSpace = true
+    check(rttyDecode(dwd, synop, options: o).0 == "62198 QPPQY EPPQY RQXXX ", "Mit Unshift on Space: Buchstaben wie beobachtet (\"/\" -> X)")
+    let co = RTTYDecoder.coreOptions(dwd, RTTYDecodeOptions())
+    check(!co.unshiftOnSpace, "Preset-Wert geht an den Kern")
+    let old = #"{"shift":170,"baud":45.45,"bits":5,"parity":"none","stopBits":1.5,"reverse":false,"ita2":false}"#
+    check((try? JSONDecoder().decode(RTTYParameters.self, from: Data(old.utf8)))?.unshiftOnSpace == true, "Alte Eigene-Parameter: Unshift on Space an")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")
