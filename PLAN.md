@@ -194,8 +194,12 @@ digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<Core
 
 \* „Invert“ bezieht sich auf die Decoder-Logik **nach** der automatischen LSB/USB-Korrektur.
 
-**Polarität DWD:** Kommerzielle F1B-Aussendungen verwenden meist die umgekehrte Zuordnung wie Amateur-RTTY.
-Die richtige Invert-Einstellung beim **ersten echten Empfang** ermitteln und hier eintragen. Bis dahin hilft die Auto-Invertierung.
+**Polarität DWD – bestätigt am 30.09.2026, 19:22 UTC:** DDK2 4583 kHz, PCR-1500 in **LSB**, Dial 4584,700 kHz, Mitte 1696 Hz:
+fehlerfreie Testschleife („CQ CQ CQ DE DDK2 DDH7 DDK9 / FREQUENCIES 4583 KHZ 7646 KHZ 10100.8 KHZ“) **ohne REV**
+(Mark im Audio oben bei 1921 Hz). Mark liegt also auf der **tieferen HF** (4582,775 kHz), wie bei kommerziellem F1B üblich und umgekehrt zum Amateurfunk.
+Solange Digidec das Seitenband nicht kennt, gilt: **DWD in LSB → REV aus, in USB → REV an.**
+Ab M7 liest Digidec den Mode über rigctld und korrigiert automatisch wie fldigi (`reverse = REV xor LSB`). Dann erhalten die DWD-Presets `reverse = true` im Sinne der HF-Konvention.
+**ITA2** für den DWD ist noch zu bestätigen. Die Testschleife enthält kein `+` oder `=`; die Wetterberichte, zum Beispiel WODL45 zur vollen 3-Stunden-Marke, enthalten sie.
 
 **Abstimmhilfe:** Audio-Mitte 1000 Hz → Dial in USB = Sollfrequenz − 1,0 kHz.
 Beispiel DWD LW: USB, Dial **146,300 kHz** → Töne bei ≈ 957,5 / 1042,5 Hz.
@@ -501,7 +505,10 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - v0.6.1: Wasserfall 260 pt, Scope 124 pt, Mindesthöhe 730 pt (Bildschirm des Nutzers 900 pt hoch).
   - **Nicht selbst geprüft:** Bedienung (Knöpfe, Regler, Einstellungsdialog, Kopieren/Ordner) – kein Zugriff auf Maus/Tastatur.
   - Beobachtung: Ohne Squelch wandert die AFC auf reinem Rauschen langsam (fldigi-Verhalten). Mit SQL an greift die AFC nur oberhalb der Schwelle.
-- **Nächster Schritt:** Erster echter Empfang DDH47 (147,3 kHz, 05–22 UTC) durch den Nutzer: Polarität (REV) und Ziffernsatz (ITA2) für die DWD-Presets bestätigen und in 5.2 eintragen. Danach M6 (Qualitätsvergleich mit fldigi) bzw. M7 (rigctld).
+- **Erster echter Empfang (30.09.2026, 19:22 UTC):** DDK2 4583 kHz über den PCR-1500 (LSB) sauber decodiert. Signalqualität 100, XY-Kreuz sauber, AFC hält bei ±0,1 Hz.
+  Befund zur Polarität in Abschnitt 5.2. Vereinzelte Zeichen- und Umschaltfehler wie auf KW üblich.
+- **Kleiner Fehler:** Die Statuszeile zeigt den letzten Auftrag („Preset dwd-lw · Mitte 1000 Hz“), auch wenn danach von Hand ein anderes Preset gewählt wurde. Soll den aktuellen Stand zeigen.
+- **Nächster Schritt:** Statuszeile korrigieren. ITA2 bei einem Wetterbericht prüfen und DDH47 (LW) testen. Danach M7 (rigctld mit automatischer Seitenband-Korrektur) vorziehen und M6 (Vergleich mit fldigi).
 
 ---
 
