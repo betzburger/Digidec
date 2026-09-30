@@ -762,5 +762,44 @@ do {
     check((try? JSONDecoder().decode(RTTYParameters.self, from: Data(old.utf8)))?.unshiftOnSpace == true, "Alte Eigene-Parameter: Unshift on Space an")
 }
 
+// MARK: - Aufnahme (M6)
+do {
+    let d = ISO8601DateFormatter().date(from: "2026-09-30T19:37:05Z")!
+    check(InputRecorder.fileName(date: d, frequencyHz: 4_584_700, mode: "LSB", preset: "dwd-kw")
+          == "RTTY_2026-09-30_193705Z_4584700Hz_LSB_DWD-KW.wav", "Dateiname der Aufnahme")
+    check(InputRecorder.fileName(date: d, frequencyHz: nil, mode: nil, preset: "ham") == "RTTY_2026-09-30_193705Z_HAM.wav",
+          "Dateiname ohne Funkgerät")
+    // Ende-zu-Ende: Pipeline (48 kHz) -> Aufnahme -> WAV mit gleicher Länge und Rate
+    let pipeline = AudioPipeline()
+    let rec = InputRecorder(pipeline: pipeline)
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("digidec_rec_\(getpid()).wav")
+    defer { try? FileManager.default.removeItem(at: url) }
+    pipeline.start(inputRate: 48_000)
+    Thread.sleep(forTimeInterval: 0.05)
+    rec.start(url: url)
+    check(rec.isRecording, "Aufnahme läuft")
+    let tone = (0..<24_000).map { Float(0.25 * sin(2 * Double.pi * 1000 * Double($0) / 48_000)) }
+    tone.withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: $0.count) }
+    Thread.sleep(forTimeInterval: 0.3)
+    check(abs(rec.duration - 0.5) < 0.01, "Aufnahmedauer 0,5 s, got \(rec.duration)")
+    check(rec.stop() == url && !rec.isRecording, "Aufnahme beendet")
+    pipeline.stop()
+    if let f = try? AVAudioFile(forReading: url) {
+        check(f.fileFormat.sampleRate == 48_000 && f.fileFormat.channelCount == 1 && f.length == 24_000,
+              "WAV: 48 kHz mono, 24000 Frames, got \(f.fileFormat.sampleRate) / \(f.length)")
+    } else {
+        check(false, "Aufnahme nicht lesbar")
+    }
+    // Begleitdatei: Rundreise
+    let store = RTTYSettingsStore()
+    store.select(presetID: "dwd-kw")
+    let info = RecordingInfo(presetID: "dwd-kw", parameters: store.parameters, decoderParameters: store.decoderParameters,
+                             options: store.options, centerHz: 1700, lsb: true, frequencyHz: 4_584_700, mode: "LSB", startedAt: d)
+    let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+    check((try? dec.decode(RecordingInfo.self, from: enc.encode(info))) == info, "Begleitdatei Rundreise")
+    store.select(presetID: "ham")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

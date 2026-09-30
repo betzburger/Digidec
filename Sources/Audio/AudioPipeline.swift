@@ -17,6 +17,10 @@ public final class AudioPipeline: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.peterbetz.digidec.pipeline", qos: .userInitiated)
     private let sinkLock = NSLock()
     private var sinks: [UUID: Sink] = [:]
+    /// Senken für das unveränderte Eingangssignal (Quell-Abtastrate), z. B. die Aufnahme
+    public typealias RawSink = @Sendable (UnsafeBufferPointer<Float>, Double) -> Void
+    private var rawSinks: [UUID: RawSink] = [:]
+    private var inputRate: Double = 0
 
     // Nur auf `queue` benutzt
     private var timer: DispatchSourceTimer?
@@ -38,6 +42,7 @@ public final class AudioPipeline: @unchecked Sendable {
             ring.clear()
             _ = level.take()
             converter = SampleRateConverter(inputRate: inputRate, outputRate: Self.decoderSampleRate)
+            self.inputRate = inputRate
             deliveredSamples = 0
 
             let t = DispatchSource.makeTimerSource(queue: queue)
@@ -63,7 +68,17 @@ public final class AudioPipeline: @unchecked Sendable {
     }
 
     public func removeSink(_ id: UUID) {
-        sinkLock.withLock { _ = sinks.removeValue(forKey: id) }
+        sinkLock.withLock {
+            _ = sinks.removeValue(forKey: id)
+            _ = rawSinks.removeValue(forKey: id)
+        }
+    }
+
+    @discardableResult
+    public func addRawSink(_ sink: @escaping RawSink) -> UUID {
+        let id = UUID()
+        sinkLock.withLock { rawSinks[id] = sink }
+        return id
     }
 
     /// Führt `work` auf der Verarbeitungs-Queue aus – dort laufen auch die Senken (Decoder-Zustand ohne Locks ändern).
@@ -84,12 +99,13 @@ public final class AudioPipeline: @unchecked Sendable {
 
     private func drain() {
         guard let converter else { return }
-        let current = sinkLock.withLock { Array(sinks.values) }
+        let (current, raw) = sinkLock.withLock { (Array(sinks.values), Array(rawSinks.values)) }
         while true {
             let n = ring.read(into: chunk, maxCount: chunkCapacity)
             guard n > 0 else { break }
             let block = UnsafeBufferPointer(start: chunk, count: n)
             level.add(block)
+            for r in raw { r(block, inputRate) }
             converter.process(block) { out in
                 deliveredSamples += out.count
                 for sink in current { sink(out) }

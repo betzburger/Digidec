@@ -31,7 +31,9 @@ public struct RTTYSignalGenerator {
         let figures = ita2 ? Self.ita2Figures : Self.usFigures
         var codes = [Self.ltrs]
         var inFigures = false
-        for ch in text.uppercased() {
+        // skalarweise: Swift behandelt „\r\n“ als ein einziges Character
+        for scalar in text.uppercased().unicodeScalars {
+            let ch = Character(scalar)
             if ch == " " {
                 codes.append(Self.space)
                 // Sender, die mit Unshift-on-Space rechnen (Amateurfunk), schalten danach neu um;

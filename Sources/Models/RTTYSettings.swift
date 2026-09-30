@@ -157,3 +157,19 @@ public enum SidebandMode: String, CaseIterable, Codable, Sendable {
         }
     }
 }
+
+/// Begleitdatei einer Aufnahme (`…wav` + `…json`): alles, was zum identischen Nachdecodieren nötig ist
+public struct RecordingInfo: Codable, Equatable, Sendable {
+    public var presetID: String
+    /// Preset-Parameter (Reverse bezogen auf USB)
+    public var parameters: RTTYParameters
+    /// Parameter, wie sie der Decoder bekam (Reverse nach Seitenband-Korrektur)
+    public var decoderParameters: RTTYParameters
+    public var options: RTTYDecodeOptions
+    /// NF-Mitte beim Start der Aufnahme
+    public var centerHz: Double
+    public var lsb: Bool
+    public var frequencyHz: Int?
+    public var mode: String?
+    public var startedAt: Date
+}

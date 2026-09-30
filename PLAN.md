@@ -309,6 +309,26 @@ Das Design übernimmt `Sources/UI/Theme.swift` der Commander 1:1. Beide Commande
 
 ## 8. Qualitätssicherung: „genauso gut wie fldigi“ nachweisen
 
+### 8.0 Ablauf für den Vergleich (Werkzeuge seit v0.8.0)
+
+1. **Aufnehmen:** In Digidec bei laufendem Empfang auf **REC** drücken (Leiste über dem Empfangstext), einige Minuten, dann Stopp.
+   Es entstehen zwei Dateien in `~/Documents/Digidec/Recordings/`: `RTTY_<UTC>_<Hz>_<Mode>_<PRESET>.wav` (Eingang nach Kanalwahl, Quellrate, 16 Bit mono)
+   und die gleichnamige `.json` mit Preset, Decoder-Parametern (Reverse nach Seitenband), Optionen, Mitte, Frequenz und Mode.
+2. **Digidec offline:** `Tools/DecodeFile/decode_file.sh <wav> --loop ddk2` → `<wav>.digidec.txt` und Auswertung.
+   `--loop ddk2` wertet gegen die bekannte DWD-Testschleife („RYRY…“, „CQ CQ CQ DE DDK2 DDH7 DDK9“, „FREQUENCIES …“). Nicht dazugehörige Zeilen werden ignoriert.
+3. **fldigi:** fldigi 4.2.13 starten (installiert: `/Applications/fldigi-4.2.13.app`), dann `Tools/fldigi_rtty.py prepare <wav>`.
+   Das setzt RTTY, Mitte, Reverse und AFC per XML-RPC und nennt die Werte für Configure → Modems → TTY (Shift, Baud, **Unshift on Space aus** für DWD, ITA2).
+   Danach in fldigi **File → Audio → Playback** mit der WAV-Datei. Wenn sie durchgelaufen ist: `Tools/fldigi_rtty.py fetch <wav>` → `<wav>.fldigi.txt`.
+4. **Vergleich:** `Tools/DecodeFile/decode_file.sh <wav> --loop ddk2 --compare <wav>.fldigi.txt`
+   liefert Zeichenfehler beider Programme gegen die Testschleife und die Abweichung Digidec ↔ fldigi.
+5. Ergebnisse in die Tabelle unten eintragen.
+
+| Datum | Aufnahme | Bedingungen | Digidec Fehler | fldigi Fehler | Abweichung |
+|---|---|---|---|---|---|
+| – | – | – | – | – | – |
+
+Selbsttest der Werkzeuge (synthetische Testschleife, DWD KW, 48 kHz): sauber 0,00 %, −6 dB 8,2 %, −9 dB kaum noch Zeilen erkannt.
+
 1. **Testdaten aufnehmen:** Mit dem PCR-1500 bzw. FT-991A über die virtuelle Soundkarte WAV-Dateien aufzeichnen (Commander haben einen Live-Audio-Recorder).
    Ziel: je mindestens 3 Aufnahmen DWD-LW, DWD-KW und Amateur-RTTY, gute und schlechte Bedingungen.
 2. **Referenz:** Dieselben WAVs mit fldigi (macOS-Version installieren, Audio-Eingang = Datei bzw. Loopback) decodieren und den Text speichern.
@@ -384,7 +404,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M3 | Wasserfall | ✅ 30.09.2026 (v0.4.1): vDSP-FFT, Spektrumkurve, Mark/Space-Marker, Klick/Ziehen setzt Mitte, Zoom, Dynamik; Presets wählbar |
 | M4 | fldigi-RTTY-Kern herausgelöst | ✅ 30.09.2026 (v0.5.0): `Vendor/FldigiRTTY` + C-API, Signalverarbeitung zeilengleich mit fldigi 4.2.13, alle Presets synthetisch fehlerfrei |
 | M5 | RTTY in der App | ✅ 30.09.2026 (v0.6.1): Text, Log, XY-Scope, Signalanzeige, REV/AFC/SQL, Einstellungsdialog; Bedienung durch den Nutzer noch zu prüfen |
-| M6 | Qualitätsnachweis | Testdaten + Vergleich mit fldigi (Abschnitt 8), DWD-Polarität in 5.2 eingetragen |
+| M6 | Qualitätsnachweis | 🟡 30.09.2026 (v0.8.0): Werkzeuge fertig (REC, `decode_file.sh`, `fldigi_rtty.py`), Polarität eingetragen; Vergleich mit echten Aufnahmen durch den Nutzer offen (Abschnitt 8.0) |
 | M7 | rigctld-Anbindung | ✅ 30.09.2026 (v0.7.1): Frequenz/Mode in Kopfzeile und Log, automatische Seitenband-Korrektur (AUTO/USB/LSB) |
 | M8 | URL-Schema + Buttons in beiden Commandern | ✅ 30.09.2026: Knopf DIGIDEC in PCR-1500 Commander 0.22.0 und FT-991A Commander 0.6.0; automatische DWD-Erkennung mit NF-Mitte; Klick durch den Nutzer noch zu prüfen |
 | M9+ | weitere Module | Vorschlag: NAVTEX (fldigi), CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
@@ -540,7 +560,13 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   Ursache: „Unshift on Space“ (fldigi-Standard an). Der DWD sendet FIGS nur einmal je Zeile. Die Option ist jetzt eine **Preset-Eigenschaft** (`RTTYParameters.unshiftOnSpace`): Amateur an, **DWD aus**.
   Sie steht im Einstellungsdialog unter „Übertragung“. Der Generator bildet beide Senderarten nach, und ein Test reproduziert das beobachtete Fehlerbild (209 Prüfungen).
   In fldigi müsste man für den DWD „RX – unshift on space“ ebenfalls ausschalten.
+- **M6-Werkzeuge (v0.8.0):**
+  - `InputRecorder` (Aufnahme über neue Roh-Senken `AudioPipeline.addRawSink`, Quellrate, 16 Bit mono) mit REC-Knopf und Begleitdatei `RecordingInfo` (.json).
+  - `Tools/DecodeFile` (Offline-Decoder, ≈ 140× Echtzeit, Auswertung `--loop ddk2`, `--compare`) und `Tools/fldigi_rtty.py` (XML-RPC: prepare / status / fetch).
+  - Ablauf in Abschnitt 8.0. Gefunden und behoben: Der Testgenerator verschluckte „\r\n“ (ein Character in Swift) → jetzt skalarweise.
+  - Logiktests: 216 Prüfungen (Dateiname, Aufnahme Ende-zu-Ende 48 kHz → WAV, Begleitdatei).
 - **Nächster Schritt:**
+  - Der Nutzer macht eine Aufnahme von DDK2 (Testschleife) und führt den Vergleich nach Abschnitt 8.0 durch; Ergebnis in die Tabelle.
   - Der Nutzer startet die Commander neu und prüft den Knopf DIGIDEC.
   - SYNOP-Zifferngruppen und ITA2 beim nächsten DWD-Block prüfen, DDH47 (LW) testen.
   - Danach M6 (Vergleich mit fldigi).

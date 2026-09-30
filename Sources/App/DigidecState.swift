@@ -40,6 +40,7 @@ public final class DigidecState: ObservableObject {
             guard let self else { return }
             rtty.rigIsLSB = state.isLSB
             rttyController.rigDescription = rig.description
+            rttyController.rigState = state
         }
     }
 
@@ -96,6 +97,7 @@ public final class DigidecState: ObservableObject {
     }
 
     public func cleanup() {
+        if rttyController.isRecording { rttyController.toggleRecording() }   // WAV-Kopf abschließen
         audio.cleanup()
     }
 }

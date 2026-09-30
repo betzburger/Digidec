@@ -39,6 +39,12 @@ public final class RTTYController: ObservableObject {
     public let decoder: RTTYDecoder
     public let textModel = ReceiveTextModel()
     public let logger = DecodeLogger(mode: "RTTY")
+    public let recorder: InputRecorder
+    @Published public private(set) var isRecording = false
+    @Published public private(set) var recordingDuration: TimeInterval = 0
+    @Published public private(set) var lastRecording: URL?
+    /// Frequenz und Mode für Dateiname und Begleitdatei der Aufnahme (vom App-Zustand gesetzt)
+    public var rigState: RigState?
 
     @Published public private(set) var status: FldigiRTTYCore.Status?
     @Published public private(set) var scope: [CGPoint] = []
@@ -67,6 +73,7 @@ public final class RTTYController: ObservableObject {
     public init(pipeline: AudioPipeline, settings: RTTYSettingsStore) {
         self.settings = settings
         decoder = RTTYDecoder(pipeline: pipeline)
+        recorder = InputRecorder(pipeline: pipeline)
         logEnabled = UserDefaults.standard.object(forKey: "rttyLogEnabled") as? Bool ?? true
 
         decoder.configure(parameters: settings.decoderParameters, options: settings.options, centerHz: settings.centerHz)
@@ -120,6 +127,41 @@ public final class RTTYController: ObservableObject {
         }
         if !out.scope.isEmpty {
             scope = out.scope
+        }
+        if isRecording {
+            recordingDuration = recorder.duration
+        }
+    }
+
+    // MARK: - Aufnahme
+
+    public func toggleRecording() {
+        if isRecording {
+            lastRecording = recorder.stop()
+            isRecording = false
+            return
+        }
+        let rig = rigState?.connected == true ? rigState : nil
+        let name = InputRecorder.fileName(frequencyHz: rig?.frequencyHz, mode: rig?.mode, preset: settings.presetID)
+        let url = InputRecorder.directory.appendingPathComponent(name)
+        recorder.start(url: url)
+        writeSidecar(for: url, rig: rig)
+        recordingDuration = 0
+        isRecording = true
+        lastRecording = url
+    }
+
+    /// Begleitdatei `<Aufnahme>.json` mit allen Einstellungen, damit Digidec-Offline und fldigi exakt gleich decodieren
+    private func writeSidecar(for url: URL, rig: RigState?) {
+        let info = RecordingInfo(presetID: settings.presetID, parameters: settings.parameters,
+                                 decoderParameters: settings.decoderParameters, options: settings.options,
+                                 centerHz: settings.centerHz, lsb: settings.effectiveLSB,
+                                 frequencyHz: rig?.frequencyHz, mode: rig?.mode, startedAt: Date())
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        if let data = try? enc.encode(info) {
+            try? data.write(to: url.deletingPathExtension().appendingPathExtension("json"))
         }
     }
 

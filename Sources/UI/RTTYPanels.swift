@@ -21,6 +21,16 @@ struct ReceivePanel: View {
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
                 Button {
+                    controller.toggleRecording()
+                } label: {
+                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                .help("Eingangssignal als WAV aufnehmen (mit Begleitdatei der Einstellungen) – für den Vergleich mit fldigi. "
+                      + "Ordner: ~/Documents/Digidec/Recordings")
+                Button {
                     controller.logEnabled.toggle()
                 } label: {
                     Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
@@ -28,12 +38,14 @@ struct ReceivePanel: View {
                 .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
                 .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
                 Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+                        ?? controller.logger.fileURL()
+                    NSWorkspace.shared.activateFileViewerSelecting([target])
                 } label: {
                     Image(systemName: "folder")
                 }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Ordner im Finder zeigen")
+                .help("Letzte Aufnahme bzw. Log-Datei im Finder zeigen")
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(controller.textModel.text, forType: .string)
@@ -54,6 +66,13 @@ struct ReceivePanel: View {
                 .background(RadioTheme.bgDeep)
                 .cornerRadius(6)
         }
+    }
+}
+
+extension ReceivePanel {
+    static func duration(_ t: TimeInterval) -> String {
+        let s = Int(t)
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 
