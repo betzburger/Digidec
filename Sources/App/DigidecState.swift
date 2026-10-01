@@ -21,6 +21,8 @@ public final class DigidecState: ObservableObject {
     public let waterfall: WaterfallModel
     public let rttyController: RTTYController
     public let rig = RigModel()
+    public let navtex = NavtexSettingsStore()
+    public let navtexController: NavtexController
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -28,6 +30,16 @@ public final class DigidecState: ObservableObject {
         audio = AudioInputManager()
         waterfall = WaterfallModel(pipeline: audio.pipeline)
         rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
+        navtexController = NavtexController(pipeline: audio.pipeline, settings: navtex)
+
+        // Nur das gewählte Modul decodiert
+        $activeModule
+            .receive(on: RunLoop.main)
+            .sink { [weak self] module in
+                self?.rttyController.decoder.setEnabled(module == .rtty)
+                self?.navtexController.setActive(module == .navtex)
+            }
+            .store(in: &cancellables)
 
         // rigctld des Funkgeräts, dessen Codec gerade gelesen wird (bei Dateiwiedergabe keins)
         audio.$activeInput.combineLatest(audio.$sourceKind)
@@ -39,6 +51,8 @@ public final class DigidecState: ObservableObject {
         rig.onChange = { [weak self] state in
             guard let self else { return }
             rtty.rigIsLSB = state.isLSB
+            navtex.rigIsLSB = state.isLSB
+            navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             rttyController.rigDescription = rig.description
             rttyController.rigState = state
         }
@@ -73,11 +87,15 @@ public final class DigidecState: ObservableObject {
             activeModule = request.module
             lastRequestError = nil
             lastRequestDate = Date()
-            if request.module == .rtty {
+            switch request.module {
+            case .rtty:
                 rtty.select(presetID: request.presetID)
-                if let center = request.centerHz {
-                    rtty.setCenter(center)
-                }
+                if let center = request.centerHz { rtty.setCenter(center) }
+            case .navtex:
+                if let f = NavtexFrequency(rawValue: request.presetID) { navtex.frequency = f }
+                if let center = request.centerHz { navtex.setCenter(center) }
+            default:
+                break
             }
             rttyController.sourceDescription = request.sourceDisplayName
             rig.apply(request: request)

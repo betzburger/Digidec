@@ -2,15 +2,15 @@ import SwiftUI
 
 /// Wasserfall mit Frequenzskala, Spektrumkurve und Mark/Space-Markern.
 /// Klick oder Ziehen setzt die Audio-Mittenfrequenz des Decoders.
-struct WaterfallView: View {
+struct WaterfallView<Tuning: TuningTarget>: View {
     @ObservedObject var model: WaterfallModel
-    @ObservedObject var rtty: RTTYSettingsStore
+    @ObservedObject var rtty: Tuning
     @ObservedObject var audio: AudioInputManager
 
     @State private var hoverHz: Double?
 
-    private static let axisHeight: CGFloat = 16
-    private static let spectrumHeight: CGFloat = 54
+    private var axisHeight: CGFloat { 16 }
+    private var spectrumHeight: CGFloat { 54 }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -20,15 +20,15 @@ struct WaterfallView: View {
                 let width = geo.size.width
                 VStack(spacing: 0) {
                     FrequencyAxis(range: range)
-                        .frame(height: Self.axisHeight)
+                        .frame(height: axisHeight)
                     ZStack(alignment: .topLeading) {
                         VStack(spacing: 0) {
                             SpectrumGraph(spectrum: model.spectrum, binWidth: model.binWidth, range: range,
                                           floorDB: model.noiseFloor, rangeDB: model.rangeDB)
-                                .frame(height: Self.spectrumHeight)
+                                .frame(height: spectrumHeight)
                             waterfallImage(range: range)
                         }
-                        SignalMarkers(range: range, center: rtty.centerHz, parameters: rtty.decoderParameters, hoverHz: hoverHz)
+                        SignalMarkers(range: range, center: rtty.centerHz, tones: rtty.tones, bandwidth: rtty.markerBandwidth, hoverHz: hoverHz)
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -183,7 +183,8 @@ private struct SpectrumGraph: View {
 private struct SignalMarkers: View {
     let range: ClosedRange<Double>
     let center: Double
-    let parameters: RTTYParameters
+    let tones: (mark: Double, space: Double)
+    let bandwidth: Double
     let hoverHz: Double?
 
     var body: some View {
@@ -192,11 +193,10 @@ private struct SignalMarkers: View {
             func x(_ f: Double) -> CGFloat { CGFloat((f - range.lowerBound) / span) * size.width }
 
             // Belegte Bandbreite
-            let bw = parameters.displayBandwidth
+            let bw = bandwidth
             let band = CGRect(x: x(center - bw / 2), y: 0, width: x(center + bw / 2) - x(center - bw / 2), height: size.height)
             ctx.fill(Path(band), with: .color(RadioTheme.vfdCyan.opacity(0.07)))
 
-            let tones = parameters.tones(center: center)
             for (f, label, color) in [(tones.mark, "M", RadioTheme.vfdAmber), (tones.space, "S", RadioTheme.vfdCyan)] {
                 let px = x(f)
                 guard px >= 0, px <= size.width else { continue }

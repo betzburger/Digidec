@@ -86,7 +86,7 @@ extension ReceivePanel {
 }
 
 /// Leuchtet grün, solange Zeichen ankommen
-private struct ActivityLED: View {
+struct ActivityLED: View {
     let lastChar: Date?
 
     var body: some View {
@@ -170,7 +170,7 @@ private struct XYScopeView: View {
 }
 
 /// Signalqualität 0…100 (fldigi-Metrik) mit Squelch-Schwelle
-private struct SignalBar: View {
+struct SignalBar: View {
     let metric: Double
     let squelch: Double?
 

@@ -79,7 +79,9 @@ do {
     check(parse("digidec://start?mode=rtty") == .failure(.unknownAction("start")), "Falsche Aktion")
     check(parse("digidec://decode") == .failure(.missingMode), "Mode fehlt")
     check(parse("digidec://decode?mode=pactor") == .failure(.unknownMode("pactor")), "Unbekannter Mode")
-    check(parse("digidec://decode?mode=navtex") == .failure(.moduleNotAvailable(.navtex)), "Geplantes Modul")
+    check(parse("digidec://decode?mode=cw") == .failure(.moduleNotAvailable(.cw)), "Geplantes Modul")
+    check(parse("digidec://decode?mode=navtex&preset=490") == .success(DecodeRequest(module: .navtex, presetID: "490")), "NAVTEX-Auftrag")
+    check(parse("digidec://decode?mode=navtex") == .success(DecodeRequest(module: .navtex, presetID: "518")), "NAVTEX-Standard 518 kHz")
     check(parse("digidec://decode?mode=rtty&preset=xyz") == .failure(.unknownPreset("xyz", .rtty)), "Unbekanntes Preset")
     check(parse("digidec://decode?mode=rtty&rigctl=80") == .failure(.invalidPort("80")), "Port zu klein")
     check(parse("digidec://decode?mode=rtty&rigctl=70000") == .failure(.invalidPort("70000")), "Port zu groß")
@@ -90,7 +92,7 @@ do {
 
 // MARK: - Modul-Liste
 do {
-    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == [.rtty], "Nur RTTY verfügbar (M1)")
+    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == [.rtty, .navtex], "RTTY und NAVTEX verfügbar")
     for m in DecoderModuleInfo.allCases where m.isAvailable {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
     }
@@ -907,6 +909,62 @@ do {
     check(st?.name == "Pinneberg" && st?.callsign == "DDH47" && st?.country == "Germany", "Station L/518 kHz = Pinneberg, got \(String(describing: st))")
     check(abs((st?.latitude ?? 0) - 53.72) < 0.05 && abs((st?.longitude ?? 0) - 9.92) < 0.05, "Pinneberg-Koordinaten")
     check(FldigiNavtexCore.findStation(origin: "L", frequencyHz: 518_000, locator: "", message: "") == nil, "Ohne Locator keine Suche (wie fldigi)")
+}
+
+// MARK: - NAVTEX in der App (Einstellungen, Pipeline 11025 Hz, Nachrichten)
+do {
+    check(NavtexFrequency.allCases.map(\.rawValue) == DecoderModuleInfo.navtex.presetIDs, "NAVTEX-Frequenzen = IDs im URL-Schema")
+    check(NavtexFrequency.f518.usbDial(center: 1000) == 517_000, "518 kHz: USB-Dial 517,000 kHz")
+    let st = NavtexSettingsStore()
+    st.reverse = false
+    st.sidebandMode = .auto
+    st.rigIsLSB = nil
+    st.setCenter(1000)
+    check(st.tones.mark == 1085 && st.tones.space == 915 && !st.decoderReverse, "NAVTEX USB: Mark 1085 / Space 915")
+    st.rigIsLSB = true
+    check(st.decoderReverse && st.tones.mark == 915, "NAVTEX in LSB: Umkehr")
+    st.rigIsLSB = nil
+    check(st.markerBandwidth == 270, "Bandbreite 2 × 85 + 100")
+    st.setCenter(50)
+    check(st.centerHz == 200, "Mitte unten begrenzt")
+    st.setCenter(1000)
+
+    // Pipeline 48 kHz -> 11025 Hz -> NAVTEX-Decoder
+    let pipeline = AudioPipeline()
+    let decoder = NavtexDecoder(pipeline: pipeline)
+    decoder.configure(options: FldigiNavtexCore.Options(), centerHz: 1000)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    var gen = NavtexSignalGenerator()
+    gen.sampleRate = 48_000
+    gen.phasingSeconds = 8
+    let samples = gen.samples(header: "LA42", text: "NAVAREA I WRECK REPORTED 54-10N 007-50E")
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    while i < samples.count {
+        let n = min(48_000, samples.count - i)
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.12)
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    let out = decoder.takeOutput()
+    check(out.messages.first?.text == "NAVAREA I WRECK REPORTED 54-10N 007-50E" && out.messages.first?.code == "LA42",
+          "Pipeline 48 kHz -> NAVTEX: Nachricht exakt, got \(out.messages.map(\.text))")
+    check(out.text.contains("ZCZC LA42"), "Laufender Text über die Pipeline")
+    // Abgeschaltet: kein Text
+    decoder.setEnabled(false)
+    samples.prefix(48_000).withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: $0.count) }
+    Thread.sleep(forTimeInterval: 0.3)
+    check(decoder.takeOutput().text.isEmpty, "Abgeschaltetes Modul decodiert nicht")
+    pipeline.stop()
+
+    // Anzeigezeile einer Nachricht
+    let msg = NavtexMessage(text: "TEST", origin: "L", subject: "B", number: 7, subjectText: "Meteorological warning",
+                            receivedAt: ISO8601DateFormatter().date(from: "2026-10-01T08:40:00Z")!)
+    let station = FldigiNavtexCore.Station(name: "Pinneberg", callsign: "DDH47", country: "Germany", latitude: 53.7, longitude: 9.9)
+    check(NavtexEntry(message: msg, station: station, isRepeat: true).summary
+          == "LB07 · Wetterwarnung · Pinneberg (DDH47) · 08:40 UTC · Wiederholung", "Zusammenfassung einer Nachricht")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

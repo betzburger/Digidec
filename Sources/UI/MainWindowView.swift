@@ -19,25 +19,46 @@ public struct MainWindowView: View {
 
                 HStack(alignment: .top, spacing: 10) {
                     VStack(spacing: 10) {
-                        WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
-                            .frame(height: 260)
-                            .radioCard(title: "Wasserfall")
+                        Group {
+                            if state.activeModule == .navtex {
+                                WaterfallView(model: state.waterfall, rtty: state.navtex, audio: state.audio)
+                            } else {
+                                WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
+                            }
+                        }
+                        .frame(height: 260)
+                        .radioCard(title: "Wasserfall")
 
-                        ReceivePanel(controller: state.rttyController, settings: state.rtty)
-                            .frame(maxHeight: .infinity)
-                            .radioCard(title: "Empfangstext")
+                        Group {
+                            if state.activeModule == .navtex {
+                                NavtexReceivePanel(controller: state.navtexController)
+                            } else {
+                                ReceivePanel(controller: state.rttyController, settings: state.rtty)
+                            }
+                        }
+                        .frame(maxHeight: .infinity)
+                        .radioCard(title: "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
                     VStack(spacing: 10) {
-                        TuningPanel(controller: state.rttyController, settings: state.rtty)
-                            .radioCard(title: "Abstimmanzeige")
+                        if state.activeModule == .navtex {
+                            NavtexTuningPanel(controller: state.navtexController, settings: state.navtex)
+                                .radioCard(title: "Abstimmanzeige")
+                            NavtexSettingsPanel(settings: state.navtex)
+                                .radioCard(title: "NAVTEX")
+                            NavtexMessageList(controller: state.navtexController)
+                                .radioCard(title: "Nachrichten")
+                        } else {
+                            TuningPanel(controller: state.rttyController, settings: state.rtty)
+                                .radioCard(title: "Abstimmanzeige")
 
-                        VStack(spacing: 8) {
-                            PresetPanel(rtty: state.rtty)
-                            RTTYQuickControls(settings: state.rtty, showSettings: $showRTTYSettings)
+                            VStack(spacing: 8) {
+                                PresetPanel(rtty: state.rtty)
+                                RTTYQuickControls(settings: state.rtty, showSettings: $showRTTYSettings)
+                            }
+                            .radioCard(title: "Preset")
                         }
-                        .radioCard(title: "Preset")
 
                         InputPanelView(audio: state.audio)
                             .radioCard(title: "Eingang")
@@ -48,7 +69,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex)
             }
             .padding(.bottom, 8)
         }
@@ -251,10 +272,11 @@ private struct ModeLabelLook: ViewModifier {
 private struct StatusBar: View {
     @ObservedObject var state: DigidecState
     @ObservedObject var rtty: RTTYSettingsStore
+    @ObservedObject var navtex: NavtexSettingsStore
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(current)
+            Text(state.activeModule == .navtex ? navtexCurrent : current)
                 .foregroundColor(RadioTheme.textMuted)
                 .lineLimit(1)
             Spacer()
@@ -262,7 +284,7 @@ private struct StatusBar: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .foregroundColor(RadioTheme.ledYellow)
             } else if let request = state.currentRequest, let date = state.lastRequestDate {
-                Text("Auftrag von \(request.sourceDisplayName ?? "unbekannt") · \(Self.time.string(from: date)) UTC")
+                Text((request.sourceDisplayName.map { "Auftrag von \($0)" } ?? "Auftrag ohne Quelle") + " · \(Self.time.string(from: date)) UTC")
                     .foregroundColor(RadioTheme.textDim)
             } else {
                 Text("Bereit für Aufträge (digidec://decode?…)")
@@ -282,6 +304,17 @@ private struct StatusBar: View {
         s += " · \(rtty.effectiveLSB ? "LSB" : "USB")"
         if rtty.sidebandMode == .auto { s += rtty.rigIsLSB == nil ? " (auto, unbekannt)" : " (auto)" }
         s += " · Mitte \(Int(rtty.centerHz.rounded())) Hz"
+        return s
+    }
+
+    /// „NAVTEX · 518 kHz · 100 Bd · ±85 Hz · USB (auto) · Mitte 1000 Hz“
+    private var navtexCurrent: String {
+        var s = "NAVTEX · \(navtex.frequency.label) · 100 Bd · ±85 Hz"
+        if navtex.reverse { s += " · REV" }
+        s += navtex.ita2 ? " · ITA2" : " · US-TTY"
+        s += " · \(navtex.effectiveLSB ? "LSB" : "USB")"
+        if navtex.sidebandMode == .auto { s += navtex.rigIsLSB == nil ? " (auto, unbekannt)" : " (auto)" }
+        s += " · Mitte \(Int(navtex.centerHz.rounded())) Hz"
         return s
     }
 

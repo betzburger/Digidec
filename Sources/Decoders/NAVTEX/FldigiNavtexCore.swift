@@ -156,7 +156,8 @@ public final class FldigiNavtexCore {
         guard fldigi_navtex_find_station(CChar(bitPattern: o), frequencyHz, locator, message, &buf, Int32(buf.count)) == 1 else {
             return nil
         }
-        let parts = String(cString: buf).split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+        let bytes = buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        let parts = String(decoding: bytes, as: UTF8.self).split(separator: ";", omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 5 else { return nil }
         return Station(name: parts[0], callsign: parts[1], country: parts[2],
                        latitude: Double(parts[3]) ?? 0, longitude: Double(parts[4]) ?? 0)

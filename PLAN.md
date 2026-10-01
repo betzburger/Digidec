@@ -414,7 +414,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M7 | rigctld-Anbindung | ✅ 30.09.2026 (v0.7.1): Frequenz/Mode in Kopfzeile und Log, automatische Seitenband-Korrektur (AUTO/USB/LSB) |
 | M8 | URL-Schema + Buttons in beiden Commandern | ✅ 30.09.2026: Knopf DIGIDEC in PCR-1500 Commander 0.22.0 und FT-991A Commander 0.6.0; automatische DWD-Erkennung mit NF-Mitte; Klick durch den Nutzer noch zu prüfen |
 | M5b | SYNOP-Klartext | ✅ 30.09.2026 (v0.9.0): SYNOP/SHIP/BUOY-Decoder aus fldigi, Klartext in Amber unter den Meldungen, Schalter SYNOP |
-| M9+ | weitere Module | Vorschlag: NAVTEX (fldigi), CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
+| M9 | NAVTEX | ✅ 01.10.2026 (v0.10.1): fldigi-NAVTEX-Empfänger, Modul-Umschaltung, Nachrichtenliste mit Station, Log; Live-Empfang durch den Nutzer offen |
+| M10+ | weitere Module | CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
 
 ---
 
@@ -620,8 +621,21 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - **Umbau 01.10.2026:** Die fldigi-Teile sind jetzt **ein** Target `Fldigi` (`Vendor/Fldigi`, Übersicht `Vendor/Fldigi/UPSTREAM.md`), Vorbereitung für NAVTEX/CW/WEFAX.
   fldigis `complex.h` wurde in `fldigi_complex.h` umbenannt, weil es sonst mit `<complex.h>` des Systems kollidiert. Das trat erst auf, als C (GNU-Regex) und C++ im selben Target lagen.
   `Tools/build_fldigi.sh` baut den fldigi-Teil für Logiktests und `decode_file.sh`. Nachweis: 232 Logiktests, Offline-Decodierung der DDK2-Aufnahme unverändert 0,79 %.
-- **Nächster Schritt: M9 NAVTEX** (`fldigi src/navtex/navtex.cxx`, 2013 Zeilen, nach JNX von Paul Lutus):
-  - fldigi rechnet NAVTEX mit **11 025 Hz** → `AudioPipeline` so erweitern, dass Senken ihre eigene Abtastrate bekommen (ein Resampler je Rate; FT8 braucht später 12 kHz).
-  - Abhängigkeiten: `wf->powerDensity` (5×, wie beim RTTY-Kern per Goertzel), `put_rx_char`/`put_status`/`display_metric`/`set_freq` → Rückrufe,
-    NAVTEX_Stations.csv über den vorhandenen record_loader, KML/ADIF wie bei SYNOP abgeschaltet.
-  - App: Modul-Umschaltung (RTTY/NAVTEX) mit gemeinsamem Wasserfall, Eingang, Text und Log; NAVTEX 518 kHz / 490 kHz (USB-Dial 517 kHz → Mitte 1000 Hz).
+- **M9 NAVTEX erledigt (v0.10.0 / 0.10.1, 01.10.2026; Nutzer unterwegs, nur theoretisch und synthetisch geprüft):**
+  - Kern: `Vendor/Fldigi/src/navtex/navtex_rx.cpp`, erzeugt von `Vendor/Fldigi/port_navtex.py` aus fldigi `navtex.cxx` (reproduzierbar, bricht bei Abweichung des Originals ab).
+    Rahmen `navtex_frame.inc` (Wasserfall-Ersatz `powerDensity`/`powerDensityMaximum`, Klasse `navtex`, Stationssuche, Testkodierung), C-API `fldigi_navtex.h`. Details: `Vendor/Fldigi/UPSTREAM_NAVTEX.md`.
+  - `AudioPipeline`: Senken mit eigener Abtastrate (`addSink(rate:)`), ein Resampler je Rate. NAVTEX läuft mit 11 025 Hz, RTTY und Wasserfall mit 8 kHz.
+  - Swift: `FldigiNavtexCore` (+ `NavtexMessage`, `NavtexSignalGenerator` mit fldigis FEC-Kodierung), `NavtexSettingsStore` (518/490/4209,5 kHz, REV, AFC, ITA2, Seitenband AUTO/USB/LSB, Locator JN49WS),
+    `NavtexDecoder` (Senke 11 025 Hz), `NavtexController` (Text, Nachrichtenliste mit Station und Wiederholungserkennung 24 h, Log `NAVTEX-JJJJ-MM-TT.txt`).
+  - App: Modul-Umschaltung RTTY/NAVTEX. Nur das gewählte Modul decodiert. Wasserfall über das Protokoll `TuningTarget`.
+    NAVTEX-Karten: Abstimmanzeige (SUCHE/SYNC/EMPFANG, Signal, S/N), Einstellungen, Nachrichten. URL `digidec://decode?mode=navtex&preset=518|490|4209&center=…`.
+  - Stationslisten liegen jetzt in `Resources/Stations` (SYNOP + NAVTEX_Stations.csv), weil fldigis Tabellen-Lader nur ein Datenverzeichnis kennt.
+  - Synthetisch (S/N in 3 kHz): fehlerfrei bis −5 dB, −8 dB einzelne Fehler, −10 dB kein Empfang.
+    Die AFC zieht wegen der 4:3 Mark/Space-Bits des CCIR-476-Codes 5–8 Hz Richtung Mark. Das ist fldigi-Verhalten, die Decodiergrenze ist mit und ohne AFC gleich.
+  - Logiktests: 261 Prüfungen, darunter Kopf und Text exakt, Reverse, ITA2, −3 dB, Pinneberg als Station für L/518 kHz bei JN49WS, Pipeline 48 kHz → NAVTEX und abgeschaltetes Modul.
+  - **Offen (braucht den Nutzer):**
+    - Live-Empfang von 518 kHz (USB, Dial 517,000 kHz) mit dem PCR-1500.
+    - Polarität bestätigen: Vermutlich ohne REV wie in fldigi. Bei Zeichensalat REV drücken.
+    - Mikrofon-Freigabe nach dem Neustart erteilen (neue Version).
+  - Mögliche Ergänzung in den Commandern: NAVTEX-Frequenzen (518/490/4209,5 kHz) im DIGIDEC-Menü erkennen. Das wäre eine Änderung an den Hauptprogrammen und braucht deren Regeln.
+- **Nächster Schritt:** M10 CW aus fldigi.
