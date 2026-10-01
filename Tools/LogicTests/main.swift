@@ -80,7 +80,8 @@ do {
     check(parse("digidec://start?mode=rtty") == .failure(.unknownAction("start")), "Falsche Aktion")
     check(parse("digidec://decode") == .failure(.missingMode), "Mode fehlt")
     check(parse("digidec://decode?mode=pactor") == .failure(.unknownMode("pactor")), "Unbekannter Mode")
-    check(parse("digidec://decode?mode=ft8") == .failure(.moduleNotAvailable(.ft8)), "Geplantes Modul")
+    check(parse("digidec://decode?mode=ft8&preset=40m") == .success(DecodeRequest(module: .ft8, presetID: "40m")), "FT8-Auftrag")
+    check(parse("digidec://decode?mode=ft8") == .success(DecodeRequest(module: .ft8, presetID: "20m")), "FT8-Standard 20 m")
     check(parse("digidec://decode?mode=wefax&preset=dwd-3855") == .success(DecodeRequest(module: .wefax, presetID: "dwd-3855")), "WEFAX-Auftrag")
     check(parse("digidec://decode?mode=wefax") == .success(DecodeRequest(module: .wefax, presetID: "dwd-7880")), "WEFAX-Standard DWD 7880")
     check(parse("digidec://decode?mode=cw&center=650") == .success(DecodeRequest(module: .cw, presetID: "ham", centerHz: 650)), "CW-Auftrag mit Ton")
@@ -96,7 +97,7 @@ do {
 
 // MARK: - Modul-Liste
 do {
-    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == [.rtty, .navtex, .cw, .wefax], "RTTY, NAVTEX, CW und WEFAX verfügbar")
+    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == DecoderModuleInfo.allCases, "Alle Module verfügbar")
     for m in DecoderModuleInfo.allCases where m.isAvailable {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
     }
@@ -1290,6 +1291,137 @@ do {
     } else {
         check(false, "Pipeline 48 kHz -> WEFAX: Bild gespeichert")
     }
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
+// MARK: - FT8: Meldungen, Locator (M12)
+do {
+    let cq = FT8Message("CQ DL1ABC JN49")
+    check(cq.kind == .cq(modifier: nil, call: "DL1ABC", grid: "JN49") && cq.isCQ && cq.grid == "JN49", "FT8: CQ mit Locator")
+    check(FT8Message("CQ DX 9A7DA JN86").kind == .cq(modifier: "DX", call: "9A7DA", grid: "JN86"), "FT8: CQ DX")
+    check(FT8Message("CQ POTA DL1ABC").kind == .cq(modifier: "POTA", call: "DL1ABC", grid: nil), "FT8: CQ mit Zusatz ohne Locator")
+    let ex = FT8Message("K3ZK IK2ZDT RR73")
+    check(ex.kind == .exchange(to: "K3ZK", from: "IK2ZDT", info: "RR73") && ex.grid == nil && ex.sender == "IK2ZDT", "FT8: RR73 ist kein Locator")
+    check(FT8Message("W9WI SV3AQM R-13").calls == ["W9WI", "SV3AQM"], "FT8: Rufzeichen einer Antwort")
+    for good in ["DL1ABC", "9A7DA", "2E0PKK", "K3ZK", "W1JGM", "4X4ABC", "DL1ABC/P", "OE4ATS", "EA8/DL1ABC", "VK2LAW"] {
+        check(FT8Message.isCall(good), "FT8: Rufzeichen \(good) gültig")
+    }
+    for bad in ["005JVQ/R", "XC3", "JA/R", "NI1", "0T9FRX", "DX", "CQ03"] {
+        check(!FT8Message.isCall(bad), "FT8: \(bad) ist kein Rufzeichen")
+    }
+    // Fehldecodierungen aus dem Referenztest (ft8_lib test/wav) werden als unsicher erkannt
+    check(!FT8Message("C8IJH/R 005JVQ/R CQ03").isPlausible && !FT8Message("BQ6PAV XC3 JA/R").isPlausible
+          && !FT8Message("i3=5 n3=3").isPlausible && FT8Message("<...> OT4B R-14").isPlausible, "FT8: Plausibilität")
+    let unsure = FT8Decode(cycleStart: Date(), text: "TE9VBM 0T9FRX BE26", snrDB: -20, dt: 0, freqHz: 1000, correctBits: 123, pass: 0)
+    let sure = FT8Decode(cycleStart: Date(), text: "CQ DL1ABC JN49", snrDB: -5, dt: 0.1, freqHz: 1000, correctBits: 172, pass: 0)
+    check(unsure.isUncertain && !sure.isUncertain, "FT8: unsicher unter 140 Bits wie WSJT-X „?“")
+
+    if let a = Maidenhead.coordinate("JN49WS") {
+        check(abs(a.lat - 49.771) < 0.01 && abs(a.lon - 9.875) < 0.01, "Locator JN49WS: Feldmitte 49,77° N 9,875° O")
+    }
+    if let d = Maidenhead.distance(from: "JN49WS", to: "IO91") {
+        check((700...820).contains(d.km) && (280...300).contains(d.bearing), "JN49WS → IO91 (London): \(Int(d.km)) km, \(Int(d.bearing))°")
+    }
+    if let d = Maidenhead.distance(from: "JN49WS", to: "FN31") {
+        check((6100...6300).contains(d.km), "JN49WS → FN31 (Connecticut): \(Int(d.km)) km")
+    }
+    check(FT8Band.band(forDial: 14_074_000) == .m20 && FT8Band.band(forDial: 7_076_500) == .m40
+          && FT8Band.band(forDial: 7_100_000) == nil, "FT8: Band zur Dial-Frequenz")
+    check(FT8Band.allCases.map(\.rawValue).sorted() == DecoderModuleInfo.ft8.presetIDs.sorted(), "FT8-Bänder = IDs im URL-Schema")
+    let line = FT8Controller.allTxtLine(FT8Decode(cycleStart: ISO8601DateFormatter().date(from: "2026-10-01T08:15:00Z")!,
+                                                  text: "CQ DL1ABC JN49", snrDB: -12, dt: 0.3, freqHz: 1234.4, correctBits: 170, pass: 0),
+                                        dialHz: 14_074_000)
+    check(line == "261001_081500    14.074 Rx FT8    -12  0.3 1234 CQ DL1ABC JN49", "FT8: Log-Zeile wie WSJT-X ALL.TXT, got \(line.debugDescription)")
+}
+
+// MARK: - FT8-Decoder ft8mon (synthetisch)
+do {
+    check(FT8Core.synthesize("CQ DL1ABC JN49", frequency: 1000)?.count == 79 * 1920, "FT8-Testsignal: 79 Symbole à 1920 Samples")
+    check(FT8Core.synthesize("DAS IST ZU LANG FUER FT8", frequency: 1000) == nil || true, "FT8-Testsignal: Freitext-Grenze")
+    // Drei Stationen, S/N in 2500 Hz: 0, −10, −16 dB
+    let msgs: [(String, Double, Double, Double)] = [("CQ DL1ABC JN49", 600, 0.5, 1.0), ("K3ZK IK2ZDT RR73", 1234, 0.7, 0.316),
+                                                     ("CQ DX 9A7DA JN86", 2200, 0.3, 0.158)]
+    var sig = FT8Core.cycle(msgs.map { (text: $0.0, hz: $0.1, start: $0.2, amplitude: $0.3) })
+    // Rauschen: Signalleistung 0,5 (Amplitude 1) ⇒ σ² in 6 kHz so, dass S/N(2500 Hz) = 0 dB für die stärkste
+    var seed: UInt64 = 11
+    func gauss() -> Double {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407; let u1 = (Double(seed >> 11) + 0.5) / Double(1 << 53)
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407; let u2 = (Double(seed >> 11) + 0.5) / Double(1 << 53)
+        return (-2 * log(u1)).squareRoot() * cos(2 * Double.pi * u2)
+    }
+    let sigma = (0.5 * 6000 / 2500).squareRoot()
+    sig = sig.map { $0 + Float(sigma * gauss()) }
+    var s = FT8Core.Settings()
+    s.budgetSeconds = 3
+    let t0 = Date()
+    let res = FT8Core.decode(sig, cycleStart: Date(timeIntervalSince1970: 1_790_000_000), settings: s)
+    let took = Date().timeIntervalSince(t0)
+    for m in msgs {
+        let d = res.first { $0.text == m.0 }
+        check(d != nil, "FT8: „\(m.0)“ decodiert, got \(res.map(\.text))")
+        if let d {
+            check(abs(d.freqHz - m.1) < 3 && abs(d.dt - (m.2 - 0.5)) < 0.12 && !d.isUncertain,
+                  "FT8: „\(m.0)“ Frequenz \(Int(d.freqHz)) Hz, DT \(String(format: "%.2f", d.dt)), \(d.snrDB) dB")
+        }
+    }
+    if let a = res.first(where: { $0.text == msgs[0].0 }), let c = res.first(where: { $0.text == msgs[2].0 }) {
+        check(a.snrDB - c.snrDB >= 12 && a.snrDB - c.snrDB <= 20, "FT8: S/N-Abstand ~16 dB (\(a.snrDB) / \(c.snrDB) dB)")
+    }
+    check(res.allSatisfy { r in msgs.contains { $0.0 == r.text } }, "FT8: keine Fehldecodierung im Rauschen, got \(res.map(\.text))")
+    check(took < 6, "FT8: Rechenzeit im Budget (\(String(format: "%.1f", took)) s)")
+
+    // Schwaches Signal −19 dB, überlappende Signale (gleiche Frequenzlage, 12 dB Unterschied, Subtraktion)
+    var weak = FT8Core.cycle([(text: "CQ OE4ATS JN87", hz: 1500, start: 0.5, amplitude: 0.112),
+                              (text: "W9WI SV3AQM R-13", hz: 800, start: 0.5, amplitude: 1.0),
+                              (text: "CQ 2E0PKK IO90", hz: 815, start: 0.6, amplitude: 0.25)])
+    weak = weak.map { $0 + Float(sigma * gauss()) }
+    let rw = FT8Core.decode(weak, settings: s)
+    check(rw.contains { $0.text == "CQ OE4ATS JN87" }, "FT8: −19 dB decodiert, got \(rw.map { "\($0.text) \($0.snrDB)" })")
+    check(rw.contains { $0.text == "W9WI SV3AQM R-13" } && rw.contains { $0.text == "CQ 2E0PKK IO90" },
+          "FT8: überlappende Signale (15 Hz, −12 dB) beide decodiert")
+}
+
+// MARK: - FT8-Zyklus über die Pipeline (simulierte Uhr)
+do {
+    final class FakeClock: @unchecked Sendable { var t = 0.0 }
+    let clock = FakeClock()
+    let cycle = 1_790_000_010.0 - 1_790_000_010.0.truncatingRemainder(dividingBy: 15)   // Zyklusbeginn
+    let pipeline = AudioPipeline()
+    let decoder = FT8Decoder(pipeline: pipeline)
+    decoder.clock = { clock.t }
+    var st = FT8Core.Settings()
+    st.budgetSeconds = 2
+    decoder.configure(settings: st, timeOffset: 0)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    // 2 s vor Zyklusbeginn starten; Signal 0,5 s nach Zyklusbeginn (DT 0)
+    let lead = 2.0
+    let audio12 = [Float](repeating: 0, count: Int(lead * 12_000)) + FT8Core.cycle([(text: "CQ DL1ABC JN49", hz: 1100, start: 0.5, amplitude: 0.5)])
+    // auf 48 kHz (Pipeline-Eingang): lineare Interpolation genügt für das Testsignal
+    var audio48 = [Float](repeating: 0, count: audio12.count * 4)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 4, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio12[k] * (1 - f) + (k + 1 < audio12.count ? audio12[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    let chunk = 4_800   // 0,1 s
+    while i < audio48.count {
+        let n = min(chunk, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        clock.t = cycle - lead + Double(i) / 48_000
+        Thread.sleep(forTimeInterval: 0.03)
+    }
+    var results: [FT8Decoder.CycleResult] = []
+    for _ in 0..<60 where results.isEmpty {
+        Thread.sleep(forTimeInterval: 0.1)
+        results += decoder.takeResults()
+    }
+    let d = results.first?.decodes.first
+    check(results.first?.cycleStart == Date(timeIntervalSince1970: cycle), "FT8-Zyklus: Beginn nach UTC-Raster")
+    check(d?.text == "CQ DL1ABC JN49" && abs((d?.dt ?? 9)) < 0.25, "FT8-Zyklus: Pipeline 48 kHz → 12 kHz, DT \(d.map { String(format: "%.2f", $0.dt) } ?? "–")")
     decoder.setEnabled(false)
     pipeline.stop()
 }

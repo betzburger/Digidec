@@ -24,6 +24,10 @@ func usage() -> Never {
       --lpm <n>             WEFAX Zeilen je Minute (Standard 120)
       --shift <Hz>          WEFAX Hub (Standard 800, DWD 850); --center <Hz> NF-Mitte (Standard 1900)
       --nonstop             WEFAX ohne APT-Steuerung (ganze Aufnahme als ein Bild)
+
+      --ft8                 FT8 (ft8mon); die Aufnahme beginnt am Zyklusbeginn, je 15 s ein Zyklus
+      --budget <s>          FT8 Rechenzeit je Zyklus (Standard 3)
+      --wsjtx <datei.txt>   FT8-Ergebnis mit WSJT-X-Decodes vergleichen (Trefferquote)
     """)
     exit(2)
 }
@@ -48,6 +52,9 @@ var wefaxMode = false
 var wefaxLPM = 120
 var wefaxShift = 800
 var wefaxNonStop = false
+var ft8Mode = false
+var ft8Budget = 3.0
+var wsjtxPath: String?
 while !args.isEmpty {
     let a = args.removeFirst()
     func value() -> String { guard !args.isEmpty else { usage() }; return args.removeFirst() }
@@ -67,6 +74,9 @@ while !args.isEmpty {
     case "--lpm": wefaxLPM = Int(value()) ?? 120
     case "--shift": wefaxShift = Int(value()) ?? 800
     case "--nonstop": wefaxNonStop = true
+    case "--ft8": ft8Mode = true
+    case "--budget": ft8Budget = Double(value()) ?? 3
+    case "--wsjtx": wsjtxPath = value()
     case "--help", "-h": usage()
     default: print("Unbekannte Option \(a)"); usage()
     }
@@ -75,6 +85,59 @@ while !args.isEmpty {
 let wavURL = URL(fileURLWithPath: wavPath)
 let defaultInfo = wavURL.deletingPathExtension().appendingPathExtension("json")
 let infoURL = infoPath.map { URL(fileURLWithPath: $0) } ?? defaultInfo
+
+// MARK: - FT8
+
+/// Meldung ohne Hash-Rufzeichen-Inhalt (wie ft8_lib utils/run_tests.py)
+func ft8Key(_ text: String) -> String {
+    text.split(separator: " ").prefix(3).map { $0.hasPrefix("<") ? "<...>" : String($0) }.joined(separator: " ")
+}
+
+if ft8Mode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: FT8Core.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    var all: [Float] = []
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { all += Array($0) }
+    }
+    var settings = FT8Core.Settings()
+    settings.budgetSeconds = ft8Budget
+    let perCycle = Int(FT8Core.cycleSeconds * FT8Core.sampleRate)
+    var found: [FT8Decode] = []
+    var start = 0
+    repeat {
+        let part = Array(all[start..<min(all.count, start + perCycle)])
+        let t0 = Date()
+        let list = FT8Core.decode(part, settings: settings)
+        let label = String(format: "%5.0f s", Double(start) / FT8Core.sampleRate)
+        print("Zyklus ab \(label): \(list.count) Decodes in " + String(format: "%.1f s", Date().timeIntervalSince(t0)))
+        for d in list {
+            print(String(format: "  %+4d %5.1f %5.0f  ", d.snrDB, d.dt, d.freqHz) + d.text + (d.isUncertain ? " ?" : ""))
+        }
+        found += list
+        start += perCycle
+    } while start + 10 * Int(FT8Core.sampleRate) < all.count
+    if let wsjtxPath, let ref = try? String(contentsOfFile: wsjtxPath, encoding: .utf8) {
+        // WSJT-X: „hhmmss snr dt freq ~  MELDUNG“
+        let expected = Set(ref.split(separator: "\n").compactMap { line -> String? in
+            let f = line.split(separator: " ", omittingEmptySubsequences: true)
+            return f.count > 5 ? ft8Key(f[5...].joined(separator: " ")) : nil
+        })
+        let got = Set(found.map { ft8Key($0.text) })
+        let sure = Set(found.filter { !$0.isUncertain }.map { ft8Key($0.text) })
+        print("WSJT-X: \(expected.count) · gefunden \(expected.intersection(got).count) · zusätzlich \(got.subtracting(expected).count)"
+              + " (davon unsicher \(got.subtracting(expected).subtracting(sure).count))")
+        print("FT8VERGLEICH \(expected.count) \(expected.intersection(got).count) \(got.subtracting(expected).count) \(got.subtracting(expected).subtracting(sure).count)")
+    }
+    exit(0)
+}
 
 // MARK: - WEFAX
 

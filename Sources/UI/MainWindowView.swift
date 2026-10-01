@@ -26,6 +26,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.cw, audio: state.audio)
                             } else if state.activeModule == .wefax {
                                 WaterfallView(model: state.waterfall, rtty: state.wefax, audio: state.audio)
+                            } else if state.activeModule == .ft8 {
+                                WaterfallView(model: state.waterfall, rtty: state.ft8, audio: state.audio)
                             } else {
                                 WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
                             }
@@ -40,12 +42,14 @@ public struct MainWindowView: View {
                                 CWReceivePanel(controller: state.cwController)
                             } else if state.activeModule == .wefax {
                                 WefaxImagePanel(controller: state.wefaxController)
+                            } else if state.activeModule == .ft8 {
+                                FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
                             } else {
                                 ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : "Empfangstext")
+                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .ft8 ? "Bandaktivität" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -69,6 +73,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "WEFAX")
                             WefaxGallery(controller: state.wefaxController)
                                 .radioCard(title: "Bilder")
+                        } else if state.activeModule == .ft8 {
+                            FT8CyclePanel(controller: state.ft8Controller, settings: state.ft8)
+                                .radioCard(title: "Zyklus · Rx-Frequenz")
+                            FT8SettingsPanel(settings: state.ft8)
+                                .radioCard(title: "FT8")
                         } else {
                             TuningPanel(controller: state.rttyController, settings: state.rtty)
                                 .radioCard(title: "Abstimmanzeige")
@@ -89,7 +98,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8)
             }
             .padding(.bottom, 8)
         }
@@ -295,6 +304,7 @@ private struct StatusBar: View {
     @ObservedObject var navtex: NavtexSettingsStore
     @ObservedObject var cw: CWSettingsStore
     @ObservedObject var wefax: WefaxSettingsStore
+    @ObservedObject var ft8: FT8SettingsStore
 
     var body: some View {
         HStack(spacing: 10) {
@@ -345,8 +355,20 @@ private struct StatusBar: View {
         case .navtex: return navtexCurrent
         case .cw: return cwCurrent
         case .wefax: return wefaxCurrent
+        case .ft8: return ft8Current
         default: return current
         }
+    }
+
+    /// „FT8 · 20m · Dial 14,074 MHz · 150–3600 Hz · 3 s Rechenzeit · JN49WS“
+    private var ft8Current: String {
+        let dial = String(format: "%.3f", Double(ft8.dialHz) / 1_000_000).replacingOccurrences(of: ".", with: ",")
+        var s = "FT8 · \(ft8.band.rawValue) · Dial \(dial) MHz"
+        s += " · \(Int(ft8.core.minHz))–\(Int(ft8.core.maxHz)) Hz"
+        s += " · " + String(format: "%.1f", ft8.core.budgetSeconds).replacingOccurrences(of: ".", with: ",") + " s Rechenzeit"
+        s += " · \(ft8.locator)"
+        if !ft8.myCall.isEmpty { s += " · \(ft8.myCall)" }
+        return s
     }
 
     /// „WEFAX · DWD 7880 · IOC 576 · 120 LPM · Hub 850 Hz · Mitte 1900 Hz · AFC“

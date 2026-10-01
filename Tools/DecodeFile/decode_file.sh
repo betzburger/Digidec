@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Digidec offline: Aufnahme mit dem RTTY-, CW- oder WEFAX-Kern decodieren und auswerten (PLAN.md, Abschnitt 8 / M6).
+# Digidec offline: Aufnahme mit dem RTTY-, CW-, WEFAX- oder FT8-Kern decodieren und auswerten (PLAN.md, Abschnitt 8 / M6).
 # Aufruf: Tools/DecodeFile/decode_file.sh <aufnahme.wav> [Optionen]   (Hilfe: --help)
 # Baut das Werkzeug bei Bedarf nach .build/decode_file (Quellen wie in den Logiktests).
 set -euo pipefail
@@ -14,7 +14,8 @@ SRC=($ROOT/Tools/DecodeFile/main.swift $S/Models/RTTYSettings.swift $S/Audio/Sam
      $S/Log/DecodeLogger.swift $S/Audio/InputRecorder.swift $S/App/RTTYSettingsStore.swift \
      $S/Rig/RigctlClient.swift $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift \
      $S/Decoders/RTTY/SynopDecoder.swift $S/Decoders/CW/FldigiCWCore.swift \
-     $S/Decoders/WEFAX/FldigiWefaxCore.swift $S/Decoders/WEFAX/WefaxModule.swift $S/Models/TuningTarget.swift)
+     $S/Decoders/WEFAX/FldigiWefaxCore.swift $S/Decoders/WEFAX/WefaxModule.swift $S/Models/TuningTarget.swift \
+     $S/Decoders/FT8/FT8Core.swift)
 needs_build=0
 [[ -x "$BIN" ]] || needs_build=1
 for f in $SRC $F/src/**/*(.) $F/include/*(.) $F/compat/**/*(.); do [[ "$f" -nt "$BIN" ]] && needs_build=1; done

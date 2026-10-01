@@ -33,9 +33,23 @@ let package = Package(
                 .headerSearchPath("compat")
             ]
         ),
+        // FT8-Decoder ft8mon (Robert Morris AB1HL, MIT) mit pocketfft (BSD) statt FFTW.
+        // Herkunft und Abweichungen: Vendor/FT8/UPSTREAM_FT8.md
+        .target(
+            name: "FT8",
+            path: "Vendor/FT8",
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .headerSearchPath("src"),
+                .headerSearchPath("compat"),
+                // Rechenzeit-begrenzter Decoder: auch im Debug-Build optimieren, sonst weniger Durchgänge
+                .unsafeFlags(["-w", "-O3"])
+            ]
+        ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["Fldigi"],
+            dependencies: ["Fldigi", "FT8"],
             path: "Sources"
         )
     ],

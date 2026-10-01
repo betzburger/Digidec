@@ -27,6 +27,8 @@ public final class DigidecState: ObservableObject {
     public let cwController: CWController
     public let wefax = WefaxSettingsStore()
     public let wefaxController: WefaxController
+    public let ft8 = FT8SettingsStore()
+    public let ft8Controller: FT8Controller
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -37,6 +39,7 @@ public final class DigidecState: ObservableObject {
         navtexController = NavtexController(pipeline: audio.pipeline, settings: navtex)
         cwController = CWController(pipeline: audio.pipeline, settings: cw)
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
+        ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
 
         // Nur das gewählte Modul decodiert
         $activeModule
@@ -46,6 +49,7 @@ public final class DigidecState: ObservableObject {
                 self?.navtexController.setActive(module == .navtex)
                 self?.cwController.setActive(module == .cw)
                 self?.wefaxController.setActive(module == .wefax)
+                self?.ft8Controller.setActive(module == .ft8)
             }
             .store(in: &cancellables)
 
@@ -61,6 +65,7 @@ public final class DigidecState: ObservableObject {
             rtty.rigIsLSB = state.isLSB
             navtex.rigIsLSB = state.isLSB
             wefax.rigIsLSB = state.isLSB
+            ft8.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             wefaxController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             rttyController.rigDescription = rig.description
@@ -107,6 +112,8 @@ public final class DigidecState: ObservableObject {
                 if let center = request.centerHz { navtex.setCenter(center) }
             case .cw:
                 if let center = request.centerHz { cw.setCenter(center) }
+            case .ft8:
+                if let b = FT8Band(rawValue: request.presetID) { ft8.band = b }
             case .wefax:
                 if let s = WefaxStation(rawValue: request.presetID) { wefax.station = s }
                 if let center = request.centerHz { wefax.setCenter(center) }

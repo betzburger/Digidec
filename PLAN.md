@@ -417,7 +417,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M9 | NAVTEX | ✅ 01.10.2026 (v0.10.1): fldigi-NAVTEX-Empfänger, Modul-Umschaltung, Nachrichtenliste mit Station, Log; Live-Empfang durch den Nutzer offen |
 | M10 | CW | ✅ 01.10.2026 (v0.11.0): fldigi-CW-Empfänger (Tabelle/SOM, Geschwindigkeitsnachführung, Matched Filter), Hüllkurvenanzeige, Log, `decode_file.sh --cw`; Live-Empfang durch den Nutzer offen |
 | M11 | WEFAX | ✅ 01.10.2026 (v0.12.0): fldigi-WEFAX-Empfänger (APT, Phasing, Korrelation, AFC, Auto-Zentrierung), Live-Bild, PNG-Ablage, Galerie, `decode_file.sh --wefax`; Live-Empfang durch den Nutzer offen |
-| M12 | FT8 | ft8_lib (kgoba, MIT) |
+| M12 | FT8 | ✅ 01.10.2026 (v0.13.0): ft8mon (AB1HL, MIT) statt ft8_lib: 90,7 % der WSJT-X-Decodes statt 73 %; Bandaktivität, Rx-Frequenz, Entfernungen, ALL.TXT-Log; Live-Empfang durch den Nutzer offen |
 
 ---
 
@@ -693,4 +693,38 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - Live-Empfang DWD, z. B. 7880 kHz (USB-Dial 7878,1 kHz) tagsüber oder 3855 kHz nachts. Sendeplan: dwd.de → Seefahrt → Funkfax.
     - Hub 850 Hz bestätigen: Bei Hub 800 Hz wirkt das Bild nur etwas kontrastreicher, falsch ist es nicht.
     - Vergleich mit fldigi auf derselben Aufnahme.
-- **Nächster Schritt:** M12 FT8 mit ft8_lib (kgoba, MIT-Lizenz). Das ist nicht aus fldigi, deshalb eigenes Vendor-Verzeichnis.
+- **M12 FT8 erledigt (v0.13.0, 01.10.2026; Nutzer unterwegs, gegen WSJT-X-Referenzaufnahmen und synthetisch geprüft):**
+  - **Quellenwahl nach Messung:** Gegen 353 WSJT-X-Decodes aus den Testaufnahmen von ft8_lib erreicht
+    - ft8_lib 73,4 %, mit bestmöglichen Parametern 75,9 %,
+    - **ft8mon** (Robert Morris AB1HL, MIT) 90,9 %, dank Mehrfachdurchgängen mit Subtraktion, OSD und CQ-Hinweisen.
+
+    Übernommen ist deshalb ft8mon. FFTW ist durch pocketfft ersetzt (`compat/fftw3.h`), der Encoder aus ft8_lib dient nur für Testsignale. Digidec sendet nie.
+    Eigenes Target `FT8` (`Vendor/FT8`, `port_ft8mon.py`, C-API `ft8_digidec.h`). Details: `Vendor/FT8/UPSTREAM_FT8.md`.
+  - **Nachweis:** `Tools/FT8Reference/run_reference.sh` → **320 von 353 = 90,7 %** bei 3 s Rechenzeit. Von 67 Zusatzdecodes sind 10 als unsicher markiert, der Rest sind überwiegend echte Stationen.
+  - **Unsichere Decodes** (unter 140/174 Bits oder unplausibles Rufzeichen) zeigt Digidec wie WSJT-X mit „?“ und abgedimmt; abschaltbar. `i3=…` wird verworfen.
+  - Swift:
+    - `FT8Core`: Decodieren, Testsignal, `FT8Message` als Parser (CQ/Antwort, Rufzeichen, Locator), `Maidenhead` mit Entfernung und Richtung
+    - `FT8Module.swift`:
+      - `FT8Band`: Dial-Frequenzen wie WSJT-X
+      - `FT8SettingsStore`: Band, eigenes Rufzeichen, Locator, Rechenzeit, Zeitkorrektur, Rx-Frequenz
+      - `FT8Decoder`: 12-kHz-Senke mit Zeitstempeln, decodiert nach UTC-Raster bei 14,6 s im Hintergrund; ist der vorige Zyklus noch nicht fertig, wird der neue ausgelassen
+      - `FT8Controller`: Liste, Entfernungen von JN49WS, Log im ALL.TXT-Format `FT8-JJJJ-MM-TT.txt`
+  - App: Modul FT8.
+    - **Bandaktivität** wie WSJT-X: UTC, dB, DT, Freq, Meldung, km. CQ grün, Meldungen an das eigene Rufzeichen rot, unsichere grau. Filter „nur CQ“.
+    - **Zyklus**: Sekundenanzeige, Fortschritt, Rx-Frequenz-Liste (Klick in den Wasserfall)
+    - **Einstellungen**: Bänder 160–6 m mit Dial-Hinweis; zeigt bei Kopplung die Frequenz des Funkgeräts
+    - URL `digidec://decode?mode=ft8&preset=20m|40m|…`
+  - Synthetisch:
+    - drei Stationen (0/−10/−16 dB) exakt, Frequenz ±3 Hz, DT ±0,12 s
+    - −19 dB decodiert
+    - überlappende Signale (15 Hz Abstand, 12 dB Unterschied) beide decodiert
+    - Zyklus über die Pipeline mit simulierter Uhr: DT < 0,25 s
+  - Logiktests: 363 Prüfungen.
+  - **Offen (braucht den Nutzer):**
+    - Live-Empfang, z. B. 20 m (Dial 14,074 MHz USB) oder 40 m (7,074 MHz).
+    - Rechneruhr prüfen (automatische Zeit). Den mittleren DT der Stationen beobachten und die „Zeitkorrektur“ so einstellen, dass er bei 0 liegt (Startwert 0,2 s).
+    - Optional mit WSJT-X auf demselben Signal vergleichen. Eine Aufnahme ab Zyklusbeginn lässt sich mit `decode_file.sh --ft8 --wsjtx` auswerten.
+- **Nächster Schritt:** Alle geplanten Module sind umgesetzt. Offen ist vor allem der Live-Test aller Module durch den Nutzer. Danach Feinschliff, z. B.:
+  - DIGIDEC-Menü der Commander um NAVTEX/WEFAX/FT8-Frequenzen erweitern (Regeln der Commander beachten)
+  - FT4
+  - DXCC-Länder zu Rufzeichen
