@@ -11,7 +11,7 @@
 #ifndef DIGIDEC_RTTY_RX_H
 #define DIGIDEC_RTTY_RX_H
 
-#include "complex.h"
+#include "fldigi_complex.h" // ABWEICHUNG fldigi (Digidec): umbenannt, kollidiert sonst mit <complex.h> des Systems
 #include "fftfilt.h"
 
 #define	RTTY_SampleRate	8000

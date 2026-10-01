@@ -1,5 +1,5 @@
 import Foundation
-import FldigiSynop
+import Fldigi
 
 /// Ein Stück Empfangstext: Rohtext aus RTTY oder Klartext einer erkannten SYNOP/SHIP/BUOY-Meldung
 public struct TextSegment: Equatable, Sendable {
@@ -12,7 +12,7 @@ public struct TextSegment: Equatable, Sendable {
     }
 }
 
-/// Hülle um den SYNOP-Decoder aus fldigi 4.2.13 (`Vendor/FldigiSynop`).
+/// Hülle um den SYNOP-Decoder aus fldigi 4.2.13 (`Vendor/Fldigi`).
 /// Der fldigi-Decoder ist ein Singleton – deshalb gibt es auch hier nur eine aktive Ausgabe.
 /// Alle Aufrufe vom selben Thread (in der App: Verarbeitungs-Queue der Pipeline).
 public final class SynopDecoder {

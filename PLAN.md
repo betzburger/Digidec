@@ -147,7 +147,7 @@ digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<Core
 
 `rtty.cxx` hängt stark an fldigi-Globalen (`progdefaults`, `progStatus`, `wf` = Wasserfall, digiscope, synop, FLTK). Deshalb:
 
-1. **Nur den RX-Pfad** in ein eigenes, GUI-freies C++-Modul `Vendor/FldigiRTTY/` kopieren:
+1. **Nur den RX-Pfad** in ein eigenes, GUI-freies C++-Modul `Vendor/Fldigi/` kopieren:
    `rtty_rx.cpp/.h`, `fftfilt.cpp/.h`, benötigte Helfer. Die Algorithmik **1:1** übernehmen, keine „Verbesserungen“ beim Kopieren.
 2. Alle Globalen ersetzen durch ein Konfig-Struct `RTTYConfig` (Abschnitt 5) und Callbacks:
    - `on_char(char, userdata)` statt `put_rx_char`
@@ -408,7 +408,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M1 | Projektgerüst | ✅ 30.09.2026 (v0.1.0): Package.swift, build_app.sh (inkl. `digidec://` + Launch-Services-Registrierung), AppVersion, Fenster im RadioTheme mit Platzhaltern, URL-Parser, LogicTests (26 Prüfungen) |
 | M2 | Audio-Eingang | ✅ 30.09.2026 (v0.3.0): direkt vom USB-Codec des Funkgeräts, portunabhängig; VALHost 2ch manuell wählbar |
 | M3 | Wasserfall | ✅ 30.09.2026 (v0.4.1): vDSP-FFT, Spektrumkurve, Mark/Space-Marker, Klick/Ziehen setzt Mitte, Zoom, Dynamik; Presets wählbar |
-| M4 | fldigi-RTTY-Kern herausgelöst | ✅ 30.09.2026 (v0.5.0): `Vendor/FldigiRTTY` + C-API, Signalverarbeitung zeilengleich mit fldigi 4.2.13, alle Presets synthetisch fehlerfrei |
+| M4 | fldigi-RTTY-Kern herausgelöst | ✅ 30.09.2026 (v0.5.0): `Vendor/Fldigi` + C-API, Signalverarbeitung zeilengleich mit fldigi 4.2.13, alle Presets synthetisch fehlerfrei |
 | M5 | RTTY in der App | ✅ 30.09.2026 (v0.6.1): Text, Log, XY-Scope, Signalanzeige, REV/AFC/SQL, Einstellungsdialog; Bedienung durch den Nutzer noch zu prüfen |
 | M6 | Qualitätsnachweis | ✅ 30.09.2026 (v0.8.0): Werkzeuge fertig; echte DDK2-Aufnahme: Digidec und fldigi 4.2.13 zeichengleich, beide 0,79 % (Abschnitt 8.0) |
 | M7 | rigctld-Anbindung | ✅ 30.09.2026 (v0.7.1): Frequenz/Mode in Kopfzeile und Log, automatische Seitenband-Korrektur (AUTO/USB/LSB) |
@@ -492,8 +492,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - Am echten System geprüft: PCR-1500-Rauschen mit Durchlasskurve sichtbar; Auftrag `preset=dwd-lw&center=1500` setzt Marker auf 1458 / 1543 Hz.
   - **Nicht selbst geprüft** (keine Bedienrechte für Maus/Tastatur): Klick/Ziehen zum Abstimmen, Zoom- und Dynamik-Knöpfe, Preset-Knöpfe. Test durch den Nutzer steht aus.
 - **M4 erledigt (v0.5.0):**
-  - `Vendor/FldigiRTTY`: Empfangsteil von fldigi 4.2.13 (`rtty_rx`, `fftfilt`, `gfft.h`) plus C-Schnittstelle `fldigi_rtty.h`.
-    Herkunft, Dateizuordnung und **alle Abweichungen**: `Vendor/FldigiRTTY/UPSTREAM.md`.
+  - `Vendor/Fldigi`: Empfangsteil von fldigi 4.2.13 (`rtty_rx`, `fftfilt`, `gfft.h`) plus C-Schnittstelle `fldigi_rtty.h`.
+    Herkunft, Dateizuordnung und **alle Abweichungen**: `Vendor/Fldigi/UPSTREAM_RTTY.md`.
     Maschinell geprüft: Die Signalverarbeitung ist zeilengleich mit dem Original. Abweichungen gibt es nur bei Einstellungen (cfg statt progdefaults), Ausgabe (Rückruf) und entfernter GUI.
   - `wf->powerDensity()` (Signalmaß für Squelch und S/N) aus dem fldigi-Wasserfall ist durch Goertzel auf denselben 1-Hz-Bins ersetzt.
   - Swift: `Sources/Decoders/RTTY/FldigiRTTYCore.swift` (Hülle, Optionen, Status, XY-Scope) und `RTTYSignalGenerator.swift` (AFSK mit Baudot, ITA2/US, Versatz, Rauschen mit S/N in 3 kHz).
@@ -573,8 +573,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - Ablauf in Abschnitt 8.0. Gefunden und behoben: Der Testgenerator verschluckte „\r\n“ (ein Character in Swift) → jetzt skalarweise.
   - Logiktests: 216 Prüfungen (Dateiname, Aufnahme Ende-zu-Ende 48 kHz → WAV, Begleitdatei).
 - **M5b SYNOP-Klartext (v0.9.0, Wunsch des Nutzers):**
-  - `Vendor/FldigiSynop`: SYNOP-Decoder aus fldigi 4.2.13 samt GNU-Regex, Koordinaten, Locator, Tabellen-Lader und Ersatzteilen für KML, ADIF und FLTK.
-    Herkunft, Dateien und Abweichungen: `Vendor/FldigiSynop/UPSTREAM.md`.
+  - `Vendor/Fldigi`: SYNOP-Decoder aus fldigi 4.2.13 samt GNU-Regex, Koordinaten, Locator, Tabellen-Lader und Ersatzteilen für KML, ADIF und FLTK.
+    Herkunft, Dateien und Abweichungen: `Vendor/Fldigi/UPSTREAM_SYNOP.md`.
   - **Zwei Fehler in fldigi gefunden und behoben:**
     1. Array-Zugriff mit Index −1 in `AddOtherTok` (Absturz)
     2. `mktime` statt `timegm` (UTC-Zeit um die Ortszeit verschoben)
@@ -616,3 +616,12 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - Niemals Befehle an Funkgeräte senden. Der Decoder spricht nur lesend mit rigctld.
 - Am Mac hängt ein Transceiver (CP2105, `/dev/cu.usbserial-01A22C9D*`) und der IC-PCR1500: Der Decoder öffnet **keine** seriellen Ports.
 - Sprache für UI, Doku und Kommentare: Deutsch (wie Commander).
+
+- **Umbau 01.10.2026:** Die fldigi-Teile sind jetzt **ein** Target `Fldigi` (`Vendor/Fldigi`, Übersicht `Vendor/Fldigi/UPSTREAM.md`), Vorbereitung für NAVTEX/CW/WEFAX.
+  fldigis `complex.h` wurde in `fldigi_complex.h` umbenannt, weil es sonst mit `<complex.h>` des Systems kollidiert. Das trat erst auf, als C (GNU-Regex) und C++ im selben Target lagen.
+  `Tools/build_fldigi.sh` baut den fldigi-Teil für Logiktests und `decode_file.sh`. Nachweis: 232 Logiktests, Offline-Decodierung der DDK2-Aufnahme unverändert 0,79 %.
+- **Nächster Schritt: M9 NAVTEX** (`fldigi src/navtex/navtex.cxx`, 2013 Zeilen, nach JNX von Paul Lutus):
+  - fldigi rechnet NAVTEX mit **11 025 Hz** → `AudioPipeline` so erweitern, dass Senken ihre eigene Abtastrate bekommen (ein Resampler je Rate; FT8 braucht später 12 kHz).
+  - Abhängigkeiten: `wf->powerDensity` (5×, wie beim RTTY-Kern per Goertzel), `put_rx_char`/`put_status`/`display_metric`/`set_freq` → Rückrufe,
+    NAVTEX_Stations.csv über den vorhandenen record_loader, KML/ADIF wie bei SYNOP abgeschaltet.
+  - App: Modul-Umschaltung (RTTY/NAVTEX) mit gemeinsamem Wasserfall, Eingang, Text und Log; NAVTEX 518 kHz / 490 kHz (USB-Dial 517 kHz → Mitte 1000 Hz).

@@ -28,36 +28,12 @@ for key in CFBundleShortVersionString CFBundleVersion; do
     fi
 done
 
-# 2. fldigi-RTTY-Kern (C++) wie im Package.swift übersetzen, Modul-Map für "import FldigiRTTY"
-V=Vendor/FldigiRTTY
-mkdir -p "$OUT/fldigi/obj" "$OUT/fldigi/module"
-for c in $V/src/*.cpp; do
-    clang++ -std=c++17 -O2 -I$V/include -I$V/src -c "$c" -o "$OUT/fldigi/obj/${c:t:r}.o"
-done
-cat > "$OUT/fldigi/module/module.modulemap" <<MAP
-module FldigiRTTY {
-    header "$ROOT/$V/include/fldigi_rtty.h"
-    export *
-}
-MAP
-
-# 2b. SYNOP-Decoder aus fldigi (C++ und GNU-Regex in C)
-Y=Vendor/FldigiSynop
-mkdir -p "$OUT/synop/obj" "$OUT/synop/module"
-cc -O2 -w -I$Y/src -c $Y/src/compat/regex.c -o "$OUT/synop/obj/regex.o"
-for c in $Y/src/*.cpp; do
-    clang++ -std=c++17 -O2 -I$Y/include -I$Y/src -I$Y/compat -c "$c" -o "$OUT/synop/obj/${c:t:r}.o"
-done
-cat > "$OUT/synop/module/module.modulemap" <<MAP
-module FldigiSynop {
-    header "$ROOT/$Y/include/fldigi_synop.h"
-    export *
-}
-MAP
+# 2. fldigi-Teile (Vendor/Fldigi) wie im Package.swift übersetzen, Modul-Map für "import Fldigi"
+Tools/build_fldigi.sh "$OUT/fldigi"
 
 # 3. Testprogramm mit den getesteten Quellen bauen
 swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
-    -I "$OUT/fldigi/module" -I "$OUT/synop/module" \
+    -I "$OUT/fldigi/module" \
     Tools/LogicTests/main.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift \
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \
@@ -68,7 +44,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/RTTY/RTTYDecoder.swift $S/Decoders/RTTY/RTTYController.swift $S/Log/DecodeLogger.swift \
     $S/Rig/RigctlClient.swift $S/Audio/InputRecorder.swift \
     $S/Decoders/RTTY/SynopDecoder.swift \
-    "$OUT"/fldigi/obj/*.o "$OUT"/synop/obj/*.o -lc++
+    "$OUT"/fldigi/obj/*.o -lc++
 
 # 4. Ausführen
 "$OUT/logic_tests"

@@ -10,20 +10,11 @@ let package = Package(
         .executable(name: "Digidec", targets: ["Digidec"])
     ],
     targets: [
-        // RTTY-Empfänger aus fldigi 4.2.13 (GPLv3), siehe Vendor/FldigiRTTY/UPSTREAM.md
+        // Empfangsteile aus fldigi 4.2.13 (GPLv3): RTTY-Kern, SYNOP-Decoder, gemeinsame Filter und Hilfen.
+        // Herkunft und Abweichungen: Vendor/Fldigi/UPSTREAM_*.md
         .target(
-            name: "FldigiRTTY",
-            path: "Vendor/FldigiRTTY",
-            sources: ["src"],
-            publicHeadersPath: "include",
-            cxxSettings: [
-                .headerSearchPath("src")
-            ]
-        ),
-        // SYNOP/SHIP/BUOY-Decoder aus fldigi 4.2.13 (GPLv3), siehe Vendor/FldigiSynop/UPSTREAM.md
-        .target(
-            name: "FldigiSynop",
-            path: "Vendor/FldigiSynop",
+            name: "Fldigi",
+            path: "Vendor/Fldigi",
             sources: ["src"],
             publicHeadersPath: "include",
             cSettings: [
@@ -32,12 +23,16 @@ let package = Package(
             ],
             cxxSettings: [
                 .headerSearchPath("src"),
+                .headerSearchPath("src/common"),
+                .headerSearchPath("src/rtty"),
+                .headerSearchPath("src/synop"),
+                .headerSearchPath("src/misc"),
                 .headerSearchPath("compat")
             ]
         ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["FldigiRTTY", "FldigiSynop"],
+            dependencies: ["Fldigi"],
             path: "Sources"
         )
     ],

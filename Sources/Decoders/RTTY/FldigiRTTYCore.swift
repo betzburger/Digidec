@@ -1,7 +1,7 @@
 import Foundation
-import FldigiRTTY
+import Fldigi
 
-/// Swift-Hülle um den RTTY-Empfänger aus fldigi 4.2.13 (`Vendor/FldigiRTTY`).
+/// Swift-Hülle um den RTTY-Empfänger aus fldigi 4.2.13 (`Vendor/Fldigi`).
 /// Nicht threadsicher: alle Aufrufe von derselben Queue (in der App: Verarbeitungs-Queue der Pipeline).
 public final class FldigiRTTYCore {
     public static let sampleRate = Double(FLDIGI_RTTY_SAMPLE_RATE)

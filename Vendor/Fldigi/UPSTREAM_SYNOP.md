@@ -7,7 +7,7 @@ Erkennt Wettermeldungen im RTTY-Text und gibt sie als Klartext aus („Temperatu
 
 | | |
 |---|---|
-| Projekt / Stand | fldigi **v4.2.13**, Commit `e7c3ab3709ad62a7d91829364eb48a05fa325c0d` (wie `Vendor/FldigiRTTY`) |
+| Projekt / Stand | fldigi **v4.2.13**, Commit `e7c3ab3709ad62a7d91829364eb48a05fa325c0d` (wie `Vendor/Fldigi`) |
 | Lizenz | GNU GPL v3 oder neuer; GNU-Regex (`src/compat/regex.*`) GPL; Hamlib-Locator (`locator.cpp`) LGPL |
 | Stationslisten | `Resources/Synop/` = fldigi `data/` (nsd_bbsss.txt WMO-Stationen, station_table.txt NDBC-Bojen, ToR-Stats-SHIP.csv Schiffe, wmo_list.txt JCOMM). **Alter Stand** (Dateien aus fldigi, teils > 10 Jahre); neuere Bojen fehlen (z. B. 62170, 62198), Positionen stehen aber in den Meldungen selbst. |
 

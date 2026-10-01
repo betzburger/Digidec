@@ -22,7 +22,7 @@ if [ -f "$DIR/Resources/AppIcon.icns" ]; then
     cp "$DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 fi
 
-# Stationslisten für den SYNOP-Decoder (aus fldigi 4.2.13, siehe Vendor/FldigiSynop/UPSTREAM.md)
+# Stationslisten für den SYNOP-Decoder (aus fldigi 4.2.13, siehe Vendor/Fldigi/UPSTREAM_SYNOP.md)
 mkdir -p "$APP_BUNDLE/Contents/Resources/Synop"
 cp "$DIR"/Resources/Synop/* "$APP_BUNDLE/Contents/Resources/Synop/"
 

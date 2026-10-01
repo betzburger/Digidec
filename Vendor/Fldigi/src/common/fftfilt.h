@@ -21,7 +21,7 @@
 #ifndef	_FFTFILT_H
 #define	_FFTFILT_H
 
-#include "complex.h"
+#include "fldigi_complex.h" // ABWEICHUNG fldigi (Digidec): umbenannt, kollidiert sonst mit <complex.h> des Systems
 #include "gfft.h"
 
 //----------------------------------------------------------------------
