@@ -79,7 +79,8 @@ do {
     check(parse("digidec://start?mode=rtty") == .failure(.unknownAction("start")), "Falsche Aktion")
     check(parse("digidec://decode") == .failure(.missingMode), "Mode fehlt")
     check(parse("digidec://decode?mode=pactor") == .failure(.unknownMode("pactor")), "Unbekannter Mode")
-    check(parse("digidec://decode?mode=cw") == .failure(.moduleNotAvailable(.cw)), "Geplantes Modul")
+    check(parse("digidec://decode?mode=wefax") == .failure(.moduleNotAvailable(.wefax)), "Geplantes Modul")
+    check(parse("digidec://decode?mode=cw&center=650") == .success(DecodeRequest(module: .cw, presetID: "ham", centerHz: 650)), "CW-Auftrag mit Ton")
     check(parse("digidec://decode?mode=navtex&preset=490") == .success(DecodeRequest(module: .navtex, presetID: "490")), "NAVTEX-Auftrag")
     check(parse("digidec://decode?mode=navtex") == .success(DecodeRequest(module: .navtex, presetID: "518")), "NAVTEX-Standard 518 kHz")
     check(parse("digidec://decode?mode=rtty&preset=xyz") == .failure(.unknownPreset("xyz", .rtty)), "Unbekanntes Preset")
@@ -92,7 +93,7 @@ do {
 
 // MARK: - Modul-Liste
 do {
-    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == [.rtty, .navtex], "RTTY und NAVTEX verfügbar")
+    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == [.rtty, .navtex, .cw], "RTTY, NAVTEX und CW verfügbar")
     for m in DecoderModuleInfo.allCases where m.isAvailable {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
     }
@@ -965,6 +966,154 @@ do {
     let station = FldigiNavtexCore.Station(name: "Pinneberg", callsign: "DDH47", country: "Germany", latitude: 53.7, longitude: 9.9)
     check(NavtexEntry(message: msg, station: station, isRepeat: true).summary
           == "LB07 · Wetterwarnung · Pinneberg (DDH47) · 08:40 UTC · Wiederholung", "Zusammenfassung einer Nachricht")
+}
+
+// MARK: - CW-Kern aus fldigi 4.2.13 (M10)
+@MainActor func cwDecode(_ samples: [Float], options: FldigiCWCore.Options = .init(), center: Double = 700)
+    -> (text: String, prosigns: [String], status: FldigiCWCore.Status, scope: [Double]) {
+    final class Box { var text = ""; var prosigns: [String] = [] }
+    let box = Box()
+    let core = FldigiCWCore(options: options, centerHz: center) { t, p in
+        box.text += t
+        if p { box.prosigns.append(t) }
+    }
+    samples.withUnsafeBufferPointer { buf in
+        var i = 0
+        while i < buf.count {
+            let n = min(160, buf.count - i)            // 20 ms bei 8 kHz
+            core.process(UnsafeBufferPointer(rebasing: buf[i..<(i + n)]))
+            i += n
+        }
+    }
+    return (box.text, box.prosigns, core.status, core.scope())
+}
+/// Levenshtein-Abstand (Zeichenfehler)
+func editDistance(_ a: String, _ b: String) -> Int {
+    let x = Array(a), y = Array(b)
+    var prev = Array(0...y.count)
+    for i in 1...max(x.count, 1) where !x.isEmpty {
+        var cur = [i] + Array(repeating: 0, count: y.count)
+        for j in 1...max(y.count, 1) where !y.isEmpty {
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] == y[j - 1] ? 0 : 1))
+        }
+        prev = cur
+    }
+    return x.isEmpty ? y.count : prev[y.count]
+}
+/// Gaußsches Rauschen, reproduzierbar (S/N bezogen auf 3 kHz)
+func addNoise(_ s: [Float], snrDB: Double, signalPower: Double = 0.125, seed: UInt64 = 7) -> [Float] {
+    var x = seed
+    func uni() -> Double { x = x &* 6364136223846793005 &+ 1442695040888963407; return (Double(x >> 11) + 0.5) / Double(1 << 53) }
+    let sigma = (signalPower / pow(10, snrDB / 10) * 4000 / 3000).squareRoot()
+    return s.map { v in Float(Double(v) + sigma * (-2 * log(uni())).squareRoot() * cos(2 * Double.pi * uni())) }
+}
+/// fldigis Pegelnachführung startet bei agc_peak = 0: das erste Element nach völliger Stille kann falsch
+/// gelesen werden (wortgleich übernommen). Deshalb „VVV“ als Vorlauf wie bei Baken; geprüft wird der Text danach.
+let cwWarmup = "VVV "
+func cwCopied(_ got: String, _ text: String) -> Bool {
+    got.trimmingCharacters(in: .whitespaces).hasSuffix(" " + text)
+}
+do {
+    let text = "CQ CQ DE DL1ABC DL1ABC PSE K"
+    for wpm in [12.0, 18, 22] {
+        var g = CWSignalGenerator()
+        g.wpm = wpm
+        let r = cwDecode(g.samples(for: cwWarmup + text))
+        check(cwCopied(r.text, text), "CW \(Int(wpm)) WpM exakt, got \(r.text.debugDescription)")
+        check(abs(r.status.wpm - wpm) <= 2.5, "CW \(Int(wpm)) WpM: Geschwindigkeit erkannt (\(r.status.wpm))")
+    }
+    // 35 WpM liegt außerhalb der Nachführung um 18 (8…28) – mit passender Startgeschwindigkeit sauber
+    var fast = CWSignalGenerator()
+    fast.wpm = 35
+    var o35 = FldigiCWCore.Options()
+    o35.speedWPM = 35
+    let r35 = cwDecode(fast.samples(for: cwWarmup + text), options: o35)
+    check(cwCopied(r35.text, text), "CW 35 WpM mit Start 35 exakt, got \(r35.text.debugDescription)")
+    // Ohne Nachführung bei passender fester Geschwindigkeit
+    var fixed = FldigiCWCore.Options()
+    fixed.track = false
+    fixed.speedWPM = 20
+    var g20 = CWSignalGenerator()
+    g20.wpm = 20
+    check(cwCopied(cwDecode(g20.samples(for: cwWarmup + text), options: fixed).text, text), "CW feste Geschwindigkeit")
+
+    // Rauschen (S/N in 3 kHz): fehlerfrei bis 3 dB, bei 0 dB höchstens 3 Fehler (fldigi-Tabellendecoder)
+    let g18 = CWSignalGenerator()
+    let clean = g18.samples(for: cwWarmup + text)
+    for snr in [10.0, 3] {
+        let r = cwDecode(addNoise(clean, snrDB: snr))
+        check(cwCopied(r.text, text), "CW 18 WpM bei \(Int(snr)) dB exakt, got \(r.text.debugDescription)")
+    }
+    let r0 = cwDecode(addNoise(clean, snrDB: 0)).text.trimmingCharacters(in: .whitespaces)
+    let tail0 = String(r0.suffix(text.count))
+    check(editDistance(tail0, text) <= 3, "CW 18 WpM bei 0 dB: höchstens 3 Fehler, got \(r0.debugDescription)")
+    let m10 = cwDecode(addNoise(clean, snrDB: 10)).status.metric
+    let m0 = cwDecode(addNoise(clean, snrDB: 0)).status.metric
+    check(editDistance("KITTEN", "SITTING") == 3, "Editierabstand")
+    check(m10 > m0, "Metrik steigt mit S/N (\(m10) > \(m0))")
+    // Matched Filter (2 × WpM = 36 Hz) verbessert die Grenze
+    var mf = FldigiCWCore.Options()
+    mf.matchedFilter = true
+    let rMF = cwDecode(addNoise(clean, snrDB: -3), options: mf)
+    check(cwCopied(rMF.text, text), "Matched Filter: -3 dB exakt, got \(rMF.text.debugDescription)")
+
+    // Ton daneben: 150-Hz-Filter auf 700 Hz, Signal auf 1000 Hz → kein Text
+    var off = CWSignalGenerator()
+    off.toneHz = 1000
+    check(cwDecode(off.samples(for: cwWarmup + text)).text.trimmingCharacters(in: .whitespaces).isEmpty, "Signal außerhalb des Filters wird nicht decodiert")
+    check(cwCopied(cwDecode(off.samples(for: cwWarmup + text), center: 1000).text, text), "Mitte auf das Signal: decodiert")
+
+    // Prosigns und Umlaute (fldigi-Tabelle: Prosign-Namen, Ä Ö Ü aktiv)
+    let p = cwDecode(g18.samples(for: cwWarmup + "TEST = ÄÖÜ"))
+    check(cwCopied(p.text, "TEST <BT> ÄÖÜ"), "Prosign BT und Umlaute, got \(p.text.debugDescription)")
+    check(p.prosigns.joined() == "<BT>", "Prosign als Steuerzeichen gemeldet")
+    check(!p.scope.isEmpty && p.scope.allSatisfy { $0 >= 0 && $0 <= 1.01 }, "Hüllkurve normiert")
+    // Zwei Kerne nacheinander auf derselben Frequenz (fldigi-file-static first_time)
+    let again = cwDecode(clean)
+    check(cwCopied(again.text, text) && again.status.centerHz == 700, "Neuer Kern übernimmt Filtermitte")
+}
+
+// MARK: - CW-Einstellungen und Pipeline
+do {
+    let st = CWSettingsStore()
+    st.setCenter(700)
+    st.options = FldigiCWCore.Options()
+    check(st.tones.mark == 700 && st.tones.space == 700 && st.markerBandwidth == 150, "CW: ein Ton, Filterbreite als Marke")
+    st.options.matchedFilter = true
+    st.options.speedWPM = 25
+    check(st.effectiveBandwidth == 50, "Matched Filter: 2 × WpM")
+    st.options = FldigiCWCore.Options()
+    st.setCenter(5000)
+    check(st.centerHz == 3500, "CW-Ton oben begrenzt")
+    st.setCenter(700)
+
+    // Pipeline 48 kHz → 8 kHz → CW-Decoder
+    let pipeline = AudioPipeline()
+    let decoder = CWDecoder(pipeline: pipeline)
+    decoder.configure(options: FldigiCWCore.Options(), centerHz: 700)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    var gen = CWSignalGenerator()
+    gen.sampleRate = 48_000
+    let samples = gen.samples(for: cwWarmup + "DE DK0WCY TEST")
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    while i < samples.count {
+        let n = min(48_000, samples.count - i)
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.12)
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    let out = decoder.takeOutput()
+    let got = out.segments.map(\.text).joined().trimmingCharacters(in: .whitespaces)
+    check(cwCopied(got, "DE DK0WCY TEST"), "Pipeline 48 kHz -> CW exakt, got \(got.debugDescription)")
+    check((out.status?.wpm ?? 0) > 15, "Pipeline: Geschwindigkeit gemeldet")
+    decoder.setEnabled(false)
+    samples.prefix(48_000).withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: $0.count) }
+    Thread.sleep(forTimeInterval: 0.3)
+    check(decoder.takeOutput().segments.isEmpty, "Abgeschaltetes CW-Modul decodiert nicht")
+    pipeline.stop()
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

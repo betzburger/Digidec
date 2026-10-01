@@ -415,7 +415,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M8 | URL-Schema + Buttons in beiden Commandern | ✅ 30.09.2026: Knopf DIGIDEC in PCR-1500 Commander 0.22.0 und FT-991A Commander 0.6.0; automatische DWD-Erkennung mit NF-Mitte; Klick durch den Nutzer noch zu prüfen |
 | M5b | SYNOP-Klartext | ✅ 30.09.2026 (v0.9.0): SYNOP/SHIP/BUOY-Decoder aus fldigi, Klartext in Amber unter den Meldungen, Schalter SYNOP |
 | M9 | NAVTEX | ✅ 01.10.2026 (v0.10.1): fldigi-NAVTEX-Empfänger, Modul-Umschaltung, Nachrichtenliste mit Station, Log; Live-Empfang durch den Nutzer offen |
-| M10+ | weitere Module | CW (fldigi), WEFAX (fldigi), dann FT8 (ft8_lib) |
+| M10 | CW | ✅ 01.10.2026 (v0.11.0): fldigi-CW-Empfänger (Tabelle/SOM, Geschwindigkeitsnachführung, Matched Filter), Hüllkurvenanzeige, Log, `decode_file.sh --cw`; Live-Empfang durch den Nutzer offen |
+| M11+ | weitere Module | WEFAX (fldigi), dann FT8 (ft8_lib) |
 
 ---
 
@@ -638,4 +639,23 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - Polarität bestätigen: Vermutlich ohne REV wie in fldigi. Bei Zeichensalat REV drücken.
     - Mikrofon-Freigabe nach dem Neustart erteilen (neue Version).
   - Mögliche Ergänzung in den Commandern: NAVTEX-Frequenzen (518/490/4209,5 kHz) im DIGIDEC-Menü erkennen. Das wäre eine Änderung an den Hauptprogrammen und braucht deren Regeln.
-- **Nächster Schritt:** M10 CW aus fldigi.
+- **M10 CW erledigt (v0.11.0, 01.10.2026; Nutzer unterwegs, nur theoretisch und synthetisch geprüft):**
+  - Kern: `Vendor/Fldigi/src/cw/cw_rx.cpp`, erzeugt von `Vendor/Fldigi/port_cw.py` aus fldigi `cw.cxx`. Die Empfangsfunktionen sind wörtlich herausgezogen (Klammerzählung), Senden und Tastung entfallen.
+    Dazu `morse.cpp` (Tabelle mit Prosigns und Umlauten), `filters.cpp` (`C_FIR_filter`, `Cmovavg`), Umgebung `cw_compat.h`, C-API `fldigi_cw.h`. Details: `Vendor/Fldigi/UPSTREAM_CW.md`.
+  - Verarbeitung wie fldigi: 8 kHz, FIR-Bandpass mit 512 Taps und Dezimierung 10, gleitender Mittelwert, Pegelnachführung (Attack/Decay), Hysterese 0,95/1,05.
+    Geschwindigkeit aus Punkt-/Strichpaaren nachgeführt (Start ±10 WpM, Grenzen 5…50). Prosigns erscheinen als `<BT>`, `<AR>`, `<SK>` … in Amber. Ä, Ö, Ü sind aktiv (fldigi-Standard).
+  - Swift: `FldigiCWCore` (+ `CWSignalGenerator`), `CWModule.swift` mit `CWSettingsStore` (Ton, Filter 50…500 Hz oder Matched Filter, Start-WpM, Nachführung, Attack/Decay, SQL, SOM), `CWDecoder` (8-kHz-Senke) und `CWController` (Text, Log `CW-JJJJ-MM-TT.txt`).
+  - App: Modul CW in der Leiste. Karten: Abstimmanzeige (erkannte WpM groß, Hüllkurve mit Schwelle wie fldigis Digiscope, Signal, Filter, Ton), Einstellungen. Wasserfall: Klick setzt den Ton.
+    URL `digidec://decode?mode=cw&center=…` (Preset `ham`).
+  - Synthetisch (S/N in 3 kHz, 18 WpM): fehlerfrei bis +3 dB, bei 0 dB einzelne Fehler, −3 dB unbrauchbar. Mit Matched Filter (36 Hz) bei −3 dB fehlerfrei.
+  - **fldigi-Verhalten, bewusst übernommen:**
+    - Das erste Element nach völliger Stille wird oft falsch gelesen (aus „CQ“ wird „FQ“), weil die Pegelnachführung bei `agc_peak = 0` startet (Zeitkonstante ≈ 250 ms). Auf dem Band geht Rauschen voraus. Die Tests senden deshalb „VVV“ vorweg.
+    - Signale außerhalb des Nachführbereichs (z. B. 35 WpM bei Start 18 → Bereich 8…28) werden zerhackt. Dann die Startgeschwindigkeit anpassen.
+    - Die erkannte Geschwindigkeit liegt 1–2 WpM unter der gesendeten (weiche Flanken verlängern die Punkte).
+  - Korrektur gegenüber fldigi: fldigi legt den CW-Empfänger einmal je Programmlauf an. Digidec setzt beim Anlegen die file-static-Variable `first_time` zurück, sonst bliebe das Filter eines zweiten Exemplars auf 1000 Hz.
+  - `decode_file.sh <wav> --cw --center <Hz> [--wpm n] [--mf] [--compare text]` decodiert Aufnahmen offline.
+  - Logiktests: 289 Prüfungen, darunter 12/18/22/35 WpM, feste Geschwindigkeit, Rauschen 10/3/0 dB, Matched Filter, Filtermitte, Prosign `<BT>` und Umlaute, Pipeline 48 kHz → CW und abgeschaltetes Modul.
+  - **Offen (braucht den Nutzer):**
+    - Live-Empfang, z. B. DK0WCY auf 10 144 kHz (Bake, Kiel) oder ein Amateurfunk-QSO im CW-Bandsegment. Der Empfänger steht dabei in CW oder USB, der Ton im Wasserfall wird angeklickt.
+    - Vergleich mit fldigi auf derselben Aufnahme (wie bei RTTY): Aufnahme in Digidec, dann `decode_file.sh --cw --compare`.
+- **Nächster Schritt:** M11 WEFAX aus fldigi (`src/wefax/wefax.cxx`).

@@ -46,6 +46,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/RTTY/SynopDecoder.swift \
     $S/Decoders/NAVTEX/FldigiNavtexCore.swift $S/Decoders/NAVTEX/NavtexSettingsStore.swift \
     $S/Decoders/NAVTEX/NavtexDecoder.swift $S/Decoders/NAVTEX/NavtexController.swift $S/Models/TuningTarget.swift \
+    $S/Decoders/CW/FldigiCWCore.swift $S/Decoders/CW/CWModule.swift \
     "$OUT"/fldigi/obj/*.o -lc++
 
 # 4. Ausführen

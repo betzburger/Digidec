@@ -23,8 +23,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex: return true
-        case .cw, .wefax, .ft8: return false
+        case .rtty, .navtex, .cw: return true
+        case .wefax, .ft8: return false
         }
     }
 
@@ -33,7 +33,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .rtty: return ["ham", "dwd-kw", "dwd-lw", "custom"]
         case .navtex: return ["518", "490", "4209"]   // = NavtexFrequency.rawValue
-        case .cw, .wefax, .ft8: return []
+        case .cw: return ["ham"]
+        case .wefax, .ft8: return []
         }
     }
 }

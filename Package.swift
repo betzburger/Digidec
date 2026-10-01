@@ -28,6 +28,7 @@ let package = Package(
                 .headerSearchPath("src/synop"),
                 .headerSearchPath("src/misc"),
                 .headerSearchPath("src/navtex"),
+                .headerSearchPath("src/cw"),
                 .headerSearchPath("compat")
             ]
         ),

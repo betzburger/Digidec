@@ -22,6 +22,8 @@ public struct MainWindowView: View {
                         Group {
                             if state.activeModule == .navtex {
                                 WaterfallView(model: state.waterfall, rtty: state.navtex, audio: state.audio)
+                            } else if state.activeModule == .cw {
+                                WaterfallView(model: state.waterfall, rtty: state.cw, audio: state.audio)
                             } else {
                                 WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
                             }
@@ -32,6 +34,8 @@ public struct MainWindowView: View {
                         Group {
                             if state.activeModule == .navtex {
                                 NavtexReceivePanel(controller: state.navtexController)
+                            } else if state.activeModule == .cw {
+                                CWReceivePanel(controller: state.cwController)
                             } else {
                                 ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             }
@@ -49,6 +53,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "NAVTEX")
                             NavtexMessageList(controller: state.navtexController)
                                 .radioCard(title: "Nachrichten")
+                        } else if state.activeModule == .cw {
+                            CWTuningPanel(controller: state.cwController, settings: state.cw)
+                                .radioCard(title: "Abstimmanzeige")
+                            CWSettingsPanel(settings: state.cw)
+                                .radioCard(title: "CW")
                         } else {
                             TuningPanel(controller: state.rttyController, settings: state.rtty)
                                 .radioCard(title: "Abstimmanzeige")
@@ -69,7 +78,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw)
             }
             .padding(.bottom, 8)
         }
@@ -273,10 +282,11 @@ private struct StatusBar: View {
     @ObservedObject var state: DigidecState
     @ObservedObject var rtty: RTTYSettingsStore
     @ObservedObject var navtex: NavtexSettingsStore
+    @ObservedObject var cw: CWSettingsStore
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(state.activeModule == .navtex ? navtexCurrent : current)
+            Text(state.activeModule == .navtex ? navtexCurrent : state.activeModule == .cw ? cwCurrent : current)
                 .foregroundColor(RadioTheme.textMuted)
                 .lineLimit(1)
             Spacer()
@@ -315,6 +325,17 @@ private struct StatusBar: View {
         s += " · \(navtex.effectiveLSB ? "LSB" : "USB")"
         if navtex.sidebandMode == .auto { s += navtex.rigIsLSB == nil ? " (auto, unbekannt)" : " (auto)" }
         s += " · Mitte \(Int(navtex.centerHz.rounded())) Hz"
+        return s
+    }
+
+    /// „CW · Ton 700 Hz · Filter 150 Hz · Start 18 WpM · Nachführung 8–28“
+    private var cwCurrent: String {
+        let o = cw.options
+        var s = "CW · Ton \(Int(cw.centerHz.rounded())) Hz · Filter \(Int(cw.effectiveBandwidth)) Hz"
+        if o.matchedFilter { s += " (MF)" }
+        s += " · Start \(o.speedWPM) WpM"
+        s += o.track ? " · Nachführung \(max(o.lowerWPM, o.speedWPM - o.rangeWPM))–\(min(o.upperWPM, o.speedWPM + o.rangeWPM))" : " · fest"
+        if o.somDecoding { s += " · SOM" }
         return s
     }
 

@@ -1,4 +1,4 @@
-// Digidec offline: decodiert eine Aufnahme mit dem RTTY-Kern (fldigi 4.2.13) und wertet sie aus.
+// Digidec offline: decodiert eine Aufnahme mit dem RTTY- oder CW-Kern (fldigi 4.2.13) und wertet sie aus.
 // Aufruf über Tools/DecodeFile/decode_file.sh – Hilfe mit --help.
 import Foundation
 import AVFoundation
@@ -15,6 +15,10 @@ func usage() -> Never {
       --loop ddk2           Auswertung gegen die bekannte DWD-Testschleife (DDK2/DDH7/DDK9)
       --compare <datei.txt> Übereinstimmung mit einem anderen Text (z. B. fldigi) messen
       --synop               SYNOP/SHIP/BUOY-Klartext zusätzlich nach <aufnahme>.synop.txt schreiben
+
+      --cw                  CW statt RTTY (fldigi-CW-Empfänger); dazu --center <Ton-Hz> (Standard 700)
+      --wpm <n>             CW-Startgeschwindigkeit (Standard 18, Nachführung ±10)
+      --mf                  CW Matched Filter (Bandbreite 2 × WpM)
     """)
     exit(2)
 }
@@ -32,6 +36,9 @@ var outPath: String?
 var loop: String?
 var comparePath: String?
 var synopOut = false
+var cwMode = false
+var cwWPM = 18
+var cwMF = false
 while !args.isEmpty {
     let a = args.removeFirst()
     func value() -> String { guard !args.isEmpty else { usage() }; return args.removeFirst() }
@@ -44,6 +51,9 @@ while !args.isEmpty {
     case "--loop": loop = value()
     case "--compare": comparePath = value()
     case "--synop": synopOut = true
+    case "--cw": cwMode = true
+    case "--wpm": cwWPM = Int(value()) ?? 18
+    case "--mf": cwMF = true
     case "--help", "-h": usage()
     default: print("Unbekannte Option \(a)"); usage()
     }
@@ -52,6 +62,49 @@ while !args.isEmpty {
 let wavURL = URL(fileURLWithPath: wavPath)
 let defaultInfo = wavURL.deletingPathExtension().appendingPathExtension("json")
 let infoURL = infoPath.map { URL(fileURLWithPath: $0) } ?? defaultInfo
+
+// MARK: - CW
+
+if cwMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: FldigiCWCore.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    var o = FldigiCWCore.Options()
+    o.speedWPM = cwWPM
+    o.matchedFilter = cwMF
+    let tone = center ?? 700
+    print("CW · Ton \(Int(tone)) Hz · Start \(cwWPM) WpM" + (cwMF ? " · Matched Filter" : " · Filter \(o.bandwidthHz) Hz"))
+    var cwText = ""
+    var wpmSeen: [Double] = []
+    let core = FldigiCWCore(options: o, centerHz: tone) { t, _ in cwText += t }
+    let started = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { core.process($0) }
+        if core.status.wpm > 0 { wpmSeen.append(core.status.wpm) }
+    }
+    let out = outPath.map { URL(fileURLWithPath: $0) } ?? wavURL.deletingPathExtension().appendingPathExtension("digidec.txt")
+    try? cwText.write(to: out, atomically: true, encoding: .utf8)
+    let duration = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "Decodiert: %.0f s Audio in %.2f s, %d Zeichen -> %@", duration, Date().timeIntervalSince(started),
+                 cwText.count, out.lastPathComponent))
+    if let lo = wpmSeen.min(), let hi = wpmSeen.max() {
+        print(String(format: "Geschwindigkeit: %.0f … %.0f WpM, am Ende %.0f WpM", lo, hi, core.status.wpm))
+    }
+    print(cwText)
+    if let comparePath, let other = try? String(contentsOfFile: comparePath, encoding: .utf8) {
+        let a = Array(cwText.uppercased().filter { !$0.isWhitespace }), b = Array(other.uppercased().filter { !$0.isWhitespace })
+        let d = levenshtein(a, b)
+        print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
+                     100 * Double(d) / Double(max(1, max(a.count, b.count)))))
+    }
+    exit(0)
+}
 
 // MARK: - Einstellungen
 

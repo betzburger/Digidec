@@ -23,6 +23,8 @@ public final class DigidecState: ObservableObject {
     public let rig = RigModel()
     public let navtex = NavtexSettingsStore()
     public let navtexController: NavtexController
+    public let cw = CWSettingsStore()
+    public let cwController: CWController
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -31,6 +33,7 @@ public final class DigidecState: ObservableObject {
         waterfall = WaterfallModel(pipeline: audio.pipeline)
         rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
         navtexController = NavtexController(pipeline: audio.pipeline, settings: navtex)
+        cwController = CWController(pipeline: audio.pipeline, settings: cw)
 
         // Nur das gewählte Modul decodiert
         $activeModule
@@ -38,6 +41,7 @@ public final class DigidecState: ObservableObject {
             .sink { [weak self] module in
                 self?.rttyController.decoder.setEnabled(module == .rtty)
                 self?.navtexController.setActive(module == .navtex)
+                self?.cwController.setActive(module == .cw)
             }
             .store(in: &cancellables)
 
@@ -54,6 +58,7 @@ public final class DigidecState: ObservableObject {
             navtex.rigIsLSB = state.isLSB
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             rttyController.rigDescription = rig.description
+            cwController.rigDescription = rig.description
             rttyController.rigState = state
         }
     }
@@ -94,6 +99,8 @@ public final class DigidecState: ObservableObject {
             case .navtex:
                 if let f = NavtexFrequency(rawValue: request.presetID) { navtex.frequency = f }
                 if let center = request.centerHz { navtex.setCenter(center) }
+            case .cw:
+                if let center = request.centerHz { cw.setCenter(center) }
             default:
                 break
             }
