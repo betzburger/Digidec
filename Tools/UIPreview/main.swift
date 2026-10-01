@@ -63,6 +63,15 @@ func run() {
     schedState.wefaxSchedule.selected = ["1636", "1800", "0430"]
     schedState.wefaxSchedule.autoEnabled = true
     save(WefaxScheduleSheet(store: schedState.wefaxSchedule, auto: schedState.wefaxAuto, scrolls: false), width: 820, name: "wefax_sendeplan", dir: dir)
+    // WEFAX-Bildeditor: synthetische „Karte“ mit weißem Rand in der Mitte (Naht)
+    let ew = 900, eh = 560
+    var epx = [UInt8](repeating: 255, count: ew * eh)
+    for y in 0..<eh { for x in 0..<ew where !(380..<450).contains(x) {
+        let line = (x + y / 2) % 97 < 2 || (x * 3 + y) % 211 < 2
+        if line { epx[y * ew + x] = 40 }
+    } }
+    let eimg = WefaxImage(name: "wefax_20261001_123600_7880_ok.png", comments: "", width: ew, height: eh, pixels: epx, receivedAt: Date(), fileURL: nil)
+    save(WefaxImageEditor(controller: wfc, image: eimg), width: 940, name: "wefax_editor", dir: dir)
     save(WefaxNextLine(store: schedState.wefaxSchedule, auto: schedState.wefaxAuto).radioCard(title: "WEFAX"), width: 330, name: "wefax_naechste", dir: dir)
 }
 

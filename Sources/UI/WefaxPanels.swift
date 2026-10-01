@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Empfangsbild
 
@@ -255,8 +256,40 @@ struct WefaxSettingsPanel: View {
 
 struct WefaxGallery: View {
     @ObservedObject var controller: WefaxController
+    @State private var editing: WefaxImage?
 
     var body: some View {
+        VStack(spacing: 6) {
+            HStack {
+                Spacer()
+                Button {
+                    openFromDisk()
+                } label: {
+                    Label("BILD ÖFFNEN", systemImage: "folder.badge.plus")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Ein gespeichertes Wetterfax-Bild (PNG) zum Verschieben öffnen")
+            }
+            content
+        }
+        .sheet(item: $editing) { img in
+            WefaxImageEditor(controller: controller, image: img)
+        }
+    }
+
+    private func openFromDisk() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg]
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = controller.directory
+        panel.message = "Wetterfax-Bild zum Bearbeiten wählen"
+        if panel.runModal() == .OK, let url = panel.url, let img = controller.openImage(url: url) {
+            editing = img
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if controller.gallery.isEmpty {
             Text("Noch kein Bild – DWD sendet rund um die Uhr nach Sendeplan")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -284,6 +317,13 @@ struct WefaxGallery: View {
                                     .foregroundColor(RadioTheme.textDim)
                             }
                             Spacer()
+                            Button {
+                                editing = img
+                            } label: {
+                                Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                            }
+                            .buttonStyle(ModeButtonStyle(isSelected: false))
+                            .help("Bild verschieben – wenn der linke Rand mitten in der Karte beginnt")
                             if let url = img.fileURL {
                                 Button {
                                     NSWorkspace.shared.open(url)

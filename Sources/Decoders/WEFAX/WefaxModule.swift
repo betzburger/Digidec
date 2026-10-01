@@ -257,6 +257,46 @@ public final class WefaxController: ObservableObject {
         gallery.removeAll { $0.id == img.id }
     }
 
+    /// Lädt ein gespeichertes Bild (PNG/JPEG) zum Bearbeiten; wird nicht in die Galerie eingetragen.
+    public func openImage(url: URL) -> WefaxImage? {
+        guard let g = WefaxImageTools.load(url: url) else { return nil }
+        let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+        return WefaxImage(name: url.lastPathComponent, comments: "", width: g.width, height: g.height, pixels: g.pixels,
+                          receivedAt: date, fileURL: url)
+    }
+
+    /// Speichert das um `shift` Pixel verschobene Bild (Umlauf).
+    /// - Parameter replaceOriginal: `true` ersetzt die Datei (das Original bleibt einmalig als `…_original.png` erhalten),
+    ///   `false` legt eine neue Datei `…_korr.png` daneben.
+    /// - Returns: das gespeicherte Bild (steht danach vorn in der Galerie)
+    @discardableResult
+    public func saveEdited(_ img: WefaxImage, shift: Int, replaceOriginal: Bool) throws -> WefaxImage {
+        var out = img
+        out.pixels = WefaxImageTools.shifted(img.pixels, width: img.width, height: img.height, by: shift)
+        out.comments += (img.comments.isEmpty ? "" : "\n") + "Bearbeitet: um \(shift) Pixel horizontal verschoben"
+        let dir = img.fileURL?.deletingLastPathComponent() ?? directory
+        let base = (img.name as NSString).deletingPathExtension
+        if replaceOriginal {
+            if let original = img.fileURL, FileManager.default.fileExists(atPath: original.path) {
+                let backup = dir.appendingPathComponent(base + "_original.png")
+                if !FileManager.default.fileExists(atPath: backup.path) { try? FileManager.default.copyItem(at: original, to: backup) }
+            }
+            out.name = img.name
+        } else {
+            out.name = base.hasSuffix("_korr") ? img.name : base + "_korr.png"
+        }
+        out.fileURL = try Self.writePNG(out, to: dir)
+        let edited = WefaxImage(name: out.name, comments: out.comments, width: out.width, height: out.height, pixels: out.pixels,
+                                receivedAt: img.receivedAt, fileURL: out.fileURL)
+        if replaceOriginal, let i = gallery.firstIndex(where: { $0.id == img.id }) {
+            gallery[i] = edited
+        } else {
+            gallery.insert(edited, at: 0)
+            if gallery.count > Self.maxGallery { gallery.removeLast(gallery.count - Self.maxGallery) }
+        }
+        return edited
+    }
+
     /// receive(on:) liefert nach der Änderung (wie bei RTTY/NAVTEX/CW)
     private func settingsChanged() {
         let o = settings.options

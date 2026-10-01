@@ -2580,5 +2580,41 @@ do {
     check(WefaxController.fileSlug("Wirbelstürme über Nordatlantik") == "Wirbelstuerme-ueber-Nordatlantik", "Dateiname: Umlaute aufgelöst")
 }
 
+// MARK: - WEFAX: Bild verschieben (Umlauf) und Naht-Erkennung
+do {
+    // Umlauf: kleines Beispiel
+    let w = 6, h = 2
+    let px: [UInt8] = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16]
+    check(WefaxImageTools.shifted(px, width: w, height: h, by: 0) == px, "Verschieben: 0 ändert nichts")
+    check(WefaxImageTools.shifted(px, width: w, height: h, by: 2) == [5, 6, 1, 2, 3, 4, 15, 16, 11, 12, 13, 14], "Verschieben: 2 nach rechts mit Umlauf")
+    check(WefaxImageTools.shifted(px, width: w, height: h, by: -1) == [2, 3, 4, 5, 6, 1, 12, 13, 14, 15, 16, 11], "Verschieben: −1 nach links mit Umlauf")
+    check(WefaxImageTools.shifted(px, width: w, height: h, by: 6) == px && WefaxImageTools.shifted(px, width: w, height: h, by: 8) == WefaxImageTools.shifted(px, width: w, height: h, by: 2),
+          "Verschieben: ganze Breite = identisch, Vielfache werden gekürzt")
+    check(WefaxImageTools.shifted(WefaxImageTools.shifted(px, width: w, height: h, by: 4), width: w, height: h, by: -4) == px, "Verschieben: hin und zurück")
+
+    // Synthetische Wetterkarte: Inhalt mit Linien, weißer Streifen (Rand) bei [700, 860) – wie im echten Bild verschoben
+    let W = 1809, H = 200
+    var chart = [UInt8](repeating: 255, count: W * H)
+    var seed: UInt64 = 5
+    func rnd() -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int(seed >> 33) }
+    for y in 0..<H { for x in 0..<W where !(700..<860).contains(x) && rnd() % 5 == 0 { chart[y * W + x] = UInt8(rnd() % 120) } }
+    let dx = WefaxImageTools.autoShift(chart, width: W, height: H)
+    // Streifenmitte 779 muss an den Rand (0): Verschiebung ≈ −779
+    check(abs(dx - (-779)) <= 3, "Naht: Streifenmitte 779 → Verschiebung \(dx) (Soll ≈ −779)")
+    let fixed = WefaxImageTools.shifted(chart, width: W, height: H, by: dx)
+    var whiteAtEdge = 0
+    for y in 0..<H { for x in [0, 1, 2, W - 3, W - 2, W - 1] where fixed[y * W + x] == 255 { whiteAtEdge += 1 } }
+    check(whiteAtEdge == H * 6, "Naht: nach dem Verschieben ist der Rand weiß (\(whiteAtEdge)/\(H * 6))")
+    // Bild, das schon richtig liegt: Streifen am Rand → Verschiebung ≈ 0
+    let aligned = WefaxImageTools.shifted(chart, width: W, height: H, by: dx)
+    check(abs(WefaxImageTools.autoShift(aligned, width: W, height: H)) <= 3, "Naht: bereits richtig liegendes Bild bleibt")
+    // Kein heller Streifen (gleichmäßige Tinte, z. B. Textseite): nichts verschieben
+    var noisy = [UInt8](repeating: 255, count: W * H)
+    for i in 0..<noisy.count where rnd() % 3 == 0 { noisy[i] = UInt8(rnd() % 120) }
+    check(WefaxImageTools.autoShift(noisy, width: W, height: H) == 0, "Naht: ohne hellen Streifen bleibt es bei 0")
+    check(WefaxImageTools.autoShift([UInt8](repeating: 255, count: W * H), width: W, height: H) == 0, "Naht: leeres weißes Bild bleibt 0")
+    check(WefaxImageTools.autoShift([1, 2, 3], width: 3, height: 1) == 0, "Naht: zu kleines Bild bleibt 0")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)
