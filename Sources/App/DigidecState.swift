@@ -37,10 +37,17 @@ public final class DigidecState: ObservableObject {
     public let efrController: EFRController
     public let sstv = SSTVSettingsStore()
     public let sstvController: SSTVController
+    /// Darf Digidec das Funkgerät über den rigctld des Commanders abstimmen? Standard: aus (nur lesen).
+    @Published public var rigControlEnabled: Bool {
+        didSet { UserDefaults.standard.set(rigControlEnabled, forKey: "rigControlEnabled") }
+    }
+    /// Nach einem Auftrag eines Commanders (URL) stimmt dieser das Gerät selbst ab: nicht gegenläufig nachstellen
+    private var suppressRigTuneUntil = Date.distantPast
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
     private init() {
+        rigControlEnabled = UserDefaults.standard.bool(forKey: "rigControlEnabled")
         audio = AudioInputManager()
         waterfall = WaterfallModel(pipeline: audio.pipeline)
         rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
@@ -68,6 +75,15 @@ public final class DigidecState: ObservableObject {
                 self?.sstvController.setActive(module == .sstv)
             }
             .store(in: &cancellables)
+
+        // Funkgerät folgt den Voreinstellungen: Moduswechsel und Klick auf Band/Kanal/Sender stellen es ab (wenn freigegeben)
+        observeForTuning($activeModule)
+        observeForTuning(ft8.$band)
+        observeForTuning(ft4.$band)
+        observeForTuning(sstv.$channel)
+        observeForTuning(efr.$station)
+        observeForTuning(wefax.$station)
+        observeForTuning(navtex.$frequency)
 
         // rigctld des Funkgeräts, dessen Codec gerade gelesen wird (bei Dateiwiedergabe keins)
         audio.$activeInput.combineLatest(audio.$sourceKind)
@@ -99,6 +115,36 @@ public final class DigidecState: ObservableObject {
         }
     }
 
+    private func observeForTuning<P: Publisher>(_ publisher: P) where P.Output: Equatable, P.Failure == Never {
+        publisher
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.tuneRigForActiveModule() }
+            .store(in: &cancellables)
+    }
+
+    /// Abstimmziel des aktiven Moduls (nil: RTTY, CW oder freie Einstellung ohne feste Frequenz)
+    public var rigTargetForActiveModule: RigTuneTarget? {
+        switch activeModule {
+        case .ft8:    return .ft8(band: ft8.band)
+        case .ft4:    return .ft4(band: ft4.band)
+        case .sstv:   return .sstv(channel: sstv.channel)
+        case .efr:    return .efr(station: efr.station, centerHz: efr.centerHz)
+        case .dcf77:  return .dcf77(centerHz: dcf77.centerHz)
+        case .wefax:  return .wefax(station: wefax.station, centerHz: wefax.centerHz)
+        case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
+        case .rtty, .cw: return nil
+        }
+    }
+
+    /// Stellt das Funkgerät auf das Ziel des aktiven Moduls – nur mit Freigabe und Verbindung
+    public func tuneRigForActiveModule() {
+        guard rigControlEnabled, Date() >= suppressRigTuneUntil, rig.radio != nil,
+              let target = rigTargetForActiveModule else { return }
+        rig.tune(to: target)
+    }
+
     /// Beim Programmstart: Mikrofon-Freigabe abwarten (nötig für den Eingang der virtuellen Soundkarte),
     /// dann den Live-Eingang starten. Kam der Start per Auftrag, hat `handle(url:)` das schon erledigt.
     public func startAudio() {
@@ -124,6 +170,8 @@ public final class DigidecState: ObservableObject {
     public func handle(url: URL) {
         switch DecodeRequestParser.parse(url) {
         case .success(let request):
+            // Der Commander hat das Funkgerät für diesen Auftrag selbst eingestellt: nicht dagegen arbeiten
+            suppressRigTuneUntil = Date().addingTimeInterval(2.0)
             currentRequest = request
             if let module = request.module {
                 activeModule = module

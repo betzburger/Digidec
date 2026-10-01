@@ -1,0 +1,78 @@
+import Foundation
+
+/// Abstimmziel für das Funkgerät: **Dial**-Frequenz (nicht Sendefrequenz) und Mode.
+/// Die Dial-Frequenz berücksichtigt die NF-Mitte des Decoders (Sender = Dial + NF-Mitte in USB).
+public struct RigTuneTarget: Equatable, Sendable {
+    public let dialHz: Int64
+    /// Hamlib-Mode: "USB", "LSB", "FM" …
+    public let mode: String
+    /// Bandbreite in Hz; `nil`/0 = Standard des Geräts
+    public let passbandHz: Int?
+    /// Kurzbeschreibung für die Anzeige, z. B. „14,080 MHz USB“
+    public var label: String {
+        let mhz = Double(dialHz) / 1_000_000
+        let text: String
+        if mhz >= 1 {
+            text = String(format: "%.3f MHz", mhz)
+        } else {
+            text = String(format: "%.3f kHz", Double(dialHz) / 1000)
+        }
+        return text.replacingOccurrences(of: ".", with: ",") + " " + mode
+    }
+
+    public init(dialHz: Int64, mode: String, passbandHz: Int? = nil) {
+        self.dialHz = dialHz
+        self.mode = mode
+        self.passbandHz = passbandHz
+    }
+
+    // MARK: - Ziele je Modul (nil = Modul hat keine feste Frequenz)
+
+    public static func ft8(band: FT8Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
+
+    public static func ft4(band: FT4Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
+
+    public static func sstv(channel: SSTVChannel) -> RigTuneTarget? {
+        guard let f = channel.frequencyHz else { return nil }
+        let mode = ["USB", "LSB", "FM"].contains(channel.modulation) ? channel.modulation : nil
+        return mode.map { RigTuneTarget(dialHz: Int64(f.rounded()), mode: $0) }
+    }
+
+    /// Sendefrequenz der Station minus NF-Mitte (Empfang in USB)
+    public static func efr(station: EFRStation, centerHz: Double) -> RigTuneTarget? {
+        station == .custom ? nil : RigTuneTarget(dialHz: station.frequencyHz - Int64(centerHz.rounded()), mode: "USB")
+    }
+
+    /// DCF77 sendet auf 77,5 kHz
+    public static func dcf77(centerHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: 77_500 - Int64(centerHz.rounded()), mode: "USB")
+    }
+
+    public static func wefax(station: WefaxStation, centerHz: Double) -> RigTuneTarget? {
+        station.usbDial(center: centerHz).map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "USB") }
+    }
+
+    public static func navtex(frequency: NavtexFrequency, centerHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64(frequency.usbDial(center: centerHz).rounded()), mode: "USB")
+    }
+}
+
+/// Die einzigen Stellbefehle, die Digidec je an ein Funkgerät schickt: `F` (Frequenz) und `M` (Mode).
+/// Alles andere (insbesondere PTT `T`, Leistung, Lautstärke) wird nie gesendet. Reine Funktionen, damit testbar.
+public enum RigCommand {
+    /// Hamlib-Modes, die Digidec setzen darf
+    public static let allowedModes: Set<String> = ["USB", "LSB", "FM", "AM", "CW", "CWR", "RTTY", "RTTYR", "PKTUSB", "PKTLSB"]
+
+    /// `F <Hz>` – nur sinnvolle Frequenzen (10 kHz … 10 GHz)
+    public static func frequency(_ hz: Int64) -> String? {
+        (10_000...10_000_000_000).contains(hz) ? "F \(hz)\n" : nil
+    }
+
+    /// `M <Mode> <Bandbreite>` – Bandbreite 0 = Standard des Geräts
+    public static func mode(_ mode: String, passbandHz: Int?) -> String? {
+        let m = mode.uppercased()
+        guard allowedModes.contains(m) else { return nil }
+        let pb = max(0, min(passbandHz ?? 0, 50_000))
+        return "M \(m) \(pb)\n"
+    }
+}

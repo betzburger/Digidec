@@ -185,11 +185,49 @@ private struct HeaderBar: View {
 
             Spacer()
 
+            RigControlToggle(state: state, rig: state.rig)
             RigBadge(rig: state.rig, audio: state.audio)
             UTCClock()
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
+    }
+}
+
+/// Schalter: Digidec stimmt das Funkgerät über den rigctld des Commanders auf Band/Kanal/Sender des Moduls ab
+private struct RigControlToggle: View {
+    @ObservedObject var state: DigidecState
+    @ObservedObject var rig: RigModel
+
+    var body: some View {
+        Button {
+            state.rigControlEnabled.toggle()
+            if state.rigControlEnabled { state.tuneRigForActiveModule() }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 9, weight: .bold))
+                Text(state.rigControlEnabled ? "QSY AUTO" : "QSY MANUELL")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+            }
+            .foregroundColor(state.rigControlEnabled ? RadioTheme.vfdAmber : RadioTheme.textDim)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RadioTheme.bgDeep)
+            .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+        .disabled(rig.radio == nil)
+        .help(help)
+    }
+
+    private var help: String {
+        if rig.radio == nil { return "Kein Funkgerät angeschlossen" }
+        var s = state.rigControlEnabled
+            ? "Digidec stimmt das Funkgerät über den rigctld des Commanders ab (nur Frequenz F und Mode M, nie PTT), wenn Modul, Band, Kanal oder Sender gewechselt wird. Klicken zum Ausschalten."
+            : "Digidec liest nur Frequenz und Mode. Klicken, damit es das Funkgerät auf Band, Kanal oder Sender des Moduls abstimmt."
+        if let m = rig.tuneMessage { s += "\n\(m)" }
+        return s
     }
 }
 
@@ -235,7 +273,7 @@ private struct RigBadge: View {
         guard let radio = rig.radio else { return "Kein Funkgerät – Frequenz und Mode unbekannt" }
         let port = rig.state.port.map { String($0) } ?? "?"
         return rig.state.connected
-            ? "\(radio.displayName): Frequenz und Mode vom Commander (rigctld \(port), nur lesend)"
+            ? "\(radio.displayName): Frequenz und Mode vom Commander (rigctld \(port))" + (rig.tuneMessage.map { "\n\($0)" } ?? "")
             : "\(radio.displayName): rigctld \(port) nicht erreichbar – läuft der Commander mit aktivem rigctld-Server?"
     }
 }

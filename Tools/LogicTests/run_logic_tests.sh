@@ -42,7 +42,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/DSP/SpectrumAnalyzer.swift $S/DSP/WaterfallProcessor.swift $S/DSP/WaterfallColorMap.swift \
     $S/Decoders/RTTY/FldigiRTTYCore.swift $S/Decoders/RTTY/RTTYSignalGenerator.swift \
     $S/Decoders/RTTY/RTTYDecoder.swift $S/Decoders/RTTY/RTTYController.swift $S/Log/DecodeLogger.swift \
-    $S/Rig/RigctlClient.swift $S/Audio/InputRecorder.swift \
+    $S/Rig/RigctlClient.swift $S/Rig/RigTuning.swift $S/Audio/InputRecorder.swift \
     $S/Decoders/RTTY/SynopDecoder.swift \
     $S/Decoders/NAVTEX/FldigiNavtexCore.swift $S/Decoders/NAVTEX/NavtexSettingsStore.swift \
     $S/Decoders/NAVTEX/NavtexDecoder.swift $S/Decoders/NAVTEX/NavtexController.swift $S/Models/TuningTarget.swift \

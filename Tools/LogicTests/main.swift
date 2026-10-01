@@ -2395,5 +2395,128 @@ do {
     check(junk == 0 && quiet.getStatus().bytesReceived < 10, "EFR: 60 s reines Rauschen → \(quiet.getStatus().bytesReceived) Bytes, \(junk) Telegramme (Squelch)")
 }
 
+// MARK: - Funkgerät abstimmen (rigctld F/M): Ziele, Befehle, Ende-zu-Ende gegen einen nachgebauten rigctld
+do {
+    // Ziele je Modul (Dial-Frequenz, nicht Sendefrequenz)
+    check(RigTuneTarget.ft8(band: .m20) == RigTuneTarget(dialHz: 14_074_000, mode: "USB"), "QSY: FT8 20 m = 14,074 MHz USB")
+    check(RigTuneTarget.ft4(band: .m20) == RigTuneTarget(dialHz: 14_080_000, mode: "USB"), "QSY: FT4 20 m = 14,080 MHz USB")
+    check(RigTuneTarget.sstv(channel: .twenty) == RigTuneTarget(dialHz: 14_230_000, mode: "USB"), "QSY: SSTV 20 m = 14,230 MHz USB")
+    check(RigTuneTarget.sstv(channel: .forty)?.mode == "LSB", "QSY: SSTV 40 m in LSB")
+    check(RigTuneTarget.sstv(channel: .iss) == RigTuneTarget(dialHz: 145_800_000, mode: "FM"), "QSY: ISS 145,800 MHz FM")
+    check(RigTuneTarget.sstv(channel: .custom) == nil, "QSY: SSTV frei = kein Ziel")
+    check(RigTuneTarget.dcf77(centerHz: 1000) == RigTuneTarget(dialHz: 76_500, mode: "USB"), "QSY: DCF77 Dial 76,5 kHz USB bei Ton 1000 Hz")
+    check(RigTuneTarget.dcf77(centerHz: 500).dialHz == 77_000, "QSY: DCF77 Dial folgt dem Ton (500 Hz → 77,0 kHz)")
+    check(RigTuneTarget.efr(station: .dcf49, centerHz: 1500) == RigTuneTarget(dialHz: 127_600, mode: "USB"), "QSY: EFR DCF49 Dial 127,6 kHz")
+    check(RigTuneTarget.efr(station: .dcf39, centerHz: 1500)?.dialHz == 137_500, "QSY: EFR DCF39 Dial 137,5 kHz")
+    check(RigTuneTarget.efr(station: .custom, centerHz: 1500) == nil, "QSY: EFR frei = kein Ziel")
+    check(RigTuneTarget.wefax(station: .dwd7880, centerHz: 1900) == RigTuneTarget(dialHz: 7_878_100, mode: "USB"), "QSY: WEFAX 7880 kHz, Dial 7878,1 kHz USB")
+    check(RigTuneTarget.navtex(frequency: .f518, centerHz: 1000).dialHz == 517_000, "QSY: NAVTEX 518 kHz, Dial 517 kHz")
+    check(RigTuneTarget.ft8(band: .m20).label == "14,074 MHz USB", "QSY: Beschriftung \(RigTuneTarget.ft8(band: .m20).label)")
+
+    // Befehle: nur F und M, geprüft
+    check(RigCommand.frequency(14_074_000) == "F 14074000\n", "QSY: Befehl F")
+    check(RigCommand.frequency(5) == nil && RigCommand.frequency(-1) == nil && RigCommand.frequency(20_000_000_000) == nil, "QSY: unsinnige Frequenzen werden nicht gesendet")
+    check(RigCommand.mode("usb", passbandHz: nil) == "M USB 0\n" && RigCommand.mode("FM", passbandHz: 15_000) == "M FM 15000\n", "QSY: Befehl M")
+    check(RigCommand.mode("USB\nT 1", passbandHz: nil) == nil, "QSY: Mode mit eingeschmuggeltem Befehl (PTT) wird abgewiesen")
+    check(RigCommand.mode("PWR", passbandHz: nil) == nil, "QSY: nur erlaubte Modes")
+
+    // Ende-zu-Ende: nachgebauter rigctld (wie im Commander: F/M setzen Frequenz und Mode, f/m lesen sie)
+    final class FakeRigctld: @unchecked Sendable {
+        let lock = NSLock()
+        var commands: [String] = []
+        var freq = 7_100_000, mode = "LSB"
+        var listener: Int32 = -1
+        var port: UInt16 = 0
+        init() {
+            listener = socket(AF_INET, SOCK_STREAM, 0)
+            var one: Int32 = 1
+            setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            addr.sin_port = 0
+            _ = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+            listen(listener, 4)
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            _ = withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(listener, $0, &len) } }
+            port = UInt16(bigEndian: addr.sin_port)
+            Thread.detachNewThread { [self] in
+                while true {
+                    let c = accept(listener, nil, nil)
+                    if c < 0 { return }
+                    Thread.detachNewThread { [self] in serve(c) }
+                }
+            }
+        }
+        func serve(_ c: Int32) {
+            var pending = ""
+            var buf = [UInt8](repeating: 0, count: 256)
+            while true {
+                let n = recv(c, &buf, buf.count, 0)
+                if n <= 0 { close(c); return }
+                pending += String(decoding: buf[0..<n], as: UTF8.self)
+                while let nl = pending.firstIndex(of: "\n") {
+                    let line = String(pending[pending.startIndex..<nl]); pending.removeSubrange(pending.startIndex...nl)
+                    lock.lock(); commands.append(line)
+                    var reply = "RPRT -1\n"
+                    let parts = line.split(separator: " ")
+                    switch parts.first {
+                    case "f": reply = "\(freq)\n"
+                    case "m": reply = "\(mode)\n2400\n"
+                    case "F": if parts.count == 2, let v = Int(parts[1]) { freq = v; reply = "RPRT 0\n" }
+                    case "M": if parts.count == 3 { mode = String(parts[1]); reply = "RPRT 0\n" }
+                    default: break
+                    }
+                    lock.unlock()
+                    _ = reply.withCString { send(c, $0, strlen($0), 0) }
+                }
+            }
+        }
+    }
+    let fake = FakeRigctld()
+    final class Latest: @unchecked Sendable { let lock = NSLock(); var state = RigState(); var set: ((RigState) -> Void)?
+        func put(_ s: RigState) { lock.lock(); state = s; lock.unlock() }
+        func get() -> RigState { lock.lock(); defer { lock.unlock() }; return state } }
+    let latest = Latest()
+    let client = RigctlClient { latest.put($0) }
+    client.setPort(fake.port)
+    func waitFor(_ cond: () -> Bool, seconds: Double = 5) -> Bool {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end { if cond() { return true }; Thread.sleep(forTimeInterval: 0.05) }
+        return cond()
+    }
+    check(waitFor { latest.get().connected && latest.get().frequencyHz == 7_100_000 }, "QSY e2e: Verbindung, Frequenz 7,100 MHz LSB gelesen")
+
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var result: RigTuneResult?
+    client.tune(frequencyHz: 14_080_000, mode: "USB", passbandHz: nil) { result = $0; done.signal() }
+    check(done.wait(timeout: .now() + 5) == .success && result == .ok, "QSY e2e: Abstimmen meldet ok (\(String(describing: result)))")
+    check(waitFor { latest.get().frequencyHz == 14_080_000 && latest.get().mode == "USB" }, "QSY e2e: Gerät steht auf 14,080 MHz USB (Commander folgt)")
+    fake.lock.lock()
+    let sent = fake.commands
+    fake.lock.unlock()
+    check(sent.contains("F 14080000") && sent.contains("M USB 0"), "QSY e2e: F und M wurden gesendet (\(sent.filter { $0.first == "F" || $0.first == "M" }))")
+    check(sent.allSatisfy { ["f", "m", "F", "M"].contains(String($0.split(separator: " ").first ?? "")) }, "QSY e2e: es gingen nur f, m, F, M über die Leitung (nie PTT): \(Set(sent.map { String($0.split(separator: " ").first ?? "") }))")
+
+    // Unzulässiges wird gar nicht erst gesendet
+    let before = fake.commands.count
+    let bad = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var badResult: RigTuneResult?
+    client.tune(frequencyHz: 14_080_000, mode: "USB\nT 1", passbandHz: nil) { badResult = $0; bad.signal() }
+    _ = bad.wait(timeout: .now() + 5)
+    if case .rejected = badResult {} else { check(false, "QSY e2e: unzulässiger Mode wird abgewiesen (\(String(describing: badResult)))") }
+    fake.lock.lock(); let after = fake.commands; fake.lock.unlock()
+    check(!after.dropFirst(before).contains { $0.hasPrefix("T") }, "QSY e2e: PTT wurde nie gesendet")
+
+    // Ohne Verbindung
+    let lone = RigctlClient { _ in }
+    let none = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var noneResult: RigTuneResult?
+    lone.tune(frequencyHz: 7_100_000, mode: "USB", passbandHz: nil) { noneResult = $0; none.signal() }
+    _ = none.wait(timeout: .now() + 5)
+    check(noneResult == .notConnected, "QSY: ohne Port keine Abstimmung (\(String(describing: noneResult)))")
+    client.setPort(nil)
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

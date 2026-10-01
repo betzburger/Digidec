@@ -44,6 +44,27 @@ public final class RigModel: ObservableObject {
         }
     }
 
+    /// Meldung zum letzten Abstimmversuch (nil = keiner)
+    @Published public private(set) var tuneMessage: String?
+
+    /// Stellt das Funkgerät auf `target` ein (nur wenn eine Verbindung besteht). Der Aufrufer prüft die Freigabe des Nutzers.
+    public func tune(to target: RigTuneTarget) {
+        guard state.connected else {
+            tuneMessage = "Funkgerät nicht erreichbar – nicht abgestimmt"
+            return
+        }
+        tuneMessage = "Stimme Funkgerät ab: \(target.label) …"
+        client.tune(frequencyHz: target.dialHz, mode: target.mode, passbandHz: target.passbandHz) { [weak self] result in
+            Task { @MainActor in
+                switch result {
+                case .ok: self?.tuneMessage = "Funkgerät → \(target.label)"
+                case .notConnected: self?.tuneMessage = "Funkgerät nicht erreichbar – nicht abgestimmt"
+                case .rejected(let why): self?.tuneMessage = "Funkgerät lehnt ab (\(why))"
+                }
+            }
+        }
+    }
+
     /// „IC-PCR1500 · 4.584,700 kHz LSB“ bzw. nur der Gerätename ohne Verbindung
     public var description: String? {
         guard let radio else { return nil }

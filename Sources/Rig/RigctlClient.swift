@@ -34,8 +34,16 @@ public struct RigState: Equatable, Sendable {
     }
 }
 
+/// Ergebnis eines Abstimmversuchs
+public enum RigTuneResult: Equatable, Sendable {
+    case ok
+    case notConnected
+    case rejected(String)
+}
+
 /// Liest Frequenz und Mode vom Hamlib-rigctld der Commander (PCR-1500: 4532, FT-991A: 4533).
-/// **Nur lesend:** sendet ausschließlich `f` und `m`, niemals Stellbefehle (PLAN.md, Abschnitt 3.2).
+/// Standardmäßig **nur lesend** (`f`, `m`). Auf ausdrücklichen Wunsch des Nutzers (Schalter in der Kopfzeile) kann
+/// `tune` die Frequenz und den Mode setzen – ausschließlich mit `F` und `M` (siehe `RigCommand`), nie PTT.
 public final class RigctlClient: @unchecked Sendable {
     public static let pollInterval: TimeInterval = 1.0
 
@@ -76,6 +84,40 @@ public final class RigctlClient: @unchecked Sendable {
                 timer = t
                 t.resume()
             }
+        }
+    }
+
+    /// Stellt Frequenz und Mode des Funkgeräts über den rigctld des Commanders ein (`F`, danach `M`). Der Commander stellt
+    /// sich dabei selbst um, seine Anzeige folgt. Die Rückmeldung kommt auf einer Hintergrund-Queue.
+    public func tune(frequencyHz: Int64, mode: String?, passbandHz: Int?, completion: @escaping @Sendable (RigTuneResult) -> Void) {
+        queue.async { [self] in
+            guard let port else { completion(.notConnected); return }
+            if fd < 0 {
+                fd = Self.connectLocalhost(port: port)
+                if fd < 0 { completion(.notConnected); return }
+            }
+            guard let fCommand = RigCommand.frequency(frequencyHz) else {
+                completion(.rejected("Frequenz außerhalb des Bereichs")); return
+            }
+            guard let reply = exchange(fCommand, expectedLines: 1) else {
+                closeSocket(); completion(.notConnected); return
+            }
+            guard reply.first == "RPRT 0" else {
+                completion(.rejected(reply.first ?? "keine Antwort")); return
+            }
+            if let mode {
+                guard let mCommand = RigCommand.mode(mode, passbandHz: passbandHz) else {
+                    completion(.rejected("Mode \(mode) nicht erlaubt")); return
+                }
+                guard let modeReply = exchange(mCommand, expectedLines: 1) else {
+                    closeSocket(); completion(.notConnected); return
+                }
+                guard modeReply.first == "RPRT 0" else {
+                    completion(.rejected(modeReply.first ?? "keine Antwort")); return
+                }
+            }
+            completion(.ok)
+            poll()   // neue Frequenz sofort anzeigen
         }
     }
 

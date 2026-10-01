@@ -102,7 +102,8 @@ digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<Core
 
 - Der Decoder verbindet sich per TCP mit `127.0.0.1:<rigctl>` und fragt zyklisch ab (z. B. 1×/s): `f` (Frequenz), `m` (Mode/Bandbreite).
 - Verwendung: Anzeige in der Kopfzeile, Zeitstempel und Frequenz im Log, Plausibilitätsprüfung des Presets (z. B. LSB/USB ↔ Invertierung).
-- **Standardmäßig nur lesend.** Nie Befehle senden, die das Gerät umstimmen, außer der Nutzer schaltet das ausdrücklich frei (z. B. „Klick im Wasserfall stimmt nach“).
+- **Standardmäßig nur lesend.** Nie Befehle senden, die das Gerät umstimmen, außer der Nutzer schaltet das ausdrücklich frei.
+  **Freigabe seit 0.19.0 (Entscheidung des Nutzers, 01.10.2026):** Schalter **QSY AUTO** in der Kopfzeile (Standard aus, gespeichert). Dann sendet Digidec beim Moduswechsel und beim Wechsel von Band/Kanal/Sender genau zwei Stellbefehle an den rigctld des Commanders: `F <Dial-Hz>` und `M <Mode> <Bandbreite>`. Die Commander setzen das in ihren eigenen Zustand um (`onSetFrequency` → `tuneTo`, `onSetModeAndFilter`), ihre Anzeige folgt. Nie gesendet wird PTT (`T`), Leistung, Lautstärke u. a.; `RigCommand` lässt nur `F` und `M` mit geprüften Werten zu. Nach einem Auftrag per URL stimmt Digidec 2 s lang nicht nach (der Commander hat das Gerät dann selbst eingestellt).
 
 ---
 
@@ -424,6 +425,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M15 | FT4 | ✅ 01.10.2026 (v0.16.0): ft8_lib FT4-Demodulator & LDPC/CRC-Decoder (7,5 s Slot, 4-GFSK, 20,8333 Baud), Bandaktivität, Rx-Frequenz, 7,5-s-Zyklus Scope/Timeline, ALL.TXT-Log; 452 Tests bestanden |
 | M16 | DXCC | ✅ 01.10.2026 (v0.17.0): ARRL/AD1C DXCC-Länderdatei (cty.dat, 346 Gebiete, 21.800 Sonderrufzeichen, 7.500 Präfixe), automatische Flaggen, CQ-/ITU-Zonen, Koordinaten, Portabel- & Gastland-Auflösung, Integration in FT8/FT4 Tabellen & Tooltips; 502 Tests bestanden |
 | M17 | SSTV | ✅ 01.10.2026 (v0.18.0): 11 Betriebsarten (Martin 1/2, Scottie 1/2/DX, Robot 36/72, PD 90/120/180, Wraase SC2-180), VIS-Erkennung mit Parität, Sync-Verfolgung mit Flywheel und Wiedereinrasten, Live-Bild, PNG-Ablage, Galerie; Pixel-Roundtrip aller Modi und echter Scottie-1-Mitschnitt (sigidwiki) lesbar dekodiert |
+| M18 | QSY | ✅ 01.10.2026 (v0.19.0): Funkgerät folgt dem Modul über den rigctld des Commanders (nur `F` und `M`), Schalter in der Kopfzeile |
 ---
 
 ## 11. Aktueller Stand
@@ -621,7 +623,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - Version bei jeder Änderung in `Sources/App/AppVersion.swift` **und** `build_app.sh` (`CFBundleShortVersionString`, `CFBundleVersion`) erhöhen.
 - Nach Änderungen bauen (`build_app.sh`). Versionsstände über **Git** sichern: je abgeschlossener Änderung ein Commit mit der Versionsnummer in der Nachricht; kein Remote, kein Push.
 - Nach Änderungen am Decoder-Kern oder Audio: Logiktests ausführen (Exit-Code 0 = bestanden).
-- Niemals Befehle an Funkgeräte senden. Der Decoder spricht nur lesend mit rigctld.
+- Befehle an Funkgeräte: standardmäßig keine, der Decoder liest nur. Nur wenn der Nutzer den Schalter **QSY AUTO** einschaltet, sendet Digidec ausschließlich `F` (Frequenz) und `M` (Mode) an den rigctld des Commanders (Abschnitt 3.2), niemals PTT oder anderes.
 - Am Mac hängt ein Transceiver (CP2105, `/dev/cu.usbserial-01A22C9D*`) und der IC-PCR1500: Der Decoder öffnet **keine** seriellen Ports.
 - Sprache für UI, Doku und Kommentare: Deutsch (wie Commander).
 
@@ -826,6 +828,11 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **EFR:** Bitentscheidung jetzt mit angepasstem Filter (Integrate-and-Dump über genau eine Bitdauer, Energie Mark − Energie Space = optimaler nichtkohärenter FSK-Detektor) statt Hüllkurvendifferenz am Bitmittelpunkt. Frequenznachführung (±80 Hz) aus der Phasendrehung des jeweils aktiven Tons, anfangs schnell. Vergleich mit dem Fremddecoder an drei echten Aufnahmen: Telegrammlisten identisch (vorher fehlte in `sample2` je nach Mitte ein Telegramm). Alle fünf echten Aufnahmen bei verschiedenen Startmitten (±150 Hz): 112 von 112 Telegrammen. Mit zusätzlichem Rauschen deutlich besser als das einstufige Hüllkurvenfilter (z. B. 21/21 statt 18/21 bei 10 % Rauschamplitude, 18 statt 1 bei 28 %). Wiederholungen (EFR sendet doppelt) werden am ersten Eintrag mitgezählt (`×2`) und nicht erneut geloggt. Anzeige korrigiert: MARK links (untere Frequenz), SPACE rechts, nachgeführte Töne, AFC, Hinweis „Polarität invertiert (LSB?)“.
   - **Tests:** 729 Logiktests (neu: AFC bei beiden Modulen, echte EFR-Aufnahme bei falscher Mitte, ausgefallener DCF77-Impuls, Wiederholungszusammenfassung).
   - **Weiterhin offen:** DCF77: die Δt-Anzeige kennt die Audiopuffer-Latenz nicht; Meteotime-Wetterbits werden nicht gedeutet. EFR: Versacom/Semagyr ungedeutet; Zeittelegramm ohne zusätzliche Referenz zur Sendezeit (Δt nur live sinnvoll).
+- **0.19.0 (01.10.2026): M18 Funkgerät abstimmen (QSY AUTO).**
+  - **Verhalten:** Mit dem Schalter **QSY AUTO** in der Kopfzeile (Standard aus) stimmt Digidec das Funkgerät auf die **Dial-Frequenz** des Moduls ab, wenn Modul, Band, Kanal oder Sender gewechselt wird: FT8/FT4 (Band, USB), SSTV (Kanal, USB/LSB/FM, ISS FM), EFR (Sendefrequenz − NF-Mitte, USB), DCF77 (77,5 kHz − Ton, USB), WEFAX (Frequenz − Mitte), NAVTEX (518/490/4209,5 kHz − Mitte). RTTY und CW haben keine feste Frequenz und stimmen nichts ab.
+  - **Sicherheit:** `RigCommand` erzeugt nur `F <Hz>` (10 kHz … 10 GHz) und `M <Mode> <Bandbreite>` (erlaubte Modes, Zeilenumbruch/Einschleusen wird abgewiesen). Der Ende-zu-Ende-Test gegen einen nachgebauten rigctld prüft, dass nur `f`, `m`, `F`, `M` über die Leitung gehen. Ohne Verbindung wird nichts gesendet; nach einem URL-Auftrag stimmt Digidec 2 s lang nicht gegenläufig nach.
+  - **Commander:** Beide haben einen eingebauten rigctld-Server (PCR-1500: `HamlibRigctldServer`, FT-991A ebenso), dessen `F`/`M` an den eigenen Zustand gebunden sind (`tuneTo(frequency:)`, `onSetModeAndFilter`). Die Commander stellen sich dabei selbst um und ihre Anzeige folgt; an den Commandern war keine Änderung nötig. Der rigctld-Server muss im Commander eingeschaltet sein.
+  - **Tests:** 755 Logiktests (neu: Zielfrequenzen aller Module, Befehlsprüfung, Ende-zu-Ende gegen nachgebauten rigctld).
 - **Nächste Schritte:**
   - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, FT4, DCF77, EFR, SSTV).
   - PSK31 / PSK63 (BPSK-Amateurfunk-Textübertragung auf Kurzwelle).
