@@ -2,6 +2,6 @@ import Foundation
 
 /// Central Version definition following the project release rules (PLAN.md, Abschnitt 13)
 public struct AppVersion {
-    public static let string = "0.13.2 Alpha"
-    public static let short = "0.13.2"
+    public static let string = "0.14.0 Alpha"
+    public static let short = "0.14.0"
 }

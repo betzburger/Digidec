@@ -86,7 +86,7 @@ digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<Core
 
 | Parameter | Bedeutung | Beispiel |
 |---|---|---|
-| `mode` | Decoder-Modul (optional bei `open`, Pflicht bei `decode`) | `rtty`, `navtex`, `cw`, `wefax`, `ft8` |
+| `mode` | Decoder-Modul (optional bei `open`, Pflicht bei `decode`) | `rtty`, `navtex`, `cw`, `wefax`, `ft8`, `dcf77` |
 | `preset` | Preset-ID (Abschnitt 5) | `ham`, `dwd-kw`, `dwd-lw`, `custom` |
 | `source` | Name des aufrufenden Programms, nur für die Anzeige | `pcr1500`, `ft991a` |
 | `rigctl` | rigctld-Port des aufrufenden Programms | `4532` / `4533` |
@@ -419,6 +419,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M10 | CW | ✅ 01.10.2026 (v0.11.0): fldigi-CW-Empfänger (Tabelle/SOM, Geschwindigkeitsnachführung, Matched Filter), Hüllkurvenanzeige, Log, `decode_file.sh --cw`; Live-Empfang durch den Nutzer offen |
 | M11 | WEFAX | ✅ 01.10.2026 (v0.12.0): fldigi-WEFAX-Empfänger (APT, Phasing, Korrelation, AFC, Auto-Zentrierung), Live-Bild, PNG-Ablage, Galerie, `decode_file.sh --wefax`; Live-Empfang durch den Nutzer offen |
 | M12 | FT8 | ✅ 01.10.2026 (v0.13.0): ft8mon (AB1HL, MIT) statt ft8_lib: 90,7 % der WSJT-X-Decodes statt 73 %; Bandaktivität, Rx-Frequenz, Entfernungen, ALL.TXT-Log; Live-Empfang durch den Nutzer offen |
+| M13 | DCF77 | ✅ 01.10.2026 (v0.14.0): AM-Impulsbreiten-Decoder (77,5 kHz, AM 100/200 ms), VFD-Atomuhr, Δt-Vergleich zur Systemzeit in ms, 60-Bit-Telegramm-Matrix, Scope, Log; 404 Tests bestanden |
 
 ---
 
@@ -736,7 +737,19 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - `DecodeRequest`: Erkennt neben `decode` nun auch `open` als Aktion (`actionOpen = "open"`). Bei `open` ist `mode` optional (`module: DecoderModuleInfo?`, `presetID: String?`).
   - `DigidecState.handle(url:)`: Ist `request.module` nil, bleibt das aktuell aktive Modul unverändert. Quelle (`source`), Codec-UID (`deviceUID`) und rigctld-Port (`rigctlPort`) werden übernommen und die App in den Vordergrund geholt.
   - In beiden Commandern (FT-991A Commander 0.6.1 & PCR-1500 Commander 0.22.1) wurde das verschachtelte RTTY-Menü im Knopf **DIGIDEC** durch einen direkten Klick-Button ersetzt, der `DigidecLauncher.openURL(...)` aufruft. Die Wahl des Decoders (RTTY, NAVTEX, CW, WEFAX, FT8) erfolgt direkt in Digidec.
-  - Logiktests: 371 Prüfungen bestanden.
-- **Nächster Schritt:** Alle geplanten Module sind umgesetzt. Offen ist vor allem der Live-Test aller Module durch den Nutzer. Danach Feinschliff, z. B.:
-  - FT4
-  - DXCC-Länder zu Rufzeichen
+- **0.14.0 (01.10.2026): M13 DCF77 Atomzeit-Decoder.**
+  - **Modulation & DSP-Kern:** 77,5 kHz AM-Impulsbreitenmodulation (Sender Mainflingen). Empfang über NF-Ton (Standard: 1.000 Hz, Empfänger z. B. auf 76,500 kHz USB). Quadraturmischer mit 2-stufigem IIR-Tiefpass (20 Hz Bandbreite) bei 8 kHz Abtastrate, automatische Pegelnachführung, Impulsdiskriminator (100 ms = Bit 0, 200 ms = Bit 1, Sekunde 59 = unmodulierte Synclücke).
+  - **Telegramm-Parser & Validierung:** Paritätsprüfungen (P1 für Minute, P2 für Stunde, P3 für Datum), BCD-Decodierung, Sommerzeit-/Normalzeit-Erkennung (MESZ/MEZ), Ankündigung von Zeitwechsel und Schaltsekunde, Reserveantennen-Status, Wochentags-Plausibilisierung und Berechnung der Gangabweichung $\Delta t$ in Millisekunden gegen die Mac-Systemzeit.
+  - **UI-Panels (`DCF77Panels.swift`):**
+    - VFD-Atomzeitanzeige mit großen Leuchtziffern, Datum, Wochentag, MESZ/MEZ-Status
+    - 60-Sekunden-Bit-Matrix mit Live-Sekundentakt und Farbcodierung (Bit 0/1/Sync/Invalid)
+    - Live-Oszilloskop der AM-Hüllkurve mit gestrichelter Entscheidungsschwelle und SNR in dB
+    - Abstimmanzeige mit Trägerpegel und SNR
+    - Einstellungsfeld mit Frequenzführung (Prüfung gegen rigctld: 76,500 kHz USB) und manueller Tonwahl
+    - Historie der empfangenen Minutentelegramme und automatisches Tageslog (`~/Documents/Digidec/Logs/DCF77-JJJJ-MM-TT.txt`)
+  - **Signalgenerator & Tests:** `DCF77SignalGenerator` erzeugt vollständige synthetische 8-kHz-Audiosignale. 404 Logiktests fehlerfrei bestanden.
+  - URL-Schema: `digidec://decode?mode=dcf77&preset=mainflingen&center=1000`.
+- **Nächste Schritte:**
+  - **EFR-Decoder (Langwelle 129,1 kHz DCF49 / 139,0 kHz DCF39):** FSK 200 Baud, Shift 340 Hz (±170 Hz), DIN 19244 / Versacom / Semagyr-TOP Funkrundsteuerung (Netz- und Lastmanagement).
+  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, DCF77).
+  - FT4 (schnellere FT8-Variante für Contests, 7,5 s Zyklus).

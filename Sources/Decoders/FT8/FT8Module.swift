@@ -196,9 +196,10 @@ public final class FT8Decoder: @unchecked Sendable {
             return false
         }
         guard !skip else { return }   // vorheriger Zyklus rechnet noch: diesen auslassen
+        let decodeBuf = buf
         decodeQueue.async { [weak self] in
             let t0 = Date()
-            let list = FT8Core.decode(buf, rate: Self.rate, cycleStart: start, settings: s)
+            let list = FT8Core.decode(decodeBuf, rate: Self.rate, cycleStart: start, settings: s)
             let result = CycleResult(cycleStart: start, decodes: list, duration: Date().timeIntervalSince(t0),
                                      coverage: min(1, coverage))
             self?.lock.withLockUnchecked {

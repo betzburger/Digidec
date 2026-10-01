@@ -87,6 +87,8 @@ do {
     check(parse("digidec://decode?mode=cw&center=650") == .success(DecodeRequest(module: .cw, presetID: "ham", centerHz: 650)), "CW-Auftrag mit Ton")
     check(parse("digidec://decode?mode=navtex&preset=490") == .success(DecodeRequest(module: .navtex, presetID: "490")), "NAVTEX-Auftrag")
     check(parse("digidec://decode?mode=navtex") == .success(DecodeRequest(module: .navtex, presetID: "518")), "NAVTEX-Standard 518 kHz")
+    check(parse("digidec://decode?mode=dcf77") == .success(DecodeRequest(module: .dcf77, presetID: "mainflingen")), "DCF77-Standard mainflingen")
+    check(parse("digidec://decode?mode=dcf77&preset=mainflingen&center=1000") == .success(DecodeRequest(module: .dcf77, presetID: "mainflingen", centerHz: 1000)), "DCF77 mit Center 1000 Hz")
     check(parse("digidec://decode?mode=rtty&preset=xyz") == .failure(.unknownPreset("xyz", .rtty)), "Unbekanntes Preset")
     check(parse("digidec://decode?mode=rtty&rigctl=80") == .failure(.invalidPort("80")), "Port zu klein")
     check(parse("digidec://decode?mode=rtty&rigctl=70000") == .failure(.invalidPort("70000")), "Port zu groß")
@@ -1430,6 +1432,124 @@ do {
     check(d?.text == "CQ DL1ABC JN49" && abs((d?.dt ?? 9)) < 0.25, "FT8-Zyklus: Pipeline 48 kHz → 12 kHz, DT \(d.map { String(format: "%.2f", $0.dt) } ?? "–")")
     decoder.setEnabled(false)
     pipeline.stop()
+}
+
+// MARK: - DCF77 Bit-Codierung, Paritätsprüfung und BCD-Decodierung
+do {
+    // 1. Bitmuster erzeugen für Donnerstag, 01.10.2026, 14:35 MESZ
+    let bits = DCF77SignalGenerator.encodeBits(year: 2026, month: 10, day: 1, weekday: 4, hour: 14, minute: 35, isSummer: true, backupAntenna: false)
+    check(bits.count == 59, "DCF77: Telegramm hat 59 Bits")
+    check(bits[0] == 0, "DCF77: Bit 0 ist 0")
+    check(bits[20] == 1, "DCF77: Start-Bit 20 ist 1")
+    check(bits[17] == 1 && bits[18] == 0, "DCF77: Sommerzeit MESZ (Z1=1, Z2=0)")
+
+    // Paritätsprüfungen
+    let p1 = bits[21...28].reduce(0, +)
+    let p2 = bits[29...35].reduce(0, +)
+    let p3 = bits[36...58].reduce(0, +)
+    check(p1 % 2 == 0, "DCF77: Minute-Parität P1 ist gerade")
+    check(p2 % 2 == 0, "DCF77: Stunde-Parität P2 ist gerade")
+    check(p3 % 2 == 0, "DCF77: Datum-Parität P3 ist gerade")
+
+    // Decodieren
+    let decoded = DCF77Core.parseFrame(bits)
+    check(decoded != nil, "DCF77: Frame erfolgreich geparst")
+    check(decoded?.year == 2026, "DCF77: Jahr 2026")
+    check(decoded?.month == 10, "DCF77: Monat 10")
+    check(decoded?.day == 1, "DCF77: Tag 1")
+    check(decoded?.weekday == 4 && decoded?.weekdayName == "Donnerstag", "DCF77: Wochentag Donnerstag")
+    check(decoded?.hour == 14, "DCF77: Stunde 14")
+    check(decoded?.minute == 35, "DCF77: Minute 35")
+    check(decoded?.isSummerTime == true && decoded?.timeZoneName == "MESZ", "DCF77: MESZ")
+    check(decoded?.backupAntenna == false, "DCF77: Hauptantenne")
+
+    // 2. Winterzeit MEZ & Reserveantenne
+    let winterBits = DCF77SignalGenerator.encodeBits(year: 2026, month: 1, day: 15, weekday: 4, hour: 9, minute: 5, isSummer: false, backupAntenna: true)
+    let decWinter = DCF77Core.parseFrame(winterBits)
+    check(decWinter?.isSummerTime == false && decWinter?.timeZoneName == "MEZ", "DCF77: MEZ Normalzeit")
+    check(decWinter?.backupAntenna == true, "DCF77: Reserveantenne gesetzt")
+
+    // 3. Fehlererkennung
+    var bad = bits
+    bad[28] ^= 1 // P1 kippen
+    check(DCF77Core.parseFrame(bad) == nil, "DCF77: Paritätsfehler P1 abgewiesen")
+
+    bad = bits
+    bad[35] ^= 1 // P2 kippen
+    check(DCF77Core.parseFrame(bad) == nil, "DCF77: Paritätsfehler P2 abgewiesen")
+
+    bad = bits
+    bad[58] ^= 1 // P3 kippen
+    check(DCF77Core.parseFrame(bad) == nil, "DCF77: Paritätsfehler P3 abgewiesen")
+
+    bad = bits
+    bad[18] = 1 // Beide Zeitzonenbits 1
+    check(DCF77Core.parseFrame(bad) == nil, "DCF77: Ungültige Zeitzonenbits abgewiesen")
+
+    bad = bits
+    bad[0] = 1 // Startbit ungültig
+    check(DCF77Core.parseFrame(bad) == nil, "DCF77: Ungültiges Startbit 0 abgewiesen")
+
+    bad = bits
+    bad[20] = 0 // Zeit-Startbit ungültig
+    check(DCF77Core.parseFrame(bad) == nil, "DCF77: Ungültiges Zeit-Startbit 20 abgewiesen")
+}
+
+// MARK: - DCF77 DSP-Hüllkurven-Demodulation und Audiosignal-Decodierung
+do {
+    let bits = DCF77SignalGenerator.encodeBits(year: 2026, month: 10, day: 1, weekday: 4, hour: 14, minute: 35, isSummer: true)
+
+    // Signal vorbereiten:
+    // Vorlauf: 1 Sekunde mit Impuls (Sekunde 58), gefolgt von Sekunde 59 ohne Impuls (Synclücke).
+    // Danach die vollständige Minute (Sekunden 0..58 moduliert, Sekunde 59 Synclücke).
+    // Danach Sekunde 0 der Folgeminute mit Impuls, wodurch Sekunde 59 als Lücke erkannt wird und die Minute decodiert wird.
+    var audio: [Float] = []
+
+    // Sekunde 58 der Vor-Minute (100 ms Absenkung)
+    let sec58 = DCF77SignalGenerator.generateMinuteAudio(bits: [0], centerHz: 1000.0)
+    audio.append(contentsOf: sec58[0..<8000])
+
+    // Sekunde 59 der Vor-Minute (keine Absenkung = Synclücke)
+    let sec59 = DCF77SignalGenerator.generateMinuteAudio(bits: [], centerHz: 1000.0)
+    audio.append(contentsOf: sec59[0..<8000])
+
+    // Vollständige Test-Minute (60 Sekunden)
+    let minAudio = DCF77SignalGenerator.generateMinuteAudio(bits: bits, centerHz: 1000.0)
+    audio.append(contentsOf: minAudio)
+
+    // Sekunde 0 der Folgeminute (100 ms Absenkung triggert die Frame-Decodierung)
+    let nextSec0 = DCF77SignalGenerator.generateMinuteAudio(bits: [0], centerHz: 1000.0)
+    audio.append(contentsOf: nextSec0[0..<8000])
+
+    let core = DCF77Core(centerHz: 1000.0)
+    var decodedTimes: [DCF77Core.DecodedTime] = []
+    core.onTimeDecoded = { decodedTimes.append($0) }
+
+    // In 160-Sample-Blöcken (20 ms wie AudioPipeline) einspeisen
+    let blockSize = 160
+    var offset = 0
+    while offset < audio.count {
+        let chunk = min(blockSize, audio.count - offset)
+        audio[offset..<(offset + chunk)].withUnsafeBufferPointer { ptr in
+            core.process(ptr)
+        }
+        offset += chunk
+    }
+
+    check(decodedTimes.count == 1, "DCF77 Audio: Genau 1 Minutentelegramm empfangen (got \(decodedTimes.count))")
+    if let dec = decodedTimes.first {
+        check(dec.year == 2026, "DCF77 Audio: Jahr 2026")
+        check(dec.month == 10, "DCF77 Audio: Monat 10")
+        check(dec.day == 1, "DCF77 Audio: Tag 1")
+        check(dec.hour == 14, "DCF77 Audio: Stunde 14")
+        check(dec.minute == 35, "DCF77 Audio: Minute 35")
+        check(dec.weekdayName == "Donnerstag", "DCF77 Audio: Wochentag Donnerstag")
+        check(dec.isSummerTime == true, "DCF77 Audio: MESZ")
+    }
+
+    let status = core.getStatus()
+    check(status.isSynchronized, "DCF77 Status: Synchronisiert")
+    check(status.snrDb > 10.0, "DCF77 Status: SNR > 10 dB (got \(status.snrDb))")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

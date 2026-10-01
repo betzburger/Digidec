@@ -28,6 +28,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.wefax, audio: state.audio)
                             } else if state.activeModule == .ft8 {
                                 WaterfallView(model: state.waterfall, rtty: state.ft8, audio: state.audio)
+                            } else if state.activeModule == .dcf77 {
+                                WaterfallView(model: state.waterfall, rtty: state.dcf77, audio: state.audio)
                             } else {
                                 WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
                             }
@@ -44,12 +46,14 @@ public struct MainWindowView: View {
                                 WefaxImagePanel(controller: state.wefaxController)
                             } else if state.activeModule == .ft8 {
                                 FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
+                            } else if state.activeModule == .dcf77 {
+                                DCF77MainPanel(controller: state.dcf77Controller, settings: state.dcf77)
                             } else {
                                 ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .ft8 ? "Bandaktivität" : "Empfangstext")
+                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .ft8 ? "Bandaktivität" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -78,6 +82,13 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Zyklus · Rx-Frequenz")
                             FT8SettingsPanel(settings: state.ft8)
                                 .radioCard(title: "FT8")
+                        } else if state.activeModule == .dcf77 {
+                            DCF77TuningPanel(controller: state.dcf77Controller, settings: state.dcf77)
+                                .radioCard(title: "Signal · Pegel")
+                            DCF77SettingsPanel(settings: state.dcf77, controller: state.dcf77Controller)
+                                .radioCard(title: "DCF77")
+                            DCF77HistoryPanel(controller: state.dcf77Controller)
+                                .radioCard(title: "Telegramme")
                         } else {
                             TuningPanel(controller: state.rttyController, settings: state.rtty)
                                 .radioCard(title: "Abstimmanzeige")
@@ -98,7 +109,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller)
             }
             .padding(.bottom, 8)
         }
@@ -305,6 +316,8 @@ private struct StatusBar: View {
     @ObservedObject var cw: CWSettingsStore
     @ObservedObject var wefax: WefaxSettingsStore
     @ObservedObject var ft8: FT8SettingsStore
+    @ObservedObject var dcf77: DCF77SettingsStore
+    @ObservedObject var dcf77Controller: DCF77Controller
 
     var body: some View {
         HStack(spacing: 10) {
@@ -356,8 +369,19 @@ private struct StatusBar: View {
         case .cw: return cwCurrent
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current
+        case .dcf77: return dcf77Current
         default: return current
         }
+    }
+
+    /// „DCF77 · 77,5 kHz · AM 100/200 ms · Ton 1000 Hz · SYNC OK · SNR 24.5 dB“
+    private var dcf77Current: String {
+        var s = "DCF77 · 77,5 kHz · AM 100/200 ms · Ton \(Int(dcf77.centerHz.rounded())) Hz"
+        if let st = dcf77Controller.status {
+            s += st.isSynchronized ? " · SYNC OK" : (st.currentSecond >= 0 ? " · Sekunde \(st.currentSecond)" : " · SUCHE...")
+            s += String(format: " · SNR %.1f dB", st.snrDb)
+        }
+        return s
     }
 
     /// „FT8 · 20m · Dial 14,074 MHz · 150–3600 Hz · 3 s Rechenzeit · JN49WS“

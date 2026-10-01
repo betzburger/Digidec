@@ -29,6 +29,8 @@ public final class DigidecState: ObservableObject {
     public let wefaxController: WefaxController
     public let ft8 = FT8SettingsStore()
     public let ft8Controller: FT8Controller
+    public let dcf77 = DCF77SettingsStore()
+    public let dcf77Controller: DCF77Controller
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -40,6 +42,7 @@ public final class DigidecState: ObservableObject {
         cwController = CWController(pipeline: audio.pipeline, settings: cw)
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
+        dcf77Controller = DCF77Controller(pipeline: audio.pipeline, settings: dcf77)
 
         // Nur das gewählte Modul decodiert
         $activeModule
@@ -50,6 +53,7 @@ public final class DigidecState: ObservableObject {
                 self?.cwController.setActive(module == .cw)
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
+                self?.dcf77Controller.setActive(module == .dcf77)
             }
             .store(in: &cancellables)
 
@@ -68,8 +72,10 @@ public final class DigidecState: ObservableObject {
             ft8.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             wefaxController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
+            dcf77.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             rttyController.rigDescription = rig.description
             cwController.rigDescription = rig.description
+            dcf77Controller.sourceDescription = rig.description
             rttyController.rigState = state
         }
     }
@@ -116,11 +122,14 @@ public final class DigidecState: ObservableObject {
                 case .wefax:
                     if let preset = request.presetID, let s = WefaxStation(rawValue: preset) { wefax.station = s }
                     if let center = request.centerHz { wefax.setCenter(center) }
+                case .dcf77:
+                    if let center = request.centerHz { dcf77.setCenter(center) }
                 }
             }
             lastRequestError = nil
             lastRequestDate = Date()
             rttyController.sourceDescription = request.sourceDisplayName
+            dcf77Controller.sourceDescription = request.sourceDisplayName
             rig.apply(request: request)
             if audioStarted {
                 audio.apply(request: request)
