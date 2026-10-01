@@ -32,6 +32,11 @@ public struct RigTuneTarget: Equatable, Sendable {
 
     public static func ft4(band: FT4Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
 
+    /// DSC-Kanal: Rufträger bei `centerHz` im NF (USB); frei = nichts
+    public static func dsc(channel: DSCChannel, centerHz: Double) -> RigTuneTarget? {
+        channel.dial(center: centerHz).map { RigTuneTarget(dialHz: $0, mode: "USB") }
+    }
+
     /// PSK31-Anruffrequenz des Bandes (nil = „frei“)
     public static func psk(band: PSKBand) -> RigTuneTarget? {
         band.dialHz.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }

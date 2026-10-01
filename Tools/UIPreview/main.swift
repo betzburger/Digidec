@@ -67,6 +67,23 @@ func run() {
         PSKSettingsPanel(settings: ps).radioCard(title: "PSK")
     }, width: right, name: "psk_rechts", dir: dir)
 
+    // DSC
+    let ds = DSCSettingsStore()
+    let dsc = DSCController(pipeline: pipeline, settings: ds)
+    save(VStack(spacing: 10) {
+        DSCTuningPanel(controller: dsc, settings: ds).radioCard(title: "Abstimmanzeige")
+        DSCSettingsPanel(settings: ds).radioCard(title: "DSC")
+    }, width: right, name: "dsc_rechts", dir: dir)
+    let dscSamples: [[Int]] = [
+        [112, 112, 25, 58, 5, 99, 70, 107, 4, 52, 60, 13, 7, 12, 52, 109, 127, 52, 127, 127],
+        [120, 120, 32, 51, 42, 0, 0, 108, 0, 23, 71, 0, 0, 118, 126, 4, 10, 10, 4, 39, 30, 122, 54, 122, 122],
+        [116, 116, 108, 0, 23, 71, 0, 0, 109, 126, 4, 12, 50, 4, 12, 50, 127, 36, 127, 127],
+        [102, 102, 4, 40, 3, 5, 8, 108, 0, 22, 75, 40, 0, 109, 126, 2, 18, 20, 2, 18, 20, 127, 49, 127, 127]]
+    let dscMessages = dscSamples.enumerated().map { i, s in
+        DSCMessage.parse(symbols: s, receivedAt: Date(timeIntervalSince1970: 1_790_000_000 + Double(i) * 190), centerHz: 1700, eccOK: i != 3)
+    }
+    save(DSCTable(messages: dscMessages, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "DSC Rufe"), width: 760, name: "dsc_tabelle", dir: dir)
+
     // Olivia und MT63
     let ol = OliviaSettingsStore()
     let olc = OliviaController(pipeline: pipeline, settings: ol)

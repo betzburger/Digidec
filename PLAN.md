@@ -431,6 +431,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M21 | WSPR | ✅ 01.10.2026 (v0.24.0): wsprd aus WSJT-X (`Vendor/Wspr`, pocketfft statt FFTW), 2-Minuten-Zyklus, 16 Bänder, Spotliste mit Entfernung/DXCC/Leistung, Typ 1/2/3 mit Hashtabelle, ALL_WSPR-Log; auf dem WSJT-X-Beispiel dieselben 8 Meldungen wie das Original; Live-Empfang durch den Nutzer offen |
 | M22 | PSK | ✅ 01.10.2026 (v0.25.0): fldigi-PSK-Empfänger (`Vendor/Fldigi/src/psk`): BPSK31/63/125/250 und QPSK31/63/125/250, AFC, Squelch, DCD, S/N und IMD, Phasenvektor, Bänder für QSY, Log, `decode_file.sh --psk`; synthetisch geprüft, Live-Empfang offen |
 | M23 | Olivia, Contestia, MT63 | ✅ 01.10.2026 (v0.26.0): Jalocha-Bibliotheken aus fldigi (`src/olivia`, `src/mt63`) mit Empfangsrahmen; Olivia/Contestia 4–64 Töne × 125–2000 Hz, MT63 500/1000/2000 Hz kurz/lang; Wasserfall-Klick setzt die Mitte; synthetisch geprüft, Live-Empfang offen |
+| M24 | DSC | ✅ 01.10.2026 (v0.27.0): Digitaler Selektivruf MF/HF (ITU-R M.493, 100 Bd / 170 Hz) in Swift; an echter 8414,5-kHz-Aufnahme (5 Küstenfunk-Testrufe, alle ECC OK) und an aufgezeichneten Symbolfolgen geprüft; Meldungsliste, Seenot hervorgehoben, Mittennachführung, Kanäle für QSY |
 ---
 
 ## 11. Aktueller Stand
@@ -890,8 +891,17 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Werkzeuge:** `decode_file.sh <wav> --olivia olivia-8-500 [--center Hz]`, `--mt63 1000s`.
   - **Tests:** 1036 Logiktests.
   - **Offen (braucht den Nutzer):** Live-Empfang (Olivia 8/500 und 16/500 auf 14,0730 / 7,0400 MHz, Contestia 8/250, MT63 auf 14,1090 MHz USB), Vergleich mit fldigi auf derselben Aufnahme. MT63 braucht einige Sekunden, bis Text erscheint; am Anfang erscheinen einige Zufallszeichen, bis der Synchronisierer einrastet.
+- **0.27.0 (01.10.2026): M24 DSC (Digital Selective Calling) auf MF/HF.**
+  - **Quellen:** Eigene Umsetzung nach ITU-R M.493-9 (PDF liegt lokal unter `Vendor/_upstream/itu_m493.pdf`), Gegenprobe an der MIT-lizenzierten .NET-Referenz TAOSW.DSC_Decoder (echte aufgezeichnete Rufe, Aufnahme `test.wav`). Kein Fremdcode im Projekt; Herkunft, Aufbau, Grenzen: `Vendor/Dsc/UPSTREAM_DSC.md`.
+  - **Kern (`Sources/Decoders/DSC/DSCCore.swift`):** `DSCDemodulator` (zwei Töne ± 85 Hz, gleitende Bitintegration, **acht Taktlagen** parallel), `DSCFramer` (Phasing-Suche, 10-Bit-Symbole mit Prüfbits, DX/RX-Zusammenführung, ECC), `DSCCallCollector` (bester Ruf je Aussendung), `DSCAutoTuner` (Tonpaar im Abstand 170 Hz, parabolisch interpoliert), `DSCMessage.parse` (Notruf, Alle Schiffe, Gruppe, Einzelruf, Gebiet, Automatik), `DSCSignalGenerator` (Testsignal).
+  - **Modul/Oberfläche:** `DSCModule` (Einstellungen: Kanal, Mitte, AUTO, REV; Decoder als 8-kHz-Senke; Controller mit Doppelungsschutz und Log), Panels: Meldungsliste (UTC, Ruf, Kategorie, Von, An, Inhalt, ECC; **Seenot rot**, unsichere grau), Abstimmanzeige (SYNC, Mitte, gemessene Mitte, Dial, letzter Notruf), Einstellungen. Kanäle 2187,5 · 4207,5 · 6312 · 8414,5 · 12577 · 16804,5 kHz; QSY AUTO stimmt auf USB-Dial = Kanal − Mitte (Mitte 1700 Hz → z. B. 8412,8 kHz). URL `digidec://decode?mode=dsc&preset=8414|2187|…&center=1700`. Log `DSC-JJJJ-MM-TT.txt` mit Symbolen.
+  - **Nachweis:** Echte Aufnahme (SDRuno, 88,2 kHz, Mitte 505 Hz, 65 s): alle **5 Rufe** (Testrufe der Küstenfunkstelle 002371000 an 538010255, 477832400, 249855000, 511100954, 636024307) mit ECC OK; die Mitte wird aus Startwerten zwischen 400 und 700 Hz auf 505 Hz nachgeführt. Alle 9 aufgezeichneten Symbolfolgen der Referenz ergeben dieselben Felder und gültigen ECC. Rundlauf Generator → Demodulator: Notruf, Einzelruf, Mitte 1500/1700 Hz, kurzes Punktmuster (20 Bit), REV, ± 15 Hz Versatz, 3 dB S/N, zwei Rufe unmittelbar nacheinander; Rauschen ergibt keinen Ruf; Pipeline 48 kHz → 8 kHz.
+  - **Werkzeug:** `decode_file.sh <wav> --dsc --center <Hz> [--noauto] [--rev]`.
+  - **Tests:** 1083 Logiktests.
+  - **Grenzen:** nur MF/HF 100 Bd (kein UKW-DSC Kanal 70); Notruf-Quittungen werden nicht in ihre Nutzdaten zerlegt; keine Küstenfunkstellen-Namen/Länder (MID).
+  - **Offen:** Live-Empfang (z. B. 8414,5 kHz: Küstenfunkstellen senden dort regelmäßig Testrufe), Warnton bei Seenot (noch nicht eingebaut; Digidec hat keine Audioausgabe), Notruf-Quittungen auswerten.
 - **Nächste Schritte:**
-  - Live-Tests der neuen Module (WSPR, PSK, Olivia, MT63) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
+  - Live-Tests der neuen Module (WSPR, PSK, Olivia, MT63, DSC) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
   - Weitere Module aus Abschnitt 9: POCSAG/DTMF (multimon-ng), APRS 1200 (direwolf), ACARS (acarsdec), JT65/JT9 (WSJT-X).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

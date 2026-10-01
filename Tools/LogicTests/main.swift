@@ -3308,5 +3308,225 @@ do {
     pipeline.stop()
 }
 
+// MARK: - DSC (ITU-R M.493): Symbole, Nachrichten, Rahmen, Demodulator
+do {
+    check(parse("digidec://decode?mode=dsc&preset=2187&center=1700") == .success(DecodeRequest(module: .dsc, presetID: "2187", centerHz: 1700)), "DSC-Auftrag")
+    check(parse("digidec://decode?mode=dsc") == .success(DecodeRequest(module: .dsc, presetID: "8414")), "DSC-Standard 8414,5 kHz")
+    check(Set(DSCChannel.allCases.map(\.rawValue)).subtracting(["frei"]) == Set(DecoderModuleInfo.dsc.presetIDs), "DSC-Kanäle = IDs im URL-Schema")
+    check(DSCChannel.f8414.frequencyHz == 8_414_500 && DSCChannel.f2187.frequencyHz == 2_187_500 && DSCChannel.f16804.frequencyHz == 16_804_500, "DSC: Frequenzen")
+    check(RigTuneTarget.dsc(channel: .f8414, centerHz: 1700) == RigTuneTarget(dialHz: 8_412_800, mode: "USB"), "QSY: DSC 8414,5 kHz → Dial 8412,8 kHz USB")
+    check(RigTuneTarget.dsc(channel: .free, centerHz: 1700) == nil, "QSY: DSC frei = nichts")
+    check(DSCChannel.f8414.label == "8414,5" && DSCChannel.f6312.label == "6312", "DSC: Kanalanzeige")
+
+    // Symbolcode: 7 Informationsbits (LSB zuerst, Y = 1), 3 Prüfbits = Zahl der B-Elemente (MSB zuerst); Beispiele aus der Referenz
+    check(DSCSymbolCode.decode([0, 1, 0, 0, 0, 0, 0, 1, 1, 0][...]) == 2, "DSC-Symbol 2 (YBBBBB…)")
+    check(DSCSymbolCode.decode([0, 1, 0, 1, 1, 1, 1, 0, 1, 0][...]) == 122, "DSC-Symbol 122")
+    check(DSCSymbolCode.decode([1, 1, 1, 1, 1, 1, 1, 0, 0, 0][...]) == 127, "DSC-Symbol 127")
+    check(DSCSymbolCode.decode([1, 1, 0, 1, 0, 1, 0, 0, 1, 1][...]) == 43, "DSC-Symbol 43")
+    check(DSCSymbolCode.decode([1, 1, 0, 1, 0, 1, 0, 0, 1, 0][...]) == nil, "DSC-Symbol: falsche Prüfbits")
+    for v in 0...127 { if DSCSymbolCode.decode(DSCSymbolCode.bits(for: v)[...]) != v { check(false, "DSC-Symbol \(v) rund"); break } }
+
+    // Echte Symbolfolgen (Referenz TAOSW.DSC_Decoder, aufgezeichnete Rufe 8414,5 kHz) → Nachricht
+    func msg(_ v: [Int]) -> DSCMessage {
+        var x = 0
+        let e = v.indices.first(where: { $0 >= 3 && DSCSymbolCode.eosSymbols.contains(v[$0]) })!
+        for m in 1...e { x ^= v[m] }
+        return DSCMessage.parse(symbols: v, eccOK: x == v[e + 1])
+    }
+    let dist = msg([112, 112, 25, 58, 5, 99, 70, 107, 4, 52, 60, 13, 7, 12, 52, 109, 127, 52, 127, 127])
+    check(dist.format == .distress && dist.isDistress && dist.from == "255805997" && dist.nature == "Unbestimmt" && dist.position == "45°26′N 013°07′O"
+          && dist.timeUTC == "12:52" && dist.eccOK && dist.ecc == 52, "DSC Notruf: MMSI, Art, Position, Zeit, ECC")
+    let ack = msg([120, 120, 32, 51, 42, 0, 0, 108, 0, 23, 71, 0, 0, 118, 126, 4, 10, 10, 4, 39, 30, 122, 54, 122, 122])
+    check(ack.format == .individual && ack.to == "325142000" && ack.from == "002371000" && ack.category == "SICHERHEIT" && ack.firstCommand == "TEST"
+          && ack.frequency == "04101.0/04393.0" && ack.eos == "QUITTUNG" && ack.eccOK, "DSC Einzelruf mit Test, Frequenzpaar und Quittung")
+    let j3e = msg([120, 120, 0, 23, 71, 0, 4, 100, 23, 82, 30, 0, 0, 109, 126, 8, 41, 45, 126, 126, 126, 117, 7, 117, 117])
+    check(j3e.to == "002371000" && j3e.from == "238230000" && j3e.category == "ROUTINE" && j3e.firstCommand == "J3E SPRECHFUNK" && j3e.frequency == "08414.5"
+          && j3e.eos == "QUITTUNG ERBETEN" && j3e.eccOK, "DSC Einzelruf J3E mit einer Frequenz")
+    let all = msg([116, 116, 108, 0, 23, 71, 0, 0, 109, 126, 4, 12, 50, 4, 12, 50, 127, 36, 127, 127])
+    check(all.format == .allShips && all.to == "ALLE SCHIFFE" && all.from == "002371000" && all.frequency == "04125.0/04125.0" && all.eos == "ENDE" && all.eccOK, "DSC Alle Schiffe")
+    let area = msg([102, 102, 4, 40, 3, 5, 8, 108, 0, 22, 75, 40, 0, 109, 126, 2, 18, 20, 2, 18, 20, 127, 49, 127, 127])
+    check(area.format == .geographicArea && area.to?.contains("NW-Ecke 44°N 003°O, 5° nach Süden, 8° nach Osten") == true && area.from == "002275400"
+          && area.frequency == "02182.0/02182.0" && area.eccOK, "DSC Gebietsruf")
+    let pos = msg([120, 120, 0, 25, 70, 0, 0, 108, 23, 20, 19, 71, 50, 109, 126, 55, 5, 85, 30, 1, 34, 117, 18, 117, 117])
+    check(pos.position == "58°53′N 001°34′O" && pos.from == "232019715" && pos.to == "002570000" && pos.eccOK, "DSC Einzelruf mit Position")
+    let req = msg([120, 120, 51, 89, 99, 19, 50, 100, 0, 27, 11, 0, 0, 126, 126, 126, 126, 126, 126, 126, 126, 117, 81, 117, 117])
+    check(req.firstCommand == "KEINE ANGABE" && req.frequency == nil && req.eccOK && req.to == "518999195", "DSC Einzelruf ohne Angaben")
+    let bad = msg([120, 120, 51, 89, 99, 19, 50, 100, 0, 27, 11, 0, 0, 126, 126, 126, 126, 126, 126, 126, 126, 117, 80, 117, 117])
+    check(!bad.eccOK, "DSC: falscher ECC wird erkannt")
+    let broken = DSCMessage.parse(symbols: [120, 120, 0, 25, -1, 0, 0, 108, 23, 20, 19, 71, 50, 109, 126, 126, 126, 126, 126, 126, 126, 117, 18, 117, 117], eccOK: false)
+    check(broken.to?.contains("_") == true && broken.unreadable == 1, "DSC: unlesbare Ziffern als „_“")
+    check(DSCMessage.parse(symbols: [-1, -1, 1, 2, 3], eccOK: false).format == .unknown, "DSC: unbekanntes Format")
+
+    // Erzeugen → Demodulieren → Rahmen
+    func roundTrip(_ info: [Int], center: Double = 1700, offset: Double = 0, reversedTx: Bool = false, reversedRx: Bool = false,
+                   snr: Double? = nil, dot: Int = 200, lead: Double = 0.5, seed: UInt64 = 7) -> [DSCCall] {
+        var audio = DSCSignalGenerator.audio(bits: DSCSignalGenerator.bits(info: info, dotBits: dot), centerHz: center + offset, lead: lead, reversed: reversedTx)
+        if let snr {
+            var st = seed
+            func g() -> Double {
+                st = st &* 6364136223846793005 &+ 1442695040888963407
+                let u1 = (Double(st >> 11) + 1) / Double((1 << 53) + 2)
+                st = st &* 6364136223846793005 &+ 1442695040888963407
+                let u2 = Double(st >> 11) / Double(1 << 53)
+                return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+            }
+            let sigma = sqrt(0.125 / pow(10, snr / 10) / (2500.0 / 4000.0))
+            for i in 0..<audio.count { audio[i] += Float(g() * sigma) }
+        }
+        let demod = DSCDemodulator(centerHz: center)
+        demod.reversed = reversedRx
+        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        var collector = DSCCallCollector()
+        var t = 0
+        var pos = 0
+        while pos < audio.count {
+            let n = min(800, audio.count - pos)
+            audio[pos..<(pos + n)].withUnsafeBufferPointer { demod.process($0) { p, b in if let c = framers[p].push(b) { collector.add(c, at: Double(t) / 8000) } } }
+            pos += n
+            t = pos
+        }
+        return collector.take(now: 0, force: true)
+    }
+    let infoA = DSCSignalGenerator.call(format: 120, body: [0, 23, 71, 0, 4, 100, 23, 82, 30, 0, 0, 109, 126, 8, 41, 45, 126, 126, 126], eos: 117)
+    check(infoA == [120, 120, 0, 23, 71, 0, 4, 100, 23, 82, 30, 0, 0, 109, 126, 8, 41, 45, 126, 126, 126, 117, 7, 117, 117], "DSC: Generator erzeugt die aufgezeichnete Symbolfolge samt ECC")
+    let rt = roundTrip(infoA)
+    check(rt.count == 1 && rt[0].symbols == infoA && rt[0].eccOK && rt[0].unreadable == 0, "DSC Rundlauf: Ruf fehlerfrei, \(rt.count) Ruf(e)")
+    let distInfo = DSCSignalGenerator.call(format: 112, body: [25, 58, 5, 99, 70, 107, 4, 52, 60, 13, 7, 12, 52, 109])
+    check(roundTrip(distInfo, center: 1500).first?.symbols == distInfo, "DSC Rundlauf: Notruf, Mitte 1500 Hz")
+    check(roundTrip(infoA, center: 1700, dot: 20).first?.symbols == infoA, "DSC Rundlauf: kurzes Punktmuster (20 Bit)")
+    check(roundTrip(infoA, reversedTx: true, reversedRx: true).first?.symbols == infoA, "DSC Rundlauf: umgekehrtes Seitenband mit REV")
+    check(roundTrip(infoA, reversedTx: true, reversedRx: false).isEmpty, "DSC: umgekehrtes Seitenband ohne REV liefert nichts")
+    check(roundTrip(infoA, offset: 8).first?.symbols == infoA, "DSC Rundlauf: 8 Hz neben der Mitte")
+    check(roundTrip(infoA, offset: -15).first?.symbols == infoA, "DSC Rundlauf: 15 Hz unter der Mitte")
+    for snr in [10.0, 3.0] {
+        let r = roundTrip(infoA, snr: snr)
+        check(r.first?.symbols == infoA, "DSC Rundlauf bei \(Int(snr)) dB S/N")
+    }
+    check(roundTrip(infoA, snr: 0, seed: 11).first.map { $0.eccOK || $0.unreadable > 0 } ?? true, "DSC bei 0 dB: kein falscher Ruf mit gültigem ECC und falschem Inhalt")
+    // Nur Rauschen: kein Ruf
+    var noiseOnly = [Float](repeating: 0, count: 8000 * 30)
+    var ns: UInt64 = 99
+    for i in 0..<noiseOnly.count { ns = ns &* 6364136223846793005 &+ 1442695040888963407; noiseOnly[i] = Float(Double(ns >> 40) / Double(1 << 24) - 0.5) }
+    do {
+        let demod = DSCDemodulator(centerHz: 1700)
+        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        var calls = 0
+        noiseOnly.withUnsafeBufferPointer { demod.process($0) { p, b in if framers[p].push(b) != nil { calls += 1 } } }
+        check(calls == 0, "DSC: Rauschen ergibt keinen Ruf")
+    }
+    // Zwei Rufe hintereinander
+    do {
+        var bits = DSCSignalGenerator.bits(info: infoA)
+        bits += DSCSignalGenerator.bits(info: distInfo, dotBits: 20)
+        let audio = DSCSignalGenerator.audio(bits: bits)
+        let demod = DSCDemodulator(centerHz: 1700)
+        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        var collector = DSCCallCollector()
+        var t = 0
+        var pos = 0
+        while pos < audio.count {
+            let n = min(800, audio.count - pos)
+            audio[pos..<(pos + n)].withUnsafeBufferPointer { demod.process($0) { p, b in if let c = framers[p].push(b) { collector.add(c, at: Double(t) / 8000) } } }
+            pos += n
+            t = pos
+        }
+        let calls = collector.take(now: 0, force: true)
+        check(calls.count == 2 && calls.first?.symbols == infoA && calls.last?.symbols == distInfo, "DSC: zwei Rufe unmittelbar nacheinander (\(calls.count))")
+    }
+
+    // Zusammenführen der Taktlagen: bester Ruf je Aussendung, Trümmer entfallen
+    do {
+        let good = DSCCall(symbols: infoA, eccOK: true, unreadable: 0)
+        let worse = DSCCall(symbols: infoA, eccOK: false, unreadable: 3)
+        let junk = DSCCall(symbols: infoA, eccOK: false, unreadable: 9)
+        var c = DSCCallCollector()
+        c.add(worse, at: 10); c.add(good, at: 10.4); c.add(junk, at: 10.6); c.add(good, at: 30)
+        check(c.take(now: 14).count == 1, "DSC-Sammler: Fenster abgelaufen → ein Ruf")
+        check(c.take(now: 14).isEmpty && c.take(now: 40).first == good, "DSC-Sammler: zweite Aussendung später, ohne Doppelung")
+        var d = DSCCallCollector()
+        d.add(worse, at: 5); d.add(good, at: 6)
+        check(d.take(now: 6).isEmpty && d.take(now: 10).first == good, "DSC-Sammler: der bessere ersetzt den schlechteren")
+        var e = DSCCallCollector()
+        e.add(junk, at: 5)
+        check(e.take(now: 0, force: true).isEmpty, "DSC-Sammler: stark beschädigter Ruf entfällt")
+    }
+
+    // Mitte nachführen
+    do {
+        var audio = DSCSignalGenerator.audio(bits: DSCSignalGenerator.bits(info: infoA), centerHz: 2100, lead: 0)
+        audio = Array(audio.prefix(8000 * 8))
+        var tuner = DSCAutoTuner()
+        var latest: (measured: Double?, newCenter: Double?) = (nil, nil)
+        for k in 0..<3 { latest = tuner.update(recent: Array(audio[(3 * 8000 + k * 4000)..<(3 * 8000 + k * 4000 + 4096)]), current: 1700) }   // im Datenteil, nach dem Punktmuster
+        check(latest.measured.map { abs($0 - 2100) <= 5 } == true && latest.newCenter.map { abs($0 - 2100) <= 5 } == true, "DSC-Nachführung findet 2100 Hz (\(latest))")
+        var t2 = DSCAutoTuner()
+        var rs: UInt64 = 4242
+        let n = (0..<8192).map { _ -> Float in rs = rs &* 6364136223846793005 &+ 1442695040888963407; return Float(Double(rs >> 40) / Double(1 << 24) - 0.5) }
+        check(t2.update(recent: n, current: 1700).measured == nil, "DSC-Nachführung: Rauschen ergibt keine Messung")
+    }
+
+    // Aufnahme eines echten Anrufs (Referenz TAOSW.DSC_Decoder, 8414,5 kHz): nur wenn lokal vorhanden
+    do {
+        let url = URL(fileURLWithPath: "Vendor/_upstream/dsc_taosw/TAOSW.DSC_Decoder/testFiles/test.wav")
+        if let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
+           let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: DSCDemodulator.sampleRate) {
+            let demod = DSCDemodulator(centerHz: 505)
+            var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+            var collector = DSCCallCollector()
+            var t = 0
+            let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+            while true {
+                buf.frameLength = 0
+                try? file.read(into: buf, frameCount: 48_000)
+                guard buf.frameLength > 0 else { break }
+                src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+                    demod.process(chunk) { p, b in if let c = framers[p].push(b) { collector.add(c, at: Double(t) / 8000) } }
+                    t += chunk.count
+                }
+            }
+            let calls = collector.take(now: 0, force: true)
+            let tos = calls.map { DSCMessage.parse(symbols: $0.symbols).to ?? "?" }
+            check(calls.count == 5 && calls.allSatisfy(\.eccOK), "DSC echte Aufnahme: 5 Rufe, alle ECC OK (\(calls.count))")
+            check(tos == ["538010255", "477832400", "249855000", "511100954", "636024307"], "DSC echte Aufnahme: Adressaten \(tos)")
+            check(calls.allSatisfy { DSCMessage.parse(symbols: $0.symbols).from == "002371000" && DSCMessage.parse(symbols: $0.symbols).firstCommand == "TEST" }, "DSC echte Aufnahme: Küstenfunkstelle 002371000, Testruf")
+        } else {
+            print("Hinweis: DSC-Beispielaufnahme nicht vorhanden, echter Anruf nicht geprüft")
+        }
+    }
+}
+
+// MARK: - DSC über die Pipeline (48 kHz → 8 kHz)
+do {
+    let pipeline = AudioPipeline()
+    let decoder = DSCDecoder(pipeline: pipeline)
+    decoder.configure(center: 1700, reversed: false, auto: true)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    let info = DSCSignalGenerator.call(format: 116, body: [108, 0, 23, 71, 0, 0, 109, 126, 4, 12, 50, 4, 12, 50])
+    let audio8 = DSCSignalGenerator.audio(bits: DSCSignalGenerator.bits(info: info), centerHz: 1750, lead: 1, tail: 1.5)
+    var audio48 = [Float](repeating: 0, count: audio8.count * 6)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 6, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio8[k] * (1 - f) + (k + 1 < audio8.count ? audio8[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    var got: [DSCCall] = []
+    while i < audio48.count {
+        let n = min(9_600, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.006)
+        got += decoder.takeOutput().calls.map(\.call)
+    }
+    Thread.sleep(forTimeInterval: 0.4)
+    let last = decoder.takeOutput()
+    got += last.calls.map(\.call)
+    check(got.contains { $0.symbols == info && $0.eccOK }, "DSC über die Pipeline 48 kHz → 8 kHz (\(got.count) Treffer)")
+    check(abs(last.center - 1750) <= 6, "DSC-Pipeline: Mitte folgt dem Tonpaar auf 1750 Hz (ist \(last.center))")
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

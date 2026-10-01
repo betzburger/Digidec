@@ -28,6 +28,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.olivia, audio: state.audio)
                             } else if state.activeModule == .mt63 {
                                 WaterfallView(model: state.waterfall, rtty: state.mt63, audio: state.audio)
+                            } else if state.activeModule == .dsc {
+                                WaterfallView(model: state.waterfall, rtty: state.dsc, audio: state.audio)
                             } else if state.activeModule == .psk {
                                 WaterfallView(model: state.waterfall, rtty: state.psk, audio: state.audio)
                             } else if state.activeModule == .wefax {
@@ -60,6 +62,8 @@ public struct MainWindowView: View {
                                 TextModeReceivePanel(controller: state.oliviaController)
                             } else if state.activeModule == .mt63 {
                                 TextModeReceivePanel(controller: state.mt63Controller)
+                            } else if state.activeModule == .dsc {
+                                DSCMessagePanel(controller: state.dscController)
                             } else if state.activeModule == .psk {
                                 PSKReceivePanel(controller: state.pskController)
                             } else if state.activeModule == .wefax {
@@ -81,7 +85,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -103,6 +107,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             OliviaSettingsPanel(settings: state.olivia)
                                 .radioCard(title: "OLIVIA · CONTESTIA")
+                        } else if state.activeModule == .dsc {
+                            DSCTuningPanel(controller: state.dscController, settings: state.dsc)
+                                .radioCard(title: "Abstimmanzeige")
+                            DSCSettingsPanel(settings: state.dsc)
+                                .radioCard(title: "DSC")
                         } else if state.activeModule == .mt63 {
                             MT63TuningPanel(controller: state.mt63Controller, settings: state.mt63)
                                 .radioCard(title: "Abstimmanzeige")
@@ -174,7 +183,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, dsc: state.dsc, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -452,6 +461,7 @@ private struct StatusBar: View {
     @ObservedObject var psk: PSKSettingsStore
     @ObservedObject var olivia: OliviaSettingsStore
     @ObservedObject var mt63: MT63SettingsStore
+    @ObservedObject var dsc: DSCSettingsStore
     @ObservedObject var ft8: FT8SettingsStore
     @ObservedObject var ft4: FT4SettingsStore
     @ObservedObject var ft4Controller: FT4Controller
@@ -513,6 +523,7 @@ private struct StatusBar: View {
         case .cw: return cwCurrent
         case .psk: return pskCurrent
         case .olivia: return "\(olivia.options.familyName.uppercased()) · \(olivia.options.label) · Mitte \(Int(olivia.centerHz.rounded())) Hz" + (olivia.options.reverse ? " · REV" : "") + (olivia.options.squelchOn ? " · SQL \(Int(olivia.options.squelch))" : " · SQL aus")
+        case .dsc: return "DSC · \(dsc.channel.label) kHz · Mitte \(Int(dsc.centerHz.rounded())) Hz · 100 Bd / 170 Hz" + (dsc.autoCenter ? " · AUTO" : "") + (dsc.reversed ? " · REV" : "")
         case .mt63: return "MT63 · \(mt63.options.label) · Mitte \(Int(mt63.centerHz.rounded())) Hz" + (mt63.options.squelchOn ? " · SQL \(Int(mt63.options.squelch))" : " · SQL aus")
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current

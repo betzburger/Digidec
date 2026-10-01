@@ -26,6 +26,8 @@ func usage() -> Never {
       --olivia <kennung>    Olivia/Contestia (fldigi): olivia-8-500 | olivia-16-1000 | contestia-8-500 … (Töne-Bandbreite); --center <Mitte-Hz> (Standard 1500)
       --mt63 <kennung>      MT63 (fldigi): 500s | 500l | 1000s | 1000l | 2000s | 2000l (S = kurz, L = lang); --center <Mitte-Hz> (Standard 1500)
 
+      --dsc                 DSC (ITU-R M.493, 100 Bd / 170 Hz); --center <Mitte-Hz> (Standard 1700), --noauto schaltet die Mittennachführung ab, --rev kehrt um
+
       --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
       --lpm <n>             WEFAX Zeilen je Minute (Standard 120)
       --shift <Hz>          WEFAX Hub (Standard 800, DWD 850); --center <Hz> NF-Mitte (Standard 1900)
@@ -56,6 +58,8 @@ var cwWPM = 18
 var cwMF = false
 var pskModeID: String?
 var oliviaID: String?
+var dscMode = false
+var dscAuto = true
 var mt63ID: String?
 var pskAFC = true
 var pskReverse = false
@@ -83,6 +87,8 @@ while !args.isEmpty {
     case "--mf": cwMF = true
     case "--psk": pskModeID = value()
     case "--olivia": oliviaID = value()
+    case "--dsc": dscMode = true
+    case "--noauto": dscAuto = false
     case "--mt63": mt63ID = value()
     case "--noafc": pskAFC = false
     case "--rev": pskReverse = true
@@ -244,6 +250,66 @@ if let pskModeID {
         print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
                      100 * Double(d) / Double(max(1, max(a.count, b.count)))))
     }
+    exit(0)
+}
+
+// MARK: - DSC
+
+if dscMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: DSCDemodulator.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    let start = center ?? 1700
+    print("DSC · Mitte \(Int(start)) Hz" + (dscAuto ? " (Nachführung)" : "") + (pskReverse ? " · REV" : ""))
+    let demod = DSCDemodulator(centerHz: start)
+    demod.reversed = pskReverse
+    var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+    var calls: [(Double, DSCCall)] = []
+    let seconds = 0.0
+    var samples = 0
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    var lockedAt: [Double] = []
+    var tuner = DSCAutoTuner()
+    var recent: [Float] = []
+    var sinceTune = 0
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+            demod.process(chunk) { phase, bit in
+                if let c = framers[phase].push(bit) { calls.append((seconds + Double(samples) / DSCDemodulator.sampleRate, c)) }
+            }
+            samples += chunk.count
+            recent.append(contentsOf: chunk)
+            if recent.count > DSCAutoTuner.blockSize { recent.removeFirst(recent.count - DSCAutoTuner.blockSize) }
+            sinceTune += chunk.count
+            if sinceTune >= 8000 {
+                sinceTune = 0
+                let r = tuner.update(recent: recent, current: demod.centerHz)
+                if dscAuto, let c = r.newCenter { demod.centerHz = c }
+            }
+            if framers.contains(where: { $0.isLocked }), lockedAt.last.map({ Double(samples) / DSCDemodulator.sampleRate - $0 > 1 }) ?? true {
+                lockedAt.append(Double(samples) / DSCDemodulator.sampleRate)
+            }
+        }
+    }
+    var collector = DSCCallCollector()
+    for (t, c) in calls { collector.add(c, at: t) }
+    var lines = 0
+    var last = Set<String>()
+    for c in collector.take(now: 0, force: true) {
+        let key = c.symbols.map(String.init).joined(separator: ",")
+        _ = last.insert(key)
+        let m = DSCMessage.parse(symbols: c.symbols, centerHz: demod.centerHz, eccOK: c.eccOK)
+        print(DSCController.logLine(m, dial: nil).replacingOccurrences(of: DSCController.utc.string(from: m.receivedAt), with: "          "))
+        lines += 1
+    }
+    let dur = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "%.0f s Audio in %.2f s: %d Rufe (%d Roh-Treffer), Rahmen eingerastet %d mal, Mitte am Ende %.0f Hz", dur, Date().timeIntervalSince(began), lines, calls.count, lockedAt.count, demod.centerHz))
     exit(0)
 }
 

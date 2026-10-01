@@ -31,6 +31,8 @@ public final class DigidecState: ObservableObject {
     public let oliviaController: OliviaController
     public let mt63 = MT63SettingsStore()
     public let mt63Controller: MT63Controller
+    public let dsc = DSCSettingsStore()
+    public let dscController: DSCController
     public let wefax = WefaxSettingsStore()
     public let wefaxController: WefaxController
     public let ft8 = FT8SettingsStore()
@@ -70,6 +72,7 @@ public final class DigidecState: ObservableObject {
         pskController = PSKController(pipeline: audio.pipeline, settings: psk)
         oliviaController = OliviaController(pipeline: audio.pipeline, settings: olivia)
         mt63Controller = MT63Controller(pipeline: audio.pipeline, settings: mt63)
+        dscController = DSCController(pipeline: audio.pipeline, settings: dsc)
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
         ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
@@ -90,6 +93,7 @@ public final class DigidecState: ObservableObject {
                 self?.pskController.setActive(module == .psk)
                 self?.oliviaController.setActive(module == .olivia)
                 self?.mt63Controller.setActive(module == .mt63)
+                self?.dscController.setActive(module == .dsc)
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
                 self?.ft4Controller.setActive(module == .ft4)
@@ -106,6 +110,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(ft4.$band)
         observeForTuning(wspr.$band)
         observeForTuning(psk.$band)
+        observeForTuning(dsc.$channel)
         observeForTuning(sstv.$channel)
         observeForTuning(efr.$station)
         observeForTuning(wefax.$station)
@@ -138,6 +143,7 @@ public final class DigidecState: ObservableObject {
             pskController.rigDescription = rig.description
             oliviaController.rigDescription = rig.description
             mt63Controller.rigDescription = rig.description
+            dscController.rigDescription = rig.description
             dcf77Controller.sourceDescription = rig.description
             efrController.sourceDescription = rig.description
             sstvController.sourceDescription = rig.description
@@ -166,6 +172,7 @@ public final class DigidecState: ObservableObject {
         case .dcf77:  return .dcf77(centerHz: dcf77.centerHz)
         case .wefax:  return .wefax(station: wefax.station, centerHz: wefax.centerHz)
         case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
+        case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
         case .rtty, .cw, .olivia, .mt63: return nil
         }
     }
@@ -227,6 +234,9 @@ public final class DigidecState: ObservableObject {
                 case .olivia:
                     if let preset = request.presetID, let o = FldigiOliviaCore.Options(presetID: preset) { olivia.options = o }
                     if let center = request.centerHz { olivia.setCenter(center) }
+                case .dsc:
+                    if let preset = request.presetID, let c = DSCChannel(rawValue: preset) { dsc.channel = c }
+                    if let center = request.centerHz { dsc.setCenter(center) }
                 case .mt63:
                     if let preset = request.presetID, let o = FldigiMT63Core.Options(presetID: preset) { mt63.options = o }
                     if let center = request.centerHz { mt63.setCenter(center) }
