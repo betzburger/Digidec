@@ -79,6 +79,8 @@ static void synth_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol
     }
 }
 
+#define FT4_SYMBOL_BT 1.0f
+
 int ft8dd_synthesize(const char *text, double f0, int rate, float *out, int max_samples)
 {
     ftx_message_t msg;
@@ -89,5 +91,18 @@ int ft8dd_synthesize(const char *text, double f0, int rate, float *out, int max_
     int n = FT8_NN * n_spsym;
     if (n > max_samples) return -2;
     synth_gfsk(tones, FT8_NN, (float)f0, FT8_SYMBOL_BT, FT8_SYMBOL_PERIOD, rate, out);
+    return n;
+}
+
+int ft4dd_synthesize(const char *text, double f0, int rate, float *out, int max_samples)
+{
+    ftx_message_t msg;
+    if (ftx_message_encode(&msg, NULL, text) != FTX_MESSAGE_RC_OK) return -1;
+    uint8_t tones[FT4_NN];
+    ft4_encode(msg.payload, tones);
+    int n_spsym = (int)(0.5f + rate * FT4_SYMBOL_PERIOD);
+    int n = FT4_NN * n_spsym;
+    if (n > max_samples) return -2;
+    synth_gfsk(tones, FT4_NN, (float)f0, FT4_SYMBOL_BT, FT4_SYMBOL_PERIOD, rate, out);
     return n;
 }

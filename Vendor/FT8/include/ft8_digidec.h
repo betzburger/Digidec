@@ -31,6 +31,18 @@ int ft8dd_decode_cycle(const float *samples, int count, int rate, double min_hz,
 /// Amplitude 1, 79 Symbole (12,64 s). Liefert die Zahl der Samples, < 0 bei Fehler (Text nicht kodierbar, Puffer zu klein).
 int ft8dd_synthesize(const char *text, double f0, int rate, float *out, int max_samples);
 
+typedef ft8dd_decode ft4dd_decode;
+typedef ft8dd_decode_fn ft4dd_decode_fn;
+
+/// FT4: 7,5-s-Zyklus (4-GFSK, 20,8333 Baud). samples ab Zyklusbeginn (0 s, 7,5 s, 15 s, ...).
+/// Empfohlen: 12 000 Hz, min_hz ≈ 200, max_hz ≈ 3000. Liefert die Zahl der Decodes.
+int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz, double max_hz,
+                       ft4dd_decode_fn on_decode, void *ctx);
+
+/// FT4-Testsignal (nur für Tests, Digidec sendet nie): Klartext, unterster Ton bei f0,
+/// Amplitude 1, 105 Symbole (5,04 s). Liefert die Zahl der Samples, < 0 bei Fehler.
+int ft4dd_synthesize(const char *text, double f0, int rate, float *out, int max_samples);
+
 #ifdef __cplusplus
 }
 #endif

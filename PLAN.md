@@ -86,7 +86,7 @@ digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<Core
 
 | Parameter | Bedeutung | Beispiel |
 |---|---|---|
-| `mode` | Decoder-Modul (optional bei `open`, Pflicht bei `decode`) | `rtty`, `navtex`, `cw`, `wefax`, `ft8`, `dcf77`, `efr` |
+| `mode` | Decoder-Modul (optional bei `open`, Pflicht bei `decode`) | `rtty`, `navtex`, `cw`, `wefax`, `ft8`, `ft4`, `dcf77`, `efr` |
 | `preset` | Preset-ID (Abschnitt 5) | `ham`, `dwd-kw`, `dwd-lw`, `custom` |
 | `source` | Name des aufrufenden Programms, nur für die Anzeige | `pcr1500`, `ft991a` |
 | `rigctl` | rigctld-Port des aufrufenden Programms | `4532` / `4533` |
@@ -421,6 +421,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M12 | FT8 | ✅ 01.10.2026 (v0.13.0): ft8mon (AB1HL, MIT) statt ft8_lib: 90,7 % der WSJT-X-Decodes statt 73 %; Bandaktivität, Rx-Frequenz, Entfernungen, ALL.TXT-Log; Live-Empfang durch den Nutzer offen |
 | M13 | DCF77 | ✅ 01.10.2026 (v0.14.0): AM-Impulsbreiten-Decoder (77,5 kHz, AM 100/200 ms), VFD-Atomuhr, Δt-Vergleich zur Systemzeit in ms, 60-Bit-Telegramm-Matrix, Scope, Log; 404 Tests bestanden |
 | M14 | EFR | ✅ 01.10.2026 (v0.15.0): FSK-Demodulator (200 Baud, Shift 340 Hz, 8E1), DIN 19244 / FT1.2-Parser (Zeitsynchronisation, Rundsteuerbefehle, EEG-Abregelung), Stations-Presets DCF49 (129,1 kHz) / DCF39 (139,0 kHz) / HGA22 (135,6 kHz), FSK-Oszilloskop, Log; 433 Tests bestanden |
+| M15 | FT4 | ✅ 01.10.2026 (v0.16.0): ft8_lib FT4-Demodulator & LDPC/CRC-Decoder (7,5 s Slot, 4-GFSK, 20,8333 Baud), Bandaktivität, Rx-Frequenz, 7,5-s-Zyklus Scope/Timeline, ALL.TXT-Log; 452 Tests bestanden |
 
 ---
 
@@ -766,7 +767,21 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - Tageslog (`~/Documents/Digidec/Logs/EFR-JJJJ-MM-TT.txt`).
   - **Signalgenerator & Tests:** `EFRSignalGenerator` erzeugt DIN-19244-Telegramme und FSK-Audiosignale. 433 Logiktests fehlerfrei bestanden.
   - URL-Schema: `digidec://decode?mode=efr&preset=dcf49|dcf39|hga22&center=1500`.
+- **0.16.0 (01.10.2026): M15 FT4-Decoder (Fast FT8 für Contests, 7,5 s Slot).**
+  - **Modulation & DSP-Kern:** 4-GFSK mit 20,8333 Baud (Symbolperiode 48 ms, Tonabstand 20,8333 Hz, Bandbreite ~83,3 Hz). STFT-Spektrogramm via kiss_fft (1152 Punkte), 4×4 Costas-Synchronisation, Kandidaten-Sucher im 7,5-s-Raster (Zeit- und Frequenz-OSR = 2), Beliefe-Propagation LDPC(174,91) Decoder und CRC-14 Prüfung aus `ft8_lib` (Kārlis Goba YL3JG, MIT).
+  - **C-Schnittstelle (`ft4_digidec.c`, `ft8_digidec.h`):** Reentrante Zyklus-Decodierung (`ft4dd_decode_cycle`), threadsichere Rufzeichen-Hashtabelle für 10-/12-/22-Bit-Hashes, GFSK-Signalsynthesizer (`ft4dd_synthesize`), SNR-Berechnung normiert auf 2500 Hz WSJT-X-Referenzbandbreite.
+  - **Swift-Module (`FT4Core.swift`, `FT4Module.swift`):**
+    - `FT4Band`: Standard-Dial-Frequenzen wie WSJT-X (80m: 3,575 MHz, 40m: 7,0475 MHz, 30m: 10,140 MHz, 20m: 14,080 MHz, 17m: 18,104 MHz, 15m: 21,140 MHz, 12m: 24,919 MHz, 10m: 28,180 MHz, 6m: 50,318 MHz, 2m: 144,170 MHz, 70cm: 432,170 MHz).
+    - `FT4SettingsStore`: Band, Rufzeichen, Locator, Zeitkorrektur, Rx-Frequenz, Conformance zu `TuningTarget`.
+    - `FT4Decoder`: 12-kHz-Audiopipeline-Senke, 7,5-s-Cadence nach UTC-Raster, Decodierung bei 7,1 s nach Slotstart.
+    - `FT4Controller`: Bandaktivität, Distanz-/Peilungsberechnung, ALL.TXT-Tageslog (`~/Documents/Digidec/Logs/FT4-JJJJ-MM-TT.txt`).
+  - **UI-Panels (`FT4Panels.swift`):**
+    - Bandaktivitäts-Tabelle (UTC, dB, DT, Freq, Meldung, km) mit Filtern (Nur CQ, ?, Log, Papierkorb)
+    - 7,5-s-Zyklus-Timeline mit Live-Fortschrittsbalken und Empfangsstatus
+    - Einstellungen-Panel mit Band-Buttons, eigenem Rufzeichen, Locator und Zeitkorrektur.
+  - **Tests & Nachweis:** 452 Logiktests fehlerfrei bestanden (Synthese, Mehrstationen-Zyklus, Zeit- und Frequenzabweichungen, Pipeline-Resampling 48 kHz → 12 kHz, URL-Schema `digidec://decode?mode=ft4&preset=20m`).
 - **Nächste Schritte:**
-  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, DCF77, EFR).
-  - FT4 (schnellere FT8-Variante für Contests, 7,5 s Zyklus).
-  - DXCC-Länder zu Amateurfunk-Rufzeichen.
+  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, FT4, DCF77, EFR).
+  - DXCC-Länder zu Amateurfunk-Rufzeichen (für FT8 und FT4).
+  - PSK31 / PSK63 (BPSK-Amateurfunk-Textübertragung auf Kurzwelle).
+

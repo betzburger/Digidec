@@ -29,6 +29,8 @@ public final class DigidecState: ObservableObject {
     public let wefaxController: WefaxController
     public let ft8 = FT8SettingsStore()
     public let ft8Controller: FT8Controller
+    public let ft4 = FT4SettingsStore()
+    public let ft4Controller: FT4Controller
     public let dcf77 = DCF77SettingsStore()
     public let dcf77Controller: DCF77Controller
     public let efr = EFRSettingsStore()
@@ -44,6 +46,7 @@ public final class DigidecState: ObservableObject {
         cwController = CWController(pipeline: audio.pipeline, settings: cw)
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
+        ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
         dcf77Controller = DCF77Controller(pipeline: audio.pipeline, settings: dcf77)
         efrController = EFRController(pipeline: audio.pipeline, settings: efr)
 
@@ -56,6 +59,7 @@ public final class DigidecState: ObservableObject {
                 self?.cwController.setActive(module == .cw)
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
+                self?.ft4Controller.setActive(module == .ft4)
                 self?.dcf77Controller.setActive(module == .dcf77)
                 self?.efrController.setActive(module == .efr)
             }
@@ -74,6 +78,7 @@ public final class DigidecState: ObservableObject {
             navtex.rigIsLSB = state.isLSB
             wefax.rigIsLSB = state.isLSB
             ft8.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
+            ft4.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             wefaxController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             dcf77.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
@@ -125,6 +130,8 @@ public final class DigidecState: ObservableObject {
                     if let center = request.centerHz { cw.setCenter(center) }
                 case .ft8:
                     if let preset = request.presetID, let b = FT8Band(rawValue: preset) { ft8.band = b }
+                case .ft4:
+                    if let preset = request.presetID, let b = FT4Band(rawValue: preset) { ft4.band = b }
                 case .wefax:
                     if let preset = request.presetID, let s = WefaxStation(rawValue: preset) { wefax.station = s }
                     if let center = request.centerHz { wefax.setCenter(center) }

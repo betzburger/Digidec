@@ -82,6 +82,8 @@ do {
     check(parse("digidec://decode?mode=pactor") == .failure(.unknownMode("pactor")), "Unbekannter Mode")
     check(parse("digidec://decode?mode=ft8&preset=40m") == .success(DecodeRequest(module: .ft8, presetID: "40m")), "FT8-Auftrag")
     check(parse("digidec://decode?mode=ft8") == .success(DecodeRequest(module: .ft8, presetID: "20m")), "FT8-Standard 20 m")
+    check(parse("digidec://decode?mode=ft4&preset=40m") == .success(DecodeRequest(module: .ft4, presetID: "40m")), "FT4-Auftrag 40 m")
+    check(parse("digidec://decode?mode=ft4") == .success(DecodeRequest(module: .ft4, presetID: "20m")), "FT4-Standard 20 m")
     check(parse("digidec://decode?mode=wefax&preset=dwd-3855") == .success(DecodeRequest(module: .wefax, presetID: "dwd-3855")), "WEFAX-Auftrag")
     check(parse("digidec://decode?mode=wefax") == .success(DecodeRequest(module: .wefax, presetID: "dwd-7880")), "WEFAX-Standard DWD 7880")
     check(parse("digidec://decode?mode=cw&center=650") == .success(DecodeRequest(module: .cw, presetID: "ham", centerHz: 650)), "CW-Auftrag mit Ton")
@@ -1433,6 +1435,89 @@ do {
     let d = results.first?.decodes.first
     check(results.first?.cycleStart == Date(timeIntervalSince1970: cycle), "FT8-Zyklus: Beginn nach UTC-Raster")
     check(d?.text == "CQ DL1ABC JN49" && abs((d?.dt ?? 9)) < 0.25, "FT8-Zyklus: Pipeline 48 kHz → 12 kHz, DT \(d.map { String(format: "%.2f", $0.dt) } ?? "–")")
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
+// MARK: - FT4: Bänder, Meldungen, Formate
+do {
+    let cq = FT4Decode(cycleStart: Date(), text: "CQ DL1ABC JN49", snrDB: -8, dt: 0.1, freqHz: 1500, correctBits: 174, pass: 0)
+    check(cq.message.isCQ && cq.message.grid == "JN49", "FT4: CQ mit Locator")
+    check(!cq.isUncertain, "FT4: sicher bei 174 Bits")
+
+    check(FT4Band.band(forDial: 14_080_000) == .m20 && FT4Band.band(forDial: 7_047_500) == .m40
+          && FT4Band.band(forDial: 7_100_000) == nil, "FT4: Band zur Dial-Frequenz")
+    check(FT4Band.allCases.map(\.rawValue).sorted() == DecoderModuleInfo.ft4.presetIDs.sorted(), "FT4-Bänder = IDs im URL-Schema")
+    let line = FT4Controller.allTxtLine(FT4Decode(cycleStart: ISO8601DateFormatter().date(from: "2026-10-01T08:15:00Z")!,
+                                                  text: "CQ DL1ABC JN49", snrDB: -8, dt: 0.2, freqHz: 1234.4, correctBits: 174, pass: 0),
+                                        dialHz: 14_080_000)
+    check(line == "261001_081500    14.080 Rx FT4     -8  0.2 1234 CQ DL1ABC JN49", "FT4: Log-Zeile wie WSJT-X ALL.TXT, got \(line.debugDescription)")
+}
+
+// MARK: - FT4-Decoder ft8_lib (synthetisch)
+do {
+    let wave = FT4Core.synthesize("CQ DL1ABC JN49", frequency: 1000)
+    check(wave?.count == 105 * 576, "FT4-Testsignal: 105 Symbole à 576 Samples (5,04 s), got \(wave?.count ?? 0)")
+
+    let msgs: [(String, Double, Double, Double)] = [
+        ("CQ DL1ABC JN49", 750, 0.4, 1.0),
+        ("K3ZK IK2ZDT RR73", 1450, 0.6, 0.8),
+        ("CQ DX 9A7DA JN86", 2200, 0.3, 0.8)
+    ]
+    let sig = FT4Core.cycle(msgs.map { (text: $0.0, hz: $0.1, start: $0.2, amplitude: $0.3) })
+    check(sig.count == Int(FT4Core.cycleSeconds * FT4Core.sampleRate), "FT4-Zyklus: 7,5 s à 12 kHz")
+
+    let t0 = Date()
+    let res = FT4Core.decode(sig, cycleStart: Date(timeIntervalSince1970: 1_790_000_000))
+    let took = Date().timeIntervalSince(t0)
+    for m in msgs {
+        let d = res.first { $0.text == m.0 }
+        check(d != nil, "FT4: „\(m.0)“ decodiert, got \(res.map(\.text))")
+        if let d {
+            check(abs(d.freqHz - m.1) < 15 && !d.isUncertain,
+                  "FT4: „\(m.0)“ Frequenz \(Int(d.freqHz)) Hz, DT \(String(format: "%.2f", d.dt)), \(d.snrDB) dB")
+        }
+    }
+    check(took < 2.0, "FT4: Rechenzeit blitzschnell (\(String(format: "%.2f", took)) s)")
+}
+
+// MARK: - FT4-Zyklus über die Pipeline (simulierte Uhr)
+do {
+    final class FakeClock: @unchecked Sendable { var t = 0.0 }
+    let clock = FakeClock()
+    let cycle = 1_790_000_000.0 - 1_790_000_000.0.truncatingRemainder(dividingBy: 7.5)   // 7,5-s-Zyklusbeginn
+    let pipeline = AudioPipeline()
+    let decoder = FT4Decoder(pipeline: pipeline)
+    decoder.clock = { clock.t }
+    decoder.configure(settings: FT4Core.Settings(), timeOffset: 0)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+
+    let lead = 1.0
+    let audio12 = [Float](repeating: 0, count: Int(lead * 12_000)) + FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 1200, start: 0.4, amplitude: 0.8)])
+    var audio48 = [Float](repeating: 0, count: audio12.count * 4)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 4, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio12[k] * (1 - f) + (k + 1 < audio12.count ? audio12[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    let chunk = 4_800
+    while i < audio48.count {
+        let n = min(chunk, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        clock.t = cycle - lead + Double(i) / 48_000
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    var results: [FT4Decoder.CycleResult] = []
+    for _ in 0..<40 where results.isEmpty {
+        Thread.sleep(forTimeInterval: 0.1)
+        results += decoder.takeResults()
+    }
+    let d = results.first?.decodes.first
+    check(results.first?.cycleStart == Date(timeIntervalSince1970: cycle), "FT4-Zyklus: Beginn nach 7,5-s-UTC-Raster")
+    check(d?.text == "CQ DL1ABC JN49", "FT4-Zyklus: Pipeline 48 kHz → 12 kHz, Text \(d?.text ?? "–")")
     decoder.setEnabled(false)
     pipeline.stop()
 }
