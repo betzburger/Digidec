@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="${0:A:h:h}"
 OUT="$1"
 F="$ROOT/Vendor/Fldigi"
-INC=(-I$F/include -I$F/src -I$F/src/common -I$F/src/rtty -I$F/src/synop -I$F/src/misc -I$F/compat)
+INC=(-I$F/include -I$F/src -I$F/src/common -I$F/src/rtty -I$F/src/synop -I$F/src/misc -I$F/src/navtex -I$F/compat)
 mkdir -p "$OUT/obj" "$OUT/module"
 cc -O2 -w -I$F/src -c $F/src/compat/regex.c -o "$OUT/obj/regex.o"
 for c in $F/src/**/*.cpp; do
@@ -16,6 +16,7 @@ cat > "$OUT/module/module.modulemap" <<MAP
 module Fldigi {
     header "$F/include/fldigi_rtty.h"
     header "$F/include/fldigi_synop.h"
+    header "$F/include/fldigi_navtex.h"
     export *
 }
 MAP

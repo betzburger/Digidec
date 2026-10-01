@@ -848,5 +848,66 @@ do {
     pipeline.stop()
 }
 
+// MARK: - NAVTEX-Kern aus fldigi 4.2.13 (M9)
+@MainActor func navtexDecode(_ samples: [Float], options: FldigiNavtexCore.Options = .init(), center: Double = 1000)
+    -> (text: String, messages: [NavtexMessage], status: FldigiNavtexCore.Status) {
+    final class Box { var text = ""; var msgs: [NavtexMessage] = [] }
+    let box = Box()
+    let core = FldigiNavtexCore(options: options, centerHz: center, onChar: { box.text.append($0) }, onMessage: { box.msgs.append($0) })
+    samples.withUnsafeBufferPointer { buf in
+        var i = 0
+        while i < buf.count {
+            let n = min(220, buf.count - i)            // 20 ms bei 11025 Hz
+            core.process(UnsafeBufferPointer(rebasing: buf[i..<(i + n)]))
+            i += n
+        }
+    }
+    return (box.text, box.msgs, core.status)
+}
+do {
+    let warning = "GALE WARNING GERMAN BIGHT WEST 7 TO 8"
+    let gen = NavtexSignalGenerator()
+    let clean = gen.samples(header: "SA01", text: warning)
+    let r = navtexDecode(clean)
+    check(r.messages.count == 1, "NAVTEX: eine Nachricht, got \(r.messages.count)")
+    if let m = r.messages.first {
+        check(m.text == warning && m.code == "SA01" && m.subject == "A", "NAVTEX: Kopf SA01 und Text exakt, got \(m.code) \(m.text.debugDescription)")
+        check(m.subjectGerman == "Navigationswarnung" && m.subjectText == "Navigational warning", "NAVTEX: Nachrichtenart")
+    }
+    check(r.text.contains("ZCZC SA01") && r.text.contains(warning) && r.text.contains("NNNN"), "NAVTEX: laufender Text")
+    check(r.status.state == .reading && r.status.metric > 30, "NAVTEX: Empfangszustand und Metrik, got \(r.status)")
+    // AFC: fldigi zieht die Mitte wegen 4 Mark-/3 Space-Bits je Zeichen etwas Richtung Mark (beobachtet +5…8 Hz)
+    check(abs(r.status.centerHz - 1000) < 15, "NAVTEX: AFC bleibt nahe der Mitte, got \(r.status.centerHz)")
+    var noAfc = FldigiNavtexCore.Options()
+    noAfc.afcOn = false
+    check(navtexDecode(clean, options: noAfc).status.centerHz == 1000, "NAVTEX: ohne AFC feste Mitte")
+
+    // Andere Mitte, Reverse, ITA2-Ziffern, Rauschen
+    var g2 = NavtexSignalGenerator()
+    g2.centerHz = 1700
+    check(navtexDecode(g2.samples(header: "LE12", text: "FORECAST NORTH SEA"), center: 1700).messages.first?.text == "FORECAST NORTH SEA",
+          "NAVTEX: Mitte 1700 Hz")
+    var g3 = NavtexSignalGenerator()
+    g3.reverse = true
+    var rev = FldigiNavtexCore.Options()
+    rev.reverse = true
+    check(navtexDecode(g3.samples(header: "SB02", text: "STORM"), options: rev).messages.first?.text == "STORM", "NAVTEX: Reverse")
+    check(navtexDecode(g3.samples(header: "SB02", text: "STORM")).messages.isEmpty, "NAVTEX: Reverse-Sender ohne Reverse -> nichts")
+    var ita = FldigiNavtexCore.Options()
+    ita.ita2 = true
+    check(navtexDecode(gen.samples(header: "SE03", text: "TEMP +12 = 5", ita2: true), options: ita).messages.first?.text == "TEMP +12 = 5",
+          "NAVTEX: ITA2-Ziffern")
+    var noisy = gen.samples(header: "SA01", text: warning)
+    RTTYSignalGenerator.addNoise(to: &noisy, amplitude: gen.amplitude, snrDB: -3, sampleRate: 11025, seed: 4)
+    check(navtexDecode(noisy).messages.contains { $0.text == warning }, "NAVTEX: −3 dB fehlerfrei")
+
+    // Stationsliste: Kennung L auf 518 kHz, Standort JN49WS -> Pinneberg (fldigi-Liste)
+    check(FldigiNavtexCore.loadStations(), "NAVTEX-Stationsliste geladen")
+    let st = FldigiNavtexCore.findStation(origin: "L", frequencyHz: 518_000, locator: "JN49WS", message: "")
+    check(st?.name == "Pinneberg" && st?.callsign == "DDH47" && st?.country == "Germany", "Station L/518 kHz = Pinneberg, got \(String(describing: st))")
+    check(abs((st?.latitude ?? 0) - 53.72) < 0.05 && abs((st?.longitude ?? 0) - 9.92) < 0.05, "Pinneberg-Koordinaten")
+    check(FldigiNavtexCore.findStation(origin: "L", frequencyHz: 518_000, locator: "", message: "") == nil, "Ohne Locator keine Suche (wie fldigi)")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

@@ -44,6 +44,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/RTTY/RTTYDecoder.swift $S/Decoders/RTTY/RTTYController.swift $S/Log/DecodeLogger.swift \
     $S/Rig/RigctlClient.swift $S/Audio/InputRecorder.swift \
     $S/Decoders/RTTY/SynopDecoder.swift \
+    $S/Decoders/NAVTEX/FldigiNavtexCore.swift \
     "$OUT"/fldigi/obj/*.o -lc++
 
 # 4. Ausführen

@@ -22,9 +22,9 @@ if [ -f "$DIR/Resources/AppIcon.icns" ]; then
     cp "$DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 fi
 
-# Stationslisten für den SYNOP-Decoder (aus fldigi 4.2.13, siehe Vendor/Fldigi/UPSTREAM_SYNOP.md)
-mkdir -p "$APP_BUNDLE/Contents/Resources/Synop"
-cp "$DIR"/Resources/Synop/* "$APP_BUNDLE/Contents/Resources/Synop/"
+# Stationslisten für SYNOP- und NAVTEX-Decoder (aus fldigi 4.2.13, siehe Vendor/Fldigi/UPSTREAM_SYNOP.md)
+mkdir -p "$APP_BUNDLE/Contents/Resources/Stations"
+cp "$DIR"/Resources/Stations/* "$APP_BUNDLE/Contents/Resources/Stations/"
 
 echo "=== 3. Writing Info.plist ==="
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"

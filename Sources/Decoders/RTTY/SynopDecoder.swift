@@ -51,15 +51,15 @@ public final class SynopDecoder {
         return fldigi_synop_load_stations(dir.path + "/") == 1
     }
 
-    /// `Contents/Resources/Synop` im App-Bundle, sonst `Resources/Synop` im Projektordner (Tests, Werkzeuge)
+    /// `Contents/Resources/Stations` im App-Bundle, sonst `Resources/Stations` im Projektordner (Tests, Werkzeuge)
     public static var stationDirectory: URL? {
-        if let res = Bundle.main.resourceURL?.appendingPathComponent("Synop"),
+        if let res = Bundle.main.resourceURL?.appendingPathComponent("Stations"),
            FileManager.default.fileExists(atPath: res.appendingPathComponent("nsd_bbsss.txt").path) {
             return res
         }
         let project = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Resources/Synop")
+            .appendingPathComponent("Resources/Stations")
         return FileManager.default.fileExists(atPath: project.appendingPathComponent("nsd_bbsss.txt").path) ? project : nil
     }
 

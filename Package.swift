@@ -27,6 +27,7 @@ let package = Package(
                 .headerSearchPath("src/rtty"),
                 .headerSearchPath("src/synop"),
                 .headerSearchPath("src/misc"),
+                .headerSearchPath("src/navtex"),
                 .headerSearchPath("compat")
             ]
         ),
