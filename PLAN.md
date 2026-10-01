@@ -422,6 +422,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M13 | DCF77 | ✅ 01.10.2026 (v0.14.0): AM-Impulsbreiten-Decoder (77,5 kHz, AM 100/200 ms), VFD-Atomuhr, Δt-Vergleich zur Systemzeit in ms, 60-Bit-Telegramm-Matrix, Scope, Log; 404 Tests bestanden |
 | M14 | EFR | ✅ 01.10.2026 (v0.15.0): FSK-Demodulator (200 Baud, Shift 340 Hz, 8E1), DIN 19244 / FT1.2-Parser (Zeitsynchronisation, Rundsteuerbefehle, EEG-Abregelung), Stations-Presets DCF49 (129,1 kHz) / DCF39 (139,0 kHz) / HGA22 (135,6 kHz), FSK-Oszilloskop, Log; 433 Tests bestanden |
 | M15 | FT4 | ✅ 01.10.2026 (v0.16.0): ft8_lib FT4-Demodulator & LDPC/CRC-Decoder (7,5 s Slot, 4-GFSK, 20,8333 Baud), Bandaktivität, Rx-Frequenz, 7,5-s-Zyklus Scope/Timeline, ALL.TXT-Log; 452 Tests bestanden |
+| M16 | DXCC | ✅ 01.10.2026 (v0.17.0): ARRL/AD1C DXCC-Länderdatei (cty.dat, 346 Gebiete, 21.800 Sonderrufzeichen, 7.500 Präfixe), automatische Flaggen, CQ-/ITU-Zonen, Koordinaten, Portabel- & Gastland-Auflösung, Integration in FT8/FT4 Tabellen & Tooltips; 502 Tests bestanden |
 
 ---
 
@@ -780,8 +781,30 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - 7,5-s-Zyklus-Timeline mit Live-Fortschrittsbalken und Empfangsstatus
     - Einstellungen-Panel mit Band-Buttons, eigenem Rufzeichen, Locator und Zeitkorrektur.
   - **Tests & Nachweis:** 452 Logiktests fehlerfrei bestanden (Synthese, Mehrstationen-Zyklus, Zeit- und Frequenzabweichungen, Pipeline-Resampling 48 kHz → 12 kHz, URL-Schema `digidec://decode?mode=ft4&preset=20m`).
+- **0.17.0 (01.10.2026): M16 DXCC-Länder- und Zonenauflösung (AD1C cty.dat).**
+  - **DXCC-Datenbank (`Resources/cty.dat` & `Sources/Models/DXCC.swift`):**
+    - Standard AD1C Country File (357 KB, 346 DXCC-Gebiete, 21.800 Sonderrufzeichen mit `=`, 7.500 Präfixe).
+    - Schneller In-Memory-Parser (< 20 ms), threadsicher (`@unchecked Sendable`, unveränderliche Dictionaries nach Init).
+    - Zuordnung von Stationsrufzeichen über:
+      1. Exakte Sonderrufzeichen (`=DP0GVN` für Neumayer III / Antarktis mit CQ 38 / ITU 67 Override)
+      2. Portabel- und Betriebsarten-Modifikatoren (`/P`, `/M`, `/MM`, `/AM`, `/QRP`, `/R`, `/0`...`/9` etc.)
+      3. Gastland-Präfixe (`SV9/DL1ABC` -> Kreta, `VE3/DL1ABC` -> Kanada)
+      4. Gastland-Suffixe (`W1AW/KH6` -> Hawaii, `DL1ABC/VE3` -> Kanada)
+      5. FCC-Sonderfall Guantanamo Bay (KG4): 2x3- und 2x1-Rufzeichen werden als US-Festland (K4) erkannt, nur 2x2-Rufzeichen als Guantanamo
+      6. Längstes passendes Präfix (Longest Prefix Match)
+      7. CQ- und ITU-Zonenüberschreibungen je Präfix/Rufzeichen
+  - **Flaggen & Metadaten:**
+    - Vollständiges Flaggenverzeichnis: Jedes der 346 DXCC-Gebiete verfügt über eine passende Flagge (z. B. 🇩🇪, 🇺🇸, 🇯🇵, 🇦🇶, 🌺 für Hawaii, 🏴󠁧󠁢󠁥󠁮󠁧󠁿/🏴󠁧󠁢󠁳󠁣󠁴󠁿/🏴󠁧󠁢󠁷󠁬󠁳󠁿 für UK-Nationen).
+    - Ausgabe von Kontinent (EU, AS, AF, NA, SA, OC, AN), UTC-Zeitzonenabweichung und WGS84-Koordinaten.
+  - **Integration in FT8 & FT4:**
+    - `FT8Entry` / `FT4Entry` erweitert um `dxcc: DXCCEntity?`.
+    - `FT8Controller.poll()` / `FT4Controller.poll()` lösen den Absender (`m.sender`) automatisch auf.
+    - Bandaktivitäts-Tabellen (`FT8Table` / `FT4Table`): Neue Spalte `DX` mit Flaggen-Emoji.
+    - Tooltips: Anzeige von Flagge, Land, Kontinent, CQ-Zone und ITU-Zone beim Überfahren der Tabellenzeile.
+  - **Tests & Nachweis:**
+    - 502 Logiktests fehlerfrei bestanden (+50 Tests für DXCC-Auflösung, DL-, US-, JA-, Antarktis-, Kreta-, Hawaii-, Portabel- und Guantanamo-Sonderfälle).
+    - Release-Bundle `Digidec.app` (0.17.0 Alpha) gebaut, signiert und mit `cty.dat` paketiert.
 - **Nächste Schritte:**
   - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, FT4, DCF77, EFR).
-  - DXCC-Länder zu Amateurfunk-Rufzeichen (für FT8 und FT4).
   - PSK31 / PSK63 (BPSK-Amateurfunk-Textübertragung auf Kurzwelle).
 

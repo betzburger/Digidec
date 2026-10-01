@@ -212,9 +212,10 @@ public final class FT4Decoder: @unchecked Sendable {
 
 // MARK: - Controller
 
-/// Eine Zeile der Bandaktivität mit Entfernung
+/// Eine Zeile der Bandaktivität mit Entfernung und DXCC
 public struct FT4Entry: Identifiable, Sendable, Equatable {
     public var decode: FT4Decode
+    public var dxcc: DXCCEntity?
     public var km: Double?
     public var bearing: Double?
     public var mentionsMe: Bool
@@ -304,7 +305,8 @@ public final class FT4Controller: ObservableObject {
             let rows = result.decodes.map { d -> FT4Entry in
                 let m = d.message
                 let dist = m.grid.flatMap { Maidenhead.distance(from: settings.locator, to: $0) }
-                return FT4Entry(decode: d, km: dist?.km, bearing: dist?.bearing,
+                let dx = m.sender.flatMap { DXCCDatabase.shared.lookup($0) }
+                return FT4Entry(decode: d, dxcc: dx, km: dist?.km, bearing: dist?.bearing,
                                 mentionsMe: !me.isEmpty && m.calls.contains { $0 == me || $0 == "<\(me)>" })
             }
             entries.append(contentsOf: rows)

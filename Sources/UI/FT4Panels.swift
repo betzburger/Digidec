@@ -94,6 +94,7 @@ struct FT4Table: View {
             Text("dB").frame(width: 28, alignment: .trailing)
             Text("DT").frame(width: 34, alignment: .trailing)
             Text("Freq").frame(width: 40, alignment: .trailing)
+            Text("DX").frame(width: 24, alignment: .center)
             Text("Meldung").frame(maxWidth: .infinity, alignment: .leading)
             Text("km").frame(width: 50, alignment: .trailing)
         }
@@ -112,6 +113,7 @@ struct FT4Table: View {
             Text(String(format: "%+d", d.snrDB)).frame(width: 28, alignment: .trailing)
             Text(String(format: "%.1f", d.dt)).frame(width: 34, alignment: .trailing)
             Text(verbatim: "\(Int(d.freqHz.rounded()))").frame(width: 40, alignment: .trailing)
+            Text(e.dxcc?.flag ?? "").frame(width: 24, alignment: .center)
             Text(d.text + (d.isUncertain ? " ?" : "")).frame(maxWidth: .infinity, alignment: .leading)
             Text(e.km.map { String(format: "%.0f", $0) } ?? "").frame(width: 50, alignment: .trailing)
         }
@@ -122,9 +124,14 @@ struct FT4Table: View {
     }
 
     private func tooltip(_ e: FT4Entry) -> String {
+        var lines: [String] = []
+        if let dx = e.dxcc {
+            lines.append("\(dx.flag) \(dx.name) (\(dx.continent)) · CQ \(dx.cqZone) · ITU \(dx.ituZone)")
+        }
         var s = "\(e.decode.correctBits)/174 Bits, Durchgang \(e.decode.pass + 1)"
         if let km = e.km, let b = e.bearing { s += String(format: " · %.0f km, %.0f°", km, b) }
-        return s
+        lines.append(s)
+        return lines.joined(separator: "\n")
     }
 }
 

@@ -26,6 +26,11 @@ fi
 mkdir -p "$APP_BUNDLE/Contents/Resources/Stations"
 cp "$DIR"/Resources/Stations/* "$APP_BUNDLE/Contents/Resources/Stations/"
 
+# AD1C DXCC-Länderdatei (cty.dat) für Rufzeichen-Zuordnung
+if [ -f "$DIR/Resources/cty.dat" ]; then
+    cp "$DIR/Resources/cty.dat" "$APP_BUNDLE/Contents/Resources/cty.dat"
+fi
+
 echo "=== 3. Writing Info.plist ==="
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,9 +48,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.16.0</string>
+    <string>0.17.0</string>
     <key>CFBundleVersion</key>
-    <string>0.16.0</string>
+    <string>0.17.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>

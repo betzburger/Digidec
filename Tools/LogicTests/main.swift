@@ -1753,5 +1753,124 @@ do {
     check(fixedDecoded.first?.address == 0x2A, "EFR Audio: Adresse 0x2A")
 }
 
+// MARK: - DXCC-Länder- und Zonenauflösung (AD1C cty.dat)
+do {
+    let db = DXCCDatabase.shared
+    check(db.exactCount > 20_000, "DXCC: Mehr als 20.000 Ausnahmerufzeichen geladen (got \(db.exactCount))")
+    check(db.prefixCount > 7_000, "DXCC: Mehr als 7.000 Präfixe geladen (got \(db.prefixCount))")
+
+    // 1. Deutsche Stationen (DL)
+    if let dl = db.lookup("DL1ABC") {
+        check(dl.primaryPrefix == "DL", "DL1ABC: Primärpräfix DL")
+        check(dl.flag == "🇩🇪", "DL1ABC: Flagge 🇩🇪")
+        check(dl.continent == "EU", "DL1ABC: Kontinent EU")
+        check(dl.cqZone == 14, "DL1ABC: CQ-Zone 14")
+        check(dl.ituZone == 28, "DL1ABC: ITU-Zone 28")
+        check(dl.name.contains("Germany"), "DL1ABC: Name Germany")
+    } else {
+        check(false, "DL1ABC nicht gefunden")
+    }
+
+    if let da = db.lookup("DA0HQ") {
+        check(da.primaryPrefix == "DL", "DA0HQ: Primärpräfix DL")
+        check(da.flag == "🇩🇪", "DA0HQ: Flagge 🇩🇪")
+    } else {
+        check(false, "DA0HQ nicht gefunden")
+    }
+
+    // 2. Internationale Rufzeichen
+    if let us = db.lookup("W1AW") {
+        check(us.primaryPrefix == "K", "W1AW: Primärpräfix K")
+        check(us.flag == "🇺🇸", "W1AW: Flagge 🇺🇸")
+        check(us.cqZone == 5, "W1AW: CQ-Zone 5")
+        check(us.ituZone == 8, "W1AW: ITU-Zone 8")
+    } else {
+        check(false, "W1AW nicht gefunden")
+    }
+
+    if let ja = db.lookup("JA1ABC") {
+        check(ja.primaryPrefix == "JA", "JA1ABC: Primärpräfix JA")
+        check(ja.flag == "🇯🇵", "JA1ABC: Flagge 🇯🇵")
+        check(ja.cqZone == 25, "JA1ABC: CQ-Zone 25")
+        check(ja.ituZone == 45, "JA1ABC: ITU-Zone 45")
+    } else {
+        check(false, "JA1ABC nicht gefunden")
+    }
+
+    if let fr = db.lookup("F5IN") {
+        check(fr.primaryPrefix == "F", "F5IN: Primärpräfix F")
+        check(fr.flag == "🇫🇷", "F5IN: Flagge 🇫🇷")
+    } else {
+        check(false, "F5IN nicht gefunden")
+    }
+
+    // 3. Exakter Treffer mit Zonenüberschreibung (Neumayer III / Antarktis)
+    if let ant = db.lookup("DP0GVN") {
+        check(ant.name == "Antarctica", "DP0GVN: Name Antarctica")
+        check(ant.primaryPrefix == "CE9", "DP0GVN: Primärpräfix CE9")
+        check(ant.flag == "🇦🇶", "DP0GVN: Flagge 🇦🇶")
+        check(ant.cqZone == 38, "DP0GVN: CQ-Zone 38 (überschrieben von Basis 13)")
+        check(ant.ituZone == 67, "DP0GVN: ITU-Zone 67 (überschrieben von Basis 74)")
+    } else {
+        check(false, "DP0GVN nicht gefunden")
+    }
+
+    // 4. Portabel- und Betriebsarten-Modifikatoren
+    check(db.lookup("DL1ABC/P")?.primaryPrefix == "DL", "DL1ABC/P -> DL")
+    check(db.lookup("DL1ABC/M")?.primaryPrefix == "DL", "DL1ABC/M -> DL")
+    check(db.lookup("DL1ABC/MM")?.primaryPrefix == "DL", "DL1ABC/MM -> DL")
+    check(db.lookup("DL1ABC/QRP")?.primaryPrefix == "DL", "DL1ABC/QRP -> DL")
+    check(db.lookup("DL1ABC/4")?.primaryPrefix == "DL", "DL1ABC/4 -> DL")
+    check(db.lookup("<DL1ABC>")?.primaryPrefix == "DL", "<DL1ABC> (gehasht) -> DL")
+
+    // 5. Gastland-Präfixe und -Suffixe
+    if let crete = db.lookup("SV9/DL1ABC") {
+        check(crete.primaryPrefix == "SV9", "SV9/DL1ABC -> Kreta (SV9)")
+        check(crete.cqZone == 20, "SV9/DL1ABC -> CQ-Zone 20")
+    } else {
+        check(false, "SV9/DL1ABC nicht gefunden")
+    }
+
+    check(db.lookup("SV9/DL1ABC/P")?.primaryPrefix == "SV9", "SV9/DL1ABC/P -> SV9")
+
+    if let hi = db.lookup("W1AW/KH6") {
+        check(hi.primaryPrefix == "KH6", "W1AW/KH6 -> Hawaii (KH6)")
+        check(hi.flag == "🌺", "W1AW/KH6 -> Flagge 🌺")
+        check(hi.cqZone == 31, "W1AW/KH6 -> CQ-Zone 31")
+    } else {
+        check(false, "W1AW/KH6 nicht gefunden")
+    }
+
+    check(db.lookup("VE3/DL1ABC")?.primaryPrefix == "VE", "VE3/DL1ABC -> Kanada (VE)")
+    check(db.lookup("DL1ABC/VE3")?.primaryPrefix == "VE", "DL1ABC/VE3 -> Kanada (VE)")
+
+    // 6. Guantanamo Bay vs. Festland USA (KG4)
+    if let kg4 = db.lookup("KG4AS") {
+        check(kg4.primaryPrefix == "KG4", "KG4AS (2x2) -> Guantanamo Bay (got \(kg4.primaryPrefix))")
+    } else {
+        check(false, "KG4AS nicht gefunden")
+    }
+    if let k4 = db.lookup("KG4ABC") {
+        check(k4.primaryPrefix == "K", "KG4ABC (2x3) -> USA Festland (got \(k4.primaryPrefix))")
+    } else {
+        check(false, "KG4ABC nicht gefunden")
+    }
+
+    // 7. Nicht-Rufzeichen und Sonderwörter verwerfen
+    check(db.lookup("CQ") == nil, "Token CQ verworfen")
+    check(db.lookup("TEST") == nil, "Token TEST verworfen")
+    check(db.lookup("QRZ") == nil, "Token QRZ verworfen")
+    check(db.lookup("73") == nil, "Token 73 verworfen")
+    check(db.lookup("RR73") == nil, "Token RR73 verworfen")
+    check(db.lookup("") == nil, "Leeres Rufzeichen verworfen")
+    check(db.lookup("   ") == nil, "Whitespace verworfen")
+
+    // 8. Zusammenfassungen und Koordinatenformatierung
+    if let dl = db.lookup("DL1ABC") {
+        check(dl.summary.contains("🇩🇪") && dl.summary.contains("CQ 14"), "Summary enthält Flagge und Zone")
+        check(dl.coordinateSummary.contains("°N") && dl.coordinateSummary.contains("°E"), "Koordinatenformat")
+    }
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)
