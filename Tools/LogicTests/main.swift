@@ -2164,6 +2164,53 @@ do {
     check(nextDecoded?.year == 2027 && nextDecoded?.month == 1 && nextDecoded?.day == 1 && nextDecoded?.hour == 0 && nextDecoded?.minute == 0,
           "DCF77: Vorhersage über Jahreswechsel 31.12.2026 23:59 → 01.01.2027 00:00")
 
+    // --- DCF77: Frequenznachführung (Träger neben der eingestellten Mitte) ---
+    func dcfAudio(minutes: Int, carrierHz: Double, dropPulseInMinute: Int? = nil) -> [Float] {
+        var audio: [Float] = []
+        audio += DCF77SignalGenerator.generateMinuteAudio(bits: [0], centerHz: carrierHz)[0..<8000]
+        audio += DCF77SignalGenerator.generateMinuteAudio(bits: [], centerHz: carrierHz)[0..<8000]
+        for m in 0..<minutes {
+            var bits = DCF77SignalGenerator.encodeBits(year: 2026, month: 10, day: 1, weekday: 4, hour: 14, minute: 10 + m, isSummer: true)
+            if m == dropPulseInMinute { bits[20] = -1 }   // Impuls der Sekunde 20 fällt aus (kein Absenken)
+            audio += DCF77SignalGenerator.generateMinuteAudio(bits: bits, centerHz: carrierHz)
+        }
+        return audio
+    }
+    func dcfRun(_ audio: [Float], afc: Bool) -> (times: [DCF77Core.DecodedTime], afcHz: Double) {
+        let core = DCF77Core(centerHz: 1000)
+        core.afcEnabled = afc
+        var out: [DCF77Core.DecodedTime] = []
+        core.onTimeDecoded = { out.append($0) }
+        var o = 0
+        while o < audio.count {
+            let c = min(160, audio.count - o)
+            audio[o..<(o + c)].withUnsafeBufferPointer { core.process($0) }
+            o += c
+        }
+        return (out, core.getStatus().afcOffsetHz)
+    }
+    for carrier in [1025.0, 962.0, 1065.0] {
+        let withAFC = dcfRun(dcfAudio(minutes: 6, carrierHz: carrier), afc: true)
+        let withoutAFC = dcfRun(dcfAudio(minutes: 6, carrierHz: carrier), afc: false)
+        check(withAFC.times.count >= 5, "DCF77 AFC: Träger \(Int(carrier - 1000)) Hz neben der Mitte: \(withAFC.times.count)/6 Minuten")
+        check(abs(withAFC.afcHz - (carrier - 1000)) < 4, "DCF77 AFC: Nachführung \(String(format: "%+.1f", withAFC.afcHz)) Hz (Soll \(Int(carrier - 1000)))")
+        check(withoutAFC.times.count <= withAFC.times.count, "DCF77 AFC: ohne Nachführung nicht mehr Minuten (\(withoutAFC.times.count) ≤ \(withAFC.times.count))")
+    }
+    // Im Rauschen (20 dB in 20 Hz) bringt die Nachführung den Empfang: der Träger liegt sonst am Rand des 15-Hz-Filters
+    do {
+        let sigma = sqrt(0.32 / pow(10, (20.0 - 10 * log10(4000.0 / 20.0)) / 10))
+        var noisy = dcfAudio(minutes: 6, carrierHz: 1030)
+        for i in 0..<noisy.count { noisy[i] += Float(gauss() * sigma) }
+        let on = dcfRun(noisy, afc: true), off = dcfRun(noisy, afc: false)
+        check(on.times.count >= 4 && off.times.count <= on.times.count - 2,
+              "DCF77 AFC: 20 dB S/N, Träger +30 Hz: mit Nachführung \(on.times.count)/6, ohne \(off.times.count)/6 Minuten")
+    }
+    // Ein einzelner ausgefallener Impuls mitten in der Minute ist keine Minutenmarke: Zählung bleibt, Minute kommt über die Vorhersage
+    let dropped = dcfRun(dcfAudio(minutes: 4, carrierHz: 1000, dropPulseInMinute: 1), afc: true)
+    check(dropped.times.count >= 3, "DCF77: ausgefallener Impuls (Sekunde 20) bringt die Zählung nicht durcheinander: \(dropped.times.count) Minuten")
+    check(dropped.times.contains { $0.confirmedByPrediction && $0.minute == 11 }, "DCF77: gestörte Minute 14:11 per Vorhersage bestätigt")
+    check(dropped.times.allSatisfy { $0.hour == 14 && (10...14).contains($0.minute) }, "DCF77: keine falschen Zeiten")
+
     // --- DCF77: Audio mit Rauschen (S/N in 20 Hz; Rauschen über 4 kHz Bandbreite) ---
     func dcfMinutes(snr20: Double, minutes: Int) -> (decoded: [DCF77Core.DecodedTime], snr: Double) {
         let carrier = 0.8 * 0.8 / 2.0
@@ -2273,6 +2320,51 @@ do {
         check(real.polarityInverted == false, "EFR echt: normale Polarität (Mark = untere Frequenz, USB)")
     } else {
         check(false, "EFR echt: TestData/EFR/dcf39_websdr_8k.wav nicht lesbar")
+    }
+
+    // --- EFR: Frequenznachführung, auch mit der echten Aufnahme bei falscher Mitte ---
+    for offset in [-45.0, 35.0] {
+        let c = EFRCore(centerHz: 1500, shiftHz: 340)
+        var got = 0
+        c.onTelegramDecoded = { _ in got += 1 }
+        for _ in 0..<3 {   // Nachführung braucht einige Zehntelsekunden
+            EFRSignalGenerator.generateFSKAudio(bits: EFRSignalGenerator.bytesTo8E1Bits(rawFrame, leadBits: 30, tailBits: 10), centerHz: 1500 + offset, shiftHz: 340)
+                .withUnsafeBufferPointer { c.process($0) }
+        }
+        check(got >= 2, "EFR AFC: Signal \(Int(offset)) Hz neben der Mitte: \(got)/3 Telegramme")
+        check(abs(c.getStatus().afcOffsetHz - offset) < 8, "EFR AFC: Nachführung \(String(format: "%+.1f", c.getStatus().afcOffsetHz)) Hz (Soll \(Int(offset)))")
+    }
+    if let file = try? AVAudioFile(forReading: efrWav),
+       let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+       (try? file.read(into: buf)) != nil, let ch = buf.floatChannelData?[0] {
+        for wrongCenter in [1530.0, 1610.0] {
+            let c = EFRCore(centerHz: wrongCenter, shiftHz: 340)
+            var got = 0
+            c.onTelegramDecoded = { _ in got += 1 }
+            var idx = 0
+            let n = Int(buf.frameLength)
+            while idx < n {
+                let k = min(160, n - idx)
+                c.process(UnsafeBufferPointer(start: ch + idx, count: k))
+                idx += k
+            }
+            check(got == 2, "EFR echt + AFC: Mitte \(Int(wrongCenter)) statt 1570 Hz: \(got)/2 Telegramme, AFC \(String(format: "%+.0f", c.getStatus().afcOffsetHz)) Hz")
+        }
+    }
+
+    // --- EFR: Wiederholungen werden zusammengefasst ---
+    do {
+        var list: [EFRCore.DecodedTelegram] = []
+        func telegram(_ bytes: [UInt8], at t: Double) -> EFRCore.DecodedTelegram {
+            EFRCore.DecodedTelegram(timestamp: Date(timeIntervalSince1970: t), frameType: .variable, rawBytes: bytes, controlByte: 0, telegramNumber: 0,
+                                    address: 1, address2: 2, asduType: nil, title: "t", summary: "s", isTimeSync: false, decodedTime: nil, deltaMilliseconds: nil)
+        }
+        let first = EFRController.insertOrMerge(telegram([1, 2, 3], at: 100), into: &list, maxEntries: 200)
+        let second = EFRController.insertOrMerge(telegram([1, 2, 3], at: 102), into: &list, maxEntries: 200)
+        let other = EFRController.insertOrMerge(telegram([9, 9], at: 103), into: &list, maxEntries: 200)
+        let late = EFRController.insertOrMerge(telegram([1, 2, 3], at: 200), into: &list, maxEntries: 200)   // viel später: neues Telegramm
+        check(first && !second && other && late, "EFR: Wiederholung innerhalb von 15 s wird nicht neu gelistet")
+        check(list.count == 3 && list.first(where: { $0.rawBytes == [1, 2, 3] && $0.timestamp.timeIntervalSince1970 == 100 })?.repeats == 1, "EFR: Wiederholungszähler am ersten Eintrag")
     }
 
     // --- EFR: Rauschen ---

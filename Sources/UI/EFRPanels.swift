@@ -115,6 +115,11 @@ private struct EFRTelegramRow: View {
                 Text(telegram.title)
                     .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                     .foregroundColor(titleColor)
+                if telegram.repeats > 0 {
+                    Text("×\(telegram.repeats + 1)")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(RadioTheme.textDim)
+                }
 
                 Spacer()
 
@@ -154,7 +159,7 @@ private struct EFRTelegramRow: View {
     private var titleColor: Color {
         if telegram.isTimeSync {
             return RadioTheme.vfdCyan
-        } else if telegram.title.contains("Rundsteuer") {
+        } else if telegram.frameType == .variable {
             return RadioTheme.vfdAmber
         } else {
             return RadioTheme.vfdGreen
@@ -200,12 +205,19 @@ struct EFRTuningPanel: View {
                     .frame(height: 44)
             }
 
+            // Mark liegt bei der unteren, Space bei der oberen Frequenz; angezeigt werden die nachgeführten Töne
             HStack {
-                readout("SPACE", "\(Int((settings.centerHz - 170).rounded())) Hz")
+                readout("MARK", "\(Int((controller.status?.markHz ?? settings.centerHz - 170).rounded())) Hz")
                 Spacer()
                 readout("MITTE", "\(Int(settings.centerHz.rounded())) Hz")
                 Spacer()
-                readout("MARK", "\(Int((settings.centerHz + 170).rounded())) Hz")
+                readout("SPACE", "\(Int((controller.status?.spaceHz ?? settings.centerHz + 170).rounded())) Hz")
+            }
+            if let st = controller.status {
+                Text(String(format: "AFC %+.0f Hz", st.afcOffsetHz)
+                     + (st.polarityInverted == true ? " · Polarität invertiert (LSB?)" : ""))
+                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                    .foregroundColor(st.polarityInverted == true ? RadioTheme.ledYellow : RadioTheme.textDim)
             }
         }
     }

@@ -36,6 +36,8 @@ public final class EFRCore: @unchecked Sendable {
         public var isTimeSync: Bool
         public var decodedTime: Date?
         public var deltaMilliseconds: Double?
+        /// Wie oft dasselbe Telegramm kurz danach noch einmal empfangen wurde (EFR sendet Telegramme doppelt)
+        public var repeats: Int = 0
 
         public var rawHex: String {
             rawBytes.map { String(format: "%02X", $0) }.joined(separator: " ")
@@ -60,6 +62,10 @@ public final class EFRCore: @unchecked Sendable {
         public var telegramsDecoded: Int
         public var lastTelegram: DecodedTelegram?
         public var scope: [Float]             // Diskriminator-Kurve für Oszilloskop (letzte ~100 ms)
+        /// Von der Frequenznachführung gefundene Abweichung der Töne von der eingestellten Mitte (Hz)
+        public var afcOffsetHz: Double = 0
+        /// Erkannte Bitpolarität (nil = noch kein Telegramm): true = invertiert, z. B. durch LSB statt USB
+        public var polarityInverted: Bool?
     }
 
     // Callbacks
@@ -72,8 +78,15 @@ public final class EFRCore: @unchecked Sendable {
     private var shiftHz: Double = defaultShift
     // Mark liegt bei der unteren, Space bei der oberen Frequenz (DCF39: Mark 138,830 kHz, Space 139,170 kHz; DK8KW).
     // In USB (Dial unter der Sendefrequenz) ist Mark also der tiefere NF-Ton.
-    private var markHz: Double { centerHz - shiftHz / 2.0 }
-    private var spaceHz: Double { centerHz + shiftHz / 2.0 }
+    private var markHz: Double { centerHz + afcOffsetHz - shiftHz / 2.0 }
+    private var spaceHz: Double { centerHz + afcOffsetHz + shiftHz / 2.0 }
+
+    /// Frequenznachführung: führt beide Mischfrequenzen dem Signal nach (Fangbereich ±80 Hz, Tonabstand 340 Hz)
+    public var afcEnabled = true
+    private static let afcLimitHz = 80.0
+    private var afcOffsetHz = 0.0
+    private var afcActiveSamples = 0   // Samples mit Träger: anfangs schnell nachführen, danach ruhig
+    private var prevMarkI = 1.0, prevMarkQ = 0.0, prevSpaceI = 1.0, prevSpaceQ = 0.0
 
     // Oszillatoren
     private var markPhase: Double = 0.0
@@ -97,6 +110,15 @@ public final class EFRCore: @unchecked Sendable {
     private var signalLevel: Double = 0.0      // Pegel des jeweils aktiven Tons (schneller Anstieg, langsamer Abfall)
     /// Träger liegt mindestens 6 dB über dem Rauschen – nur dann werden Bits in Bytes umgesetzt (kein Zufallsmüll im Rauschen)
     private var carrierPresent = false
+
+    // Bitentscheidung: angepasstes Filter (Integrate-and-Dump). Die Rohmischer werden über genau eine Bitdauer aufsummiert,
+    // Energie(Mark) − Energie(Space) ist der optimale nichtkohärente FSK-Detektor. Zeitlich liegt der Nulldurchgang eine
+    // halbe Bitdauer nach der Bitgrenze, die Abtastung eine halbe Bitdauer später entspricht genau einem vollen Bit.
+    private let boxLength = Int(sampleRate / baudRate)   // 40 Samples
+    private var boxMarkI = [Double](repeating: 0, count: 40), boxMarkQ = [Double](repeating: 0, count: 40)
+    private var boxSpaceI = [Double](repeating: 0, count: 40), boxSpaceQ = [Double](repeating: 0, count: 40)
+    private var boxPos = 0
+    private var sumMarkI = 0.0, sumMarkQ = 0.0, sumSpaceI = 0.0, sumSpaceQ = 0.0
 
     // Bit-Takterfassung (DPLL 200 Hz)
     private var clockPhase: Double = 0.0
@@ -148,6 +170,7 @@ public final class EFRCore: @unchecked Sendable {
 
     public func setCenter(_ hz: Double) {
         centerHz = hz
+        afcOffsetHz = 0   // neue Bezugsfrequenz, Nachführung beginnt von vorn
     }
 
     public func setShift(_ hz: Double) {
@@ -163,6 +186,11 @@ public final class EFRCore: @unchecked Sendable {
         spaceQ = 0.0
         markPeak = 0.01
         spacePeak = 0.01
+        afcOffsetHz = 0.0
+        afcActiveSamples = 0
+        prevMarkI = 1; prevMarkQ = 0; prevSpaceI = 1; prevSpaceQ = 0
+        for k in 0..<boxLength { boxMarkI[k] = 0; boxMarkQ[k] = 0; boxSpaceI[k] = 0; boxSpaceQ[k] = 0 }
+        sumMarkI = 0; sumMarkQ = 0; sumSpaceI = 0; sumSpaceQ = 0; boxPos = 0
         noisePhase = 0.0
         noiseI1 = 0.0; noiseI2 = 0.0; noiseQ1 = 0.0; noiseQ2 = 0.0
         noiseLevel = 0.001
@@ -177,13 +205,13 @@ public final class EFRCore: @unchecked Sendable {
 
     public func process(_ samples: UnsafeBufferPointer<Float>) {
         let twoPi = 2.0 * Double.pi
-        let markInc = twoPi * markHz / Self.sampleRate
-        let spaceInc = twoPi * spaceHz / Self.sampleRate
-        let noiseHz = (spaceHz + 700.0 < 3800.0) ? spaceHz + 700.0 : max(150.0, markHz - 700.0)
-        let noiseInc = twoPi * noiseHz / Self.sampleRate
-
         for sample in samples {
             let s = Double(sample)
+            // Mischfrequenzen je Sample, damit die Nachführung sofort wirkt
+            let markInc = twoPi * markHz / Self.sampleRate
+            let spaceInc = twoPi * spaceHz / Self.sampleRate
+            let noiseHz = (spaceHz + 700.0 < 3800.0) ? spaceHz + 700.0 : max(150.0, markHz - 700.0)
+            let noiseInc = twoPi * noiseHz / Self.sampleRate
 
             // 1. Mark-Mischer (untere Frequenz)
             let mCos = cos(markPhase)
@@ -205,6 +233,15 @@ public final class EFRCore: @unchecked Sendable {
             spaceQ += alpha * (-s * sSin - spaceQ)
             let sEnv = sqrt(spaceI * spaceI + spaceQ * spaceQ)
 
+            // Integrate-and-Dump über eine Bitdauer
+            let rawMarkI = s * mCos, rawMarkQ = -s * mSin, rawSpaceI = s * sCos, rawSpaceQ = -s * sSin
+            sumMarkI += rawMarkI - boxMarkI[boxPos]; boxMarkI[boxPos] = rawMarkI
+            sumMarkQ += rawMarkQ - boxMarkQ[boxPos]; boxMarkQ[boxPos] = rawMarkQ
+            sumSpaceI += rawSpaceI - boxSpaceI[boxPos]; boxSpaceI[boxPos] = rawSpaceI
+            sumSpaceQ += rawSpaceQ - boxSpaceQ[boxPos]; boxSpaceQ[boxPos] = rawSpaceQ
+            boxPos = (boxPos + 1) % boxLength
+            let bitMetric = (sumMarkI * sumMarkI + sumMarkQ * sumMarkQ) - (sumSpaceI * sumSpaceI + sumSpaceQ * sumSpaceQ)
+
             // Rauschkanal und Trägererkennung
             let nCos = cos(noisePhase), nSin = sin(noisePhase)
             noisePhase += noiseInc
@@ -218,20 +255,39 @@ public final class EFRCore: @unchecked Sendable {
             carrierPresent = signalLevel > 2.5 * max(noiseLevel, 1e-5)
             if !carrierPresent { for k in 0..<2 { branches[k].uart = .idle } }
 
+            // Frequenznachführung: Phasendrehung des gerade aktiven Tons gegenüber seiner Mischfrequenz
+            if afcEnabled && carrierPresent {
+                var offsetHz: Double?
+                if mEnv > 3.0 * sEnv {
+                    let cross = markQ * prevMarkI - markI * prevMarkQ, dot = markI * prevMarkI + markQ * prevMarkQ
+                    offsetHz = atan2(cross, dot) * Self.sampleRate / twoPi
+                } else if sEnv > 3.0 * mEnv {
+                    let cross = spaceQ * prevSpaceI - spaceI * prevSpaceQ, dot = spaceI * prevSpaceI + spaceQ * prevSpaceQ
+                    offsetHz = atan2(cross, dot) * Self.sampleRate / twoPi
+                }
+                if let offsetHz {
+                    afcActiveSamples += 1
+                    let gain = afcActiveSamples < 6_000 ? 0.002 : 0.0004
+                    afcOffsetHz = min(max(afcOffsetHz + gain * offsetHz, -Self.afcLimitHz), Self.afcLimitHz)
+                }
+            }
+            prevMarkI = markI; prevMarkQ = markQ; prevSpaceI = spaceI; prevSpaceQ = spaceQ
+
             // Pegelnachführung
             if mEnv > markPeak { markPeak += 0.005 * (mEnv - markPeak) } else { markPeak -= 0.0001 * markPeak }
             if sEnv > spacePeak { spacePeak += 0.005 * (sEnv - spacePeak) } else { spacePeak -= 0.0001 * spacePeak }
             if markPeak < 0.0001 { markPeak = 0.0001 }
             if spacePeak < 0.0001 { spacePeak = 0.0001 }
 
-            // 3. Diskriminator (Mark = +1, Space = -1)
-            let discr = mEnv - sEnv
+            // 3. Diskriminator (Mark > 0, Space < 0): Bitmetrik für Takt und Entscheidung, Hüllkurvendifferenz nur fürs Scope
+            let discr = bitMetric
+            let scopeValue = mEnv - sEnv
 
             // Scope-Puffer aktualisieren (Dezimierung alle 8 Samples = 1 kHz Abtastung)
             scopeDecimator += 1
             if scopeDecimator >= 8 {
                 scopeDecimator = 0
-                let norm = Float(min(1.0, max(-1.0, discr / max(0.001, (markPeak + spacePeak) * 0.5))))
+                let norm = Float(min(1.0, max(-1.0, scopeValue / max(0.001, (markPeak + spacePeak) * 0.5))))
                 scopeBuffer[scopeWriteIndex] = norm
                 scopeWriteIndex = (scopeWriteIndex + 1) % scopeSize
             }
@@ -489,7 +545,9 @@ public final class EFRCore: @unchecked Sendable {
             bytesReceived: branches[(polarityInverted ?? false) ? 1 : 0].bytes,
             telegramsDecoded: telegramsDecodedCount,
             lastTelegram: lastDecodedTelegram,
-            scope: orderedScope
+            scope: orderedScope,
+            afcOffsetHz: afcOffsetHz,
+            polarityInverted: polarityInverted
         )
     }
 }

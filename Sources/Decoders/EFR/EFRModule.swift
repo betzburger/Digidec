@@ -90,7 +90,7 @@ public final class EFRSettingsStore: ObservableObject {
 
 extension EFRSettingsStore: TuningTarget {
     public var tones: (mark: Double, space: Double) {
-        (centerHz - 170.0, centerHz + 170.0)   // Mark = untere, Space = obere Frequenz
+        (centerHz - 170.0, centerHz + 170.0)   // Mark = untere, Space = obere Frequenz (Marker der Abstimmung)
     }
     public var markerBandwidth: Double { 340.0 }
 }
@@ -243,6 +243,18 @@ public final class EFRController: ObservableObject {
         decoder.setEnabled(active)
     }
 
+    /// Fügt ein Telegramm vorn ein. Ein gleiches Telegramm innerhalb von 15 s (EFR sendet doppelt) zählt nur als Wiederholung.
+    /// - Returns: `true`, wenn neu eingefügt (loggen), `false` bei Wiederholung.
+    nonisolated public static func insertOrMerge(_ tel: EFRCore.DecodedTelegram, into list: inout [EFRCore.DecodedTelegram], maxEntries: Int) -> Bool {
+        if let i = list.prefix(20).firstIndex(where: { $0.rawBytes == tel.rawBytes && tel.timestamp.timeIntervalSince($0.timestamp) < 15 }) {
+            list[i].repeats += 1
+            return false
+        }
+        list.insert(tel, at: 0)
+        if list.count > maxEntries { list.removeLast() }
+        return true
+    }
+
     public func clearTelegrams() {
         telegrams.removeAll()
     }
@@ -259,8 +271,8 @@ public final class EFRController: ObservableObject {
         }
 
         for tel in newTelegrams {
-            telegrams.insert(tel, at: 0)
-            if telegrams.count > 200 { telegrams.removeLast() }
+            // EFR sendet Telegramme zweimal hintereinander: Wiederholung zählt am ersten Eintrag, wird nicht neu gelistet/geloggt
+            guard Self.insertOrMerge(tel, into: &telegrams, maxEntries: 200) else { continue }
             if logEnabled {
                 logger.log(telegram: tel, station: settings.station, source: sourceDescription)
             }

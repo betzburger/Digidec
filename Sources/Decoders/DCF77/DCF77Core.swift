@@ -65,12 +65,26 @@ public final class DCF77Core: @unchecked Sendable {
         public var minuteBits: [BitValue]     // 60 Elemente (Sekunden 0..59)
         public var lastDecodedTime: DecodedTime?
         public var scope: [Float]             // Letzte ~1,2 Sekunden Hüllkurve für Oszilloskop
+        /// Von der Frequenznachführung gefundene Abweichung des Trägers von der eingestellten Mitte (Hz)
+        public var afcOffsetHz: Double = 0
     }
 
     public var onTimeDecoded: ((DecodedTime) -> Void)?
     public var onBitDecoded: ((Int, BitValue) -> Void)?
 
     private var centerHz: Double
+    /// Frequenznachführung: führt die Mischfrequenz dem Träger nach (Fangbereich ±100 Hz)
+    public var afcEnabled = true
+    private static let afcLimitHz = 100.0
+    private var afcOffsetHz = 0.0
+    // Breiter Kanal (≈ 100 Hz) nur zur Frequenzmessung: Phasendrehung des Trägers = Abweichung von der Mischfrequenz
+    private let wideAlpha = 0.08
+    private var wI = 0.0, wQ = 0.0
+    // Frequenz aus der Phasendrehung über 16 Samples (statt über 1): Phasenrauschen wirkt 16-fach schwächer
+    private static let afcLag = 16
+    private var wiRing = [Double](repeating: 0, count: 16), wqRing = [Double](repeating: 0, count: 16)
+    private var wPos = 0
+    private var widePeak = 0.0
     private var phase: Double = 0.0
     private let phaseIncrementFactor: Double = 2.0 * .pi / sampleRate
 
@@ -103,6 +117,8 @@ public final class DCF77Core: @unchecked Sendable {
     private var sampleIndex: Int64 = 0
     private var lastNegativeEdgeSample: Int64 = -1_000_000
     private var lastRisingEdgeSample: Int64 = -1_000_000
+    private var lastMarkerSample: Int64 = -1_000_000       // Beginn der Minute (Falls-Flanke nach der Lücke)
+    private var lastIgnoredGapSample: Int64 = -1_000_000
     private var isLow: Bool = false
     private var inDip: Bool = false
     private var dipSampleCount: Int = 0
@@ -127,6 +143,7 @@ public final class DCF77Core: @unchecked Sendable {
 
     public func setCenter(_ hz: Double) {
         centerHz = hz
+        afcOffsetHz = 0   // neue Bezugsfrequenz, Nachführung beginnt von vorn
     }
 
     public func reset() {
@@ -136,6 +153,10 @@ public final class DCF77Core: @unchecked Sendable {
         qLp1 = 0.0
         qLp2 = 0.0
         noisePhase = 0.0
+        afcOffsetHz = 0.0
+        wI = 0; wQ = 0; widePeak = 0
+        for k in 0..<Self.afcLag { wiRing[k] = 0; wqRing[k] = 0 }
+        wPos = 0
         nI1 = 0.0; nI2 = 0.0; nQ1 = 0.0; nQ2 = 0.0
         noiseLevel = 0.001
         peakLevel = 0.01
@@ -148,6 +169,8 @@ public final class DCF77Core: @unchecked Sendable {
         sampleIndex = 0
         lastNegativeEdgeSample = -1_000_000
         lastRisingEdgeSample = -1_000_000
+        lastMarkerSample = -1_000_000
+        lastIgnoredGapSample = -1_000_000
         isLow = false
         inDip = false
         dipSampleCount = 0
@@ -160,12 +183,13 @@ public final class DCF77Core: @unchecked Sendable {
 
     /// Verarbeitet einen Block von 8-kHz-Audio-Samples
     public func process(_ samples: UnsafeBufferPointer<Float>) {
-        let phaseInc = 2.0 * .pi * centerHz / Self.sampleRate
-        let noiseInc = 2.0 * .pi * (centerHz + Self.noiseOffsetHz) / Self.sampleRate
         let twoPi = 2.0 * .pi
 
         for sample in samples {
             let s = Double(sample)
+            let lo = centerHz + afcOffsetHz
+            let phaseInc = twoPi * lo / Self.sampleRate
+            let noiseInc = twoPi * (lo + Self.noiseOffsetHz) / Self.sampleRate
             let cosP = cos(phase)
             let sinP = sin(phase)
             phase += phaseInc
@@ -181,6 +205,21 @@ public final class DCF77Core: @unchecked Sendable {
             qLp2 += alpha * (qLp1 - qLp2)
 
             let env = sqrt(iLp2 * iLp2 + qLp2 * qLp2)
+
+            // Frequenznachführung: Phasendrehung des Trägers im breiten Kanal, nur bei vollem Träger (nicht in der Absenkung)
+            wI += wideAlpha * (inI - wI)
+            wQ += wideAlpha * (inQ - wQ)
+            let wEnv = sqrt(wI * wI + wQ * wQ)
+            if wEnv > widePeak { widePeak += 0.01 * (wEnv - widePeak) } else { widePeak -= 0.00003 * widePeak }
+            let oldI = wiRing[wPos], oldQ = wqRing[wPos]    // Wert von vor 16 Samples
+            if afcEnabled && wEnv > 0.85 * widePeak && widePeak > 1e-4 && primedSamples > 8_000 {
+                let cross = wQ * oldI - wI * oldQ
+                let dot = wI * oldI + wQ * oldQ
+                let offsetHz = atan2(cross, dot) * Self.sampleRate / (twoPi * Double(Self.afcLag))
+                afcOffsetHz = min(max(afcOffsetHz + 0.0004 * offsetHz, -Self.afcLimitHz), Self.afcLimitHz)
+            }
+            wiRing[wPos] = wI; wqRing[wPos] = wQ
+            wPos = (wPos + 1) % Self.afcLag
 
             // Rauschkanal
             let nCos = cos(noisePhase), nSin = sin(noisePhase)
@@ -246,8 +285,13 @@ public final class DCF77Core: @unchecked Sendable {
                 dipSampleCount = 0
                 lastNegativeEdgeSample = sampleIndex
 
-                // Minutenmarke (Sekunde 59 fehlte -> Abstand ca. 1,75 .. 2,25 s)
-                if deltaSeconds >= 1.7 && deltaSeconds <= 2.3 {
+                // Lücke von ≈ 2 s: Minutenmarke (Sekunde 59 ohne Impuls) – oder ein einzelner verpasster Impuls mitten in der
+                // Minute. Als Marke gilt sie, wenn wir noch nicht synchron sind, die Sekundenzählung bei 55…59 steht oder
+                // sie genau eine Minute nach der letzten Marke bzw. der letzten ignorierten Lücke kommt.
+                let isGap = deltaSeconds >= 1.7 && deltaSeconds <= 2.3
+                let minute = Double(60) * Self.sampleRate
+                func nearMinute(_ since: Int64) -> Bool { abs(Double(sampleIndex - since) - minute) < 1.5 * Self.sampleRate }
+                if isGap && (!isSynchronized || currentSecond >= 55 || nearMinute(lastMarkerSample) || nearMinute(lastIgnoredGapSample)) {
                     // Die vorangehende Lücke war Sekunde 59!
                     if isSynchronized {
                         minuteBits[59] = .minuteMarker
@@ -255,8 +299,10 @@ public final class DCF77Core: @unchecked Sendable {
                     }
                     isSynchronized = true
                     currentSecond = 0
+                    lastMarkerSample = sampleIndex
                     minuteBits = Array(repeating: .empty, count: 60)
                 } else if isSynchronized {
+                    if isGap { lastIgnoredGapSample = sampleIndex }
                     if deltaSeconds >= 0.8 && deltaSeconds <= 1.2 {
                         currentSecond = (currentSecond + 1) % 60
                     } else {
@@ -293,6 +339,13 @@ public final class DCF77Core: @unchecked Sendable {
                 }
             }
 
+            // Träger weg (länger als 5 s keine Flanke): Synchronisation verwerfen, Minutenbits sind nicht mehr zuzuordnen
+            if isSynchronized && sampleIndex - lastNegativeEdgeSample > Int64(5.0 * Self.sampleRate) {
+                isSynchronized = false
+                currentSecond = -1
+                minuteBits = Array(repeating: .empty, count: 60)
+            }
+
             sampleIndex += 1
         }
     }
@@ -321,7 +374,8 @@ public final class DCF77Core: @unchecked Sendable {
             isSynchronized: isSynchronized,
             minuteBits: minuteBits,
             lastDecodedTime: lastDecodedTime,
-            scope: orderedScope
+            scope: orderedScope,
+            afcOffsetHz: afcOffsetHz
         )
     }
 

@@ -381,7 +381,9 @@ struct DCF77TuningPanel: View {
                 let secText = (controller.status?.currentSecond ?? -1) >= 0 ? String(format: "%02d s", controller.status!.currentSecond) : "--"
                 readout("TRÄGER-PULSE", secText)
                 Spacer()
-                readout("TON", "\(Int(settings.centerHz.rounded())) Hz")
+                readout("TON", "\(Int((settings.centerHz + (controller.status?.afcOffsetHz ?? 0)).rounded())) Hz")
+                Spacer()
+                readout("AFC", String(format: "%+.0f Hz", controller.status?.afcOffsetHz ?? 0))
             }
         }
     }
