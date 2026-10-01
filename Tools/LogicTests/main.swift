@@ -1484,6 +1484,50 @@ do {
     check(took < 2.0, "FT4: Rechenzeit blitzschnell (\(String(format: "%.2f", took)) s)")
 }
 
+// MARK: - FT4: DT-Konvention, SNR-Schätzung und Empfindlichkeit (synthetisches Weißrauschen)
+do {
+    var state: UInt64 = 0x1234567
+    func gauss() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(state >> 11) + 1) / Double((1 << 53) + 2)
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(state >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+
+    // DT wie WSJT-X: 0 = Sendebeginn 0,5 s nach Zyklusbeginn
+    for start in [0.3, 0.5, 0.9] {
+        let sig = FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 1000, start: start, amplitude: 0.5)])
+        if let d = FT4Core.decode(sig).first {
+            check(abs(d.dt - (start - 0.5)) < 0.04, "FT4: DT \(String(format: "%+.3f", d.dt)) bei Sendebeginn \(start) s (Soll \(String(format: "%+.2f", start - 0.5)))")
+        } else {
+            check(false, "FT4: Signal mit Start \(start) s nicht decodiert")
+        }
+    }
+
+    // SNR in 2500 Hz: Signalleistung A²/2, Rauschen im 6-kHz-Basisband auf 2500 Hz umgerechnet
+    let amplitude = 0.05
+    let power = amplitude * amplitude / 2
+    for snr in [10.0, 0.0, -10.0, -12.0] {
+        let sigma = sqrt(power / pow(10, snr / 10) / (2500.0 / 6000.0))
+        var errors: [Double] = []
+        var found = 0
+        for trial in 0..<10 {
+            var sig = FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 800 + Double(trial) * 150, start: 0.5, amplitude: amplitude)])
+            for i in 0..<sig.count { sig[i] += Float(gauss() * sigma) }
+            if let d = FT4Core.decode(sig).first(where: { $0.text == "CQ DL1ABC JN49" }) {
+                found += 1
+                errors.append(Double(d.snrDB) - snr)
+            }
+        }
+        check(found == 10, "FT4: \(Int(snr)) dB S/N: \(found)/10 decodiert")
+        if !errors.isEmpty {
+            let mean = errors.reduce(0, +) / Double(errors.count)
+            check(abs(mean) < 1.5, "FT4: SNR-Schätzung bei \(Int(snr)) dB im Mittel \(String(format: "%+.1f", mean)) dB daneben")
+        }
+    }
+}
+
 // MARK: - FT4-Zyklus über die Pipeline (simulierte Uhr)
 do {
     final class FakeClock: @unchecked Sendable { var t = 0.0 }
@@ -1690,18 +1734,8 @@ do {
 
 // MARK: - EFR 200 Baud FSK-Demodulation, 8E1 Framing & Audio-Decodierung
 do {
-    // 1. Variables Zeittelegramm
-    var cal = Calendar(identifier: .gregorian)
-    cal.timeZone = TimeZone(secondsFromGMT: 3600)! // MEZ
-    var comp = DateComponents()
-    comp.year = 2026
-    comp.month = 10
-    comp.day = 1
-    comp.hour = 8
-    comp.minute = 45
-    comp.second = 0
-    comp.timeZone = cal.timeZone
-    let testDate = cal.date(from: comp)!
+    // 1. Variables Zeittelegramm mit aktueller Uhrzeit (Zeitfelder gelten nur nahe der Systemzeit)
+    let testDate = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
     let timeBytes = EFRSignalGenerator.encodeCP56Time2a(date: testDate, isSummer: false)
     let varFrame = EFRSignalGenerator.buildVariableFrame(control: 0x73, address: 0x0C, asdu: timeBytes)
 
@@ -2093,6 +2127,115 @@ do {
     check(store.tones.mark == 2300.0, "Mark-Frequenz = 2300 Hz (Weiß)")
     check(store.tones.space == 1500.0, "Space-Frequenz = 1500 Hz (Schwarz)")
     check(store.markerBandwidth == 1100.0, "Bandbreite = 1100 Hz")
+}
+
+// MARK: - DCF77 / EFR: Robustheit, Plausibilität, Rauschen (deterministisch)
+do {
+    var state: UInt64 = 99
+    func gauss() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(state >> 11) + 1) / Double((1 << 53) + 2)
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(state >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+
+    // --- DCF77: BCD-Ziffern und Datum ---
+    var bcdBad = DCF77SignalGenerator.encodeBits(year: 2026, month: 10, day: 1, weekday: 4, hour: 14, minute: 35, isSummer: true)
+    bcdBad[21] = 0; bcdBad[22] = 1; bcdBad[23] = 0; bcdBad[24] = 1   // Minuten-Einer = 10 (keine Dezimalziffer)
+    bcdBad[28] = bcdBad[21...27].reduce(0, +) % 2
+    check(DCF77Core.parseFrame(bcdBad) == nil, "DCF77: BCD-Einerstelle > 9 abgewiesen")
+    let april31 = DCF77SignalGenerator.encodeBits(year: 2026, month: 4, day: 31, weekday: 5, hour: 12, minute: 0, isSummer: true)
+    check(DCF77Core.parseFrame(april31) == nil, "DCF77: 31. April abgewiesen")
+    let feb29 = DCF77SignalGenerator.encodeBits(year: 2028, month: 2, day: 29, weekday: 2, hour: 12, minute: 0, isSummer: false)
+    check(DCF77Core.parseFrame(feb29)?.day == 29, "DCF77: 29.02.2028 (Schaltjahr) gültig")
+    // Vorhersage-Encoder ist mit dem unabhängigen Generator identisch
+    let ref = DCF77Core.parseFrame(DCF77SignalGenerator.encodeBits(year: 2026, month: 12, day: 31, weekday: 4, hour: 23, minute: 59, isSummer: false))!
+    let nextBits = DCF77Core.encodeFrame(date: ref.date.addingTimeInterval(60), summer: false)
+    let nextDecoded = DCF77Core.parseFrame(nextBits)
+    check(nextDecoded?.year == 2027 && nextDecoded?.month == 1 && nextDecoded?.day == 1 && nextDecoded?.hour == 0 && nextDecoded?.minute == 0,
+          "DCF77: Vorhersage über Jahreswechsel 31.12.2026 23:59 → 01.01.2027 00:00")
+
+    // --- DCF77: Audio mit Rauschen (S/N in 20 Hz; Rauschen über 4 kHz Bandbreite) ---
+    func dcfMinutes(snr20: Double, minutes: Int) -> (decoded: [DCF77Core.DecodedTime], snr: Double) {
+        let carrier = 0.8 * 0.8 / 2.0
+        let sigma = sqrt(carrier / pow(10, (snr20 - 10 * log10(4000.0 / 20.0)) / 10))
+        var audio: [Float] = []
+        audio += DCF77SignalGenerator.generateMinuteAudio(bits: [0], centerHz: 1000)[0..<8000]
+        audio += DCF77SignalGenerator.generateMinuteAudio(bits: [], centerHz: 1000)[0..<8000]
+        for m in 0..<minutes {
+            audio += DCF77SignalGenerator.generateMinuteAudio(
+                bits: DCF77SignalGenerator.encodeBits(year: 2026, month: 10, day: 1, weekday: 4, hour: 14, minute: 10 + m, isSummer: true), centerHz: 1000)
+        }
+        for i in 0..<audio.count { audio[i] += Float(gauss() * sigma) }
+        let core = DCF77Core(centerHz: 1000)
+        var out: [DCF77Core.DecodedTime] = []
+        core.onTimeDecoded = { out.append($0) }
+        var o = 0
+        while o < audio.count {
+            let c = min(160, audio.count - o)
+            audio[o..<(o + c)].withUnsafeBufferPointer { core.process($0) }
+            o += c
+        }
+        return (out, core.getStatus().snrDb)
+    }
+    for snr in [30.0, 20.0] {
+        let r = dcfMinutes(snr20: snr, minutes: 8)
+        check(r.decoded.count >= 7, "DCF77: \(Int(snr)) dB S/N in 20 Hz: \(r.decoded.count)/8 Minuten decodiert")
+        check(abs(r.snr - snr) < 3.5, "DCF77: SNR-Anzeige \(String(format: "%.1f", r.snr)) dB bei \(Int(snr)) dB")
+        check(r.decoded.allSatisfy { $0.hour == 14 && $0.day == 1 && (10...17).contains($0.minute) }, "DCF77: \(Int(snr)) dB: nur richtige Zeiten ausgegeben")
+    }
+    let weak = dcfMinutes(snr20: 15, minutes: 8)
+    check(weak.decoded.count >= 4, "DCF77: 15 dB S/N: \(weak.decoded.count)/8 Minuten (Paritätsfehler durch Vorhersage aufgefangen)")
+    check(weak.decoded.allSatisfy { $0.hour == 14 && $0.day == 1 && (10...17).contains($0.minute) }, "DCF77: 15 dB: keine falschen Zeiten")
+    let noiseOnly = dcfMinutes(snr20: -20, minutes: 3)
+    check(noiseOnly.decoded.isEmpty, "DCF77: reines Rauschen liefert keine Zeit")
+
+    // --- EFR: kein Telegramminhalt wird erfunden ---
+    let payload: [UInt8] = [0x64, 0x3C, 0x1E, 0x00, 0x01]
+    let rawFrame = EFRSignalGenerator.buildVariableFrame(control: 0x53, address: 0x21, asdu: payload)
+    let efrCore = EFRCore(centerHz: 1500, shiftHz: 340)
+    var efrOut: [EFRCore.DecodedTelegram] = []
+    efrCore.onTelegramDecoded = { efrOut.append($0) }
+    let efrAudio = EFRSignalGenerator.generateFSKAudio(bits: EFRSignalGenerator.bytesTo8E1Bits(rawFrame, leadBits: 20, tailBits: 20), centerHz: 1500, shiftHz: 340)
+    efrAudio.withUnsafeBufferPointer { efrCore.process($0) }
+    check(efrOut.count == 1 && efrOut[0].isTimeSync == false, "EFR: Nutzdaten ohne Zeitfeld sind kein Zeittelegramm")
+    check(efrOut.first.map { !$0.summary.contains("Leistungsstufe") && !$0.summary.contains("Abregelung") && $0.summary.contains("64 3C 1E 00 01") } == true,
+          "EFR: Nutzdaten als Hex, keine geratene Schaltbedeutung (\(efrOut.first?.summary ?? "–"))")
+    // Zeitfeld nur nahe der Systemzeit
+    let oldTime = EFRSignalGenerator.encodeCP56Time2a(date: Date(timeIntervalSince1970: 1_000_000_000), isSummer: false)
+    check(EFRCore.parseEFRTime(oldTime) != nil && EFRCore.parseEFRTime(oldTime, near: Date()) == nil, "EFR: Zeitfeld von 2001 wird mit Plausibilitätsfenster nicht als Uhrzeit gewertet")
+    check(EFRCore.parseEFRTime(EFRSignalGenerator.encodeCP56Time2a(date: Date()), near: Date()) != nil, "EFR: aktuelles Zeitfeld wird erkannt")
+    var feb30 = EFRSignalGenerator.encodeCP56Time2a(date: Date(), isSummer: false)
+    feb30[4] = 30; feb30[5] = 2
+    check(EFRCore.parseEFRTime(feb30) == nil, "EFR: 30. Februar abgewiesen")
+
+    // --- EFR: Rauschen ---
+    let carrier = 0.8 * 0.8 / 2.0
+    func efrNoisy(snr150: Double, repeats: Int) -> (telegrams: Int, snr: Double) {
+        let sigma = sqrt(carrier / pow(10, (snr150 - 10 * log10(4000.0 / 150.0)) / 10))
+        let core = EFRCore(centerHz: 1500, shiftHz: 340)
+        var n = 0
+        core.onTelegramDecoded = { _ in n += 1 }
+        for _ in 0..<repeats {
+            var a = EFRSignalGenerator.generateFSKAudio(bits: EFRSignalGenerator.bytesTo8E1Bits(rawFrame, leadBits: 20, tailBits: 20), centerHz: 1500, shiftHz: 340)
+            for i in 0..<a.count { a[i] += Float(gauss() * sigma) }
+            a.withUnsafeBufferPointer { core.process($0) }
+        }
+        return (n, core.getStatus().snrDb)
+    }
+    let e20 = efrNoisy(snr150: 20, repeats: 20)
+    check(e20.telegrams == 20, "EFR: 20 dB S/N: \(e20.telegrams)/20 Telegramme")
+    let e15 = efrNoisy(snr150: 15, repeats: 20)
+    check(e15.telegrams >= 15, "EFR: 15 dB S/N: \(e15.telegrams)/20 Telegramme")
+    check(e20.snr > e15.snr + 2, "EFR: SNR-Anzeige folgt dem Signal (\(String(format: "%.1f", e20.snr)) dB > \(String(format: "%.1f", e15.snr)) dB)")
+    let quiet = EFRCore(centerHz: 1500, shiftHz: 340)
+    var junk = 0
+    quiet.onTelegramDecoded = { _ in junk += 1 }
+    var noise = [Float](repeating: 0, count: 8000 * 60)
+    for i in 0..<noise.count { noise[i] = Float(gauss() * 0.3) }
+    noise.withUnsafeBufferPointer { quiet.process($0) }
+    check(junk == 0 && quiet.getStatus().bytesReceived < 10, "EFR: 60 s reines Rauschen → \(quiet.getStatus().bytesReceived) Bytes, \(junk) Telegramme (Squelch)")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

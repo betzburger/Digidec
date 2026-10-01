@@ -82,6 +82,39 @@ static ftx_callsign_hash_interface_t g_hash_if = {
     .save_hash = hashtable_add
 };
 
+// SNR in 2500 Hz Bandbreite wie WSJT-X: Pegel der gesendeten Töne gegenüber dem Rauschen in Bins neben der Tonspanne
+// (die nicht gesendeten Töne der Spanne scheiden aus: GFSK-Übergänge und Fensterleckage hoben sonst den Rauschpegel
+// und ließen die Schätzung bei starken Signalen sättigen). `FT4_SNR_CAL` rechnet das Verhältnis auf die 2500-Hz-Referenz
+// um (Fenster 2 Symbole, Hann); gemessen mit synthetischem Weißrauschen, siehe Tools/LogicTests.
+#define FT4_SNR_CAL (-20.55)
+static double ft4_estimate_snr(const ftx_waterfall_t *wf, const ftx_candidate_t *cand, const uint8_t payload[10])
+{
+    static const int noise_offsets[] = { -5, -4, -3, 7, 8, 9 };   // Tonspanne = Bins 0…3
+    uint8_t tones[FT4_NN];
+    ft4_encode(payload, tones);
+    double sig = 0.0, noise = 0.0;
+    int n = 0, nn = 0;
+    for (int s = 1; s < FT4_NN - 1; ++s) {            // ohne die beiden Rampensymbole
+        int block = cand->time_offset + s;
+        if (block < 0 || block >= wf->num_blocks) continue;
+        int base = (((block * wf->time_osr) + cand->time_sub) * wf->freq_osr + cand->freq_sub) * wf->num_bins;
+        sig += pow(10.0, WF_ELEM_MAG(wf->mag[base + cand->freq_offset + tones[s]]) / 10.0);
+        ++n;
+        for (int k = 0; k < 6; ++k) {
+            int bin = cand->freq_offset + noise_offsets[k];
+            if (bin < 0 || bin >= wf->num_bins) continue;
+            noise += pow(10.0, WF_ELEM_MAG(wf->mag[base + bin]) / 10.0);
+            ++nn;
+        }
+    }
+    if (n < 20 || nn < 20 || noise <= 0.0) return -30.0;
+    sig /= n; noise /= nn;
+    double ratio = (sig - noise) / noise;
+    if (ratio < 1e-3) ratio = 1e-3;
+    double snr_db = 10.0 * log10(ratio) + FT4_SNR_CAL;
+    return snr_db < -30.0 ? -30.0 : snr_db;   // WSJT-X zeigt FT4 ebenfalls nur bis etwa −30 dB
+}
+
 int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz, double max_hz,
                        ft4dd_decode_fn on_decode, void *ctx)
 {
@@ -157,20 +190,18 @@ int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz,
         }
 
         double freq_hz = (mon.min_bin + cand->freq_offset + (double)cand->freq_sub / mon.wf.freq_osr) / (double)mon.symbol_period;
-        double time_sec = (cand->time_offset + (double)cand->time_sub / mon.wf.time_osr) * (double)mon.symbol_period;
+        // Das Wasserfallfenster endet erst ein Symbol nach seinem Index: Beginn des Signals = Index − 1 Symbol.
+        double time_sec = (cand->time_offset + (double)cand->time_sub / mon.wf.time_osr - 1.0) * (double)mon.symbol_period;
 
-        // WSJT-X-SNR-Approximation in 2500 Hz Bandbreite:
-        // score * 0.5 ist Tonpegel über Hintergrundrauschen in dB.
-        // Bandbreitenverhältnis 2500 Hz / 20.83 Hz = 120 = 20.8 dB.
-        double snr = (double)cand->score * 0.5 - 20.8;
+        double snr = ft4_estimate_snr(&mon.wf, cand, message.payload);
 
         ft4dd_decode d;
         memset(&d, 0, sizeof(d));
         strncpy(d.text, text, sizeof(d.text) - 1);
         d.snr_db = snr;
-        d.dt = time_sec;
+        d.dt = time_sec - 0.5;   // FT4 sendet 0,5 s nach Zyklusbeginn; DT wie WSJT-X relativ dazu
         d.freq_hz = freq_hz;
-        d.correct_bits = 174;
+        d.correct_bits = FTX_LDPC_N - status.ldpc_errors;   // CRC-geprüft: 174 bei gültiger Decodierung
         d.pass = 0;
 
         on_decode(ctx, &d);

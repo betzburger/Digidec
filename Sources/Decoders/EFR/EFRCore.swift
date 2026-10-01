@@ -2,7 +2,8 @@ import Foundation
 
 /// Kern des EFR-Decoders (Europäische Funk-Rundsteuerung auf Langwelle: 129,1 kHz DCF49 / 139,0 kHz DCF39).
 /// Demoduliert 200 Baud FSK (Hub ±170 Hz / Shift 340 Hz, Zeichenrahmen 8E1) und decodiert
-/// DIN 19244 / FT1.2-Telegramme (Versacom, Semagyr, Zeittelegramme, EEG-Abregelung).
+/// DIN 19244 / FT1.2-Telegramme. Rahmen und Prüfsummen werden geprüft; Nutzdaten (Versacom, Semagyr u. a.) sind
+/// herstellerspezifisch und werden als Hex ausgegeben, nicht gedeutet. Zeitfelder gelten nur nahe der Systemzeit.
 public final class EFRCore: @unchecked Sendable {
     public static let sampleRate: Double = 8000.0
     public static let baudRate: Double = 200.0
@@ -81,6 +82,14 @@ public final class EFRCore: @unchecked Sendable {
     private var markPeak: Double = 0.01
     private var spacePeak: Double = 0.01
 
+    // Rauschkanal: gleicher Mischer/Tiefpass abseits der beiden Töne (300 Hz über Mark, sonst unter Space)
+    private var noisePhase: Double = 0.0
+    private var noiseI1 = 0.0, noiseI2 = 0.0, noiseQ1 = 0.0, noiseQ2 = 0.0   // 2 Stufen: Leckage der Töne < −25 dB
+    private var noiseLevel: Double = 0.001
+    private var signalLevel: Double = 0.0      // Pegel des jeweils aktiven Tons (schneller Anstieg, langsamer Abfall)
+    /// Träger liegt mindestens 6 dB über dem Rauschen – nur dann werden Bits in Bytes umgesetzt (kein Zufallsmüll im Rauschen)
+    private var carrierPresent = false
+
     // Bit-Takterfassung (DPLL 200 Hz)
     private var clockPhase: Double = 0.0
     private let clockPhaseIncrement: Double = baudRate / sampleRate  // 200 / 8000 = 0.025
@@ -135,6 +144,11 @@ public final class EFRCore: @unchecked Sendable {
         spaceQ = 0.0
         markPeak = 0.01
         spacePeak = 0.01
+        noisePhase = 0.0
+        noiseI1 = 0.0; noiseI2 = 0.0; noiseQ1 = 0.0; noiseQ2 = 0.0
+        noiseLevel = 0.001
+        signalLevel = 0.0
+        carrierPresent = false
         clockPhase = 0.0
         lastDiscriminator = 0.0
         uartState = .idle
@@ -148,6 +162,8 @@ public final class EFRCore: @unchecked Sendable {
         let twoPi = 2.0 * Double.pi
         let markInc = twoPi * markHz / Self.sampleRate
         let spaceInc = twoPi * spaceHz / Self.sampleRate
+        let noiseHz = (markHz + 700.0 < 3800.0) ? markHz + 700.0 : max(150.0, spaceHz - 700.0)
+        let noiseInc = twoPi * noiseHz / Self.sampleRate
 
         for sample in samples {
             let s = Double(sample)
@@ -171,6 +187,19 @@ public final class EFRCore: @unchecked Sendable {
             spaceI += alpha * (s * sCos - spaceI)
             spaceQ += alpha * (-s * sSin - spaceQ)
             let sEnv = sqrt(spaceI * spaceI + spaceQ * spaceQ)
+
+            // Rauschkanal und Trägererkennung
+            let nCos = cos(noisePhase), nSin = sin(noisePhase)
+            noisePhase += noiseInc
+            if noisePhase >= twoPi { noisePhase -= twoPi }
+            noiseI1 += alpha * (s * nCos - noiseI1); noiseI2 += alpha * (noiseI1 - noiseI2)
+            noiseQ1 += alpha * (-s * nSin - noiseQ1); noiseQ2 += alpha * (noiseQ1 - noiseQ2)
+            // Zwei Stufen haben eine um √2 kleinere Rauschbandbreite als die einstufigen Tonfilter → ausgleichen
+            noiseLevel += 0.0005 * (1.41 * sqrt(noiseI2 * noiseI2 + noiseQ2 * noiseQ2) - noiseLevel)
+            let activeEnv = max(mEnv, sEnv)
+            signalLevel += (activeEnv > signalLevel ? 0.01 : 0.002) * (activeEnv - signalLevel)
+            carrierPresent = signalLevel > 2.5 * max(noiseLevel, 1e-5)
+            if !carrierPresent { uartState = .idle }
 
             // Pegelnachführung
             if mEnv > markPeak { markPeak += 0.005 * (mEnv - markPeak) } else { markPeak -= 0.0001 * markPeak }
@@ -209,7 +238,7 @@ public final class EFRCore: @unchecked Sendable {
             }
 
             // Bei Phasenübertritt durch die Bitmitte (0.5) abtasten
-            if prevPhase < 0.5 && clockPhase >= 0.5 {
+            if prevPhase < 0.5 && clockPhase >= 0.5 && carrierPresent {
                 let sampledBit = (discr > 0.0) // true = Mark (1), false = Space (0)
                 handleBitSample(sampledBit)
             }
@@ -355,45 +384,28 @@ public final class EFRCore: @unchecked Sendable {
         let address = Int(userBytes[1])
         let asdu = Array(userBytes[2...])
 
-        var title = "EFR-Schaltbefehl"
-        var summary = ""
+        var title: String
+        var summary: String
         var isTime = false
         var decodedDate: Date?
         var deltaMs: Double?
+        let hexASDU = asdu.map { String(format: "%02X", $0) }.joined(separator: " ")
 
-        // Prüfung auf Uhrzeittelegramm
-        // EFR Zeit-Telegramme enthalten typischerweise Zeitinformationen (Sekunden, Minuten, Stunden, Tag, Monat, Jahr)
-        if let time = parseEFRTime(asdu) {
+        // Zeittelegramm nur, wenn ein Zeitfeld (CP56Time2a) enthalten ist und zur aktuellen Uhr passt
+        let now = Date()
+        if let time = Self.parseEFRTime(asdu, near: now) {
             isTime = true
             decodedDate = time
-            let now = Date()
             deltaMs = now.timeIntervalSince(time) * 1000.0
 
             let fmt = DateFormatter()
             fmt.dateFormat = "dd.MM.yyyy HH:mm:ss"
-            title = "EFR Zeit- & Datumssynchronisation"
+            title = "EFR Zeittelegramm (Adr: \(address))"
             summary = "Zeit: \(fmt.string(from: time)) (Δt: \(String(format: "%+.1f", deltaMs ?? 0)) ms)"
         } else {
-            // Versacom / Semagyr Schalttelegramm
-            let hexASDU = asdu.map { String(format: "%02X", $0) }.joined(separator: " ")
-            if asdu.count >= 2 {
-                title = "EFR Rundsteuertelegramm (Adr: \(address))"
-                summary = "Kommando-Bytes: [\(hexASDU)]"
-
-                // Erkennung von EEG-Abregelung oder Standard-Relais
-                if asdu.contains(0x64) {
-                    summary += " · Leistungsstufe 100 % (Freigabe)"
-                } else if asdu.contains(0x3C) {
-                    summary += " · Leistungsstufe 60 %"
-                } else if asdu.contains(0x1E) {
-                    summary += " · Leistungsstufe 30 %"
-                } else if asdu.contains(0x00) && asdu.count > 3 {
-                    summary += " · Abregelung 0 % (Abschaltung)"
-                }
-            } else {
-                title = "EFR Daten-Telegramm (Adr: \(address))"
-                summary = "Nutzdaten: [\(hexASDU)]"
-            }
+            // Rundsteuer-Nutzdaten (Versacom, Semagyr u. a. sind herstellerspezifisch codiert und hier nicht entschlüsselt)
+            title = "EFR Telegramm (Adr: \(address))"
+            summary = asdu.isEmpty ? "ohne Nutzdaten" : "Nutzdaten: [\(hexASDU)] – Inhalt nicht entschlüsselt"
         }
 
         let telegram = DecodedTelegram(
@@ -435,8 +447,10 @@ public final class EFRCore: @unchecked Sendable {
         onTelegramDecoded?(telegram)
     }
 
-    /// Parst EFR Zeitstempel im ASDU (DIN EN 60870-5 CP56Time2a oder Versacom-Format)
-    public static func parseEFRTime(_ bytes: [UInt8]) -> Date? {
+    /// Parst ein Zeitfeld im Format CP56Time2a (IEC 60870-5) irgendwo im ASDU.
+    /// - Parameter reference: Wenn gesetzt, zählt nur eine Zeit innerhalb von 36 h um diese Uhrzeit. Ohne diese
+    ///   Prüfung sähen rund 40 % aller zufälligen 7-Byte-Folgen wie ein gültiges Datum aus.
+    public static func parseEFRTime(_ bytes: [UInt8], near reference: Date? = nil) -> Date? {
         // CP56Time2a benötigt 7 Bytes:
         // [0..1] Millisekunden (0..59999, Little Endian)
         // [2] Minuten (0..59, Bit 7 = Invalid Flag)
@@ -481,6 +495,11 @@ public final class EFRCore: @unchecked Sendable {
             comp.timeZone = cal.timeZone
 
             if let date = cal.date(from: comp) {
+                // Ungültiges Datum (z. B. 31. April) wird von Calendar weitergerollt: Rückprüfung
+                let back = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+                guard back.year == 2000 + year2, back.month == month, back.day == day,
+                      back.hour == hour, back.minute == min, back.second == sec else { continue }
+                if let reference, abs(date.timeIntervalSince(reference)) > 36 * 3600 { continue }
                 return date
             }
         }
@@ -488,14 +507,11 @@ public final class EFRCore: @unchecked Sendable {
         return nil
     }
 
-    private func parseEFRTime(_ bytes: [UInt8]) -> Date? {
-        Self.parseEFRTime(bytes)
-    }
-
     // MARK: - Status für UI
 
     public func getStatus() -> Status {
-        let snr = spacePeak > 0.0001 ? 20.0 * log10(max(1.0, markPeak / spacePeak)) : 0.0
+        // Aktiver Ton gegen Rauschen in der Kanalbandbreite (Rauschkanal abseits der Töne)
+        let snr = min(60.0, max(0.0, 20.0 * log10(max(signalLevel, 1e-6) / max(noiseLevel, 1e-6))))
         let level = min(100.0, max(0.0, (markPeak + spacePeak) * 100.0))
 
         var orderedScope: [Float] = []
