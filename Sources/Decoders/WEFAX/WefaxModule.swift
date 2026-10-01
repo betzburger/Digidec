@@ -211,6 +211,8 @@ public final class WefaxController: ObservableObject {
         didSet { UserDefaults.standard.set(autoSave, forKey: "wefaxAutoSave") }
     }
     @Published public private(set) var lastSaveError: String?
+    /// Titel der gerade aufgenommenen Sendung laut Sendeplan; wird dem Dateinamen und der PNG-Beschreibung angehängt
+    public var scheduledLabel: String?
 
     public static let maxGallery = 30
     public let directory: URL
@@ -272,6 +274,13 @@ public final class WefaxController: ObservableObject {
             liveImage = Self.cgImage(pixels: live.pixels, width: live.width, height: live.rows)
         }
         for var img in out.saved {
+            if let label = scheduledLabel {
+                let slug = Self.fileSlug(label)
+                if let dot = img.name.lastIndex(of: ".") {
+                    img.name = String(img.name[img.name.startIndex..<dot]) + "_" + slug + String(img.name[dot...])
+                }
+                img.comments += "\nSendeplan: \(label)"
+            }
             if autoSave {
                 do {
                     img.fileURL = try Self.writePNG(img, to: directory)
@@ -286,6 +295,17 @@ public final class WefaxController: ObservableObject {
     }
 
     // MARK: Bilder
+
+    /// Dateinamenbaustein aus einem Kartentitel: ASCII, Umlaute aufgelöst, höchstens 40 Zeichen
+    nonisolated public static func fileSlug(_ title: String) -> String {
+        let mapped = title.replacingOccurrences(of: "ä", with: "ae").replacingOccurrences(of: "ö", with: "oe")
+            .replacingOccurrences(of: "ü", with: "ue").replacingOccurrences(of: "Ä", with: "Ae")
+            .replacingOccurrences(of: "Ö", with: "Oe").replacingOccurrences(of: "Ü", with: "Ue")
+            .replacingOccurrences(of: "ß", with: "ss")
+        let ascii = mapped.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "-" }.joined()
+        let collapsed = ascii.split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
+        return String(collapsed.prefix(40))
+    }
 
     nonisolated public static func cgImage(pixels: [UInt8], width: Int, height: Int) -> CGImage? {
         guard width > 0, height > 0, pixels.count >= width * height else { return nil }

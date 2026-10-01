@@ -49,7 +49,7 @@ public struct MainWindowView: View {
                             } else if state.activeModule == .cw {
                                 CWReceivePanel(controller: state.cwController)
                             } else if state.activeModule == .wefax {
-                                WefaxImagePanel(controller: state.wefaxController)
+                                WefaxImagePanel(controller: state.wefaxController, schedule: state.wefaxSchedule, auto: state.wefaxAuto)
                             } else if state.activeModule == .ft8 {
                                 FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
                             } else if state.activeModule == .ft4 {
@@ -83,7 +83,7 @@ public struct MainWindowView: View {
                             CWSettingsPanel(settings: state.cw)
                                 .radioCard(title: "CW")
                         } else if state.activeModule == .wefax {
-                            WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax)
+                            WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.wefaxAuto)
                                 .radioCard(title: "Abstimmanzeige")
                             WefaxSettingsPanel(settings: state.wefax)
                                 .radioCard(title: "WEFAX")

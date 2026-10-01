@@ -5,6 +5,9 @@ import AppKit
 
 struct WefaxImagePanel: View {
     @ObservedObject var controller: WefaxController
+    @ObservedObject var schedule: WefaxScheduleStore
+    @ObservedObject var auto: WefaxAutoRecorder
+    @State private var showSchedule = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -23,6 +26,14 @@ struct WefaxImagePanel: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                Button {
+                    showSchedule = true
+                } label: {
+                    Label("SENDEPLAN", systemImage: auto.session != nil ? "record.circle.fill" : "calendar")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: schedule.autoEnabled && !schedule.selected.isEmpty))
+                .foregroundColor(auto.session != nil ? RadioTheme.ledRed : nil)
+                .help("DWD-Sendeplan ansehen, aktualisieren und Sendungen zur automatischen Aufnahme wählen")
                 Button {
                     controller.autoSave.toggle()
                 } label: {
@@ -73,6 +84,9 @@ struct WefaxImagePanel: View {
             .background(RadioTheme.bgDeep)
             .cornerRadius(6)
         }
+        .sheet(isPresented: $showSchedule) {
+            WefaxScheduleSheet(store: schedule, auto: auto)
+        }
     }
 }
 
@@ -81,9 +95,12 @@ struct WefaxImagePanel: View {
 struct WefaxTuningPanel: View {
     @ObservedObject var controller: WefaxController
     @ObservedObject var settings: WefaxSettingsStore
+    @ObservedObject var schedule: WefaxScheduleStore
+    @ObservedObject var auto: WefaxAutoRecorder
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            WefaxNextLine(store: schedule, auto: auto)
             HStack(spacing: 8) {
                 let state = controller.status?.state ?? .idle
                 Text(state.label)

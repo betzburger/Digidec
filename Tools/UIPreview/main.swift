@@ -29,14 +29,15 @@ func run() {
     }, width: right, name: "cw_rechts", dir: dir)
 
     // WEFAX
+    let schedState = DigidecState.shared
     let wf = WefaxSettingsStore()
     let wfc = WefaxController(pipeline: pipeline, settings: wf)
     save(VStack(spacing: 10) {
-        WefaxTuningPanel(controller: wfc, settings: wf).radioCard(title: "Abstimmanzeige")
+        WefaxTuningPanel(controller: wfc, settings: wf, schedule: schedState.wefaxSchedule, auto: schedState.wefaxAuto).radioCard(title: "Abstimmanzeige")
         WefaxSettingsPanel(settings: wf).radioCard(title: "WEFAX")
         WefaxGallery(controller: wfc).radioCard(title: "Bilder")
     }, width: right, name: "wefax_rechts", dir: dir)
-    save(WefaxImagePanel(controller: wfc).frame(height: 300).radioCard(title: "Wetterfax"), width: 700, name: "wefax_bild", dir: dir)
+    save(WefaxImagePanel(controller: wfc, schedule: schedState.wefaxSchedule, auto: schedState.wefaxAuto).frame(height: 300).radioCard(title: "Wetterfax"), width: 700, name: "wefax_bild", dir: dir)
 
     // FT8
     let ft = FT8SettingsStore()
@@ -57,6 +58,12 @@ func run() {
     }
     save(FT8Table(entries: entries, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "Bandaktivität"),
          width: 700, name: "ft8_tabelle", dir: dir)
+
+    // WEFAX-Sendeplan (Fenster)
+    schedState.wefaxSchedule.selected = ["1636", "1800", "0430"]
+    schedState.wefaxSchedule.autoEnabled = true
+    save(WefaxScheduleSheet(store: schedState.wefaxSchedule, auto: schedState.wefaxAuto, scrolls: false), width: 820, name: "wefax_sendeplan", dir: dir)
+    save(WefaxNextLine(store: schedState.wefaxSchedule, auto: schedState.wefaxAuto).radioCard(title: "WEFAX"), width: 330, name: "wefax_naechste", dir: dir)
 }
 
 MainActor.assumeIsolated { run() }

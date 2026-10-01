@@ -37,6 +37,8 @@ public final class DigidecState: ObservableObject {
     public let efrController: EFRController
     public let sstv = SSTVSettingsStore()
     public let sstvController: SSTVController
+    public let wefaxSchedule = WefaxScheduleStore()
+    public private(set) var wefaxAuto: WefaxAutoRecorder!
     /// Darf Digidec das Funkgerät über den rigctld des Commanders abstimmen? Standard: aus (nur lesen).
     @Published public var rigControlEnabled: Bool {
         didSet { UserDefaults.standard.set(rigControlEnabled, forKey: "rigControlEnabled") }
@@ -59,6 +61,8 @@ public final class DigidecState: ObservableObject {
         dcf77Controller = DCF77Controller(pipeline: audio.pipeline, settings: dcf77)
         efrController = EFRController(pipeline: audio.pipeline, settings: efr)
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
+
+        wefaxAuto = WefaxAutoRecorder(state: self, store: wefaxSchedule)
 
         // Nur das gewählte Modul decodiert
         $activeModule

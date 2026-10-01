@@ -2518,5 +2518,67 @@ do {
     client.setPort(nil)
 }
 
+// MARK: - WEFAX: DWD-Sendeplan (Auslesen, Zeitlogik, automatische Aufnahme, Link-Erkennung)
+do {
+    let planURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Resources/Wefax/sendeplan_fax_092023.txt")
+    let text = (try? String(contentsOf: planURL, encoding: .utf8)) ?? ""
+    guard let plan = WefaxSchedule.parse(text: text) else {
+        check(false, "Sendeplan: Auslesen des DWD-Plans (Resources/Wefax) fehlgeschlagen")
+        throw NSError(domain: "Sendeplan", code: 1)
+    }
+    check(plan.frequenciesHz == [3_855_000, 7_880_000, 13_882_500], "Sendeplan: Frequenzen 3855 / 7880 / 13882,5 kHz")
+    check(plan.broadcasts.count == 48 && plan.pauses.count == 4, "Sendeplan: 48 Ausstrahlungen, 4 Sendepausen (\(plan.broadcasts.count)/\(plan.pauses.count))")
+    check(plan.broadcasts.first?.id == "0430" && plan.broadcasts.first?.durationMinutes == 19 && plan.broadcasts.first?.lpm == 120,
+          "Sendeplan: erste Sendung 04:30, 19 min, 120 UpM")
+    check(plan.broadcasts.last?.id == "2200" && plan.broadcasts.last?.chartHour == 18, "Sendeplan: letzte Sendung 22:00, Termin 18 UTC")
+    check(plan.broadcasts.first(where: { $0.id == "1520" })?.title.hasSuffix("Eiskarte Spezialgebiet (BSH)") == true,
+          "Sendeplan: Folgezeile gehört zur Karte 15:20")
+    check(plan.pauses.contains(WefaxPause(startMinute: 15 * 60 + 55, endMinute: 16 * 60 + 35)), "Sendeplan: Sendepause 15:55–16:35")
+    check(WefaxSchedule.parse(text: "Das ist kein Sendeplan\n04.30 abc") == nil, "Sendeplan: fremder Text wird abgewiesen")
+    check(WefaxSchedule.parse(text: text.replacingOccurrences(of: "576", with: "123")) == nil, "Sendeplan: verändertes Format (Modul) wird abgewiesen")
+
+    func utc(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+    // Nächste und laufende Sendung
+    check(plan.next(after: utc("2026-10-01T16:06:00Z"))?.broadcast.id == "1636", "Sendeplan: 16:06 UTC → nächste 16:36")
+    check(plan.next(after: utc("2026-10-01T16:36:00Z"))?.broadcast.id == "1800", "Sendeplan: genau 16:36 → nächste ist 18:00 (16:36 läuft)")
+    check(plan.next(after: utc("2026-10-01T23:00:00Z")).map { $0.broadcast.id == "0430" && $0.start == utc("2026-10-02T04:30:00Z") } == true,
+          "Sendeplan: nach 22:00 → morgen 04:30")
+    check(plan.running(at: utc("2026-10-01T16:40:00Z"))?.broadcast.id == "1636", "Sendeplan: 16:40 läuft die Sendung von 16:36")
+    check(plan.running(at: utc("2026-10-01T16:00:00Z")) == nil, "Sendeplan: 16:00 Sendepause, nichts läuft")
+
+    // Automatische Aufnahme: Zeitfenster und Einmaligkeit
+    let sel: Set<String> = ["1636"]
+    check(plan.due(selected: sel, at: utc("2026-10-01T16:34:00Z"), handled: []) == nil, "Auto: 2:00 vor Beginn noch nicht")
+    check(plan.due(selected: sel, at: utc("2026-10-01T16:34:40Z"), handled: [])?.broadcast.id == "1636", "Auto: 80 s vor Beginn startet die Vorbereitung")
+    let key = plan.due(selected: sel, at: utc("2026-10-01T16:36:30Z"), handled: [])?.key
+    check(key == "20261001-1636", "Auto: Schlüssel \(key ?? "–")")
+    check(plan.due(selected: sel, at: utc("2026-10-01T16:36:30Z"), handled: ["20261001-1636"]) == nil, "Auto: bereits begonnene Sendung nicht noch einmal")
+    check(plan.due(selected: sel, at: utc("2026-10-01T16:39:00Z"), handled: []) == nil, "Auto: 3 min nach Beginn kein Einstieg mehr (nur Restbild)")
+    check(plan.due(selected: sel, at: utc("2026-10-02T16:36:10Z"), handled: ["20261001-1636"])?.key == "20261002-1636", "Auto: nächster Tag zählt neu")
+    check(plan.due(selected: [], at: utc("2026-10-01T16:36:10Z"), handled: []) == nil, "Auto: ohne Auswahl keine Aufnahme")
+    check(plan.due(selected: ["0430"], at: utc("2026-10-01T23:59:00Z"), handled: []) == nil && plan.due(selected: ["0430"], at: utc("2026-10-02T04:29:00Z"), handled: [])?.key == "20261002-0430",
+          "Auto: Sendung am nächsten Morgen")
+
+    // Frequenz nach Tageszeit
+    check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T04:30:00Z")) == 3_855_000, "Frequenz 04:30 UTC: 3855 kHz")
+    check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T08:00:00Z")) == 7_880_000, "Frequenz 08:00 UTC: 7880 kHz")
+    check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T12:00:00Z")) == 13_882_500, "Frequenz 12:00 UTC: 13882,5 kHz")
+    check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T22:00:00Z")) == 3_855_000, "Frequenz 22:00 UTC: 3855 kHz")
+
+    // Link auf der DWD-Seite (echter Ausschnitt, mit jsessionid)
+    let html = """
+    <a href="/DE/fachnutzer/schifffahrt/funkausstrahlung/sendeplan_rtty_01_092023.pdf;jsessionid=ABC.live31091?__blob=publicationFile&amp;v=1">RTTY</a>
+    <a class="download" href="/DE/fachnutzer/schifffahrt/funkausstrahlung/sendeplan_fax_092023.pdf;jsessionid=987886A8B538D6CC6BEB67909269897E.live31091?__blob=publicationFile&amp;v=1">Radiofax</a>
+    """
+    check(WefaxScheduleSource.faxPDFURL(inHTML: html)?.absoluteString == "https://www.dwd.de/DE/fachnutzer/schifffahrt/funkausstrahlung/sendeplan_fax_092023.pdf?__blob=publicationFile&v=1",
+          "Sendeplan: Link zum Fax-PDF ohne jsessionid (\(WefaxScheduleSource.faxPDFURL(inHTML: html)?.absoluteString ?? "nil"))")
+    check(WefaxScheduleSource.faxPDFURL(inHTML: "<html>nichts</html>") == nil, "Sendeplan: kein Link → nil")
+
+    // Dateiname aus dem Kartentitel
+    check(WefaxController.fileSlug("Bodenanalyse mit Stationseintragungen, Nordatlantik, Europa") == "Bodenanalyse-mit-Stationseintragungen-No", "Dateiname: Titel gekürzt (\(WefaxController.fileSlug("Bodenanalyse mit Stationseintragungen, Nordatlantik, Europa")))")
+    check(WefaxController.fileSlug("Wirbelstürme über Nordatlantik") == "Wirbelstuerme-ueber-Nordatlantik", "Dateiname: Umlaute aufgelöst")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

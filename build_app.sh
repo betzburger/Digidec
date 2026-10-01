@@ -26,6 +26,9 @@ fi
 mkdir -p "$APP_BUNDLE/Contents/Resources/Stations"
 cp "$DIR"/Resources/Stations/* "$APP_BUNDLE/Contents/Resources/Stations/"
 
+mkdir -p "$APP_BUNDLE/Contents/Resources/Wefax"
+cp "$DIR"/Resources/Wefax/* "$APP_BUNDLE/Contents/Resources/Wefax/"
+
 # AD1C DXCC-Länderdatei (cty.dat) für Rufzeichen-Zuordnung
 if [ -f "$DIR/Resources/cty.dat" ]; then
     cp "$DIR/Resources/cty.dat" "$APP_BUNDLE/Contents/Resources/cty.dat"
@@ -48,9 +51,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.19.0</string>
+    <string>0.20.0</string>
     <key>CFBundleVersion</key>
-    <string>0.19.0</string>
+    <string>0.20.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
