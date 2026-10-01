@@ -11,6 +11,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case ft4
     case dcf77
     case efr
+    case sstv
 
     public var id: String { rawValue }
 
@@ -24,12 +25,13 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .ft4:    return "FT4"
         case .dcf77:  return "DCF77"
         case .efr:    return "EFR"
+        case .sstv:   return "SSTV"
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .wefax, .ft8, .ft4, .dcf77, .efr: return true
+        case .rtty, .navtex, .cw, .wefax, .ft8, .ft4, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -44,6 +46,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]   // = FT4Band.rawValue
         case .dcf77: return ["mainflingen"]
         case .efr: return ["dcf49", "dcf39", "hga22", "custom"]
+        case .sstv: return ["20m", "40m", "80m", "10m", "iss", "2m", "custom"]
         }
     }
 }

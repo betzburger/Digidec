@@ -35,6 +35,8 @@ public final class DigidecState: ObservableObject {
     public let dcf77Controller: DCF77Controller
     public let efr = EFRSettingsStore()
     public let efrController: EFRController
+    public let sstv = SSTVSettingsStore()
+    public let sstvController: SSTVController
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -49,6 +51,7 @@ public final class DigidecState: ObservableObject {
         ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
         dcf77Controller = DCF77Controller(pipeline: audio.pipeline, settings: dcf77)
         efrController = EFRController(pipeline: audio.pipeline, settings: efr)
+        sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
 
         // Nur das gewählte Modul decodiert
         $activeModule
@@ -62,6 +65,7 @@ public final class DigidecState: ObservableObject {
                 self?.ft4Controller.setActive(module == .ft4)
                 self?.dcf77Controller.setActive(module == .dcf77)
                 self?.efrController.setActive(module == .efr)
+                self?.sstvController.setActive(module == .sstv)
             }
             .store(in: &cancellables)
 
@@ -83,10 +87,14 @@ public final class DigidecState: ObservableObject {
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             dcf77.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             efr.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
+            sstv.rigIsLSB = state.isLSB
+            sstv.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
+            sstvController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             rttyController.rigDescription = rig.description
             cwController.rigDescription = rig.description
             dcf77Controller.sourceDescription = rig.description
             efrController.sourceDescription = rig.description
+            sstvController.sourceDescription = rig.description
             rttyController.rigState = state
         }
     }
@@ -140,6 +148,9 @@ public final class DigidecState: ObservableObject {
                 case .efr:
                     if let preset = request.presetID, let st = EFRStation(rawValue: preset) { efr.station = st }
                     if let center = request.centerHz { efr.setCenter(center) }
+                case .sstv:
+                    if let preset = request.presetID, let ch = SSTVChannel(rawValue: preset) { sstv.channel = ch }
+                    if let center = request.centerHz { sstv.setCenter(center) }
                 }
             }
             lastRequestError = nil
@@ -147,6 +158,7 @@ public final class DigidecState: ObservableObject {
             rttyController.sourceDescription = request.sourceDisplayName
             dcf77Controller.sourceDescription = request.sourceDisplayName
             efrController.sourceDescription = request.sourceDisplayName
+            sstvController.sourceDescription = request.sourceDisplayName
             rig.apply(request: request)
             if audioStarted {
                 audio.apply(request: request)

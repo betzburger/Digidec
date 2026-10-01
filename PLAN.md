@@ -423,7 +423,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M14 | EFR | ✅ 01.10.2026 (v0.15.0): FSK-Demodulator (200 Baud, Shift 340 Hz, 8E1), DIN 19244 / FT1.2-Parser (Zeitsynchronisation, Rundsteuerbefehle, EEG-Abregelung), Stations-Presets DCF49 (129,1 kHz) / DCF39 (139,0 kHz) / HGA22 (135,6 kHz), FSK-Oszilloskop, Log; 433 Tests bestanden |
 | M15 | FT4 | ✅ 01.10.2026 (v0.16.0): ft8_lib FT4-Demodulator & LDPC/CRC-Decoder (7,5 s Slot, 4-GFSK, 20,8333 Baud), Bandaktivität, Rx-Frequenz, 7,5-s-Zyklus Scope/Timeline, ALL.TXT-Log; 452 Tests bestanden |
 | M16 | DXCC | ✅ 01.10.2026 (v0.17.0): ARRL/AD1C DXCC-Länderdatei (cty.dat, 346 Gebiete, 21.800 Sonderrufzeichen, 7.500 Präfixe), automatische Flaggen, CQ-/ITU-Zonen, Koordinaten, Portabel- & Gastland-Auflösung, Integration in FT8/FT4 Tabellen & Tooltips; 502 Tests bestanden |
-
+| M17 | SSTV | ✅ 01.10.2026 (v0.18.0): 11 Betriebsarten (Martin 1/2, Scottie 1/2/DX, Robot 36/72, PD 90/120/180, Wraase SC2-180), VIS-Erkennung mit Parität, Sync-Verfolgung mit Flywheel und Wiedereinrasten, Live-Bild, PNG-Ablage, Galerie; Pixel-Roundtrip aller Modi und echter Scottie-1-Mitschnitt (sigidwiki) lesbar dekodiert |
 ---
 
 ## 11. Aktueller Stand
@@ -804,7 +804,13 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Tests & Nachweis:**
     - 502 Logiktests fehlerfrei bestanden (+50 Tests für DXCC-Auflösung, DL-, US-, JA-, Antarktis-, Kreta-, Hawaii-, Portabel- und Guantanamo-Sonderfälle).
     - Release-Bundle `Digidec.app` (0.17.0 Alpha) gebaut, signiert und mit `cty.dat` paketiert.
+- **0.18.0 (01.10.2026): M17 SSTV-Decoder (Slow-Scan-Television).**
+  - **Betriebsarten:** Martin 1/2, Scottie 1/2/DX, Robot 36/72, PD 90 (320×256), PD 120/180 (640×496), Wraase SC2-180. Zeitdaten aus den Originalspezifikationen; jede Zeile wird als Liste von Abschnitten relativ zum **Ende des 1200-Hz-Sync** beschrieben (bei Scottie liegen Grün und Blau *vor* dem Sync).
+  - **Demodulator:** Quadratur-FM-Diskriminator bei 12 kHz, Tiefpass 4. Ordnung (Restwelligkeit < 3 Hz), Gleitmittel mit Zustand über Blockgrenzen. VIS-Detektor mit 2-ms-Vorglättung, Paritäts- und Stoppbitprüfung.
+  - **Engine (`SSTVCore.swift`):** Sync-Impuls = geglättete Frequenz < 1350 Hz mit Längenprüfung; Erwartungsfenster ±10 % einer Zeile (max. ±25 ms), darin gewinnt der zur Erwartung nächste Impuls; Flywheel bei Ausfall, Zeilennummer an die Zeit gebunden. Erfassung ohne VIS braucht zwei gleichabständige Impulse, nach 4 verpassten Zeilen rastet sie mit zwei Impulsen wieder ein. Nach VIS-Start Abbruch erst nach einem Viertel der Bildlänge ohne Sync, im manuellen Modus nie. Robot 36 führt R-Y/B-Y über das Zeilenpaar zusammen (Zeilenparität aus dem Trennimpuls).
+  - **Module/UI:** `SSTVSettingsStore` (Kanäle 20/40/80/10 m, ISS 145,800 MHz, 2 m, Slant, Zeilensync nachführen, Signalmitte als Frequenzversatz), `SSTVDecoder`/`SSTVController` (Konfiguration nur bei echter Änderung), `SSTVPanels.swift` (Live-Bild, Fortschritt, Galerie, PNG-Ablage `~/Documents/Digidec/SSTV`). URL: `digidec://decode?mode=sstv&preset=20m|40m|80m|10m|iss|2m|custom&center=…`.
+  - **Nachweis:** Pixel-Roundtrip aller 11 Modi (Ø-Kanalfehler ≤ 0,3/255), dazu Taktfehler +300 ppm, Rauschen ≈ 15 dB S/N in 3 kHz, 1,5 s Ausfall, Signalabbruch, VIS mit falscher Parität. **Echtes Signal:** `SSTV_Scottie_1_LSB` (sigidwiki, I/Q 32 kHz, selbst nach LSB-Audio gewandelt) wird als Bild „CQ DX / SLOW SCAN TV / EA2AFL“ lesbar dekodiert; Abstand der Syncimpulse 5138–5141 Samples = 0,4282 s wie spezifiziert. Der Mitschnitt hat Fading und Zeitsprünge (Zeilenversätze unten). Offen: Robot und PD ohne echte Gegenprobe.
 - **Nächste Schritte:**
-  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, FT4, DCF77, EFR).
+  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, FT4, DCF77, EFR, SSTV).
   - PSK31 / PSK63 (BPSK-Amateurfunk-Textübertragung auf Kurzwelle).
 

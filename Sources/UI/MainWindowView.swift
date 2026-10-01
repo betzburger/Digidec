@@ -34,6 +34,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.dcf77, audio: state.audio)
                             } else if state.activeModule == .efr {
                                 WaterfallView(model: state.waterfall, rtty: state.efr, audio: state.audio)
+                            } else if state.activeModule == .sstv {
+                                WaterfallView(model: state.waterfall, rtty: state.sstv, audio: state.audio)
                             } else {
                                 WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
                             }
@@ -56,12 +58,14 @@ public struct MainWindowView: View {
                                 DCF77MainPanel(controller: state.dcf77Controller, settings: state.dcf77)
                             } else if state.activeModule == .efr {
                                 EFRMainPanel(controller: state.efrController, settings: state.efr)
+                            } else if state.activeModule == .sstv {
+                                SSTVImagePanel(controller: state.sstvController)
                             } else {
                                 ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -107,6 +111,13 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Signal · Pegel")
                             EFRSettingsPanel(settings: state.efr, controller: state.efrController)
                                 .radioCard(title: "EFR")
+                        } else if state.activeModule == .sstv {
+                            SSTVTuningPanel(controller: state.sstvController, settings: state.sstv)
+                                .radioCard(title: "Abstimmanzeige")
+                            SSTVSettingsPanel(settings: state.sstv, controller: state.sstvController)
+                                .radioCard(title: "SSTV")
+                            SSTVGallery(controller: state.sstvController)
+                                .radioCard(title: "Bilder")
                         } else {
                             TuningPanel(controller: state.rttyController, settings: state.rtty)
                                 .radioCard(title: "Abstimmanzeige")
@@ -127,7 +138,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -340,6 +351,8 @@ private struct StatusBar: View {
     @ObservedObject var dcf77Controller: DCF77Controller
     @ObservedObject var efr: EFRSettingsStore
     @ObservedObject var efrController: EFRController
+    @ObservedObject var sstv: SSTVSettingsStore
+    @ObservedObject var sstvController: SSTVController
 
     var body: some View {
         HStack(spacing: 10) {
@@ -394,8 +407,15 @@ private struct StatusBar: View {
         case .ft4: return ft4Current
         case .dcf77: return dcf77Current
         case .efr: return efrCurrent
+        case .sstv: return sstvCurrent
         default: return current
         }
+    }
+
+    /// „SSTV · 20m · Martin 1 · Ton 1750 Hz · Empfange M1 · Zeile 120/256 (46%)“
+    private var sstvCurrent: String {
+        let modeName = (sstvController.detectedMode ?? sstv.manualMode)?.spec.name ?? "VIS Auto"
+        return "SSTV · \(sstv.channel.name) · \(modeName) · Ton \(Int(sstv.centerHz)) Hz · \(sstvController.statusMessage)"
     }
 
     /// „FT4 · 20m · Dial 14,080 MHz · 150–3600 Hz · JN49WS“

@@ -94,6 +94,9 @@ do {
     check(parse("digidec://decode?mode=efr") == .success(DecodeRequest(module: .efr, presetID: "dcf49")), "EFR-Standard dcf49")
     check(parse("digidec://decode?mode=efr&preset=dcf39&center=1500") == .success(DecodeRequest(module: .efr, presetID: "dcf39", centerHz: 1500)), "EFR DCF39 mit Center 1500 Hz")
     check(parse("digidec://decode?mode=efr&preset=hga22") == .success(DecodeRequest(module: .efr, presetID: "hga22")), "EFR HGA22")
+    check(parse("digidec://decode?mode=sstv") == .success(DecodeRequest(module: .sstv, presetID: "20m")), "SSTV-Standard 20m")
+    check(parse("digidec://decode?mode=sstv&preset=iss") == .success(DecodeRequest(module: .sstv, presetID: "iss")), "SSTV ISS-Auftrag")
+    check(parse("digidec://decode?mode=sstv&preset=40m&center=1750") == .success(DecodeRequest(module: .sstv, presetID: "40m", centerHz: 1750)), "SSTV 40m mit Center 1750 Hz")
     check(parse("digidec://decode?mode=rtty&preset=xyz") == .failure(.unknownPreset("xyz", .rtty)), "Unbekanntes Preset")
     check(parse("digidec://decode?mode=rtty&rigctl=80") == .failure(.invalidPort("80")), "Port zu klein")
     check(parse("digidec://decode?mode=rtty&rigctl=70000") == .failure(.invalidPort("70000")), "Port zu groß")
@@ -1699,7 +1702,6 @@ do {
     comp.second = 0
     comp.timeZone = cal.timeZone
     let testDate = cal.date(from: comp)!
-
     let timeBytes = EFRSignalGenerator.encodeCP56Time2a(date: testDate, isSummer: false)
     let varFrame = EFRSignalGenerator.buildVariableFrame(control: 0x73, address: 0x0C, asdu: timeBytes)
 
@@ -1870,6 +1872,227 @@ do {
         check(dl.summary.contains("🇩🇪") && dl.summary.contains("CQ 14"), "Summary enthält Flagge und Zone")
         check(dl.coordinateSummary.contains("°N") && dl.coordinateSummary.contains("°E"), "Koordinatenformat")
     }
+}
+
+// MARK: - SSTV (Slow Scan Television) Tests
+do {
+    // 1. Modus-Spezifikationen
+    check(SSTVMode.allCases.count == 11, "11 SSTV-Betriebsarten definiert")
+    check(Set(SSTVMode.allCases.map { $0.spec.visCode }).count == 11, "VIS-Codes eindeutig")
+
+    // Gesamtdauer und Auflösung gegen die Originalspezifikationen
+    let reference: [(SSTVMode, Double, Int, Int)] = [
+        (.m1, 114.3, 320, 256), (.m2, 58.1, 320, 256), (.s1, 109.6, 320, 256), (.s2, 71.1, 320, 256),
+        (.sdx, 268.9, 320, 256), (.r36, 36.0, 320, 240), (.r72, 72.0, 320, 240),
+        (.pd90, 90.0, 320, 256), (.pd120, 126.1, 640, 496), (.pd180, 187.1, 640, 496), (.w180, 182.0, 320, 256),
+    ]
+    for (mode, seconds, w, h) in reference {
+        let spec = mode.spec
+        check(abs(spec.transmissionTime - seconds) < 0.6, "\(spec.name): Dauer \(String(format: "%.1f", spec.transmissionTime)) s ≈ \(seconds) s")
+        check(spec.width == w && spec.height == h, "\(spec.name): \(spec.width)x\(spec.height) = \(w)x\(h)")
+        check(SSTVMode.from(visCode: spec.visCode) == mode, "\(spec.name): VIS-Code \(spec.visCode) → Modus")
+        // Alle Abschnitte liegen innerhalb einer Zeilenperiode
+        let spanStart = spec.earliestOffset
+        let spanEnd = spec.latestEnd
+        check(spanEnd - spanStart <= spec.lineTime + 1e-9, "\(spec.name): Abschnitte passen in eine Zeile")
+        check(spec.syncAtLineStart == (mode != .s1 && mode != .s2 && mode != .sdx), "\(spec.name): Syncposition")
+    }
+    check(SSTVMode.from(visCode: 0x7F) == nil, "Unbekannter VIS-Code → nil")
+
+    // 2. Frequenz → Pixelwert
+    check(SSTVFMDemodulator.frequencyToPixelByte(1500.0) == 0, "1500 Hz -> Pixel 0 (Schwarz)")
+    check(SSTVFMDemodulator.frequencyToPixelByte(2300.0) == 255, "2300 Hz -> Pixel 255 (Weiß)")
+    check(SSTVFMDemodulator.frequencyToPixelByte(1900.0) == 128, "1900 Hz -> Pixel 128 (Mittelgrau)")
+    check(SSTVFMDemodulator.frequencyToPixelByte(1100.0) == 0, "1100 Hz (< 1500) -> Pixel 0")
+    check(SSTVFMDemodulator.frequencyToPixelByte(2500.0) == 255, "2500 Hz (> 2300) -> Pixel 255")
+
+    // 3. FM-Diskriminator, auch über Blockgrenzen hinweg
+    let demod = SSTVFMDemodulator()
+    let gen = SSTVSignalGenerator()
+    for testFreq in [1200.0, 1500.0, 1750.0, 1900.0, 2300.0] {
+        gen.reset(); demod.reset()
+        let audio = gen.generateTone(freqHz: testFreq, durationSec: 0.100)
+        var freqs: [Double] = []
+        var i = 0
+        while i < audio.count { freqs += demod.process(samples: Array(audio[i..<min(i + 97, audio.count)])); i += 97 }
+        let settled = Array(freqs.suffix(from: 300))
+        let avg = settled.reduce(0.0, +) / Double(settled.count)
+        let worst = settled.map { abs($0 - testFreq) }.max() ?? 99
+        check(abs(avg - testFreq) < 3.0, "FM-Diskriminator \(Int(testFreq)) Hz: Mittel \(String(format: "%.1f", avg)) Hz")
+        check(worst < 12.0, "FM-Diskriminator \(Int(testFreq)) Hz: max. Abweichung \(String(format: "%.1f", worst)) Hz (Blockgrenzen ohne Sprung)")
+    }
+
+    // 4. VIS-Erkennung: alle Modi, ungerade Blockgrößen; falsche Parität wird verworfen
+    for m in SSTVMode.allCases {
+        let g = SSTVSignalGenerator()
+        let d = SSTVFMDemodulator()
+        let vis = SSTVVISDetector()
+        let audio = [Float](repeating: 0, count: 1234) + g.generateVISHeader(mode: m) + [Float](repeating: 0, count: 500)
+        var found: SSTVMode?
+        var i = 0
+        while i < audio.count {
+            let freqs = d.process(samples: Array(audio[i..<min(i + 777, audio.count)]))
+            if let r = vis.process(frequencies: freqs) { found = r.mode }
+            i += 777
+        }
+        check(found == m, "VIS erkannt: \(m.spec.name)")
+    }
+    do {
+        let g = SSTVSignalGenerator(), d = SSTVFMDemodulator(), vis = SSTVVISDetector()
+        let freqs = d.process(samples: g.generateVISHeader(mode: .m1, corruptParity: true) + [Float](repeating: 0, count: 500))
+        check(vis.process(frequencies: freqs) == nil, "VIS mit falscher Parität wird verworfen")
+    }
+
+    // 5. Roundtrip aller Modi: Testbild erzeugen, in kleinen Blöcken dekodieren, Pixel gegen das Muster prüfen
+    func rgba(_ img: CGImage) -> [UInt8] {
+        var buf = [UInt8](repeating: 0, count: img.width * img.height * 4)
+        let ctx = CGContext(data: &buf, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: img.width * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+        return buf
+    }
+
+    /// Anteil falscher Pixel (Kanalabweichung > 48) in den Balkenmitten und mittlerer Kanalfehler.
+    func patternError(_ img: CGImage) -> (bad: Double, mean: Double) {
+        let px = rgba(img)
+        let w = img.width, h = img.height
+        var bad = 0.0, sum = 0.0, n = 0.0
+        for y in 0..<h {
+            for bar in 0..<8 {
+                let x = bar * w / 8 + w / 16
+                let want = SSTVSignalGenerator.testPatternColor(x: x, line: y, width: w)
+                let o = (y * w + x) * 4
+                let err = [abs(Int(px[o]) - Int(want.r)), abs(Int(px[o + 1]) - Int(want.g)), abs(Int(px[o + 2]) - Int(want.b))]
+                sum += Double(err.reduce(0, +)) / 3.0
+                if err.max()! > 48 { bad += 1 }
+                n += 1
+            }
+        }
+        return (bad / n, sum / n)
+    }
+
+    struct Reception { var image: CGImage?; var detected: SSTVMode?; var lostAt: Int?; var lines = 0 }
+
+    func receive(_ audio: [Float], chunk: Int = 1000, manual: SSTVMode? = nil) -> Reception {
+        let engine = SSTVDecoderEngine()
+        var r = Reception()
+        engine.onModeDetected = { r.detected = $0 }
+        engine.onLineDecoded = { line, _, _ in r.lines = line }
+        engine.onImageCompleted = { img, _, _ in r.image = img }
+        engine.onReceptionLost = { line, _, _ in r.lostAt = line }
+        if let m = manual { engine.startManualMode(m) }
+        var i = 0
+        while i < audio.count { engine.process(audioSamples: Array(audio[i..<min(i + chunk, audio.count)])); i += chunk }
+        return r
+    }
+
+    func transmission(_ mode: SSTVMode) -> [Float] {
+        let g = SSTVSignalGenerator()
+        return [Float](repeating: 0, count: 6000) + g.generateFullTestSignal(mode: mode) + [Float](repeating: 0, count: 12000)
+    }
+
+    for mode in SSTVMode.allCases {
+        let spec = mode.spec
+        let r = receive(transmission(mode))
+        check(r.detected == mode, "\(spec.name): VIS-Start erkannt")
+        if let img = r.image {
+            check(img.width == spec.width && img.height == spec.height, "\(spec.name): Bildgröße \(img.width)x\(img.height)")
+            let e = patternError(img)
+            check(e.bad < 0.005, "\(spec.name): Pixel stimmen (falsch: \(String(format: "%.2f", e.bad * 100)) %, Ø-Fehler \(String(format: "%.1f", e.mean))/255)")
+            check(e.mean < 2.0, "\(spec.name): mittlerer Kanalfehler \(String(format: "%.1f", e.mean)) < 2")
+        } else {
+            check(false, "\(spec.name): Bild wurde nicht fertig (Zeile \(r.lines)/\(spec.height))")
+        }
+    }
+
+    // 6. Robustheit (Martin 2, Robot 36, Scottie 2)
+    func stretched(_ x: [Float], ppm: Double) -> [Float] {
+        // Abtasttakt-Abweichung: lineare Interpolation mit Faktor (1+ppm)
+        let ratio = 1.0 + ppm * 1e-6
+        let n = Int(Double(x.count) / ratio) - 2
+        return (0..<n).map { i in
+            let p = Double(i) * ratio
+            let k = Int(p), f = Float(p - Double(k))
+            return x[k] * (1 - f) + x[k + 1] * f
+        }
+    }
+    struct Rng { var s: UInt64 = 0x9E3779B97F4A7C15
+        mutating func next() -> Double {   // gleichverteilt −1…1
+            s = s &* 6364136223846793005 &+ 1442695040888963407
+            return Double(s >> 11) / Double(1 << 53) * 2 - 1
+        } }
+
+    for mode in [SSTVMode.m2, .r36, .s2] {
+        let name = mode.spec.name
+        let base = transmission(mode)
+
+        let drift = receive(stretched(base, ppm: 300))
+        if let img = drift.image { check(patternError(img).bad < 0.02, "\(name): +300 ppm Taktfehler (je Zeile nachsynchronisiert)") }
+        else { check(false, "\(name): +300 ppm Taktfehler – Bild unvollständig (Zeile \(drift.lines))") }
+
+        var rng = Rng()
+        let noisy = base.map { $0 + Float(rng.next() * 0.25) }   // Weißrauschen, ≈ 15 dB S/N in 3 kHz
+        let nr = receive(noisy)
+        if let img = nr.image { check(patternError(img).bad < 0.15, "\(name): Rauschen ≈ 15 dB S/N (3 kHz), Bild komplett (falsch: \(String(format: "%.1f", patternError(img).bad * 100)) %)") }
+        else { check(false, "\(name): Rauschen – Bild unvollständig (Zeile \(nr.lines))") }
+
+        // 1,5 s Signalausfall mitten im Bild: Flywheel hält den Takt, Bild wird trotzdem fertig
+        var gap = base
+        let mid = gap.count / 2
+        for i in mid..<(mid + 18000) { gap[i] = 0 }
+        let gr = receive(gap)
+        check(gr.image != nil && gr.lostAt == nil, "\(name): Signalausfall 1,5 s überbrückt (Zeile \(gr.lines))")
+        if let img = gr.image {
+            // Ein Ausfall betrifft nur einige Zeilen; die untere Bildhälfte muss wieder stimmen
+            let px = rgba(img)
+            let w = img.width, h = img.height
+            var ok = 0, n = 0
+            for y in stride(from: h * 3 / 4, to: h - 4, by: 1) {
+                let x = w / 16
+                let want = SSTVSignalGenerator.testPatternColor(x: x, line: y, width: w)
+                let o = (y * w + x) * 4
+                n += 1
+                if abs(Int(px[o]) - Int(want.r)) < 48 && abs(Int(px[o + 1]) - Int(want.g)) < 48 { ok += 1 }
+            }
+            check(Double(ok) / Double(n) > 0.95, "\(name): Zeilen nach dem Ausfall wieder korrekt ausgerichtet")
+        }
+
+        // Sender bricht mitten im Bild ab → nach einem Viertel der Bildlänge ohne Sync wird der Empfang als verloren gemeldet, Teilbild bleibt
+        let cut = Array(base[0..<(base.count / 3)]) + [Float](repeating: 0, count: Int(mode.spec.lineTime * 12000 * Double(mode.spec.height / mode.spec.linesPerSync / 4 + 12)))
+        let cr = receive(cut)
+        check(cr.image == nil && cr.lostAt != nil, "\(name): Abbruch erkannt (verloren bei Zeile \(cr.lostAt ?? -1))")
+    }
+
+    // 7. Manuell gestarteter Empfang ohne VIS (Martin 1, erste Zeile direkt mit Sync)
+    do {
+        let g = SSTVSignalGenerator()
+        var audio = g.generateTone(freqHz: 1500.0, durationSec: 0.05)
+        for line in 0..<4 { audio += g.generateColorBarLine(mode: .m1, lineIndex: line) }
+        audio += g.generateTone(freqHz: 1500.0, durationSec: 0.02)   // Nachlauf: der Demodulator verzögert um einige Samples
+        let engine = SSTVDecoderEngine()
+        var lines = 0
+        engine.onLineDecoded = { l, _, _ in lines = l }
+        engine.startManualMode(.m1)
+        engine.process(audioSamples: audio)
+        check(lines == 4, "Martin 1 manuell: 4 Zeilen dekodiert (got \(lines))")
+        check(engine.createCGImage()?.width == 320, "Martin 1 manuell: Bildbreite 320")
+    }
+
+    // 8. SSTV Kanäle & Einstellungen
+    check(SSTVChannel.twenty.frequencyHz == 14_230_000, "20m Kanal = 14.230 MHz")
+    check(SSTVChannel.twenty.modulation == "USB", "20m Modulation = USB")
+    check(SSTVChannel.forty.frequencyHz == 7_171_000, "40m Kanal = 7.171 MHz")
+    check(SSTVChannel.forty.modulation == "LSB", "40m Modulation = LSB")
+    check(SSTVChannel.eighty.frequencyHz == 3_730_000, "80m Kanal = 3.730 MHz")
+    check(SSTVChannel.iss.frequencyHz == 145_800_000, "ISS Kanal = 145.800 MHz")
+    check(SSTVChannel.iss.modulation == "FM", "ISS Modulation = FM")
+    check(SSTVChannel.two.frequencyHz == 144_500_000, "2m Kanal = 144.500 MHz")
+
+    let store = SSTVSettingsStore()
+    store.setCenter(SSTVSettingsStore.centerDefault)
+    check(store.tones.mark == 2300.0, "Mark-Frequenz = 2300 Hz (Weiß)")
+    check(store.tones.space == 1500.0, "Space-Frequenz = 1500 Hz (Schwarz)")
+    check(store.markerBandwidth == 1100.0, "Bandbreite = 1100 Hz")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")
