@@ -6,6 +6,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case rtty
     case navtex
     case cw
+    case psk
     case wefax
     case ft8
     case ft4
@@ -21,6 +22,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .rtty:   return "RTTY"
         case .navtex: return "NAVTEX"
         case .cw:     return "CW"
+        case .psk:    return "PSK"
         case .wefax:  return "WEFAX"
         case .ft8:    return "FT8"
         case .ft4:    return "FT4"
@@ -33,7 +35,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -43,6 +45,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .rtty: return ["ham", "dwd-kw", "dwd-lw", "custom"]
         case .navtex: return ["518", "490", "4209"]   // = NavtexFrequency.rawValue
         case .cw: return ["ham"]
+        case .psk: return ["bpsk31", "bpsk63", "bpsk125", "bpsk250", "qpsk31", "qpsk63", "qpsk125", "qpsk250"]   // = PSKMode.rawValue
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue
         case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]   // = FT4Band.rawValue

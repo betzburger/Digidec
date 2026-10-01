@@ -25,6 +25,8 @@ public final class DigidecState: ObservableObject {
     public let navtexController: NavtexController
     public let cw = CWSettingsStore()
     public let cwController: CWController
+    public let psk = PSKSettingsStore()
+    public let pskController: PSKController
     public let wefax = WefaxSettingsStore()
     public let wefaxController: WefaxController
     public let ft8 = FT8SettingsStore()
@@ -61,6 +63,7 @@ public final class DigidecState: ObservableObject {
         rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
         navtexController = NavtexController(pipeline: audio.pipeline, settings: navtex)
         cwController = CWController(pipeline: audio.pipeline, settings: cw)
+        pskController = PSKController(pipeline: audio.pipeline, settings: psk)
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
         ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
@@ -78,6 +81,7 @@ public final class DigidecState: ObservableObject {
                 self?.rttyController.decoder.setEnabled(module == .rtty)
                 self?.navtexController.setActive(module == .navtex)
                 self?.cwController.setActive(module == .cw)
+                self?.pskController.setActive(module == .psk)
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
                 self?.ft4Controller.setActive(module == .ft4)
@@ -93,6 +97,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(ft8.$band)
         observeForTuning(ft4.$band)
         observeForTuning(wspr.$band)
+        observeForTuning(psk.$band)
         observeForTuning(sstv.$channel)
         observeForTuning(efr.$station)
         observeForTuning(wefax.$station)
@@ -122,6 +127,7 @@ public final class DigidecState: ObservableObject {
             sstvController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             rttyController.rigDescription = rig.description
             cwController.rigDescription = rig.description
+            pskController.rigDescription = rig.description
             dcf77Controller.sourceDescription = rig.description
             efrController.sourceDescription = rig.description
             sstvController.sourceDescription = rig.description
@@ -144,6 +150,7 @@ public final class DigidecState: ObservableObject {
         case .ft8:    return .ft8(band: ft8.band)
         case .ft4:    return .ft4(band: ft4.band)
         case .wspr:   return .wspr(band: wspr.band)
+        case .psk:    return .psk(band: psk.band)
         case .sstv:   return .sstv(channel: sstv.channel)
         case .efr:    return .efr(station: efr.station, centerHz: efr.centerHz)
         case .dcf77:  return .dcf77(centerHz: dcf77.centerHz)
@@ -207,6 +214,9 @@ public final class DigidecState: ObservableObject {
                     if let center = request.centerHz { navtex.setCenter(center) }
                 case .cw:
                     if let center = request.centerHz { cw.setCenter(center) }
+                case .psk:
+                    if let preset = request.presetID, let m = PSKMode(rawValue: preset) { psk.options.mode = m }
+                    if let center = request.centerHz { psk.setCenter(center) }
                 case .ft8:
                     if let preset = request.presetID, let b = FT8Band(rawValue: preset) { ft8.band = b }
                 case .ft4:

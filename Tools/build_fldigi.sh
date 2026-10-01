@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="${0:A:h:h}"
 OUT="$1"
 F="$ROOT/Vendor/Fldigi"
-INC=(-I$F/include -I$F/src -I$F/src/common -I$F/src/rtty -I$F/src/synop -I$F/src/misc -I$F/src/navtex -I$F/src/cw -I$F/src/wefax -I$F/compat)
+INC=(-I$F/include -I$F/src -I$F/src/common -I$F/src/rtty -I$F/src/synop -I$F/src/misc -I$F/src/navtex -I$F/src/cw -I$F/src/wefax -I$F/src/psk -I$F/compat)
 mkdir -p "$OUT/obj" "$OUT/module"
 cc -O2 -w -I$F/src -c $F/src/compat/regex.c -o "$OUT/obj/regex.o"
 for c in $F/src/**/*.cpp; do
@@ -33,6 +33,7 @@ module Fldigi {
     header "$F/include/fldigi_navtex.h"
     header "$F/include/fldigi_cw.h"
     header "$F/include/fldigi_wefax.h"
+    header "$F/include/fldigi_psk.h"
     export *
 }
 module FT8 {

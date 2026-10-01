@@ -3011,5 +3011,132 @@ do {
     pipeline.stop()
 }
 
+// MARK: - PSK: Betriebsarten, URL, Text, Bänder
+do {
+    check(parse("digidec://decode?mode=psk&preset=qpsk63&center=1200") == .success(DecodeRequest(module: .psk, presetID: "qpsk63", centerHz: 1200)), "PSK-Auftrag QPSK63 mit Mitte")
+    check(parse("digidec://decode?mode=psk") == .success(DecodeRequest(module: .psk, presetID: "bpsk31")), "PSK-Standard BPSK31")
+    check(Set(PSKMode.allCases.map(\.rawValue)) == Set(DecoderModuleInfo.psk.presetIDs), "PSK-Betriebsarten = IDs im URL-Schema")
+    check(PSKMode.bpsk31.baud == 31.25 && PSKMode.qpsk125.baud == 125 && PSKMode.bpsk250.baud == 250 && PSKMode.qpsk31.isQPSK && !PSKMode.bpsk63.isQPSK, "PSK: Symbolraten und Art")
+    check(RigTuneTarget.psk(band: .free) == nil && RigTuneTarget.psk(band: .m20) == RigTuneTarget(dialHz: 14_070_000, mode: "USB"), "QSY: PSK 20 m = 14,070 MHz USB, frei = nichts")
+    check(PSKDecoder.text(from: Array("CQ CQ\r\nDE DL1ABC\t K\u{0}".utf8)) == "CQ CQ\nDE DL1ABC\t K", "PSK: CR fällt weg, LF bleibt, NUL fällt weg")
+    check(PSKDecoder.text(from: [0x48, 0xE4, 0x6C, 0x6C, 0xF6]) == "Hällö", "PSK: 8-Bit-Zeichen als Latin-1")
+}
+
+// MARK: - PSK-Empfänger aus fldigi (synthetisch): alle Betriebsarten, AFC, Rauschen, Squelch
+do {
+    var state: UInt64 = 0x5555AAAA
+    func gauss() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(state >> 11) + 1) / Double((1 << 53) + 2)
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(state >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+    let text = "CQ CQ CQ DE DL1ABC DL1ABC PSE K\r\nThe quick brown fox 0123456789\r\n"
+    let expected = PSKDecoder.text(from: Array(text.utf8))
+    func run(_ mode: PSKMode, signalHz: Double, startHz: Double? = nil, snr: Double? = nil, afc: Bool = true, squelch: Bool = true) -> (text: String, center: Double, dcd: Bool)? {
+        guard var x = FldigiPSKCore.synthesize(text, mode: mode, centerHz: signalHz) else { return nil }
+        x = [Float](repeating: 0, count: 8_000) + x + [Float](repeating: 0, count: 8_000)
+        if let snr {
+            let sigma = sqrt(0.5 / pow(10, snr / 10) / (2500.0 / 4000.0))
+            for i in 0..<x.count { x[i] += Float(gauss() * sigma) }
+        }
+        var bytes: [UInt8] = []
+        var o = FldigiPSKCore.Options()
+        o.mode = mode; o.afc = afc; o.squelchOn = squelch
+        let core = FldigiPSKCore(options: o, centerHz: startHz ?? signalHz) { bytes.append($0) }
+        x.withUnsafeBufferPointer { core.process($0) }
+        let st = core.status
+        return (PSKDecoder.text(from: bytes), st.centerHz, st.dcd)
+    }
+
+    // Alle Betriebsarten, sauberes Signal; QPSK verliert am Ende ggf. den Zeilenumbruch (Viterbi-Verzögerung)
+    for (i, m) in PSKMode.allCases.enumerated() {
+        if let r = run(m, signalHz: 800 + Double(i) * 150) {
+            check(r.text == expected || r.text == String(expected.dropLast()), "PSK \(m.displayName): Text, got \(r.text.debugDescription)")
+            check(abs(r.center - (800 + Double(i) * 150)) < 1.0, "PSK \(m.displayName): Mitte \(r.center)")
+        } else {
+            check(false, "PSK \(m.displayName): Testsignal nicht erzeugt")
+        }
+    }
+
+    // AFC zieht eine um wenige Hz falsche Mitte heran; ohne AFC nicht
+    for off in [-6.0, 4.0] {
+        if let r = run(.bpsk31, signalHz: 1000, startHz: 1000 + off) {
+            check(r.text == expected && abs(r.center - 1000) < 1.0, "PSK AFC bei \(off) Hz Versatz: Mitte \(r.center), Text \(r.text == expected)")
+        }
+    }
+    if let r = run(.bpsk31, signalHz: 1000, startHz: 1016, afc: false) {
+        check(r.center == 1016 && r.text != expected, "PSK ohne AFC: Mitte bleibt 1016 Hz und der Text ist gestört")
+    }
+
+    // Rauschen (S/N in 2500 Hz): BPSK31 hält bis −4 dB, die schnelleren Arten brauchen mehr
+    for (m, snr) in [(PSKMode.bpsk31, 0.0), (.bpsk31, -4.0), (.bpsk63, 3.0), (.bpsk125, 8.0), (.qpsk31, 5.0), (.qpsk63, 8.0)] {
+        if let r = run(m, signalHz: 1200, snr: snr) {
+            let ok = zip(r.text, expected).filter { $0 == $1 }.count
+            check(Double(ok) / Double(expected.count) >= 0.97, "PSK \(m.displayName) bei \(Int(snr)) dB S/N: \(ok)/\(expected.count) Zeichen richtig")
+        }
+    }
+
+    // Squelch: nur Rauschen → nichts; ohne Squelch wird Rauschen decodiert
+    var onlyNoise = [Float](repeating: 0, count: 8_000 * 30)
+    let sig = sqrt(0.5 / pow(10, 0.0 / 10) / (2500.0 / 4000.0))
+    for i in 0..<onlyNoise.count { onlyNoise[i] = Float(gauss() * sig) }
+    func noiseOutput(squelch: Bool) -> Int {
+        var bytes: [UInt8] = []
+        var o = FldigiPSKCore.Options()
+        o.squelchOn = squelch
+        let core = FldigiPSKCore(options: o, centerHz: 1000) { bytes.append($0) }
+        onlyNoise.withUnsafeBufferPointer { core.process($0) }
+        return bytes.count
+    }
+    check(noiseOutput(squelch: true) <= 3, "PSK: Squelch an unterdrückt Rauschen (\(noiseOutput(squelch: true)) Zeichen)")
+    check(noiseOutput(squelch: false) > 10, "PSK: ohne Squelch erscheint Rauschen als Zeichen")
+
+    // Statusanzeigen: Träger erkannt, S/N, Phasenvektor
+    if var x = FldigiPSKCore.synthesize(text, mode: .bpsk31, centerHz: 1000) {
+        x = [Float](repeating: 0, count: 4_000) + x
+        let core = FldigiPSKCore(options: FldigiPSKCore.Options(), centerHz: 1000) { _ in }
+        let half = x.count / 2
+        x[0..<half].withUnsafeBufferPointer { core.process($0) }
+        let st = core.status
+        check(st.dcd && st.metric > 50 && st.snrDB > 20 && st.bandwidthHz == 31.25, "PSK: DCD \(st.dcd), Qualität \(st.metric), S/N \(st.snrDB) dB, Bandbreite \(st.bandwidthHz)")
+        let sc = core.scope()
+        check(sc.count == 64 && sc.contains { abs(cos($0.phase)) > 0.9 }, "PSK: Phasenvektor liefert 64 Symbole (\(sc.count))")
+    }
+}
+
+// MARK: - PSK-Zyklus über die Pipeline (48 kHz → 8 kHz)
+do {
+    let pipeline = AudioPipeline()
+    let decoder = PSKDecoder(pipeline: pipeline)
+    var o = FldigiPSKCore.Options()
+    o.mode = .bpsk63
+    decoder.configure(options: o, centerHz: 1300)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    let msg = "CQ CQ DE DL1ABC K\r\n"
+    let audio8 = [Float](repeating: 0, count: 4_000) + (FldigiPSKCore.synthesize(msg, mode: .bpsk63, centerHz: 1300) ?? []) + [Float](repeating: 0, count: 8_000)
+    var audio48 = [Float](repeating: 0, count: audio8.count * 6)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 6, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio8[k] * (1 - f) + (k + 1 < audio8.count ? audio8[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    while i < audio48.count {
+        let n = min(4_800, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.004)
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    let out = decoder.takeOutput()
+    check(out.text == "CQ CQ DE DL1ABC K\n", "PSK über die Pipeline 48 kHz → 8 kHz, got \(out.text.debugDescription)")
+    check(out.status?.dcd == false || out.status != nil, "PSK: Status verfügbar")
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

@@ -59,6 +59,14 @@ func run() {
     save(FT8Table(entries: entries, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "Bandaktivität"),
          width: 700, name: "ft8_tabelle", dir: dir)
 
+    // PSK
+    let ps = PSKSettingsStore()
+    let psc = PSKController(pipeline: pipeline, settings: ps)
+    save(VStack(spacing: 10) {
+        PSKTuningPanel(controller: psc, settings: ps).radioCard(title: "Abstimmanzeige")
+        PSKSettingsPanel(settings: ps).radioCard(title: "PSK")
+    }, width: right, name: "psk_rechts", dir: dir)
+
     // WSPR
     let ws = WSPRSettingsStore()
     let wsc = WSPRController(pipeline: pipeline, settings: ws)

@@ -47,6 +47,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/NAVTEX/FldigiNavtexCore.swift $S/Decoders/NAVTEX/NavtexSettingsStore.swift \
     $S/Decoders/NAVTEX/NavtexDecoder.swift $S/Decoders/NAVTEX/NavtexController.swift $S/Models/TuningTarget.swift \
     $S/Decoders/CW/FldigiCWCore.swift $S/Decoders/CW/CWModule.swift \
+    $S/Decoders/PSK/FldigiPSKCore.swift $S/Decoders/PSK/PSKModule.swift \
     $S/Decoders/WEFAX/FldigiWefaxCore.swift $S/Decoders/WEFAX/WefaxModule.swift $S/Decoders/WEFAX/WefaxSchedule.swift $S/Decoders/WEFAX/WefaxImageTools.swift $S/Decoders/WEFAX/WefaxScheduleStore.swift \
     $S/Models/BroadcastSchedule.swift $S/Models/DWDPlanFetcher.swift $S/Decoders/RTTY/RttySchedule.swift $S/Decoders/RTTY/RttyScheduleStore.swift \
     $S/Decoders/NAVTEX/NavtexPlan.swift $S/Decoders/NAVTEX/NavtexPlanStore.swift \

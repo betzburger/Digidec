@@ -429,6 +429,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M19 | WEFAX-Sendeplan | ✅ 01.10.2026 (v0.20.0): DWD-Radiofax-Sendeplan aus dem Netz (Knopf „Aktualisieren“), Plan-Fenster, Auswahl von Sendungen zur automatischen Aufnahme |
 | M20 | Sendepläne RTTY und NAVTEX | ✅ 01.10.2026 (v0.23.0): gemeinsames Plan-Fenster (WEFAX, RTTY, NAVTEX), RTTY-Plan aus den DWD-PDFs mit „Aktualisieren“, NAVTEX nach IMO-Raster, gemeinsame automatische Aufnahme |
 | M21 | WSPR | ✅ 01.10.2026 (v0.24.0): wsprd aus WSJT-X (`Vendor/Wspr`, pocketfft statt FFTW), 2-Minuten-Zyklus, 16 Bänder, Spotliste mit Entfernung/DXCC/Leistung, Typ 1/2/3 mit Hashtabelle, ALL_WSPR-Log; auf dem WSJT-X-Beispiel dieselben 8 Meldungen wie das Original; Live-Empfang durch den Nutzer offen |
+| M22 | PSK | ✅ 01.10.2026 (v0.25.0): fldigi-PSK-Empfänger (`Vendor/Fldigi/src/psk`): BPSK31/63/125/250 und QPSK31/63/125/250, AFC, Squelch, DCD, S/N und IMD, Phasenvektor, Bänder für QSY, Log, `decode_file.sh --psk`; synthetisch geprüft, Live-Empfang offen |
 ---
 
 ## 11. Aktueller Stand
@@ -874,8 +875,17 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Tests:** 923 Logiktests (neu: Bänder/URL/QSY, Meldungen, Log-Zeile, sauberes Signal, Frequenz-/Zeitversatz, ±110/±150 Hz, drei Stationen, Weißrauschen bis −24 dB, Typ 2 und 3, Hashtabelle, echte WSJT-X-Aufnahme (nur wenn `Vendor/_upstream/wsjtx` vorhanden), Zyklus über die Pipeline mit simulierter Uhr).
   - **Grenzen:** Keine OSD-Stufe (Fortran, in wsprd optional). Typ-3-Meldungen zeigen `<...>`, bis das Rufzeichen einmal als Typ 1/2 gehört wurde. Nur WSPR-2 (kein WSPR-15). Digidec sendet nie.
   - **Offen (braucht den Nutzer):** Live-Empfang, z. B. 20 m (Dial 14,0956 MHz USB) oder 40 m (7,0386 MHz). Rechneruhr auf ±1 s (WSPR verträgt ± 2 s); DT der Stationen beobachten, sonst Zeitkorrektur.
+- **0.25.0 (01.10.2026): M22 PSK31/63 (und 125/250, QPSK).**
+  - **Kern:** `Vendor/Fldigi/src/psk`, erzeugt von `port_psk.py` aus fldigi 4.2.13 `psk.cxx`/`psk.h` (Funktionen wörtlich, Klammerzählung wie bei CW). Dazu `pskcoeff`, `pskvaricode`, `viterbi`, `interleave`, `mfskvaricode` unverändert, Umgebung `psk_compat.h`, C-Schnittstelle `fldigi_psk.h`. Nur Empfang; Senden, Mehrkanal-Ansicht (`viewpsk`), `pskeval` und PSKmail entfallen. Im Konstruktor bleiben alle fldigi-Betriebsarten, die C-Schnittstelle bietet BPSK/QPSK 31–250 an. Herkunft und Abweichungen: `Vendor/Fldigi/UPSTREAM_PSK.md`. Nur ein PSK-Decoder gleichzeitig (file-static-Zustand wie bei CW).
+  - **Swift:** `FldigiPSKCore` (Optionen, Status, Phasenvektor, Testsignal), `PSKModule` (`PSKSettingsStore` mit Modus, Mitte, AFC, Squelch, REV, Band; `PSKDecoder` 8-kHz-Senke, `PSKController` mit Text, Log `PSK-JJJJ-MM-TT.txt`, AFC-Mitte folgt dem Wasserfall-Marker), Panels: Empfangstext, Abstimmanzeige (DCD, Phasenvektor, Signal, S/N, IMD), Einstellungen. URL `digidec://decode?mode=psk&preset=bpsk31|bpsk63|bpsk125|bpsk250|qpsk31|…&center=…`. Bandwahl (160 … 10 m, PSK31-Anruffrequenz, USB) stimmt mit QSY AUTO das Funkgerät ab; „frei“ stimmt nichts ab.
+  - **Nachweis (synthetisch, Sendeseite nach fldigi):** alle acht Betriebsarten fehlerfrei; AFC holt ± 6 Hz Versatz heran (ohne AFC bei +16 Hz gestört); BPSK31 hält bis −4 dB S/N (2500 Hz) alle Zeichen, BPSK63 bei 3 dB, BPSK125 bei 8 dB, QPSK31 bei 5 dB, QPSK63 bei 8 dB; Squelch unterdrückt Rauschen; Pipeline 48 kHz → 8 kHz.
+  - **Werkzeuge:** `Tools/DecodeFile/decode_file.sh <wav> --psk bpsk31 --center 1000 [--noafc] [--rev] [--compare fldigi.txt]`. `decode_file.sh` baut jetzt alle App-Quellen (außer `DigidecApp.swift`) statt einer festen Liste; der Aufruf war seit 0.19.0 (`RigCommand`) nicht mehr übersetzbar.
+  - **Tests:** 962 Logiktests.
+  - **Offen (braucht den Nutzer):** Live-Empfang, z. B. 20 m (Dial 14,070 MHz USB, Signale bei 1000 Hz ± ; PSK31 liegt meist 14,070 … 14,073). Klick auf das Signal im Wasserfall, AFC an. Vergleich mit fldigi auf derselben Aufnahme steht aus (Werkzeug `--compare` ist da). Keine WAV-Aufnahme (REC) im PSK-Modul.
 - **Nächste Schritte:**
-  - PSK31 / PSK63 (BPSK-Amateurfunk-Textübertragung auf Kurzwelle).
+  - Live-Tests der neuen Module (WSPR, PSK) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
+  - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
+  - Weitere Module aus Abschnitt 9: POCSAG/DTMF (multimon-ng), APRS 1200 (direwolf), ACARS (acarsdec), JT65/JT9 (WSJT-X).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
   - Live-Tests der übrigen Module (WSPR, WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
 

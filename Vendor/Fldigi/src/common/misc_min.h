@@ -28,4 +28,19 @@ inline double decayavg(double average, double input, int weight)
 	return ( ( input - average ) / (double)weight ) + average ;
 }
 
+// misc.cxx (Bitzähler für den Viterbi-Decoder, 1:1)
+inline unsigned long hweight32(unsigned long w)
+{
+	unsigned long res = (w & 0x55555555) + ((w >> 1) & 0x55555555);
+	res = (res & 0x33333333) + ((res >> 2) & 0x33333333);
+	res = (res & 0x0F0F0F0F) + ((res >> 4) & 0x0F0F0F0F);
+	res = (res & 0x00FF00FF) + ((res >> 8) & 0x00FF00FF);
+	return (res & 0x0000FFFF) + ((res >> 16) & 0x0000FFFF);
+}
+
+inline int parity(unsigned long w)
+{
+	return hweight32(w) & 1;
+}
+
 #endif

@@ -24,6 +24,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.navtex, audio: state.audio)
                             } else if state.activeModule == .cw {
                                 WaterfallView(model: state.waterfall, rtty: state.cw, audio: state.audio)
+                            } else if state.activeModule == .psk {
+                                WaterfallView(model: state.waterfall, rtty: state.psk, audio: state.audio)
                             } else if state.activeModule == .wefax {
                                 WaterfallView(model: state.waterfall, rtty: state.wefax, audio: state.audio)
                             } else if state.activeModule == .ft8 {
@@ -50,6 +52,8 @@ public struct MainWindowView: View {
                                 NavtexReceivePanel(controller: state.navtexController)
                             } else if state.activeModule == .cw {
                                 CWReceivePanel(controller: state.cwController)
+                            } else if state.activeModule == .psk {
+                                PSKReceivePanel(controller: state.pskController)
                             } else if state.activeModule == .wefax {
                                 WefaxImagePanel(controller: state.wefaxController, schedule: state.wefaxSchedule, auto: state.autoRecorder, openSchedule: { state.scheduleSheet = .wefax })
                             } else if state.activeModule == .ft8 {
@@ -86,6 +90,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             CWSettingsPanel(settings: state.cw)
                                 .radioCard(title: "CW")
+                        } else if state.activeModule == .psk {
+                            PSKTuningPanel(controller: state.pskController, settings: state.psk)
+                                .radioCard(title: "Abstimmanzeige")
+                            PSKSettingsPanel(settings: state.psk)
+                                .radioCard(title: "PSK")
                         } else if state.activeModule == .wefax {
                             WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.autoRecorder)
                                 .radioCard(title: "Abstimmanzeige")
@@ -147,7 +156,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -422,6 +431,7 @@ private struct StatusBar: View {
     @ObservedObject var navtex: NavtexSettingsStore
     @ObservedObject var cw: CWSettingsStore
     @ObservedObject var wefax: WefaxSettingsStore
+    @ObservedObject var psk: PSKSettingsStore
     @ObservedObject var ft8: FT8SettingsStore
     @ObservedObject var ft4: FT4SettingsStore
     @ObservedObject var ft4Controller: FT4Controller
@@ -481,6 +491,7 @@ private struct StatusBar: View {
         switch state.activeModule {
         case .navtex: return navtexCurrent
         case .cw: return cwCurrent
+        case .psk: return pskCurrent
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current
         case .ft4: return ft4Current
@@ -505,6 +516,16 @@ private struct StatusBar: View {
         s += " · \(Int(ft4.core.minHz))–\(Int(ft4.core.maxHz)) Hz"
         s += " · \(ft4.locator)"
         if !ft4.myCall.isEmpty { s += " · \(ft4.myCall)" }
+        return s
+    }
+
+    /// „PSK · BPSK31 · Mitte 1000 Hz · AFC · SQL 5“
+    private var pskCurrent: String {
+        var s = "PSK · \(psk.options.mode.displayName) · Mitte \(Int(psk.centerHz.rounded())) Hz"
+        s += psk.options.afc ? " · AFC" : " · AFC aus"
+        if psk.options.reverse { s += " · REV" }
+        s += psk.options.squelchOn ? " · SQL \(Int(psk.options.squelch))" : " · SQL aus"
+        if let d = psk.band.dialHz { s += String(format: " · %.3f MHz", Double(d) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
         return s
     }
 

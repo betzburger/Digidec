@@ -20,6 +20,9 @@ func usage() -> Never {
       --wpm <n>             CW-Startgeschwindigkeit (Standard 18, Nachführung ±10)
       --mf                  CW Matched Filter (Bandbreite 2 × WpM)
 
+      --psk <modus>         PSK (fldigi-PSK-Empfänger): bpsk31 | bpsk63 | bpsk125 | bpsk250 | qpsk31 … qpsk250;
+                            dazu --center <Träger-Hz> (Standard 1000); --noafc schaltet die Frequenznachführung ab, --rev kehrt QPSK um
+
       --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
       --lpm <n>             WEFAX Zeilen je Minute (Standard 120)
       --shift <Hz>          WEFAX Hub (Standard 800, DWD 850); --center <Hz> NF-Mitte (Standard 1900)
@@ -48,6 +51,9 @@ var synopOut = false
 var cwMode = false
 var cwWPM = 18
 var cwMF = false
+var pskModeID: String?
+var pskAFC = true
+var pskReverse = false
 var wefaxMode = false
 var wefaxLPM = 120
 var wefaxShift = 800
@@ -70,6 +76,9 @@ while !args.isEmpty {
     case "--cw": cwMode = true
     case "--wpm": cwWPM = Int(value()) ?? 18
     case "--mf": cwMF = true
+    case "--psk": pskModeID = value()
+    case "--noafc": pskAFC = false
+    case "--rev": pskReverse = true
     case "--wefax": wefaxMode = true
     case "--lpm": wefaxLPM = Int(value()) ?? 120
     case "--shift": wefaxShift = Int(value()) ?? 800
@@ -182,6 +191,52 @@ if wefaxMode {
         }
     }
     if images.isEmpty { print("Kein Bild erkannt") }
+    exit(0)
+}
+
+// MARK: - PSK
+
+if let pskModeID {
+    guard let mode = PSKMode(rawValue: pskModeID.lowercased()) else {
+        print("Unbekannte PSK-Betriebsart: \(pskModeID)")
+        exit(1)
+    }
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: FldigiPSKCore.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    var o = FldigiPSKCore.Options()
+    o.mode = mode
+    o.afc = pskAFC
+    o.reverse = pskReverse
+    let carrier = center ?? 1000
+    print("PSK · \(mode.displayName) · Träger \(Int(carrier)) Hz" + (pskAFC ? " · AFC" : " · AFC aus") + (pskReverse ? " · REV" : ""))
+    var bytes: [UInt8] = []
+    let core = FldigiPSKCore(options: o, centerHz: carrier) { bytes.append($0) }
+    let started = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    var peakSNR = 0.0
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { core.process($0) }
+        peakSNR = max(peakSNR, core.status.snrDB)
+    }
+    let pskText = PSKDecoder.text(from: bytes)
+    let out = outPath.map { URL(fileURLWithPath: $0) } ?? wavURL.deletingPathExtension().appendingPathExtension("digidec.txt")
+    try? pskText.write(to: out, atomically: true, encoding: .utf8)
+    let duration = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "Decodiert: %.0f s Audio in %.2f s, %d Zeichen -> %@", duration, Date().timeIntervalSince(started), pskText.count, out.lastPathComponent))
+    print(String(format: "Träger am Ende %.1f Hz, bestes S/N %.0f dB", core.status.centerHz, peakSNR))
+    print(pskText)
+    if let comparePath, let other = try? String(contentsOfFile: comparePath, encoding: .utf8) {
+        let a = Array(pskText.filter { !$0.isWhitespace }), b = Array(other.filter { !$0.isWhitespace })
+        let d = levenshtein(a, b)
+        print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
+                     100 * Double(d) / Double(max(1, max(a.count, b.count)))))
+    }
     exit(0)
 }
 

@@ -30,6 +30,7 @@ let package = Package(
                 .headerSearchPath("src/navtex"),
                 .headerSearchPath("src/cw"),
                 .headerSearchPath("src/wefax"),
+                .headerSearchPath("src/psk"),
                 .headerSearchPath("compat")
             ]
         ),
