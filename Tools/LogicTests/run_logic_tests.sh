@@ -50,6 +50,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/WEFAX/FldigiWefaxCore.swift $S/Decoders/WEFAX/WefaxModule.swift \
     $S/Decoders/FT8/FT8Core.swift $S/Decoders/FT8/FT8Module.swift \
     $S/Decoders/DCF77/DCF77Core.swift $S/Decoders/DCF77/DCF77SignalGenerator.swift $S/Decoders/DCF77/DCF77Module.swift \
+    $S/Decoders/EFR/EFRCore.swift $S/Decoders/EFR/EFRSignalGenerator.swift $S/Decoders/EFR/EFRModule.swift \
     "$OUT"/fldigi/obj/*.o -lc++
 
 # 4. Ausführen

@@ -30,6 +30,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ft8, audio: state.audio)
                             } else if state.activeModule == .dcf77 {
                                 WaterfallView(model: state.waterfall, rtty: state.dcf77, audio: state.audio)
+                            } else if state.activeModule == .efr {
+                                WaterfallView(model: state.waterfall, rtty: state.efr, audio: state.audio)
                             } else {
                                 WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
                             }
@@ -48,12 +50,14 @@ public struct MainWindowView: View {
                                 FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
                             } else if state.activeModule == .dcf77 {
                                 DCF77MainPanel(controller: state.dcf77Controller, settings: state.dcf77)
+                            } else if state.activeModule == .efr {
+                                EFRMainPanel(controller: state.efrController, settings: state.efr)
                             } else {
                                 ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .ft8 ? "Bandaktivität" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : "Empfangstext")
+                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .ft8 ? "Bandaktivität" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -89,6 +93,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "DCF77")
                             DCF77HistoryPanel(controller: state.dcf77Controller)
                                 .radioCard(title: "Telegramme")
+                        } else if state.activeModule == .efr {
+                            EFRTuningPanel(controller: state.efrController, settings: state.efr)
+                                .radioCard(title: "Signal · Pegel")
+                            EFRSettingsPanel(settings: state.efr, controller: state.efrController)
+                                .radioCard(title: "EFR")
                         } else {
                             TuningPanel(controller: state.rttyController, settings: state.rtty)
                                 .radioCard(title: "Abstimmanzeige")
@@ -109,7 +118,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController)
             }
             .padding(.bottom, 8)
         }
@@ -318,6 +327,8 @@ private struct StatusBar: View {
     @ObservedObject var ft8: FT8SettingsStore
     @ObservedObject var dcf77: DCF77SettingsStore
     @ObservedObject var dcf77Controller: DCF77Controller
+    @ObservedObject var efr: EFRSettingsStore
+    @ObservedObject var efrController: EFRController
 
     var body: some View {
         HStack(spacing: 10) {
@@ -370,8 +381,18 @@ private struct StatusBar: View {
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current
         case .dcf77: return dcf77Current
+        case .efr: return efrCurrent
         default: return current
         }
+    }
+
+    /// „EFR · DCF49 Mainflingen · 200 Bd · Shift 340 Hz · DIN 19244 · Ton 1500 Hz“
+    private var efrCurrent: String {
+        var s = "EFR · \(efr.station.name) · 200 Bd · Shift 340 Hz · DIN 19244 · Ton \(Int(efr.centerHz.rounded())) Hz"
+        if let st = efrController.status {
+            s += String(format: " · SNR %.1f dB · %d Telegramme", st.snrDb, st.telegramsDecoded)
+        }
+        return s
     }
 
     /// „DCF77 · 77,5 kHz · AM 100/200 ms · Ton 1000 Hz · SYNC OK · SNR 24.5 dB“

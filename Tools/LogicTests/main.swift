@@ -89,6 +89,9 @@ do {
     check(parse("digidec://decode?mode=navtex") == .success(DecodeRequest(module: .navtex, presetID: "518")), "NAVTEX-Standard 518 kHz")
     check(parse("digidec://decode?mode=dcf77") == .success(DecodeRequest(module: .dcf77, presetID: "mainflingen")), "DCF77-Standard mainflingen")
     check(parse("digidec://decode?mode=dcf77&preset=mainflingen&center=1000") == .success(DecodeRequest(module: .dcf77, presetID: "mainflingen", centerHz: 1000)), "DCF77 mit Center 1000 Hz")
+    check(parse("digidec://decode?mode=efr") == .success(DecodeRequest(module: .efr, presetID: "dcf49")), "EFR-Standard dcf49")
+    check(parse("digidec://decode?mode=efr&preset=dcf39&center=1500") == .success(DecodeRequest(module: .efr, presetID: "dcf39", centerHz: 1500)), "EFR DCF39 mit Center 1500 Hz")
+    check(parse("digidec://decode?mode=efr&preset=hga22") == .success(DecodeRequest(module: .efr, presetID: "hga22")), "EFR HGA22")
     check(parse("digidec://decode?mode=rtty&preset=xyz") == .failure(.unknownPreset("xyz", .rtty)), "Unbekanntes Preset")
     check(parse("digidec://decode?mode=rtty&rigctl=80") == .failure(.invalidPort("80")), "Port zu klein")
     check(parse("digidec://decode?mode=rtty&rigctl=70000") == .failure(.invalidPort("70000")), "Port zu groß")
@@ -1550,6 +1553,119 @@ do {
     let status = core.getStatus()
     check(status.isSynchronized, "DCF77 Status: Synchronisiert")
     check(status.snrDb > 10.0, "DCF77 Status: SNR > 10 dB (got \(status.snrDb))")
+}
+
+// MARK: - EFR DIN 19244 Frame-Aufbau, Checksumme & Zeitstempel-Parser
+do {
+    // 1. Telegramm fester Länge (0x10)
+    let fixed = EFRSignalGenerator.buildFixedFrame(control: 0x49, address: 0x12)
+    check(fixed.count == 5, "EFR Fixed: 5 Bytes")
+    check(fixed[0] == 0x10 && fixed[4] == 0x16, "EFR Fixed: Start 0x10 und Stop 0x16")
+    check(fixed[3] == UInt8((0x49 + 0x12) & 0xFF), "EFR Fixed: Checksumme C+A")
+
+    // 2. CP56Time2a Zeitstempel-Codierung & Decodierung
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 7200)! // MESZ
+    var comp = DateComponents()
+    comp.year = 2026
+    comp.month = 10
+    comp.day = 1
+    comp.hour = 14
+    comp.minute = 30
+    comp.second = 15
+    comp.timeZone = cal.timeZone
+    let testDate = cal.date(from: comp)!
+
+    let timeBytes = EFRSignalGenerator.encodeCP56Time2a(date: testDate, isSummer: true)
+    check(timeBytes.count == 7, "EFR Zeit: 7 Bytes CP56Time2a")
+
+    let parsed = EFRCore.parseEFRTime(timeBytes)
+    check(parsed != nil, "EFR Zeit: Erfolgreich geparst")
+    if let p = parsed {
+        let pComp = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: p)
+        check(pComp.year == 2026, "EFR Zeit: Jahr 2026")
+        check(pComp.month == 10, "EFR Zeit: Monat 10")
+        check(pComp.day == 1, "EFR Zeit: Tag 1")
+        check(pComp.hour == 14, "EFR Zeit: Stunde 14")
+        check(pComp.minute == 30, "EFR Zeit: Minute 30")
+        check(pComp.second == 15, "EFR Zeit: Sekunde 15")
+    }
+
+    // 3. Variables Telegramm (0x68) mit Zeittelegramm als ASDU
+    let varFrame = EFRSignalGenerator.buildVariableFrame(control: 0x73, address: 0x0C, asdu: timeBytes)
+    check(varFrame[0] == 0x68 && varFrame[3] == 0x68, "EFR Var: Startzeichen 0x68 doppelt")
+    check(varFrame[1] == varFrame[2], "EFR Var: Längenbytes identisch")
+    check(varFrame.last == 0x16, "EFR Var: Stopzeichen 0x16")
+    let l = Int(varFrame[1])
+    check(varFrame.count == l + 6, "EFR Var: Gesamtlänge L + 6")
+}
+
+// MARK: - EFR 200 Baud FSK-Demodulation, 8E1 Framing & Audio-Decodierung
+do {
+    // 1. Variables Zeittelegramm
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 3600)! // MEZ
+    var comp = DateComponents()
+    comp.year = 2026
+    comp.month = 10
+    comp.day = 1
+    comp.hour = 8
+    comp.minute = 45
+    comp.second = 0
+    comp.timeZone = cal.timeZone
+    let testDate = cal.date(from: comp)!
+
+    let timeBytes = EFRSignalGenerator.encodeCP56Time2a(date: testDate, isSummer: false)
+    let varFrame = EFRSignalGenerator.buildVariableFrame(control: 0x73, address: 0x0C, asdu: timeBytes)
+
+    let bits = EFRSignalGenerator.bytesTo8E1Bits(varFrame, leadBits: 20, tailBits: 20)
+    let audio = EFRSignalGenerator.generateFSKAudio(bits: bits, centerHz: 1500.0, shiftHz: 340.0)
+
+    let core = EFRCore(centerHz: 1500.0, shiftHz: 340.0)
+    var decoded: [EFRCore.DecodedTelegram] = []
+    core.onTelegramDecoded = { decoded.append($0) }
+
+    // Audio in 160-Sample-Blöcken einspeisen
+    let blockSize = 160
+    var offset = 0
+    while offset < audio.count {
+        let chunk = min(blockSize, audio.count - offset)
+        audio[offset..<(offset + chunk)].withUnsafeBufferPointer { ptr in
+            core.process(ptr)
+        }
+        offset += chunk
+    }
+
+    check(decoded.count == 1, "EFR Audio: Genau 1 variables Telegramm empfangen (got \(decoded.count))")
+    if let tel = decoded.first {
+        check(tel.frameType == .variable, "EFR Audio: Typ variable")
+        check(tel.controlByte == 0x73, "EFR Audio: Control-Byte 0x73")
+        check(tel.address == 0x0C, "EFR Audio: Adresse 0x0C")
+        check(tel.isTimeSync == true, "EFR Audio: Zeittelegramm erkannt")
+        check(tel.decodedTime != nil, "EFR Audio: Datum decodiert")
+    }
+
+    // 2. Telegramm fester Länge im Anschluss einspeisen
+    let fixedFrame = EFRSignalGenerator.buildFixedFrame(control: 0x49, address: 0x2A)
+    let fixedBits = EFRSignalGenerator.bytesTo8E1Bits(fixedFrame, leadBits: 20, tailBits: 20)
+    let fixedAudio = EFRSignalGenerator.generateFSKAudio(bits: fixedBits, centerHz: 1500.0, shiftHz: 340.0, snrDb: 20.0)
+
+    var fixedDecoded: [EFRCore.DecodedTelegram] = []
+    core.onTelegramDecoded = { fixedDecoded.append($0) }
+
+    offset = 0
+    while offset < fixedAudio.count {
+        let chunk = min(blockSize, fixedAudio.count - offset)
+        fixedAudio[offset..<(offset + chunk)].withUnsafeBufferPointer { ptr in
+            core.process(ptr)
+        }
+        offset += chunk
+    }
+
+    check(fixedDecoded.count == 1, "EFR Audio: Genau 1 festes Telegramm bei 20 dB SNR decodiert")
+    check(fixedDecoded.first?.frameType == .fixed, "EFR Audio: Typ fixed")
+    check(fixedDecoded.first?.controlByte == 0x49, "EFR Audio: Control 0x49")
+    check(fixedDecoded.first?.address == 0x2A, "EFR Audio: Adresse 0x2A")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

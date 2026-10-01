@@ -86,7 +86,7 @@ digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<Core
 
 | Parameter | Bedeutung | Beispiel |
 |---|---|---|
-| `mode` | Decoder-Modul (optional bei `open`, Pflicht bei `decode`) | `rtty`, `navtex`, `cw`, `wefax`, `ft8`, `dcf77` |
+| `mode` | Decoder-Modul (optional bei `open`, Pflicht bei `decode`) | `rtty`, `navtex`, `cw`, `wefax`, `ft8`, `dcf77`, `efr` |
 | `preset` | Preset-ID (Abschnitt 5) | `ham`, `dwd-kw`, `dwd-lw`, `custom` |
 | `source` | Name des aufrufenden Programms, nur für die Anzeige | `pcr1500`, `ft991a` |
 | `rigctl` | rigctld-Port des aufrufenden Programms | `4532` / `4533` |
@@ -420,6 +420,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M11 | WEFAX | ✅ 01.10.2026 (v0.12.0): fldigi-WEFAX-Empfänger (APT, Phasing, Korrelation, AFC, Auto-Zentrierung), Live-Bild, PNG-Ablage, Galerie, `decode_file.sh --wefax`; Live-Empfang durch den Nutzer offen |
 | M12 | FT8 | ✅ 01.10.2026 (v0.13.0): ft8mon (AB1HL, MIT) statt ft8_lib: 90,7 % der WSJT-X-Decodes statt 73 %; Bandaktivität, Rx-Frequenz, Entfernungen, ALL.TXT-Log; Live-Empfang durch den Nutzer offen |
 | M13 | DCF77 | ✅ 01.10.2026 (v0.14.0): AM-Impulsbreiten-Decoder (77,5 kHz, AM 100/200 ms), VFD-Atomuhr, Δt-Vergleich zur Systemzeit in ms, 60-Bit-Telegramm-Matrix, Scope, Log; 404 Tests bestanden |
+| M14 | EFR | ✅ 01.10.2026 (v0.15.0): FSK-Demodulator (200 Baud, Shift 340 Hz, 8E1), DIN 19244 / FT1.2-Parser (Zeitsynchronisation, Rundsteuerbefehle, EEG-Abregelung), Stations-Presets DCF49 (129,1 kHz) / DCF39 (139,0 kHz) / HGA22 (135,6 kHz), FSK-Oszilloskop, Log; 433 Tests bestanden |
 
 ---
 
@@ -749,7 +750,23 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - Historie der empfangenen Minutentelegramme und automatisches Tageslog (`~/Documents/Digidec/Logs/DCF77-JJJJ-MM-TT.txt`)
   - **Signalgenerator & Tests:** `DCF77SignalGenerator` erzeugt vollständige synthetische 8-kHz-Audiosignale. 404 Logiktests fehlerfrei bestanden.
   - URL-Schema: `digidec://decode?mode=dcf77&preset=mainflingen&center=1000`.
+- **0.15.0 (01.10.2026): M14 EFR Funkrundsteuer-Decoder (Langwelle 129,1 / 139,0 kHz).**
+  - **Modulation & DSP-Kern:** 200 Baud FSK (Hub ±170 Hz / Shift 340 Hz, Zeichenrahmen 8E1). Quadraturmischer mit I/Q-Tiefpässen auf Mark (1.670 Hz) und Space (1.330 Hz), DPLL-Bit-Takt-Rückgewinnung bei 8 kHz Abtastrate, automatische Pegelnachführung, FSK-Diskriminator und UART-8E1-Slicing mit Paritätsprüfung.
+  - **DIN 19244 / FT1.2-Parser:**
+    - Variable Telegramme (`0x68 ... 0x16`) und feste Telegramme (`0x10 ... 0x16`) mit Prüfsummenvalidierung (Summe modulo 256).
+    - CP56Time2a Zeitstempel-Parser (Sekunden, Minuten, Stunden, Tag, Monat, Jahr, Sommerzeit) mit $\Delta t$-Vergleich gegen die Mac-Systemuhr.
+    - Versacom / Semagyr Schalttelegramm-Auswertung: Relaisbefehle, Laststufen und EEG-Einspeisemanagement (100 %, 60 %, 30 %, 0 % Abregelung).
+  - **UI-Panels (`EFRPanels.swift`):**
+    - Telegramm-Feed mit Titeln, Details, Zeitstempeln und zuschaltbarem Hex-Dump
+    - Filter für Telegramme: „Alle“, „Nur Zeit“, „Nur Schaltung“
+    - Live FSK-Diskriminator Oszilloskop (Mark/Space Signalverlauf)
+    - Abstimmanzeige mit Mark/Space/Mitte-Frequenzen, SNR und Signalbalken
+    - Sender-Presets: DCF49 Mainflingen (129,1 kHz), DCF39 Burg (139,0 kHz), HGA22 Lakihegy (135,6 kHz)
+    - Frequenz-Leitfaden (Prüfung gegen rigctld: Dial 1,5 kHz unter Sollfrequenz in USB)
+    - Tageslog (`~/Documents/Digidec/Logs/EFR-JJJJ-MM-TT.txt`).
+  - **Signalgenerator & Tests:** `EFRSignalGenerator` erzeugt DIN-19244-Telegramme und FSK-Audiosignale. 433 Logiktests fehlerfrei bestanden.
+  - URL-Schema: `digidec://decode?mode=efr&preset=dcf49|dcf39|hga22&center=1500`.
 - **Nächste Schritte:**
-  - **EFR-Decoder (Langwelle 129,1 kHz DCF49 / 139,0 kHz DCF39):** FSK 200 Baud, Shift 340 Hz (±170 Hz), DIN 19244 / Versacom / Semagyr-TOP Funkrundsteuerung (Netz- und Lastmanagement).
-  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, DCF77).
+  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, DCF77, EFR).
   - FT4 (schnellere FT8-Variante für Contests, 7,5 s Zyklus).
+  - DXCC-Länder zu Amateurfunk-Rufzeichen.

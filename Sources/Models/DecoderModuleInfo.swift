@@ -9,6 +9,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case wefax
     case ft8
     case dcf77
+    case efr
 
     public var id: String { rawValue }
 
@@ -20,12 +21,13 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .wefax:  return "WEFAX"
         case .ft8:    return "FT8"
         case .dcf77:  return "DCF77"
+        case .efr:    return "EFR"
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .wefax, .ft8, .dcf77: return true
+        case .rtty, .navtex, .cw, .wefax, .ft8, .dcf77, .efr: return true
         }
     }
 
@@ -38,6 +40,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue
         case .dcf77: return ["mainflingen"]
+        case .efr: return ["dcf49", "dcf39", "hga22", "custom"]
         }
     }
 }
