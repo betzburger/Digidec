@@ -261,6 +261,13 @@ struct WefaxGallery: View {
     var body: some View {
         VStack(spacing: 6) {
             HStack {
+                Button {
+                    controller.autoCorrectSeam.toggle()
+                } label: {
+                    Label("AUTO-NAHT", systemImage: "arrow.left.and.right")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: controller.autoCorrectSeam))
+                .help("Karten, deren Zeilenanfang verrutscht ist (weißer Rand in der Bildmitte), zusätzlich korrigiert als „…_korr.png“ ablegen")
                 Spacer()
                 Button {
                     openFromDisk()

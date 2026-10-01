@@ -2562,8 +2562,10 @@ do {
 
     // Frequenz nach Tageszeit
     check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T04:30:00Z")) == 3_855_000, "Frequenz 04:30 UTC: 3855 kHz")
+    check((0..<24).allSatisfy { WefaxSchedule.recommendedFrequencyHz(at: utc(String(format: "2026-10-01T%02d:30:00Z", $0))) != 13_882_500 }, "Frequenz: 13882,5 kHz wird zu keiner Stunde automatisch gewählt")
     check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T08:00:00Z")) == 7_880_000, "Frequenz 08:00 UTC: 7880 kHz")
-    check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T12:00:00Z")) == 13_882_500, "Frequenz 12:00 UTC: 13882,5 kHz")
+    check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T12:00:00Z")) == 7_880_000, "Frequenz 12:00 UTC: 7880 kHz (13882,5 nie automatisch)")
+    check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T18:00:00Z")) == 3_855_000, "Frequenz 18:00 UTC: 3855 kHz")
     check(WefaxSchedule.recommendedFrequencyHz(at: utc("2026-10-01T22:00:00Z")) == 3_855_000, "Frequenz 22:00 UTC: 3855 kHz")
 
     // Link auf der DWD-Seite (echter Ausschnitt, mit jsessionid)
@@ -2614,6 +2616,54 @@ do {
     check(WefaxImageTools.autoShift(noisy, width: W, height: H) == 0, "Naht: ohne hellen Streifen bleibt es bei 0")
     check(WefaxImageTools.autoShift([UInt8](repeating: 255, count: W * H), width: W, height: H) == 0, "Naht: leeres weißes Bild bleibt 0")
     check(WefaxImageTools.autoShift([1, 2, 3], width: 3, height: 1) == 0, "Naht: zu kleines Bild bleibt 0")
+}
+
+// MARK: - WEFAX: Frequenz je Sendung und automatische Nahtkorrektur
+do {
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("digidec_wefax_\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    let store = WefaxScheduleStore(directory: tmp.appendingPathComponent("plan"))
+    store.frequencyChoice = .auto
+    store.setOverride(nil, for: store.schedule.broadcasts[0])
+    let b1 = store.schedule.broadcasts.first(where: { $0.id == "1236" }) ?? store.schedule.broadcasts[20]
+    func utc(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+    check(store.choice(for: b1) == .auto && WefaxFrequencyChoice.auto.station(at: utc("2026-10-01T12:36:00Z")) == .dwd7880, "Frequenz je Sendung: Standard ist Automatik (12:36 UTC → 7880)")
+    store.setOverride(.f3855, for: b1)
+    check(store.choice(for: b1) == .f3855 && store.choice(for: b1).station(at: utc("2026-10-01T12:36:00Z")) == .dwd3855, "Frequenz je Sendung: Wahl 3855 überstimmt die Automatik")
+    check(store.frequencyOverrides.count == 1, "Frequenz je Sendung: nur diese Sendung ist betroffen")
+    let again = WefaxScheduleStore(directory: tmp.appendingPathComponent("plan"))
+    check(again.frequencyOverrides[b1.id] == .f3855, "Frequenz je Sendung: bleibt nach Neustart erhalten")
+    store.setOverride(.auto, for: b1)
+    check(store.frequencyOverrides.isEmpty, "Frequenz je Sendung: Auto/Standard entfernt die Sonderwahl")
+
+    // Nahtkorrektur: gespeicherte Datei, Kopie „_korr“, Original ersetzen mit Sicherung
+    let ctrl = WefaxController(pipeline: AudioPipeline(), settings: WefaxSettingsStore(), directory: tmp.appendingPathComponent("bilder"))
+    ctrl.autoSave = true
+    ctrl.autoCorrectSeam = true
+    let W = 900, H = 160
+    var px = [UInt8](repeating: 255, count: W * H)
+    var seed: UInt64 = 9
+    for y in 0..<H { for x in 0..<W where !(380..<450).contains(x) {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        if (seed >> 33) % 4 == 0 { px[y * W + x] = 30 }
+    } }
+    let fileURL = tmp.appendingPathComponent("bilder/wefax_20261001_123600_3855_ok.png")
+    var img = WefaxImage(name: "wefax_20261001_123600_3855_ok.png", comments: "", width: W, height: H, pixels: px, receivedAt: Date(), fileURL: fileURL)
+    img.fileURL = (try? WefaxController.writePNG(img, to: tmp.appendingPathComponent("bilder"))) ?? fileURL
+    let fixedCopy = ctrl.correctSeamCopy(of: img)
+    check(fixedCopy?.name == "wefax_20261001_123600_3855_ok_korr.png", "Nahtkorrektur: Kopie heißt …_korr.png (\(fixedCopy?.name ?? "nil"))")
+    check(fixedCopy?.fileURL.map { FileManager.default.fileExists(atPath: $0.path) } == true, "Nahtkorrektur: Kopie liegt auf der Platte")
+    check(fixedCopy.map { abs(WefaxImageTools.autoShift($0.pixels, width: W, height: H)) <= 3 } == true, "Nahtkorrektur: Kopie hat den Rand am Bildrand")
+    check(ctrl.gallery.first?.name == "wefax_20261001_123600_3855_ok_korr.png", "Nahtkorrektur: Kopie steht vorn in der Galerie")
+    check(fixedCopy?.comments.contains("verschoben") == true, "Nahtkorrektur: Beschreibung nennt die Verschiebung")
+    // Karte, die richtig liegt: keine Kopie
+    if let good = fixedCopy { check(ctrl.correctSeamCopy(of: good) == nil, "Nahtkorrektur: richtig liegende Karte bekommt keine Kopie") }
+    ctrl.autoCorrectSeam = false
+    check(ctrl.correctSeamCopy(of: img) == nil, "Nahtkorrektur: AUTO-NAHT aus → keine Kopie")
+    // Original ersetzen mit Sicherung
+    let replaced = try? ctrl.saveEdited(img, shift: -415, replaceOriginal: true)
+    check(replaced?.name == img.name && FileManager.default.fileExists(atPath: tmp.appendingPathComponent("bilder/wefax_20261001_123600_3855_ok_original.png").path),
+          "Original ersetzen: Datei ersetzt, Sicherung …_original.png angelegt")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

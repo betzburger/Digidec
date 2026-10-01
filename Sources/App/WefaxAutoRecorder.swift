@@ -24,6 +24,9 @@ public final class WefaxAutoRecorder: ObservableObject {
     private var timer: Timer?
     private var activity: NSObjectProtocol?
     private var recordingURL: URL?
+    private var cancellables: Set<AnyCancellable> = []
+    /// Station, die Digidec für die laufende Aufnahme gewählt hat; eine andere Wahl stammt vom Nutzer
+    private var chosenStation: WefaxStation?
 
     /// Sekunden nach dem Ende der Ausstrahlung, bis der Empfang beendet wird (APT-Ende, Nachlauf)
     private let tail: TimeInterval = 90
@@ -35,6 +38,27 @@ public final class WefaxAutoRecorder: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        // Stellt der Nutzer während der Aufnahme eine andere Frequenz ein, hat er etwas Besseres gefunden: merken
+        state.wefax.$station
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] station in self?.userChangedStation(station) }
+            .store(in: &cancellables)
+    }
+
+    private func userChangedStation(_ station: WefaxStation) {
+        guard let s = session, let chosen = chosenStation, station != chosen else { return }
+        let choice: WefaxFrequencyChoice
+        switch station {
+        case .dwd3855: choice = .f3855
+        case .dwd7880: choice = .f7880
+        case .dwd13882: choice = .f13882
+        case .custom: return
+        }
+        store.setOverride(choice, for: s.broadcast)
+        chosenStation = station
+        note = "Frequenz für \(s.broadcast.id.prefix(2)):\(s.broadcast.id.suffix(2)) UTC gemerkt: \(choice.label)"
     }
 
     /// Nächste ausgewählte Sendung (für die Anzeige)
@@ -53,6 +77,7 @@ public final class WefaxAutoRecorder: ObservableObject {
     private func tick() {
         let now = Date()
         if let s = session {
+            warnIfRigOff()
             if state.activeModule != .wefax {
                 finish(reason: "Modul gewechselt – Aufnahme beendet", returnToPrevious: false)
             } else if now > s.end.addingTimeInterval(tail) {
@@ -70,11 +95,24 @@ public final class WefaxAutoRecorder: ObservableObject {
         begin(due.broadcast, start: due.start, end: due.end, key: due.key)
     }
 
+    /// Steht das Funkgerät (laut rigctld) nicht auf der Dial-Frequenz der gewählten Station, wird gewarnt – etwa wenn
+    /// QSY AUTO aus ist und das Gerät noch auf der Tagesfrequenz steht.
+    private func warnIfRigOff() {
+        guard let s = session, let rig = state.rig.state.frequencyHz, state.rig.state.connected,
+              let target = state.rigTargetForActiveModule else { return }
+        if abs(Int64(rig) - target.dialHz) > 2_000 {
+            note = "Achtung: Funkgerät steht auf \(rig / 1000) kHz, Soll \(target.label) (\(s.broadcast.title))"
+        } else if note?.hasPrefix("Achtung") == true {
+            note = "Aufnahme: \(s.broadcast.title)"
+        }
+    }
+
     private func begin(_ b: WefaxBroadcast, start: Date, end: Date, key: String) {
         handled.insert(key)
         let previous = state.activeModule
         // Frequenz, Hub und Zeilenzahl für den DWD; QSY AUTO stimmt das Funkgerät beim Wechsel ab
-        let station = store.frequencyChoice.station(at: start)
+        let station = store.choice(for: b).station(at: start)
+        chosenStation = station
         if state.wefax.station != station { state.wefax.station = station }
         if state.wefax.options.lpm != b.lpm { state.wefax.options.lpm = b.lpm }
         state.wefaxController.scheduledLabel = b.title
@@ -99,6 +137,7 @@ public final class WefaxAutoRecorder: ObservableObject {
         state.wefaxController.scheduledLabel = nil
         if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
         session = nil
+        chosenStation = nil
         note = reason
         if returnToPrevious && store.returnToPreviousModule && state.activeModule == .wefax && s.previousModule != .wefax {
             state.activeModule = s.previousModule

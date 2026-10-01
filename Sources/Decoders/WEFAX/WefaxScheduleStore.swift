@@ -10,7 +10,7 @@ public enum WefaxFrequencyChoice: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .auto:   return "Automatisch nach Tageszeit"
+        case .auto:   return "Automatisch (nachts 3855, tags 7880 kHz)"
         case .f3855:  return "3855 kHz"
         case .f7880:  return "7880 kHz"
         case .f13882: return "13882,5 kHz"
@@ -23,11 +23,7 @@ public enum WefaxFrequencyChoice: String, CaseIterable, Identifiable, Sendable {
         case .f7880:  return .dwd7880
         case .f13882: return .dwd13882
         case .auto:
-            switch WefaxSchedule.recommendedFrequencyHz(at: date) {
-            case 3_855_000: return .dwd3855
-            case 13_882_500: return .dwd13882
-            default: return .dwd7880
-            }
+            return WefaxSchedule.recommendedFrequencyHz(at: date) == 3_855_000 ? .dwd3855 : .dwd7880
         }
     }
 }
@@ -51,6 +47,8 @@ public final class WefaxScheduleStore: ObservableObject {
     @Published public var frequencyChoice: WefaxFrequencyChoice { didSet { UserDefaults.standard.set(frequencyChoice.rawValue, forKey: "wefaxSchedFreq") } }
     /// Zusätzlich das Eingangssignal als WAV mitschneiden (große Dateien: ≈ 100 MB je Sendung bei 48 kHz)
     @Published public var recordAudio: Bool { didSet { UserDefaults.standard.set(recordAudio, forKey: "wefaxSchedAudio") } }
+    /// Frequenz je Sendung („1236“ → f3855 …), die die Standardwahl übersteuert; entsteht auch durch Umstellen von Hand
+    @Published public private(set) var frequencyOverrides: [String: WefaxFrequencyChoice]
     /// Nach der Aufnahme zum vorher gewählten Modul zurückschalten
     @Published public var returnToPreviousModule: Bool { didSet { UserDefaults.standard.set(returnToPreviousModule, forKey: "wefaxSchedReturn") } }
 
@@ -65,6 +63,8 @@ public final class WefaxScheduleStore: ObservableObject {
         autoEnabled = d.bool(forKey: "wefaxSchedAuto")
         frequencyChoice = d.string(forKey: "wefaxSchedFreq").flatMap(WefaxFrequencyChoice.init(rawValue:)) ?? .auto
         recordAudio = d.bool(forKey: "wefaxSchedAudio")
+        frequencyOverrides = (d.dictionary(forKey: "wefaxSchedFreqOverrides") as? [String: String] ?? [:])
+            .compactMapValues { WefaxFrequencyChoice(rawValue: $0) }
         returnToPreviousModule = d.object(forKey: "wefaxSchedReturn") as? Bool ?? true
 
         // 1. zuletzt abgerufener Plan, 2. eingebauter Plan
@@ -79,6 +79,17 @@ public final class WefaxScheduleStore: ObservableObject {
             schedule = WefaxSchedule(frequenciesHz: [], broadcasts: [], pauses: [])
             sourceName = "kein Plan"
         }
+    }
+
+    // MARK: - Frequenz je Sendung
+
+    /// Wirksame Wahl für eine Sendung: Eintrag für diese Sendung, sonst die Standardwahl
+    public func choice(for b: WefaxBroadcast) -> WefaxFrequencyChoice { frequencyOverrides[b.id] ?? frequencyChoice }
+
+    /// `nil` (oder `.auto`) entfernt die Sonderwahl und verwendet wieder die Standardwahl
+    public func setOverride(_ choice: WefaxFrequencyChoice?, for b: WefaxBroadcast) {
+        if let choice, choice != .auto { frequencyOverrides[b.id] = choice } else { frequencyOverrides[b.id] = nil }
+        UserDefaults.standard.set(frequencyOverrides.mapValues(\.rawValue), forKey: "wefaxSchedFreqOverrides")
     }
 
     // MARK: - Auswahl

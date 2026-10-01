@@ -160,6 +160,7 @@ struct WefaxScheduleSheet: View {
                     Text("MIN").frame(width: 34, alignment: .trailing)
                     Text("TERMIN").frame(width: 56, alignment: .leading)
                     Text("KARTENINHALT").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("kHz").frame(width: 62, alignment: .trailing)
                 }
                 .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
@@ -202,6 +203,7 @@ struct WefaxScheduleSheet: View {
             Text("\(b.durationMinutes)").frame(width: 34, alignment: .trailing).foregroundColor(RadioTheme.textDim)
             Text(String(format: "%02d UTC", b.chartHour)).frame(width: 56, alignment: .leading).foregroundColor(RadioTheme.textDim)
             Text(b.title).frame(maxWidth: .infinity, alignment: .leading).lineLimit(2)
+            frequencyMenu(for: b, start: start)
             if running {
                 Text("LÄUFT").font(.system(size: 8, weight: .black, design: .monospaced)).foregroundColor(RadioTheme.vfdGreen)
             } else if next {
@@ -214,6 +216,33 @@ struct WefaxScheduleSheet: View {
         .padding(.vertical, 4)
         .background(running ? RadioTheme.vfdGreen.opacity(0.12) : (selected ? RadioTheme.vfdAmber.opacity(0.08) : RadioTheme.bgDeep.opacity(0.6)))
         .cornerRadius(4)
+    }
+
+    /// Frequenz dieser Sendung: Standard oder fest gewählt
+    private func frequencyMenu(for b: WefaxBroadcast, start: Date) -> some View {
+        let override = store.frequencyOverrides[b.id]
+        let effective = store.choice(for: b).station(at: start)
+        let khz: String = {
+            switch effective {
+            case .dwd3855: return "3855"
+            case .dwd13882: return "13882,5"
+            default: return "7880"
+            }
+        }()
+        return Menu {
+            Button("Standard (\(store.frequencyChoice.label))") { store.setOverride(nil, for: b) }
+            Divider()
+            ForEach([WefaxFrequencyChoice.f3855, .f7880, .f13882]) { c in
+                Button(c.label) { store.setOverride(c, for: b) }
+            }
+        } label: {
+            Text(khz).foregroundColor(override == nil ? RadioTheme.textDim : RadioTheme.vfdAmber)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 62, alignment: .trailing)
+        .help(override == nil ? "Standardfrequenz – klicken, um für diese Sendung eine feste Frequenz zu wählen"
+                              : "Feste Frequenz für diese Sendung (Digidec merkt sich auch eine von Hand geänderte Frequenz)")
     }
 
     private func pauseRow(_ p: WefaxPause) -> some View {
@@ -248,16 +277,16 @@ struct WefaxScheduleSheet: View {
                 Button("KEINE") { store.selectNone() }.buttonStyle(ModeButtonStyle(isSelected: false))
             }
             HStack(spacing: 14) {
-                Picker("Frequenz", selection: $store.frequencyChoice) {
+                Picker("Standardfrequenz", selection: $store.frequencyChoice) {
                     ForEach(WefaxFrequencyChoice.allCases) { Text($0.label).tag($0) }
                 }
-                .frame(width: 300)
+                .frame(width: 420)
                 Toggle("Audio als WAV mitschneiden", isOn: $store.recordAudio)
                     .help("Zusätzlich das Eingangssignal speichern (ca. 100 MB je Sendung bei 48 kHz)")
                 Toggle("danach zurück zum vorigen Modul", isOn: $store.returnToPreviousModule)
             }
             .font(.system(size: 10, weight: .medium, design: .monospaced))
-            Text("Zur Sendezeit schaltet Digidec auf WEFAX, wählt die Frequenz (mit QSY AUTO stimmt es auch das Funkgerät ab) und legt die Bilder als PNG ab. Digidec muss laufen und der Mac wach sein; während einer Aufnahme verhindert Digidec den Ruhezustand.")
+            Text("Orange Frequenzen sind für die Sendung fest gewählt – das passiert auch, wenn du während der Aufnahme von Hand umstellst. Zur Sendezeit schaltet Digidec auf WEFAX, wählt die Frequenz (mit QSY AUTO stimmt es auch das Funkgerät ab) und legt die Bilder als PNG ab. Digidec muss laufen und der Mac wach sein; während einer Aufnahme verhindert Digidec den Ruhezustand.")
                 .font(.system(size: 9, weight: .regular, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             if auto.session != nil {

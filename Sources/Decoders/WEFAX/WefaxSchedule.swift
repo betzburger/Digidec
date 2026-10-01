@@ -154,14 +154,12 @@ public struct WefaxSchedule: Equatable, Codable, Sendable {
         return c
     }()
 
-    /// Zugewiesene Frequenz nach Tageszeit (UTC): nachts 3855 kHz, morgens/abends 7880 kHz, tagsüber 13882,5 kHz
+    /// Voreinstellung nach Tageszeit (UTC): nachts und abends 3855 kHz, tagsüber 7880 kHz. 13882,5 kHz wird nie automatisch
+    /// gewählt: für Entfernungen bis etwa 1000 km liegt sie meist in der toten Zone. Was an Ort und Jahreszeit besser geht,
+    /// stellt der Nutzer je Sendung ein (Digidec merkt sich eine von Hand geänderte Frequenz).
     public static func recommendedFrequencyHz(at date: Date) -> Double {
         let hour = utcCalendar.component(.hour, from: date)
-        switch hour {
-        case 21...23, 0..<6: return 3_855_000
-        case 10..<17:        return 13_882_500
-        default:             return 7_880_000
-        }
+        return (7..<18).contains(hour) ? 7_880_000 : 3_855_000
     }
 }
 

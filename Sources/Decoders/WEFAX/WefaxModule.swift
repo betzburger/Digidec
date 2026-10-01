@@ -211,6 +211,10 @@ public final class WefaxController: ObservableObject {
         didSet { UserDefaults.standard.set(autoSave, forKey: "wefaxAutoSave") }
     }
     @Published public private(set) var lastSaveError: String?
+    /// Karten mit zyklisch verschobenem Zeilenanfang (weißer Rand in der Bildmitte) zusätzlich korrigiert als „…_korr.png“ ablegen
+    @Published public var autoCorrectSeam: Bool {
+        didSet { UserDefaults.standard.set(autoCorrectSeam, forKey: "wefaxAutoSeam") }
+    }
     /// Titel der gerade aufgenommenen Sendung laut Sendeplan; wird dem Dateinamen und der PNG-Beschreibung angehängt
     public var scheduledLabel: String?
 
@@ -227,6 +231,7 @@ public final class WefaxController: ObservableObject {
             .appendingPathComponent("Digidec/WEFAX", isDirectory: true)
         decoder = WefaxDecoder(pipeline: pipeline)
         autoSave = UserDefaults.standard.object(forKey: "wefaxAutoSave") as? Bool ?? true
+        autoCorrectSeam = UserDefaults.standard.object(forKey: "wefaxAutoSeam") as? Bool ?? true
         appliedOptions = settings.options
         decoder.configure(options: settings.options)
         settings.objectWillChange
@@ -331,8 +336,23 @@ public final class WefaxController: ObservableObject {
             }
             gallery.insert(img, at: 0)
             if gallery.count > Self.maxGallery { gallery.removeLast(gallery.count - Self.maxGallery) }
+            // Verrutschter Zeilenanfang (z. B. Frequenzwechsel während des Empfangs): korrigierte Kopie dazulegen
+            _ = correctSeamCopy(of: img)
         }
     }
+
+    /// Legt von einer Karte mit verrutschtem Zeilenanfang eine korrigierte Kopie „…_korr.png“ an (nur bei gespeichertem Bild,
+    /// eingeschaltetem AUTO-NAHT und klarer Naht). `nil`, wenn nichts zu korrigieren war.
+    @discardableResult
+    public func correctSeamCopy(of img: WefaxImage) -> WefaxImage? {
+        guard autoSave, autoCorrectSeam, img.fileURL != nil, img.height >= 100, img.width >= 600 else { return nil }
+        let dx = WefaxImageTools.autoShift(img.pixels, width: img.width, height: img.height)
+        guard abs(dx) >= Self.seamThreshold else { return nil }
+        return try? saveEdited(img, shift: dx, replaceOriginal: false)
+    }
+
+    /// Erst ab dieser Verschiebung (Pixel) wird automatisch korrigiert: eine richtig liegende Karte hat den Rand schon am Bildrand
+    public static let seamThreshold = 20
 
     // MARK: Bilder
 
