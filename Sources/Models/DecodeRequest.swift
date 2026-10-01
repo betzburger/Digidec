@@ -1,15 +1,17 @@
 import Foundation
 
 /// Auftrag eines Hauptprogramms an Digidec, übergeben per URL-Schema (PLAN.md, Abschnitt 3.1):
-/// `digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<UID>&center=1000`
+/// `digidec://open?source=pcr1500&rigctl=4532&device=<UID>`
+/// oder gezielt: `digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<UID>&center=1000`
 public struct DecodeRequest: Equatable, Sendable {
     public static let scheme = "digidec"
-    public static let action = "decode"
+    public static let actionDecode = "decode"
+    public static let actionOpen = "open"
     public static let centerRange: ClosedRange<Double> = 100...4000
     public static let portRange: ClosedRange<Int> = 1025...65535
 
-    public var module: DecoderModuleInfo
-    public var presetID: String
+    public var module: DecoderModuleInfo?
+    public var presetID: String?
     /// Aufrufendes Programm, nur für die Anzeige (z. B. "pcr1500", "ft991a").
     public var source: String?
     /// rigctld-Port des aufrufenden Programms (PCR-1500: 4532, FT-991A: 4533).
@@ -19,7 +21,7 @@ public struct DecodeRequest: Equatable, Sendable {
     /// Audio-Mittenfrequenz in Hz.
     public var centerHz: Double?
 
-    public init(module: DecoderModuleInfo, presetID: String, source: String? = nil,
+    public init(module: DecoderModuleInfo? = nil, presetID: String? = nil, source: String? = nil,
                 rigctlPort: Int? = nil, deviceUID: String? = nil, centerHz: Double? = nil) {
         self.module = module
         self.presetID = presetID
@@ -69,7 +71,8 @@ public enum DecodeRequestParser {
         guard url.scheme?.lowercased() == DecodeRequest.scheme else {
             return .failure(.wrongScheme(url.scheme))
         }
-        guard url.host?.lowercased() == DecodeRequest.action else {
+        guard let host = url.host?.lowercased(),
+              host == DecodeRequest.actionDecode || host == DecodeRequest.actionOpen else {
             return .failure(.unknownAction(url.host))
         }
 
@@ -80,18 +83,26 @@ public enum DecodeRequestParser {
             }
         }
 
-        guard let modeString = params["mode"] else { return .failure(.missingMode) }
-        guard let module = DecoderModuleInfo(rawValue: modeString.lowercased()) else {
-            return .failure(.unknownMode(modeString))
-        }
-        guard module.isAvailable else { return .failure(.moduleNotAvailable(module)) }
+        let module: DecoderModuleInfo?
+        let presetID: String?
 
-        let presetID: String
-        if let p = params["preset"]?.lowercased() {
-            guard module.presetIDs.contains(p) else { return .failure(.unknownPreset(p, module)) }
-            presetID = p
+        if let modeString = params["mode"] {
+            guard let m = DecoderModuleInfo(rawValue: modeString.lowercased()) else {
+                return .failure(.unknownMode(modeString))
+            }
+            guard m.isAvailable else { return .failure(.moduleNotAvailable(m)) }
+            module = m
+            if let p = params["preset"]?.lowercased() {
+                guard m.presetIDs.contains(p) else { return .failure(.unknownPreset(p, m)) }
+                presetID = p
+            } else {
+                presetID = m.presetIDs.first ?? ""
+            }
+        } else if host == DecodeRequest.actionDecode {
+            return .failure(.missingMode)
         } else {
-            presetID = module.presetIDs.first ?? ""
+            module = nil
+            presetID = nil
         }
 
         var port: Int?

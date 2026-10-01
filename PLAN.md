@@ -80,20 +80,21 @@ Der Decoder soll ohne die Commander lauffähig bleiben, zum Beispiel für WAV-Da
 Der Commander ruft `NSWorkspace.shared.open(url)` auf. macOS startet den Decoder, falls er noch nicht läuft, oder holt ihn nach vorne.
 
 ```
+digidec://open?source=pcr1500&rigctl=4532&device=<CoreAudio-UID>
 digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=<CoreAudio-UID>&center=1000
 ```
 
 | Parameter | Bedeutung | Beispiel |
 |---|---|---|
-| `mode` | Decoder-Modul | `rtty` (später `navtex`, `cw`, `psk`, …) |
+| `mode` | Decoder-Modul (optional bei `open`, Pflicht bei `decode`) | `rtty`, `navtex`, `cw`, `wefax`, `ft8` |
 | `preset` | Preset-ID (Abschnitt 5) | `ham`, `dwd-kw`, `dwd-lw`, `custom` |
 | `source` | Name des aufrufenden Programms, nur für die Anzeige | `pcr1500`, `ft991a` |
 | `rigctl` | rigctld-Port des aufrufenden Programms | `4532` / `4533` |
-| `device` | UID des Audiogeräts, auf das der Commander ausgibt | UID von „VALHost 2ch“ (Standard) |
+| `device` | UID des Audiogeräts (USB-Codec des Transceivers/Empfängers) | Codec-UID des PCR-1500 bzw. FT-991A |
 | `center` | optionale Audio-Mittenfrequenz in Hz | `1000` |
 
 - Im Decoder: `CFBundleURLTypes` in der Info.plist, die in `build_app.sh` geschrieben wird, plus `.onOpenURL` / `NSAppleEventManager`.
-- Im Commander: ein Button „RTTY decodieren“, mit Menü für die Presetwahl, der die URL baut.
+- Im Commander: Kopfzeilen-Knopf **DIGIDEC** öffnet per Einfachklick (`openURL`) direkt die App und übergibt Funkgeräte-Quelle, Codec-UID und rigctld-Port. Die Betriebsartenwahl erfolgt direkt in Digidec.
   Das ist eine **Änderung an den Hauptprogrammen**. Dabei gelten ihre Regeln: Version erhöhen, Backup, Logiktests (siehe `CLAUDE.md` / `GEMINI.md` dort).
 - Optionaler Rückkanal später: `DistributedNotificationCenter`, damit der Commander „Decoder aktiv“ und eine Signalanzeige darstellen kann.
 
@@ -731,7 +732,11 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - WEFAX: Knöpfe „APT/PHASING überspringen“ jetzt mit Symbol; Abbruch als ✕.
   - CW: Attack/Decay waren zu schmal; jetzt je eine Zeile mit LANGSAM/MITTEL/SCHNELL.
   - Frequenzen erschienen mit deutschem Tausenderpunkt („1.234“): FT8-Tabelle, WEFAX-Hinweis und die Wasserfall-Skala (seit M3). Jetzt `Text(verbatim:)`.
+- **0.13.2 (01.10.2026): Direkter Start per `digidec://open` & Entkopplung der Commander.**
+  - `DecodeRequest`: Erkennt neben `decode` nun auch `open` als Aktion (`actionOpen = "open"`). Bei `open` ist `mode` optional (`module: DecoderModuleInfo?`, `presetID: String?`).
+  - `DigidecState.handle(url:)`: Ist `request.module` nil, bleibt das aktuell aktive Modul unverändert. Quelle (`source`), Codec-UID (`deviceUID`) und rigctld-Port (`rigctlPort`) werden übernommen und die App in den Vordergrund geholt.
+  - In beiden Commandern (FT-991A Commander 0.6.1 & PCR-1500 Commander 0.22.1) wurde das verschachtelte RTTY-Menü im Knopf **DIGIDEC** durch einen direkten Klick-Button ersetzt, der `DigidecLauncher.openURL(...)` aufruft. Die Wahl des Decoders (RTTY, NAVTEX, CW, WEFAX, FT8) erfolgt direkt in Digidec.
+  - Logiktests: 371 Prüfungen bestanden.
 - **Nächster Schritt:** Alle geplanten Module sind umgesetzt. Offen ist vor allem der Live-Test aller Module durch den Nutzer. Danach Feinschliff, z. B.:
-  - DIGIDEC-Menü der Commander um NAVTEX/WEFAX/FT8-Frequenzen erweitern (Regeln der Commander beachten)
   - FT4
   - DXCC-Länder zu Rufzeichen

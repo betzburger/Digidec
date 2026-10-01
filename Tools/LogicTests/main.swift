@@ -93,6 +93,12 @@ do {
     check(parse("digidec://decode?mode=rtty&rigctl=abc") == .failure(.invalidPort("abc")), "Port keine Zahl")
     check(parse("digidec://decode?mode=rtty&center=50") == .failure(.invalidCenter("50")), "Mitte zu tief")
     check(parse("digidec://decode?mode=rtty&center=5000") == .failure(.invalidCenter("5000")), "Mitte zu hoch")
+
+    // digidec://open (allgemeiner App-Start ohne festen Modus)
+    check(parse("digidec://open?source=ft991a&rigctl=4533&device=VALHost2ch_UID") == .success(DecodeRequest(module: nil, presetID: nil, source: "ft991a", rigctlPort: 4533, deviceUID: "VALHost2ch_UID")), "open-Aktion mit Parametern")
+    check(parse("digidec://open?source=pcr1500&rigctl=4532") == .success(DecodeRequest(module: nil, presetID: nil, source: "pcr1500", rigctlPort: 4532)), "open-Aktion PCR-1500")
+    check(parse("digidec://open") == .success(DecodeRequest(module: nil, presetID: nil)), "open-Aktion ohne Parameter")
+    check(parse("digidec://open?mode=rtty") == .success(DecodeRequest(module: .rtty, presetID: "ham")), "open-Aktion mit optionalem Modus")
 }
 
 // MARK: - Modul-Liste

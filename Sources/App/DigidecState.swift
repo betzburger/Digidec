@@ -100,26 +100,26 @@ public final class DigidecState: ObservableObject {
         switch DecodeRequestParser.parse(url) {
         case .success(let request):
             currentRequest = request
-            activeModule = request.module
+            if let module = request.module {
+                activeModule = module
+                switch module {
+                case .rtty:
+                    if let preset = request.presetID { rtty.select(presetID: preset) }
+                    if let center = request.centerHz { rtty.setCenter(center) }
+                case .navtex:
+                    if let preset = request.presetID, let f = NavtexFrequency(rawValue: preset) { navtex.frequency = f }
+                    if let center = request.centerHz { navtex.setCenter(center) }
+                case .cw:
+                    if let center = request.centerHz { cw.setCenter(center) }
+                case .ft8:
+                    if let preset = request.presetID, let b = FT8Band(rawValue: preset) { ft8.band = b }
+                case .wefax:
+                    if let preset = request.presetID, let s = WefaxStation(rawValue: preset) { wefax.station = s }
+                    if let center = request.centerHz { wefax.setCenter(center) }
+                }
+            }
             lastRequestError = nil
             lastRequestDate = Date()
-            switch request.module {
-            case .rtty:
-                rtty.select(presetID: request.presetID)
-                if let center = request.centerHz { rtty.setCenter(center) }
-            case .navtex:
-                if let f = NavtexFrequency(rawValue: request.presetID) { navtex.frequency = f }
-                if let center = request.centerHz { navtex.setCenter(center) }
-            case .cw:
-                if let center = request.centerHz { cw.setCenter(center) }
-            case .ft8:
-                if let b = FT8Band(rawValue: request.presetID) { ft8.band = b }
-            case .wefax:
-                if let s = WefaxStation(rawValue: request.presetID) { wefax.station = s }
-                if let center = request.centerHz { wefax.setCenter(center) }
-            default:
-                break
-            }
             rttyController.sourceDescription = request.sourceDisplayName
             rig.apply(request: request)
             if audioStarted {
