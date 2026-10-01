@@ -1,7 +1,7 @@
 #!/bin/zsh
-# Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C) und Vendor/FT8 (ft8mon) außerhalb von SwiftPM für Logiktests und Werkzeuge.
+# Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C) und Vendor/FT8 (ft8mon) und Vendor/Wspr (wsprd) außerhalb von SwiftPM für Logiktests und Werkzeuge.
 # Aufruf: Tools/build_fldigi.sh <ausgabeordner>
-# Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“ und „FT8“ wie im Package)
+# Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“, „FT8“ und „Wspr“ wie im Package)
 set -euo pipefail
 ROOT="${0:A:h:h}"
 OUT="$1"
@@ -19,6 +19,13 @@ done
 for c in $G/src/*.c $G/src/ft8lib/*.c; do
     cc -O2 -w -I$G/include -I$G/src -c "$c" -o "$OUT/obj/ft8c_${c:t:r}.o"
 done
+W="$ROOT/Vendor/Wspr"
+for c in $W/src/*.cc; do
+    clang++ -std=c++17 -O3 -w -I$W/include -I$W/src -I$W/compat -c "$c" -o "$OUT/obj/wspr_${c:t:r}.o"
+done
+for c in $W/src/*.c; do
+    cc -O3 -w -ffast-math -I$W/include -I$W/src -I$W/inc -c "$c" -o "$OUT/obj/wsprc_${c:t:r}.o"
+done
 cat > "$OUT/module/module.modulemap" <<MAP
 module Fldigi {
     header "$F/include/fldigi_rtty.h"
@@ -30,6 +37,10 @@ module Fldigi {
 }
 module FT8 {
     header "$G/include/ft8_digidec.h"
+    export *
+}
+module Wspr {
+    header "$W/include/wspr_digidec.h"
     export *
 }
 MAP

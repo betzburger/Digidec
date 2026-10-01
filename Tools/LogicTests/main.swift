@@ -2808,5 +2808,208 @@ do {
     check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: due("2026-10-01T05:15:00Z"), now: utc("2026-10-01T05:14:00Z")) == .skipConflict, "Steuerung: Überschneidung → überspringen")
 }
 
+// MARK: - WSPR: Bänder, Meldungen, URL, Abstimmung, Log
+do {
+    check(parse("digidec://decode?mode=wspr&preset=40m") == .success(DecodeRequest(module: .wspr, presetID: "40m")), "WSPR-Auftrag 40 m")
+    check(parse("digidec://decode?mode=wspr") == .success(DecodeRequest(module: .wspr, presetID: "20m")), "WSPR-Standard 20 m")
+    check(WSPRBand.m20.dialHz == 14_095_600 && WSPRBand.m40.dialHz == 7_038_600 && WSPRBand.m30.dialHz == 10_138_700, "WSPR: Dial-Frequenzen wie WSJT-X")
+    check(WSPRBand.band(forDial: 14_095_600) == .m20 && WSPRBand.band(forDial: 14_080_000) == nil, "WSPR: Band zur Dial-Frequenz")
+    check(Set(WSPRBand.allCases.map(\.rawValue)) == Set(DecoderModuleInfo.wspr.presetIDs), "WSPR-Bänder = IDs im URL-Schema")
+    check(WSPRBand.m20.dialLabel == "14,0956", "WSPR: Dial-Anzeige")
+    check(RigTuneTarget.wspr(band: .m20) == RigTuneTarget(dialHz: 14_095_600, mode: "USB"), "QSY: WSPR 20 m = 14,0956 MHz USB")
+
+    let m1 = WSPRMessage("DL1ABC JO30 37")
+    check(m1.call == "DL1ABC" && m1.grid == "JO30" && m1.powerDBm == 37 && !m1.isHashed, "WSPR: Typ 1 zerlegt")
+    check(m1.powerLabel == "5 W", "WSPR: 37 dBm = 5 W, got \(m1.powerLabel)")
+    let m2 = WSPRMessage("PJ4/K1ABC 37")
+    check(m2.call == "PJ4/K1ABC" && m2.grid == nil && m2.powerDBm == 37, "WSPR: Typ 2 (Zusatz, ohne Locator)")
+    let m3 = WSPRMessage("<PJ4/K1ABC> FN42UD 30")
+    check(m3.isHashed && m3.plainCall == "PJ4/K1ABC" && m3.grid == "FN42UD" && m3.powerDBm == 30, "WSPR: Typ 3 (Hash)")
+    check(WSPRMessage("X 17").powerLabel == "50 mW" && WSPRMessage("X JN49 10").powerLabel == "10 mW" && WSPRMessage("X JN49 0").powerLabel == "1 mW"
+          && WSPRMessage("X JN49 30").powerLabel == "1 W" && WSPRMessage("X JN49 33").powerLabel == "2 W" && WSPRMessage("X JN49 7").powerLabel == "5 mW" && WSPRMessage("X JN49 43").powerLabel == "20 W", "WSPR: Leistung in W/mW")
+
+    let d = WSPRDecode(slotStart: ISO8601DateFormatter().date(from: "2026-10-01T09:18:00Z")!, text: "ND6P DM04 30", snrDB: -9, dt: 1.1,
+                       freqHz: 1446.2832, drift: 0, sync: 0.68, pass: 1)
+    let line = WSPRController.allLine(d, dialHz: 14_095_600)
+    check(line == "261001 0918  -9  1.10  14.0970463  ND6P DM04 30            0", "WSPR: Log-Zeile wie ALL_WSPR.TXT, got \(line.debugDescription)")
+}
+
+// MARK: - WSPR: Reste nach Subtraktion starker Signale
+do {
+    func mk(_ text: String, _ hz: Double, _ snr: Int) -> WSPRDecode {
+        WSPRDecode(slotStart: Date(timeIntervalSince1970: 0), text: text, snrDB: snr, dt: 0, freqHz: hz, drift: 0, sync: 0.5, pass: 1)
+    }
+    let strong = mk("DL1ABC JO30 37", 1520, 40)
+    let residue = mk("DL1ABC JO30 37", 1515.6, -4)
+    let other = mk("K1JT FN20 30", 1516, -20)
+    let far = mk("DL1ABC JO30 37", 1450, -10)
+    let kept = WSPRCore.removeResiduals([residue, other, strong, far])
+    check(kept.map(\.text) == ["K1JT FN20 30", "DL1ABC JO30 37", "DL1ABC JO30 37"] && !kept.contains(residue) && kept.contains(strong) && kept.contains(far),
+          "WSPR: Rest derselben Meldung wenige Hz neben dem starken Signal entfällt, andere Meldungen und ferne Wiederholungen bleiben")
+    check(WSPRCore.removeResiduals([mk("A1A AA00 37", 1500, 5), mk("A1A AA00 37", 1500, 5)]).count == 1, "WSPR: Zwilling bei gleichem S/N bleibt einfach")
+}
+
+// MARK: - WSPR-Decoder wsprd (synthetisch)
+do {
+    var state: UInt64 = 0x9876543
+    func gauss() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(state >> 11) + 1) / Double((1 << 53) + 2)
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(state >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+    func mix(_ parts: [(String, Double, Double, Double)]) -> [Float] {   // Text, Frequenz, Start, Amplitude
+        var out = [Float](repeating: 0, count: 120 * 12_000)
+        for p in parts {
+            guard let w = WSPRCore.synthesize(p.0, frequency: p.1, start: p.2) else { check(false, "WSPR: „\(p.0)“ nicht kodierbar"); continue }
+            for i in 0..<out.count { out[i] += Float(p.3) * w[i] }
+        }
+        return out
+    }
+    func addNoise(_ x: inout [Float], amplitude: Double, snr: Double) {
+        let sigma = sqrt(amplitude * amplitude / 2 / pow(10, snr / 10) / (2500.0 / 6000.0))
+        for i in 0..<x.count { x[i] += Float(gauss() * sigma) }
+    }
+    let t0 = Date(timeIntervalSince1970: 1_790_000_040)
+
+    // Sauberes Signal: Text, Frequenz, DT
+    check(WSPRCore.synthesize("DL1ABC JO30 37")?.count == 1_440_000, "WSPR-Testsignal: 120 s à 12 kHz")
+    let start = Date()
+    let clean = WSPRCore.decode(mix([("DL1ABC JO30 37", 1500, 1.0, 0.5)]), slotStart: t0)
+    let took = Date().timeIntervalSince(start)
+    check(clean.count == 1 && clean.first?.text == "DL1ABC JO30 37", "WSPR: sauberes Signal decodiert, got \(clean.map(\.text))")
+    if let c = clean.first {
+        check(abs(c.freqHz - 1500) < 1.0, "WSPR: Frequenz \(c.freqHz)")
+        check(abs(c.dt) < 0.2, "WSPR: DT \(c.dt) bei Start 1,0 s")
+        check(c.slotStart == t0 && c.message.grid == "JO30", "WSPR: Zyklusbeginn und Locator")
+    }
+    check(took < 6, "WSPR: Rechenzeit \(String(format: "%.2f", took)) s")
+
+    // Versatz in Frequenz und Zeit
+    let off = WSPRCore.decode(mix([("K1JT FN20 30", 1561.5, 2.2, 0.5)]), slotStart: t0)
+    check(off.first?.text == "K1JT FN20 30", "WSPR: Signal bei 1561,5 Hz, Start 2,2 s, got \(off.map(\.text))")
+    if let c = off.first {
+        check(abs(c.freqHz - 1561.5) < 1.0 && abs(c.dt - 1.2) < 0.2, "WSPR: Frequenz \(c.freqHz) Hz, DT \(c.dt) (Soll 1,2)")
+    }
+
+    // Außerhalb des Suchbereichs (1390…1610 Hz): nur mit ±150 Hz
+    let wideSig = mix([("DL1ABC JO30 37", 1630, 1.0, 0.5)])
+    check(WSPRCore.decode(wideSig, slotStart: t0).isEmpty, "WSPR: 1630 Hz liegt außerhalb ±110 Hz")
+    check(WSPRCore.decode(wideSig, slotStart: t0, settings: WSPRCore.Settings(wide: true)).first?.text == "DL1ABC JO30 37", "WSPR: 1630 Hz mit ±150 Hz")
+
+    // Mehrere Stationen, starkes und schwaches Signal (Subtraktion), Frequenzfolge
+    let multi = mix([("DL1ABC JO30 37", 1450, 1.0, 0.5), ("K1JT FN20 30", 1500, 1.3, 0.2), ("W3HH EL89 30", 1555, 0.8, 0.05)])
+    let found = Set(WSPRCore.decode(multi, slotStart: t0).map(\.text))
+    check(found == ["DL1ABC JO30 37", "K1JT FN20 30", "W3HH EL89 30"], "WSPR: drei Stationen, got \(found.sorted())")
+    let sorted = WSPRCore.decode(multi, slotStart: t0).map(\.freqHz)
+    check(sorted == sorted.sorted(), "WSPR: nach Frequenz sortiert")
+
+    // Empfindlichkeit: Weißrauschen; WSPR decodiert bis etwa −28 dB (2500 Hz)
+    for snr in [-10.0, -20.0, -24.0] {
+        var okCount = 0
+        var errors: [Double] = []
+        for trial in 0..<4 {
+            let amplitude = 0.05
+            var x = mix([("DL1ABC JO30 37", 1450 + Double(trial) * 35, 1.0, amplitude)])
+            addNoise(&x, amplitude: amplitude, snr: snr)
+            if let c = WSPRCore.decode(x, slotStart: t0).first(where: { $0.text == "DL1ABC JO30 37" }) {
+                okCount += 1
+                errors.append(Double(c.snrDB) - snr)
+            }
+        }
+        check(okCount >= (snr > -22 ? 4 : 3), "WSPR: \(Int(snr)) dB S/N: \(okCount)/4 decodiert")
+        if !errors.isEmpty {
+            let mean = errors.reduce(0, +) / Double(errors.count)
+            check(abs(mean) < 3, "WSPR: SNR-Schätzung bei \(Int(snr)) dB im Mittel \(String(format: "%+.1f", mean)) dB daneben")
+        }
+    }
+
+    // Zu wenig Audio / nur Rauschen
+    var noise = [Float](repeating: 0, count: 120 * 12_000)
+    addNoise(&noise, amplitude: 0.05, snr: -20)
+    check(WSPRCore.decode(noise, slotStart: t0).isEmpty, "WSPR: nur Rauschen → keine Meldung")
+    check(WSPRCore.decode([Float](repeating: 0, count: 1000), slotStart: t0).isEmpty, "WSPR: zu kurze Aufnahme → keine Meldung")
+
+    // Typ 2 (Zusatz vor dem Rufzeichen) und danach Typ 3 (Hash von Rufzeichen mit Zusatz)
+    let type2 = WSPRCore.decode(mix([("PJ4/K1ABC 37", 1500, 1.0, 0.5)]), slotStart: t0)
+    check(type2.first?.text == "PJ4/K1ABC 37", "WSPR: Typ 2, got \(type2.map(\.text))")
+    let type3 = WSPRCore.decode(mix([("<PJ4/K1ABC> FN42UD 37", 1500, 1.0, 0.5)]), slotStart: t0)
+    check(type3.first?.text == "<PJ4/K1ABC> FN42UD 37", "WSPR: Typ 3 über Hash, got \(type3.map(\.text))")
+
+    // Hashtabelle sichern und laden
+    let hashURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("digidec_wspr_hash_\(getpid()).txt")
+    check(WSPRCore.saveHashes(to: hashURL), "WSPR: Hashtabelle schreiben")
+    check((try? String(contentsOf: hashURL, encoding: .utf8))?.contains("PJ4/K1ABC") == true, "WSPR: Hashtabelle enthält das Rufzeichen")
+    check(WSPRCore.loadHashes(from: hashURL), "WSPR: Hashtabelle lesen")
+    try? FileManager.default.removeItem(at: hashURL)
+    check(!WSPRCore.loadHashes(from: URL(fileURLWithPath: "/nonexistent/hash.txt")), "WSPR: fehlende Hashtabelle → false")
+}
+
+// MARK: - WSPR an einer echten Aufnahme (WSJT-X-Beispiel 150426_0918.wav, nur wenn lokal vorhanden)
+do {
+    let url = URL(fileURLWithPath: "Vendor/_upstream/wsjtx/samples/WSPR/150426_0918.wav")
+    if let data = try? Data(contentsOf: url), data.count > 44 + 2 * 12_000 * 100 {
+        let n = (data.count - 44) / 2
+        var x = [Float](repeating: 0, count: n)
+        data.withUnsafeBytes { raw in
+            let s = raw.baseAddress!.advanced(by: 44).assumingMemoryBound(to: Int16.self)
+            for i in 0..<n { x[i] = Float(Int16(littleEndian: s[i])) / 32768 }
+        }
+        let res = WSPRCore.decode(x, slotStart: Date(timeIntervalSince1970: 1_430_000_000))
+        // Referenz: Original-wsprd (WSJT-X 3.0, FFTW) auf derselben Datei
+        let expected = ["ND6P DM04 30", "W5BIT EL09 17", "WD4LHT EL89 30", "NM7J DM26 30", "KI7CI DM09 37", "DJ6OL JO52 37", "W3HH EL89 30", "W3BI FN20 30"]
+        check(res.map(\.text) == expected, "WSPR: echte Aufnahme wie Original-wsprd, got \(res.map(\.text))")
+        check(res.map(\.snrDB) == [-9, -15, -6, -1, -21, -18, -11, -25], "WSPR: echte Aufnahme S/N wie Original, got \(res.map(\.snrDB))")
+    } else {
+        print("Hinweis: WSJT-X-Beispiel nicht vorhanden, echte WSPR-Aufnahme nicht geprüft")
+    }
+}
+
+// MARK: - WSPR-Zyklus über die Pipeline (simulierte Uhr)
+do {
+    final class FakeClock: @unchecked Sendable { var t = 0.0 }
+    let clock = FakeClock()
+    let slot = 1_790_000_000.0 - 1_790_000_000.0.truncatingRemainder(dividingBy: 120)   // 2-Minuten-Zyklusbeginn
+    let pipeline = AudioPipeline()
+    let decoder = WSPRDecoder(pipeline: pipeline)
+    decoder.clock = { clock.t }
+    decoder.configure(settings: WSPRCore.Settings(), timeOffset: 0)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+
+    let lead = 2.0   // Audio beginnt 2 s vor dem Zyklus
+    var audio12 = [Float](repeating: 0, count: Int(lead * 12_000))
+    if let w = WSPRCore.synthesize("DL1ABC JO30 37", frequency: 1520, start: 1.0) { audio12 += w.map { $0 * 0.6 } }
+    audio12 += [Float](repeating: 0, count: 8 * 12_000)   // bis nach 1:54
+    var audio48 = [Float](repeating: 0, count: audio12.count * 4)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 4, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio12[k] * (1 - f) + (k + 1 < audio12.count ? audio12[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    let chunk = 24_000
+    while i < audio48.count {
+        let n = min(chunk, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        clock.t = slot - lead + Double(i) / 48_000
+        Thread.sleep(forTimeInterval: 0.03)   // Uhr darf der Audio-Verarbeitung nicht vorauslaufen (sonst DT-Fehler im Test)
+    }
+    var results: [WSPRDecoder.SlotResult] = []
+    for _ in 0..<100 where results.isEmpty {
+        Thread.sleep(forTimeInterval: 0.1)
+        results += decoder.takeResults()
+    }
+    let d = results.first?.decodes.first
+    check(results.first?.slotStart == Date(timeIntervalSince1970: slot), "WSPR-Zyklus: Beginn nach 2-Minuten-UTC-Raster")
+    check(d?.text == "DL1ABC JO30 37", "WSPR-Zyklus: Pipeline 48 kHz → 12 kHz, Text \(d?.text ?? "–")")
+    check(d.map { abs($0.freqHz - 1520) < 1.0 && abs($0.dt) < 0.6 } == true, "WSPR-Zyklus: Frequenz \(d?.freqHz ?? 0), DT \(d?.dt ?? 0)")
+    check((results.first?.coverage ?? 0) > 0.95, "WSPR-Zyklus: volle Abdeckung")
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

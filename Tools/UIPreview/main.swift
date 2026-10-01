@@ -59,6 +59,25 @@ func run() {
     save(FT8Table(entries: entries, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "Bandaktivität"),
          width: 700, name: "ft8_tabelle", dir: dir)
 
+    // WSPR
+    let ws = WSPRSettingsStore()
+    let wsc = WSPRController(pipeline: pipeline, settings: ws)
+    save(VStack(spacing: 10) {
+        WSPRCyclePanel(controller: wsc, settings: ws).radioCard(title: "Zyklus")
+        WSPRSettingsPanel(settings: ws).radioCard(title: "WSPR")
+    }, width: right, name: "wspr_rechts", dir: dir)
+    let wsStart = Date(timeIntervalSince1970: 1_790_000_040)
+    let wsSample: [(String, Int, Double, Double, Int)] = [
+        ("ND6P DM04 30", -9, 1.1, 1446.3, 0), ("W5BIT EL09 17", -15, 0.1, 1460.4, 0),
+        ("<PJ4/K1ABC> FN42UD 37", -21, 0.5, 1517.4, -1), ("DJ6OL JO52 37", -18, -1.9, 1529.8, 0), ("PJ4/K1ABC 37", -25, 0.7, 1594.4, 1)]
+    let wsEntries = wsSample.map { s -> WSPREntry in
+        let d = WSPRDecode(slotStart: wsStart, text: s.0, snrDB: s.1, dt: s.2, freqHz: s.3, drift: s.4, sync: 0.5, pass: 1)
+        let dist = d.message.grid.flatMap { Maidenhead.distance(from: "JN49WS", to: $0) }
+        return WSPREntry(decode: d, dxcc: d.message.isHashed ? nil : DXCCDatabase.shared.lookup(d.message.plainCall), km: dist?.km, bearing: dist?.bearing,
+                         rfHz: 14_095_600 + s.3, mentionsMe: false)
+    }
+    save(WSPRTable(entries: wsEntries, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "WSPR Spots"), width: 700, name: "wspr_tabelle", dir: dir)
+
     // WEFAX-Sendeplan (Fenster)
     schedState.wefaxSchedule.selected = ["1636", "1800", "0430"]
     schedState.wefaxSchedule.autoEnabled = true

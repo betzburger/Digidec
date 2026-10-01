@@ -9,6 +9,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case wefax
     case ft8
     case ft4
+    case wspr
     case dcf77
     case efr
     case sstv
@@ -23,6 +24,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .wefax:  return "WEFAX"
         case .ft8:    return "FT8"
         case .ft4:    return "FT4"
+        case .wspr:   return "WSPR"
         case .dcf77:  return "DCF77"
         case .efr:    return "EFR"
         case .sstv:   return "SSTV"
@@ -31,7 +33,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .wefax, .ft8, .ft4, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -44,6 +46,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue
         case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]   // = FT4Band.rawValue
+        case .wspr: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "160m", "60m", "630m", "2200m", "6m", "4m", "2m", "70cm"]   // = WSPRBand.rawValue
         case .dcf77: return ["mainflingen"]
         case .efr: return ["dcf49", "dcf39", "hga22", "custom"]
         case .sstv: return ["20m", "40m", "80m", "10m", "iss", "2m", "custom"]

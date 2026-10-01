@@ -32,6 +32,8 @@ public struct RigTuneTarget: Equatable, Sendable {
 
     public static func ft4(band: FT4Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
 
+    public static func wspr(band: WSPRBand) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
+
     public static func sstv(channel: SSTVChannel) -> RigTuneTarget? {
         guard let f = channel.frequencyHz else { return nil }
         let mode = ["USB", "LSB", "FM"].contains(channel.modulation) ? channel.modulation : nil

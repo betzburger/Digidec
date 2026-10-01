@@ -30,6 +30,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ft8, audio: state.audio)
                             } else if state.activeModule == .ft4 {
                                 WaterfallView(model: state.waterfall, rtty: state.ft4, audio: state.audio)
+                            } else if state.activeModule == .wspr {
+                                WaterfallView(model: state.waterfall, rtty: state.wspr, audio: state.audio)
                             } else if state.activeModule == .dcf77 {
                                 WaterfallView(model: state.waterfall, rtty: state.dcf77, audio: state.audio)
                             } else if state.activeModule == .efr {
@@ -54,6 +56,8 @@ public struct MainWindowView: View {
                                 FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
                             } else if state.activeModule == .ft4 {
                                 FT4ActivityPanel(controller: state.ft4Controller, settings: state.ft4)
+                            } else if state.activeModule == .wspr {
+                                WSPRActivityPanel(controller: state.wsprController, settings: state.wspr)
                             } else if state.activeModule == .dcf77 {
                                 DCF77MainPanel(controller: state.dcf77Controller, settings: state.dcf77)
                             } else if state.activeModule == .efr {
@@ -65,7 +69,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -99,6 +103,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Zyklus · Rx-Frequenz")
                             FT4SettingsPanel(settings: state.ft4)
                                 .radioCard(title: "FT4")
+                        } else if state.activeModule == .wspr {
+                            WSPRCyclePanel(controller: state.wsprController, settings: state.wspr)
+                                .radioCard(title: "Zyklus")
+                            WSPRSettingsPanel(settings: state.wspr)
+                                .radioCard(title: "WSPR")
                         } else if state.activeModule == .dcf77 {
                             DCF77TuningPanel(controller: state.dcf77Controller, settings: state.dcf77)
                                 .radioCard(title: "Signal · Pegel")
@@ -138,7 +147,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -416,6 +425,7 @@ private struct StatusBar: View {
     @ObservedObject var ft8: FT8SettingsStore
     @ObservedObject var ft4: FT4SettingsStore
     @ObservedObject var ft4Controller: FT4Controller
+    @ObservedObject var wspr: WSPRSettingsStore
     @ObservedObject var dcf77: DCF77SettingsStore
     @ObservedObject var dcf77Controller: DCF77Controller
     @ObservedObject var efr: EFRSettingsStore
@@ -474,6 +484,7 @@ private struct StatusBar: View {
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current
         case .ft4: return ft4Current
+        case .wspr: return wsprCurrent
         case .dcf77: return dcf77Current
         case .efr: return efrCurrent
         case .sstv: return sstvCurrent
@@ -494,6 +505,17 @@ private struct StatusBar: View {
         s += " · \(Int(ft4.core.minHz))–\(Int(ft4.core.maxHz)) Hz"
         s += " · \(ft4.locator)"
         if !ft4.myCall.isEmpty { s += " · \(ft4.myCall)" }
+        return s
+    }
+
+    /// „WSPR · 20m · Dial 14,0956 MHz · 1400–1600 Hz · JN49WS“
+    private var wsprCurrent: String {
+        let dial = String(format: "%.4f", Double(wspr.dialHz) / 1_000_000).replacingOccurrences(of: ".", with: ",")
+        var s = "WSPR · \(wspr.band.rawValue) · Dial \(dial) MHz"
+        s += wspr.core.wide ? " · 1350–1650 Hz" : " · 1390–1610 Hz"
+        if wspr.core.deep { s += " · tief" }
+        s += " · \(wspr.locator)"
+        if !wspr.myCall.isEmpty { s += " · \(wspr.myCall)" }
         return s
     }
 

@@ -31,6 +31,8 @@ public final class DigidecState: ObservableObject {
     public let ft8Controller: FT8Controller
     public let ft4 = FT4SettingsStore()
     public let ft4Controller: FT4Controller
+    public let wspr = WSPRSettingsStore()
+    public let wsprController: WSPRController
     public let dcf77 = DCF77SettingsStore()
     public let dcf77Controller: DCF77Controller
     public let efr = EFRSettingsStore()
@@ -62,6 +64,7 @@ public final class DigidecState: ObservableObject {
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
         ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
+        wsprController = WSPRController(pipeline: audio.pipeline, settings: wspr)
         dcf77Controller = DCF77Controller(pipeline: audio.pipeline, settings: dcf77)
         efrController = EFRController(pipeline: audio.pipeline, settings: efr)
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
@@ -78,6 +81,7 @@ public final class DigidecState: ObservableObject {
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
                 self?.ft4Controller.setActive(module == .ft4)
+                self?.wsprController.setActive(module == .wspr)
                 self?.dcf77Controller.setActive(module == .dcf77)
                 self?.efrController.setActive(module == .efr)
                 self?.sstvController.setActive(module == .sstv)
@@ -88,6 +92,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning($activeModule)
         observeForTuning(ft8.$band)
         observeForTuning(ft4.$band)
+        observeForTuning(wspr.$band)
         observeForTuning(sstv.$channel)
         observeForTuning(efr.$station)
         observeForTuning(wefax.$station)
@@ -107,6 +112,7 @@ public final class DigidecState: ObservableObject {
             wefax.rigIsLSB = state.isLSB
             ft8.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             ft4.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
+            wspr.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             wefaxController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             dcf77.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
@@ -137,6 +143,7 @@ public final class DigidecState: ObservableObject {
         switch activeModule {
         case .ft8:    return .ft8(band: ft8.band)
         case .ft4:    return .ft4(band: ft4.band)
+        case .wspr:   return .wspr(band: wspr.band)
         case .sstv:   return .sstv(channel: sstv.channel)
         case .efr:    return .efr(station: efr.station, centerHz: efr.centerHz)
         case .dcf77:  return .dcf77(centerHz: dcf77.centerHz)
@@ -204,6 +211,8 @@ public final class DigidecState: ObservableObject {
                     if let preset = request.presetID, let b = FT8Band(rawValue: preset) { ft8.band = b }
                 case .ft4:
                     if let preset = request.presetID, let b = FT4Band(rawValue: preset) { ft4.band = b }
+                case .wspr:
+                    if let preset = request.presetID, let b = WSPRBand(rawValue: preset) { wspr.band = b }
                 case .wefax:
                     if let preset = request.presetID, let s = WefaxStation(rawValue: preset) { wefax.station = s }
                     if let center = request.centerHz { wefax.setCenter(center) }

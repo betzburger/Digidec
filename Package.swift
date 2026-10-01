@@ -47,9 +47,27 @@ let package = Package(
                 .unsafeFlags(["-w", "-O3"])
             ]
         ),
+        // WSPR-Decoder wsprd aus WSJT-X 3.0 (K1JT, K9AN u. a., GPLv3) mit pocketfft (BSD) statt FFTW.
+        // Herkunft und Abweichungen: Vendor/Wspr/UPSTREAM_WSPR.md
+        .target(
+            name: "Wspr",
+            path: "Vendor/Wspr",
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("src"),
+                .headerSearchPath("inc"),
+                .unsafeFlags(["-w", "-O3", "-ffast-math"])      // wsprd baut mit -O3 -ffast-math
+            ],
+            cxxSettings: [
+                .headerSearchPath("src"),
+                .headerSearchPath("compat"),
+                .unsafeFlags(["-w", "-O3"])
+            ]
+        ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["Fldigi", "FT8"],
+            dependencies: ["Fldigi", "FT8", "Wspr"],
             path: "Sources"
         )
     ],

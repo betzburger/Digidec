@@ -428,6 +428,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M18 | QSY | ✅ 01.10.2026 (v0.19.0): Funkgerät folgt dem Modul über den rigctld des Commanders (nur `F` und `M`), Schalter in der Kopfzeile |
 | M19 | WEFAX-Sendeplan | ✅ 01.10.2026 (v0.20.0): DWD-Radiofax-Sendeplan aus dem Netz (Knopf „Aktualisieren“), Plan-Fenster, Auswahl von Sendungen zur automatischen Aufnahme |
 | M20 | Sendepläne RTTY und NAVTEX | ✅ 01.10.2026 (v0.23.0): gemeinsames Plan-Fenster (WEFAX, RTTY, NAVTEX), RTTY-Plan aus den DWD-PDFs mit „Aktualisieren“, NAVTEX nach IMO-Raster, gemeinsame automatische Aufnahme |
+| M21 | WSPR | ✅ 01.10.2026 (v0.24.0): wsprd aus WSJT-X (`Vendor/Wspr`, pocketfft statt FFTW), 2-Minuten-Zyklus, 16 Bänder, Spotliste mit Entfernung/DXCC/Leistung, Typ 1/2/3 mit Hashtabelle, ALL_WSPR-Log; auf dem WSJT-X-Beispiel dieselben 8 Meldungen wie das Original; Live-Empfang durch den Nutzer offen |
 ---
 
 ## 11. Aktueller Stand
@@ -863,7 +864,18 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Aufnahmesteuerung (`ScheduleAutoRecorder`, ersetzt `WefaxAutoRecorder`):** Ein Dienst zugleich. Die Entscheidung je Takt ist eine reine Funktion (`ScheduleCalc.decide`): Folgesendungen warten, bis die laufende zu Ende ist (kein Abschneiden) und folgen dann nahtlos (Rückkehr zum vorigen Modul erst nach der letzten, Ruhezustand-Schutz bleibt); beginnt eine Sendung vor dem Ende der laufenden, wird sie mit Hinweis übersprungen; Moduswechsel von Hand beendet die Aufnahme. Je Dienst: WEFAX wie bisher (Station, Zeilenzahl, Bildablage mit Kartentitel, optional WAV, Lernen aus Umstellen von Hand), RTTY (Voreinstellung, Log, Dial), NAVTEX (518/490/4209,5 kHz, Log). Stimmt das Funkgerät (rigctld) mehr als 2 kHz nicht mit dem Ziel überein, warnt die Statuszeile.
   - **Tests:** 875 Logiktests (neu: RTTY-Parser an beiden Plänen, Links, Speicher und Frequenzwahl, NAVTEX-Plan und Raster, Zeitrechnung über alle Dienste, Entscheidungen der Aufnahmesteuerung). Netzabruf RTTY gegen dwd.de geprüft (beide PDFs gefunden, gelesen, Cache beim Neustart geladen).
   - **Offen:** Keine Audioaufnahme (WAV) für RTTY und NAVTEX (sie schreiben ihr Log). Nicht live mit Funkgerät geprüft.
+- **Live-Tests durch den Nutzer (01.10.2026, nach 0.23.0):** CW, FT4 und FT8 erfolgreich getestet, NAVTEX geht ebenfalls. **CW-Erkennung ist verbesserungswürdig** (noch nicht näher beschrieben: Fehlerbild und Aufnahme stehen aus; Ansatzpunkte: Filterbandbreite, Tonnachführung, Geschwindigkeitsnachführung, Schwellen).
+- **0.24.0 (01.10.2026): M21 WSPR (Weak Signal Propagation Reporter).**
+  - **Kern:** `Vendor/Wspr`: wsprd aus WSJT-X (Commit `b4f9a43`), `port_wspr.py` kopiert und erzeugt `wspr_rx.c` aus `wsprd.c` (alle Funktionen wortgleich, `main()` ersetzt durch `inc/wspr_decode.inc` mit der C-Schnittstelle `wspr_digidec.h`). FFTW → pocketfft (`wspr_fftw.h`, `wspr_fft.cc`). Herkunft und alle Abweichungen: `Vendor/Wspr/UPSTREAM_WSPR.md`. Eigenes SwiftPM-Target `Wspr`, auch in `Tools/build_fldigi.sh` (Logiktests, UIPreview).
+  - **Nachweis gegen das Original:** WSJT-X-Beispiel `150426_0918.wav`: Digidec und das mit FFTW gebaute Original-wsprd liefern dieselben 8 Meldungen mit gleichem S/N und DT (ND6P, W5BIT, WD4LHT, NM7J, KI7CI, DJ6OL, W3HH, W3BI). Rechenzeit ≈ 1,8 s je Zyklus.
+  - **Swift:** `WSPRCore` (Decode, Meldung zerlegen, Leistung in W/mW, Testsignal, Hashtabelle), `WSPRModule` (16 Bänder 2200 m … 70 cm mit WSJT-X-Dial-Frequenzen, `WSPRSettingsStore` mit Rufzeichen/Locator/±150 Hz/TIEF/Zeitkorrektur, `WSPRDecoder` 12-kHz-Senke, decodiert bei 1:54 nach dem geraden UTC-Minutenbeginn, `WSPRController`). Hashtabelle für Typ-3-Meldungen unter `~/Library/Application Support/Digidec/WSPR/hashtable.txt`.
+  - **Oberfläche:** Spotliste (UTC, dB, DT, MHz, Drift, Flagge, Rufzeichen, Locator, Leistung, km), Zyklus-Anzeige (Minute:Sekunde, Sende-/Decodierfenster), weitester Empfang, Einstellungen. Wasserfall zeigt das 200-Hz-Fenster bei 1500 Hz. Log `~/Documents/Digidec/Logs/WSPR-JJJJ-MM-TT.txt` im Format von ALL_WSPR.TXT. URL: `digidec://decode?mode=wspr&preset=20m|40m|…`; QSY AUTO stimmt auf den Dial (USB) ab.
+  - **Swift-Nachbearbeitung:** Sehr starke Signale hinterlassen einen Rest, den wsprd als dieselbe Meldung mit kleinem S/N wenige Hz daneben noch einmal findet; `removeResiduals` behält das stärkere.
+  - **Tests:** 923 Logiktests (neu: Bänder/URL/QSY, Meldungen, Log-Zeile, sauberes Signal, Frequenz-/Zeitversatz, ±110/±150 Hz, drei Stationen, Weißrauschen bis −24 dB, Typ 2 und 3, Hashtabelle, echte WSJT-X-Aufnahme (nur wenn `Vendor/_upstream/wsjtx` vorhanden), Zyklus über die Pipeline mit simulierter Uhr).
+  - **Grenzen:** Keine OSD-Stufe (Fortran, in wsprd optional). Typ-3-Meldungen zeigen `<...>`, bis das Rufzeichen einmal als Typ 1/2 gehört wurde. Nur WSPR-2 (kein WSPR-15). Digidec sendet nie.
+  - **Offen (braucht den Nutzer):** Live-Empfang, z. B. 20 m (Dial 14,0956 MHz USB) oder 40 m (7,0386 MHz). Rechneruhr auf ±1 s (WSPR verträgt ± 2 s); DT der Stationen beobachten, sonst Zeitkorrektur.
 - **Nächste Schritte:**
-  - Live-Tests aller Module durch den Nutzer (RTTY, NAVTEX, CW, WEFAX, FT8, FT4, DCF77, EFR, SSTV).
   - PSK31 / PSK63 (BPSK-Amateurfunk-Textübertragung auf Kurzwelle).
+  - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
+  - Live-Tests der übrigen Module (WSPR, WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
 
