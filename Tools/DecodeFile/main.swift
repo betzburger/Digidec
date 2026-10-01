@@ -23,6 +23,9 @@ func usage() -> Never {
       --psk <modus>         PSK (fldigi-PSK-Empfänger): bpsk31 | bpsk63 | bpsk125 | bpsk250 | qpsk31 … qpsk250;
                             dazu --center <Träger-Hz> (Standard 1000); --noafc schaltet die Frequenznachführung ab, --rev kehrt QPSK um
 
+      --olivia <kennung>    Olivia/Contestia (fldigi): olivia-8-500 | olivia-16-1000 | contestia-8-500 … (Töne-Bandbreite); --center <Mitte-Hz> (Standard 1500)
+      --mt63 <kennung>      MT63 (fldigi): 500s | 500l | 1000s | 1000l | 2000s | 2000l (S = kurz, L = lang); --center <Mitte-Hz> (Standard 1500)
+
       --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
       --lpm <n>             WEFAX Zeilen je Minute (Standard 120)
       --shift <Hz>          WEFAX Hub (Standard 800, DWD 850); --center <Hz> NF-Mitte (Standard 1900)
@@ -52,6 +55,8 @@ var cwMode = false
 var cwWPM = 18
 var cwMF = false
 var pskModeID: String?
+var oliviaID: String?
+var mt63ID: String?
 var pskAFC = true
 var pskReverse = false
 var wefaxMode = false
@@ -77,6 +82,8 @@ while !args.isEmpty {
     case "--wpm": cwWPM = Int(value()) ?? 18
     case "--mf": cwMF = true
     case "--psk": pskModeID = value()
+    case "--olivia": oliviaID = value()
+    case "--mt63": mt63ID = value()
     case "--noafc": pskAFC = false
     case "--rev": pskReverse = true
     case "--wefax": wefaxMode = true
@@ -233,6 +240,64 @@ if let pskModeID {
     print(pskText)
     if let comparePath, let other = try? String(contentsOfFile: comparePath, encoding: .utf8) {
         let a = Array(pskText.filter { !$0.isWhitespace }), b = Array(other.filter { !$0.isWhitespace })
+        let d = levenshtein(a, b)
+        print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
+                     100 * Double(d) / Double(max(1, max(a.count, b.count)))))
+    }
+    exit(0)
+}
+
+// MARK: - Olivia, Contestia, MT63
+
+if oliviaID != nil || mt63ID != nil {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: 8_000) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    let carrier = center ?? 1500
+    var bytes: [UInt8] = []
+    var process: (UnsafeBufferPointer<Float>) -> Void = { _ in }
+    var finish: () -> Void = {}
+    var summary: () -> String = { "" }
+    var oCore: FldigiOliviaCore?
+    var mCore: FldigiMT63Core?
+    if let id = oliviaID {
+        guard let o = FldigiOliviaCore.Options(presetID: id) else { print("Unbekannte Olivia-Kennung: \(id)"); exit(1) }
+        print("\(o.familyName.uppercased()) \(o.label) · Mitte \(Int(carrier)) Hz")
+        let c = FldigiOliviaCore(options: o, centerHz: carrier) { bytes.append($0) }
+        oCore = c
+        process = { c.process($0) }
+        finish = { c.flush() }
+        summary = { let s = c.status; return String(format: "Mitte %.1f Hz, S/N %.1f, Abweichung %+.1f Hz", s.centerHz, s.snr, s.freqOffsetHz) }
+    } else if let id = mt63ID {
+        guard let o = FldigiMT63Core.Options(presetID: id) else { print("Unbekannte MT63-Kennung: \(id)"); exit(1) }
+        print("MT63 \(o.label) · Mitte \(Int(carrier)) Hz")
+        let c = FldigiMT63Core(options: o, centerHz: carrier) { bytes.append($0) }
+        mCore = c
+        process = { c.process($0) }
+        finish = { c.flush() }
+        summary = { let s = c.status; return String(format: "Mitte %.1f Hz, S/N %.1f, Abweichung %+.1f Hz", s.centerHz, s.snr, s.freqOffsetHz) }
+    }
+    _ = oCore; _ = mCore
+    let started = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { process($0) }
+    }
+    finish()
+    let text = PSKDecoder.text(from: bytes)
+    let out = outPath.map { URL(fileURLWithPath: $0) } ?? wavURL.deletingPathExtension().appendingPathExtension("digidec.txt")
+    try? text.write(to: out, atomically: true, encoding: .utf8)
+    let duration = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "Decodiert: %.0f s Audio in %.2f s, %d Zeichen -> %@", duration, Date().timeIntervalSince(started), text.count, out.lastPathComponent))
+    print(summary())
+    print(text)
+    if let comparePath, let other = try? String(contentsOfFile: comparePath, encoding: .utf8) {
+        let a = Array(text.filter { !$0.isWhitespace }), b = Array(other.filter { !$0.isWhitespace })
         let d = levenshtein(a, b)
         print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
                      100 * Double(d) / Double(max(1, max(a.count, b.count)))))

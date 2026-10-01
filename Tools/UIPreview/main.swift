@@ -67,6 +67,18 @@ func run() {
         PSKSettingsPanel(settings: ps).radioCard(title: "PSK")
     }, width: right, name: "psk_rechts", dir: dir)
 
+    // Olivia und MT63
+    let ol = OliviaSettingsStore()
+    let olc = OliviaController(pipeline: pipeline, settings: ol)
+    let mt = MT63SettingsStore()
+    let mtc = MT63Controller(pipeline: pipeline, settings: mt)
+    save(VStack(spacing: 10) {
+        OliviaTuningPanel(controller: olc, settings: ol).radioCard(title: "Abstimmanzeige")
+        OliviaSettingsPanel(settings: ol).radioCard(title: "OLIVIA · CONTESTIA")
+        MT63TuningPanel(controller: mtc, settings: mt).radioCard(title: "Abstimmanzeige")
+        MT63SettingsPanel(settings: mt).radioCard(title: "MT63")
+    }, width: right, name: "olivia_mt63_rechts", dir: dir)
+
     // WSPR
     let ws = WSPRSettingsStore()
     let wsc = WSPRController(pipeline: pipeline, settings: ws)

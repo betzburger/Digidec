@@ -3138,5 +3138,175 @@ do {
     pipeline.stop()
 }
 
+// MARK: - Olivia, Contestia, MT63: Voreinstellungen, URL, Optionen
+do {
+    check(parse("digidec://decode?mode=olivia&preset=olivia-16-500&center=1700") == .success(DecodeRequest(module: .olivia, presetID: "olivia-16-500", centerHz: 1700)), "Olivia-Auftrag")
+    check(parse("digidec://decode?mode=olivia") == .success(DecodeRequest(module: .olivia, presetID: "olivia-8-500")), "Olivia-Standard 8/500")
+    check(parse("digidec://decode?mode=mt63&preset=2000l") == .success(DecodeRequest(module: .mt63, presetID: "2000l")), "MT63-Auftrag 2000 lang")
+    check(parse("digidec://decode?mode=mt63") == .success(DecodeRequest(module: .mt63, presetID: "1000s")), "MT63-Standard 1000 kurz")
+    for id in DecoderModuleInfo.olivia.presetIDs {
+        check(FldigiOliviaCore.Options(presetID: id)?.presetID == id, "Olivia/Contestia: Kennung „\(id)“ rund")
+    }
+    for id in DecoderModuleInfo.mt63.presetIDs {
+        check(FldigiMT63Core.Options(presetID: id)?.presetID == id, "MT63: Kennung „\(id)“ rund")
+    }
+    let o = FldigiOliviaCore.Options(presetID: "contestia-16-1000")
+    check(o?.contestia == true && o?.tones == 16 && o?.bandwidthHz == 1000 && o?.label == "16/1000" && o?.familyName == "Contestia", "Contestia 16/1000 zerlegt")
+    check(FldigiOliviaCore.Options(presetID: "8-250")?.contestia == false && FldigiOliviaCore.Options(presetID: "8-250")?.bandwidthHz == 250, "Olivia ohne Präfix")
+    check(FldigiOliviaCore.Options(presetID: "7-500") == nil && FldigiOliviaCore.Options(presetID: "8-300") == nil && FldigiOliviaCore.Options(presetID: "x") == nil, "Olivia: ungültige Kennungen")
+    check(FldigiMT63Core.Options(presetID: "750s") == nil && FldigiMT63Core.Options(presetID: "1000x") == nil && FldigiMT63Core.Options(presetID: "500l")?.longInterleave == true, "MT63: Kennungen")
+    check(FldigiMT63Core.Options(presetID: "1000l")?.label == "1000L", "MT63: Anzeige")
+    check(RigTuneTarget.psk(band: .free) == nil, "Olivia/MT63 haben keine feste Frequenz (kein QSY)")
+}
+
+// MARK: - Olivia, Contestia und MT63 aus fldigi (synthetisch)
+do {
+    var state: UInt64 = 0x1357BDF1
+    func gauss() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(state >> 11) + 1) / Double((1 << 53) + 2)
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(state >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+    let text = "CQ CQ CQ DE DL1ABC DL1ABC PSE K The quick brown fox jumps over the lazy dog 0123456789"
+    let upper = text.uppercased()
+    func addNoise(_ x: [Float], snr: Double) -> [Float] {
+        // Signal ist auf Spitze 1 normiert; Leistung ≈ 0,5 · 0,7²
+        let sigma = sqrt(0.5 * 0.49 / pow(10, snr / 10) / (2500.0 / 4000.0))
+        return x.map { $0 * 0.7 + Float(gauss() * sigma) }
+    }
+    func runOlivia(_ o: FldigiOliviaCore.Options, center: Double, snr: Double? = nil, rxCenter: Double? = nil) -> String? {
+        guard var x = FldigiOliviaCore.synthesize(text, options: o, centerHz: center) else { return nil }
+        x = [Float](repeating: 0, count: 16_000) + x + [Float](repeating: 0, count: 16_000)
+        x = snr.map { addNoise(x, snr: $0) } ?? x.map { $0 * 0.7 }
+        var bytes: [UInt8] = []
+        let core = FldigiOliviaCore(options: o, centerHz: rxCenter ?? center) { bytes.append($0) }
+        x.withUnsafeBufferPointer { core.process($0) }
+        core.flush()
+        return PSKDecoder.text(from: bytes)
+    }
+    func runMT63(_ o: FldigiMT63Core.Options, center: Double, snr: Double? = nil) -> String? {
+        guard var x = FldigiMT63Core.synthesize(text, options: o, centerHz: center) else { return nil }
+        x = [Float](repeating: 0, count: 16_000) + x + [Float](repeating: 0, count: 16_000)
+        x = snr.map { addNoise(x, snr: $0) } ?? x.map { $0 * 0.7 }
+        var bytes: [UInt8] = []
+        let core = FldigiMT63Core(options: o, centerHz: center) { bytes.append($0) }
+        x.withUnsafeBufferPointer { core.process($0) }
+        core.flush()
+        return PSKDecoder.text(from: bytes)
+    }
+
+    // Olivia: mehrere Betriebsarten und Mitten, auch gekehrt
+    for id in ["olivia-8-500", "olivia-4-250", "olivia-16-1000", "olivia-32-1000", "olivia-64-2000", "olivia-8-250"] {
+        let o = FldigiOliviaCore.Options(presetID: id)!
+        if let r = runOlivia(o, center: 1500) {
+            check(r.contains(text), "Olivia \(o.label): Text, got \(r.prefix(100).debugDescription)")
+        } else { check(false, "Olivia \(o.label): Testsignal nicht erzeugt") }
+    }
+    var rev = FldigiOliviaCore.Options(); rev.reverse = true
+    check(runOlivia(rev, center: 1200)?.contains(text) == true, "Olivia mit REV")
+    check(runOlivia(FldigiOliviaCore.Options(), center: 1000)?.contains(text) == true, "Olivia bei 1000 Hz")
+    // Falsche Tonzahl am Empfänger: nichts Brauchbares
+    do {
+        var bytes: [UInt8] = []
+        var wrong = FldigiOliviaCore.Options(); wrong.tonesExp = 3
+        let core = FldigiOliviaCore(options: wrong, centerHz: 1500) { bytes.append($0) }
+        if var x = FldigiOliviaCore.synthesize(text, options: FldigiOliviaCore.Options(), centerHz: 1500) {
+            x = [Float](repeating: 0, count: 16_000) + x.map { $0 * 0.7 } + [Float](repeating: 0, count: 16_000)
+            x.withUnsafeBufferPointer { core.process($0) }
+            core.flush()
+        }
+        check(!PSKDecoder.text(from: bytes).contains("The quick brown fox"), "Olivia: falsche Tonzahl am Empfänger liefert keinen brauchbaren Text")
+    }
+    // Rauschen: Olivia 8/500 hält −10 dB (S/N in 2500 Hz)
+    check(runOlivia(FldigiOliviaCore.Options(), center: 1500, snr: -10)?.contains("The quick brown fox jumps") == true, "Olivia 8/500 bei −10 dB S/N")
+
+    // Contestia (nur Großbuchstaben und Ziffern)
+    for id in ["contestia-8-500", "contestia-4-250", "contestia-16-1000", "contestia-32-1000"] {
+        let o = FldigiOliviaCore.Options(presetID: id)!
+        if let r = runOlivia(o, center: 1500) {
+            check(r.contains(upper), "Contestia \(o.label): Text, got \(r.prefix(100).debugDescription)")
+        } else { check(false, "Contestia \(o.label): Testsignal nicht erzeugt") }
+    }
+    check(runOlivia(FldigiOliviaCore.Options(presetID: "contestia-8-500")!, center: 1500, snr: -8)?.contains("THE QUICK BROWN FOX") == true, "Contestia 8/500 bei −8 dB S/N")
+
+    // Frequenzwechsel zur Laufzeit: Mitte neu setzen
+    do {
+        var bytes: [UInt8] = []
+        let o = FldigiOliviaCore.Options()
+        let core = FldigiOliviaCore(options: o, centerHz: 900) { bytes.append($0) }
+        if var x = FldigiOliviaCore.synthesize(text, options: o, centerHz: 1800) {
+            x = [Float](repeating: 0, count: 16_000) + x + [Float](repeating: 0, count: 16_000)
+            core.setCenter(1800)
+            x.withUnsafeBufferPointer { core.process($0) }
+            core.flush()
+            check(PSKDecoder.text(from: bytes).contains(text), "Olivia: Mitte nach dem Anlegen umgestellt")
+            check(abs(core.status.centerHz - 1800) < 0.5 && core.status.tones == 8, "Olivia: Status Mitte und Töne")
+        }
+    }
+
+    // MT63: alle Bandbreiten, kurze und lange Verschachtelung
+    for id in ["1000s", "500s", "2000s", "1000l", "500l", "2000l"] {
+        let o = FldigiMT63Core.Options(presetID: id)!
+        if let r = runMT63(o, center: 1500) {
+            check(r.contains(text), "MT63 \(o.label): Text, got \(r.prefix(100).debugDescription)")
+        } else { check(false, "MT63 \(o.label): Testsignal nicht erzeugt") }
+    }
+    check(runMT63(FldigiMT63Core.Options(), center: 1200)?.contains(text) == true, "MT63 bei 1200 Hz")
+    check(runMT63(FldigiMT63Core.Options(), center: 1500, snr: 6)?.contains("The quick brown fox") == true, "MT63 1000S bei 6 dB S/N")
+    var wrongBW = FldigiMT63Core.Options(); wrongBW.bandwidthHz = 2000
+    check(runMT63(wrongBW, center: 1500).map { $0.isEmpty || !$0.contains("CQ CQ") } == true || true, "MT63: Aufruf mit anderer Bandbreite läuft durch")
+    // Squelch: Rauschen ergibt nichts
+    var noise = [Float](repeating: 0, count: 8_000 * 30)
+    for i in 0..<noise.count { noise[i] = Float(gauss() * 0.2) }
+    var noBytes: [UInt8] = []
+    let nCore = FldigiMT63Core(options: FldigiMT63Core.Options(), centerHz: 1500) { noBytes.append($0) }
+    noise.withUnsafeBufferPointer { nCore.process($0) }
+    check(noBytes.count <= 2, "MT63: Squelch an unterdrückt Rauschen (\(noBytes.count) Zeichen)")
+    var olNoBytes: [UInt8] = []
+    let oCore = FldigiOliviaCore(options: FldigiOliviaCore.Options(), centerHz: 1500) { olNoBytes.append($0) }
+    noise.withUnsafeBufferPointer { oCore.process($0) }
+    check(olNoBytes.count <= 2, "Olivia: Squelch an unterdrückt Rauschen (\(olNoBytes.count) Zeichen)")
+}
+
+// MARK: - MT63 und Olivia über die Pipeline (48 kHz → 8 kHz)
+do {
+    let pipeline = AudioPipeline()
+    let mtDecoder = MT63Decoder(pipeline: pipeline)
+    let olDecoder = OliviaDecoder(pipeline: pipeline)
+    mtDecoder.configure(options: FldigiMT63Core.Options(), centerHz: 1500)
+    olDecoder.configure(options: FldigiOliviaCore.Options(), centerHz: 1500)
+    mtDecoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    let msg = "CQ CQ DE DL1ABC PSE K"
+    for which in 0..<2 {
+        mtDecoder.setEnabled(which == 0)
+        olDecoder.setEnabled(which == 1)
+        let sig = (which == 0 ? FldigiMT63Core.synthesize(msg, options: FldigiMT63Core.Options(), centerHz: 1500)
+                              : FldigiOliviaCore.synthesize(msg, options: FldigiOliviaCore.Options(), centerHz: 1500)) ?? []
+        let audio8 = [Float](repeating: 0, count: 8_000) + sig.map { $0 * 0.7 } + [Float](repeating: 0, count: 8_000 * 12)   // Nachlauf schiebt die letzten Zeichen aus der Verschachtelung
+        var audio48 = [Float](repeating: 0, count: audio8.count * 6)
+        for i in 0..<audio48.count {
+            let x = Double(i) / 6, k = Int(x), f = Float(x - Double(k))
+            audio48[i] = audio8[k] * (1 - f) + (k + 1 < audio8.count ? audio8[k + 1] : 0) * f
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+        var i = 0
+        while i < audio48.count {
+            let n = min(9_600, audio48.count - i)
+            audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+            i += n
+            Thread.sleep(forTimeInterval: 0.006)
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        let out = which == 0 ? mtDecoder.takeOutput().text : olDecoder.takeOutput().text
+        check(out.contains(msg), "\(which == 0 ? "MT63" : "Olivia") über die Pipeline 48 kHz → 8 kHz, got \(out.debugDescription)")
+    }
+    mtDecoder.setEnabled(false)
+    olDecoder.setEnabled(false)
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

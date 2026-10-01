@@ -7,6 +7,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case navtex
     case cw
     case psk
+    case olivia
+    case mt63
     case wefax
     case ft8
     case ft4
@@ -23,6 +25,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .navtex: return "NAVTEX"
         case .cw:     return "CW"
         case .psk:    return "PSK"
+        case .olivia: return "OLIVIA"
+        case .mt63:   return "MT63"
         case .wefax:  return "WEFAX"
         case .ft8:    return "FT8"
         case .ft4:    return "FT4"
@@ -35,7 +39,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -46,6 +50,9 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .navtex: return ["518", "490", "4209"]   // = NavtexFrequency.rawValue
         case .cw: return ["ham"]
         case .psk: return ["bpsk31", "bpsk63", "bpsk125", "bpsk250", "qpsk31", "qpsk63", "qpsk125", "qpsk250"]   // = PSKMode.rawValue
+        case .olivia: return ["olivia-8-500", "olivia-4-250", "olivia-8-250", "olivia-16-500", "olivia-32-1000", "olivia-64-2000", "olivia-4-125", "olivia-4-500", "olivia-4-1000", "olivia-4-2000", "olivia-8-125", "olivia-8-1000", "olivia-8-2000", "olivia-16-1000", "olivia-16-2000", "olivia-32-2000", "olivia-64-500", "olivia-64-1000",
+                         "contestia-8-500", "contestia-4-250", "contestia-4-500", "contestia-8-250", "contestia-16-500", "contestia-16-1000", "contestia-32-1000", "contestia-64-1000"]   // = FldigiOliviaCore.Options.presetID
+        case .mt63: return ["1000s", "1000l", "500s", "500l", "2000s", "2000l"]   // = FldigiMT63Core.Options.presetID
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue
         case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]   // = FT4Band.rawValue

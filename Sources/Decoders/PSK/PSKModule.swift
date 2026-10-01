@@ -166,7 +166,7 @@ public final class PSKDecoder: @unchecked Sendable {
 
 /// Verbindet PSK-Einstellungen, Decoder, Anzeige und Log
 @MainActor
-public final class PSKController: ObservableObject {
+public final class PSKController: ObservableObject, TextModeController {
     public let decoder: PSKDecoder
     public let textModel = ReceiveTextModel()
     public let logger = DecodeLogger(mode: "PSK")

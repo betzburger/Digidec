@@ -430,6 +430,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M20 | Sendepläne RTTY und NAVTEX | ✅ 01.10.2026 (v0.23.0): gemeinsames Plan-Fenster (WEFAX, RTTY, NAVTEX), RTTY-Plan aus den DWD-PDFs mit „Aktualisieren“, NAVTEX nach IMO-Raster, gemeinsame automatische Aufnahme |
 | M21 | WSPR | ✅ 01.10.2026 (v0.24.0): wsprd aus WSJT-X (`Vendor/Wspr`, pocketfft statt FFTW), 2-Minuten-Zyklus, 16 Bänder, Spotliste mit Entfernung/DXCC/Leistung, Typ 1/2/3 mit Hashtabelle, ALL_WSPR-Log; auf dem WSJT-X-Beispiel dieselben 8 Meldungen wie das Original; Live-Empfang durch den Nutzer offen |
 | M22 | PSK | ✅ 01.10.2026 (v0.25.0): fldigi-PSK-Empfänger (`Vendor/Fldigi/src/psk`): BPSK31/63/125/250 und QPSK31/63/125/250, AFC, Squelch, DCD, S/N und IMD, Phasenvektor, Bänder für QSY, Log, `decode_file.sh --psk`; synthetisch geprüft, Live-Empfang offen |
+| M23 | Olivia, Contestia, MT63 | ✅ 01.10.2026 (v0.26.0): Jalocha-Bibliotheken aus fldigi (`src/olivia`, `src/mt63`) mit Empfangsrahmen; Olivia/Contestia 4–64 Töne × 125–2000 Hz, MT63 500/1000/2000 Hz kurz/lang; Wasserfall-Klick setzt die Mitte; synthetisch geprüft, Live-Empfang offen |
 ---
 
 ## 11. Aktueller Stand
@@ -882,8 +883,15 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Werkzeuge:** `Tools/DecodeFile/decode_file.sh <wav> --psk bpsk31 --center 1000 [--noafc] [--rev] [--compare fldigi.txt]`. `decode_file.sh` baut jetzt alle App-Quellen (außer `DigidecApp.swift`) statt einer festen Liste; der Aufruf war seit 0.19.0 (`RigCommand`) nicht mehr übersetzbar.
   - **Tests:** 962 Logiktests.
   - **Offen (braucht den Nutzer):** Live-Empfang, z. B. 20 m (Dial 14,070 MHz USB, Signale bei 1000 Hz ± ; PSK31 liegt meist 14,070 … 14,073). Klick auf das Signal im Wasserfall, AFC an. Vergleich mit fldigi auf derselben Aufnahme steht aus (Werkzeug `--compare` ist da). Keine WAV-Aufnahme (REC) im PSK-Modul.
+- **0.26.0 (01.10.2026): M23 Olivia, Contestia und MT63.**
+  - **Kern:** `Vendor/Fldigi/src/olivia` (Jalocha-Header, wortgleich) und `src/mt63` (`dsp.cpp`, `mt63base.cpp`, wortgleich, Tabellen in `mt63data/`), dazu die Rahmen `olivia_rx.cpp` (Olivia und Contestia) und `mt63_rx.cpp` nach den fldigi-Modems. Mehrere Exemplare gleichzeitig möglich. Herkunft, Abweichungen, Fundstück zu `MT63tx::Preset()`: `Vendor/Fldigi/UPSTREAM_MT63_OLIVIA.md`.
+  - **Swift:** `FldigiOliviaCore` / `FldigiMT63Core` (Optionen, Status, Testsignal), `OliviaModule` / `MT63Module` (Einstellungen, 8-kHz-Decoder, Controller mit Text und Log), gemeinsame Textansicht `TextModeReceivePanel` (auch PSK kann sie nutzen), Panels mit Abstimmanzeige (Signal, S/N, Abweichung, MT63: SYNC) und Einstellungen (Töne, Bandbreite, REV, 8 BIT, Squelch). URL `digidec://decode?mode=olivia&preset=olivia-8-500|contestia-16-1000|…&center=…` und `mode=mt63&preset=1000s|1000l|500s|…`. Kein QSY (keine feste Frequenz).
+  - **Nachweis (synthetisch, Sendeseite nach fldigi):** Olivia 6 Betriebsarten, REV, −10 dB S/N; Contestia 4 Betriebsarten, −8 dB; MT63 alle 6 Varianten, 6 dB; Squelch unterdrückt Rauschen; Pipeline 48 kHz → 8 kHz; falsche Tonzahl liefert keinen Text.
+  - **Werkzeuge:** `decode_file.sh <wav> --olivia olivia-8-500 [--center Hz]`, `--mt63 1000s`.
+  - **Tests:** 1036 Logiktests.
+  - **Offen (braucht den Nutzer):** Live-Empfang (Olivia 8/500 und 16/500 auf 14,0730 / 7,0400 MHz, Contestia 8/250, MT63 auf 14,1090 MHz USB), Vergleich mit fldigi auf derselben Aufnahme. MT63 braucht einige Sekunden, bis Text erscheint; am Anfang erscheinen einige Zufallszeichen, bis der Synchronisierer einrastet.
 - **Nächste Schritte:**
-  - Live-Tests der neuen Module (WSPR, PSK) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
+  - Live-Tests der neuen Module (WSPR, PSK, Olivia, MT63) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
   - Weitere Module aus Abschnitt 9: POCSAG/DTMF (multimon-ng), APRS 1200 (direwolf), ACARS (acarsdec), JT65/JT9 (WSJT-X).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

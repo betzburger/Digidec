@@ -31,6 +31,9 @@ let package = Package(
                 .headerSearchPath("src/cw"),
                 .headerSearchPath("src/wefax"),
                 .headerSearchPath("src/psk"),
+                .headerSearchPath("src/mt63"),
+                .headerSearchPath("src/olivia"),
+                .headerSearchPath("mt63data"),
                 .headerSearchPath("compat")
             ]
         ),
