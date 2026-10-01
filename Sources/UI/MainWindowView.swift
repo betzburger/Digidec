@@ -24,6 +24,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.navtex, audio: state.audio)
                             } else if state.activeModule == .cw {
                                 WaterfallView(model: state.waterfall, rtty: state.cw, audio: state.audio)
+                            } else if state.activeModule == .wefax {
+                                WaterfallView(model: state.waterfall, rtty: state.wefax, audio: state.audio)
                             } else {
                                 WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
                             }
@@ -36,12 +38,14 @@ public struct MainWindowView: View {
                                 NavtexReceivePanel(controller: state.navtexController)
                             } else if state.activeModule == .cw {
                                 CWReceivePanel(controller: state.cwController)
+                            } else if state.activeModule == .wefax {
+                                WefaxImagePanel(controller: state.wefaxController)
                             } else {
                                 ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: "Empfangstext")
+                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -58,6 +62,13 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             CWSettingsPanel(settings: state.cw)
                                 .radioCard(title: "CW")
+                        } else if state.activeModule == .wefax {
+                            WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax)
+                                .radioCard(title: "Abstimmanzeige")
+                            WefaxSettingsPanel(settings: state.wefax)
+                                .radioCard(title: "WEFAX")
+                            WefaxGallery(controller: state.wefaxController)
+                                .radioCard(title: "Bilder")
                         } else {
                             TuningPanel(controller: state.rttyController, settings: state.rtty)
                                 .radioCard(title: "Abstimmanzeige")
@@ -78,7 +89,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax)
             }
             .padding(.bottom, 8)
         }
@@ -283,10 +294,11 @@ private struct StatusBar: View {
     @ObservedObject var rtty: RTTYSettingsStore
     @ObservedObject var navtex: NavtexSettingsStore
     @ObservedObject var cw: CWSettingsStore
+    @ObservedObject var wefax: WefaxSettingsStore
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(state.activeModule == .navtex ? navtexCurrent : state.activeModule == .cw ? cwCurrent : current)
+            Text(currentLine)
                 .foregroundColor(RadioTheme.textMuted)
                 .lineLimit(1)
             Spacer()
@@ -325,6 +337,25 @@ private struct StatusBar: View {
         s += " · \(navtex.effectiveLSB ? "LSB" : "USB")"
         if navtex.sidebandMode == .auto { s += navtex.rigIsLSB == nil ? " (auto, unbekannt)" : " (auto)" }
         s += " · Mitte \(Int(navtex.centerHz.rounded())) Hz"
+        return s
+    }
+
+    private var currentLine: String {
+        switch state.activeModule {
+        case .navtex: return navtexCurrent
+        case .cw: return cwCurrent
+        case .wefax: return wefaxCurrent
+        default: return current
+        }
+    }
+
+    /// „WEFAX · DWD 7880 · IOC 576 · 120 LPM · Hub 850 Hz · Mitte 1900 Hz · AFC“
+    private var wefaxCurrent: String {
+        let o = wefax.options
+        var s = "WEFAX · " + (wefax.station == .custom ? "Frei" : "DWD \(wefax.station.label)")
+        s += " · IOC \(o.ioc) · \(o.lpm) LPM · Hub \(o.shiftHz) Hz · Mitte \(o.centerHz) Hz"
+        if o.afc { s += " · AFC" }
+        if wefax.rigIsLSB == true { s += " · LSB!" }
         return s
     }
 

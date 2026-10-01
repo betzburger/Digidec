@@ -416,7 +416,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M5b | SYNOP-Klartext | ✅ 30.09.2026 (v0.9.0): SYNOP/SHIP/BUOY-Decoder aus fldigi, Klartext in Amber unter den Meldungen, Schalter SYNOP |
 | M9 | NAVTEX | ✅ 01.10.2026 (v0.10.1): fldigi-NAVTEX-Empfänger, Modul-Umschaltung, Nachrichtenliste mit Station, Log; Live-Empfang durch den Nutzer offen |
 | M10 | CW | ✅ 01.10.2026 (v0.11.0): fldigi-CW-Empfänger (Tabelle/SOM, Geschwindigkeitsnachführung, Matched Filter), Hüllkurvenanzeige, Log, `decode_file.sh --cw`; Live-Empfang durch den Nutzer offen |
-| M11+ | weitere Module | WEFAX (fldigi), dann FT8 (ft8_lib) |
+| M11 | WEFAX | ✅ 01.10.2026 (v0.12.0): fldigi-WEFAX-Empfänger (APT, Phasing, Korrelation, AFC, Auto-Zentrierung), Live-Bild, PNG-Ablage, Galerie, `decode_file.sh --wefax`; Live-Empfang durch den Nutzer offen |
+| M12 | FT8 | ft8_lib (kgoba, MIT) |
 
 ---
 
@@ -658,4 +659,38 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Offen (braucht den Nutzer):**
     - Live-Empfang, z. B. DK0WCY auf 10 144 kHz (Bake, Kiel) oder ein Amateurfunk-QSO im CW-Bandsegment. Der Empfänger steht dabei in CW oder USB, der Ton im Wasserfall wird angeklickt.
     - Vergleich mit fldigi auf derselben Aufnahme (wie bei RTTY): Aufnahme in Digidec, dann `decode_file.sh --cw --compare`.
-- **Nächster Schritt:** M11 WEFAX aus fldigi (`src/wefax/wefax.cxx`).
+- **M11 WEFAX erledigt (v0.12.0, 01.10.2026; Nutzer unterwegs, nur theoretisch und synthetisch geprüft):**
+  - Kern: `Vendor/Fldigi/src/wefax/wefax_rx.cpp`, erzeugt von `port_wefax.py` aus fldigi `wefax.cxx`, mit dem Rahmen `wefax_frame.inc`.
+    Der Rahmen enthält Wasserfall-Leistung per FFT wie fldigi, das Bild aus `wefax_map`/`wefax-pic` mit Auto-Zentrierung und Rauschentfernung sowie die Modem-Klasse. C-API `fldigi_wefax.h`. Details: `Vendor/Fldigi/UPSTREAM_WEFAX.md`.
+  - **Fehler in fldigi behoben:** Die Zeilenlänge wird auf ganze Samples abgerundet (5512 statt 5512,5). Das gibt 0,166 Pixel Schräglauf je Zeile, rund 200 Pixel auf einem 1200-Zeilen-Bild.
+  - **fldigi-Befund übernommen:** Die Leistungsmittel der Zustandserkennung wirken nicht (`decayavg` per Wert). Die Schwellen sind darauf eingestellt.
+  - Swift: `FldigiWefaxCore` (+ `WefaxImage`, `WefaxSignalGenerator` nach WMO: APT 300/675 Hz, Phasing, APT-Stopp 450 Hz) und `WefaxModule.swift` mit
+    - `WefaxStation`: DWD 3855 / 7880 / 13882,5 kHz, Hub 850 Hz laut fldigi-Kommentar, beim ersten Empfang prüfen
+    - `WefaxSettingsStore`: IOC, LPM, Hub, Filter, AFC, Zentrierung, Entstörung, Schräglauf
+    - `WefaxDecoder`: 11 025-Hz-Senke, Bildkopie für die Anzeige zweimal je Zeile
+    - `WefaxController`: PNG nach `~/Documents/Digidec/WEFAX/` mit fldigis Dateinamen und Kommentaren, Galerie der letzten 30 Bilder
+  - App: Modul WEFAX. Karten:
+    - **Wetterfax:** Live-Bild, scrollt mit; AUTO-Speichern, Jetzt speichern, Ordner
+    - **Abstimmanzeige:** Zustand, Korrelation, S/N, Mitte, Hub, LSB-Warnung; Knöpfe wie fldigi: APT überspringen, Phasing überspringen, Abbruch, Non-Stop
+    - **Einstellungen**
+    - **Bilder**
+
+    URL `digidec://decode?mode=wefax&preset=dwd-7880|dwd-3855|dwd-13882|custom&center=…`.
+  - WEFAX braucht **USB**. fldigis Empfänger kennt keine Umkehr, in LSB wäre das Bild negativ. Digidec warnt, wenn rigctld LSB meldet. USB-Dial = Frequenz − 1,9 kHz (7880 → 7878,1 kHz).
+  - Synthetisch (S/N in 3 kHz):
+    - ohne Rauschen: Abweichung 3,8 Graustufen, Zeilen gerade, Zeilenanfang 6 px Filterlaufzeit
+    - +4 dB: sauber
+    - −2 dB: Bild ohne Phasing-Ausrichtung
+    - −6 dB: kein Bild
+  - Logiktests: 316 Prüfungen. Darunter:
+    - 240-Zeilen-Bild Ende zu Ende mit Schräglauf-Prüfung
+    - Hub 850, IOC 288, +4 dB
+    - Non-Stop, Speichern, Abbruch
+    - PNG mit Kommentar
+    - Pipeline 48 kHz → WEFAX
+  - `decode_file.sh <wav> --wefax [--lpm 120] [--shift 850] [--center 1900] [--nonstop]` schreibt die Bilder als PNG neben die Aufnahme.
+  - **Offen (braucht den Nutzer):**
+    - Live-Empfang DWD, z. B. 7880 kHz (USB-Dial 7878,1 kHz) tagsüber oder 3855 kHz nachts. Sendeplan: dwd.de → Seefahrt → Funkfax.
+    - Hub 850 Hz bestätigen: Bei Hub 800 Hz wirkt das Bild nur etwas kontrastreicher, falsch ist es nicht.
+    - Vergleich mit fldigi auf derselben Aufnahme.
+- **Nächster Schritt:** M12 FT8 mit ft8_lib (kgoba, MIT-Lizenz). Das ist nicht aus fldigi, deshalb eigenes Vendor-Verzeichnis.

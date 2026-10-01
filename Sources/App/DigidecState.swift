@@ -25,6 +25,8 @@ public final class DigidecState: ObservableObject {
     public let navtexController: NavtexController
     public let cw = CWSettingsStore()
     public let cwController: CWController
+    public let wefax = WefaxSettingsStore()
+    public let wefaxController: WefaxController
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -34,6 +36,7 @@ public final class DigidecState: ObservableObject {
         rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
         navtexController = NavtexController(pipeline: audio.pipeline, settings: navtex)
         cwController = CWController(pipeline: audio.pipeline, settings: cw)
+        wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
 
         // Nur das gewählte Modul decodiert
         $activeModule
@@ -42,6 +45,7 @@ public final class DigidecState: ObservableObject {
                 self?.rttyController.decoder.setEnabled(module == .rtty)
                 self?.navtexController.setActive(module == .navtex)
                 self?.cwController.setActive(module == .cw)
+                self?.wefaxController.setActive(module == .wefax)
             }
             .store(in: &cancellables)
 
@@ -56,6 +60,8 @@ public final class DigidecState: ObservableObject {
             guard let self else { return }
             rtty.rigIsLSB = state.isLSB
             navtex.rigIsLSB = state.isLSB
+            wefax.rigIsLSB = state.isLSB
+            wefaxController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             rttyController.rigDescription = rig.description
             cwController.rigDescription = rig.description
@@ -101,6 +107,9 @@ public final class DigidecState: ObservableObject {
                 if let center = request.centerHz { navtex.setCenter(center) }
             case .cw:
                 if let center = request.centerHz { cw.setCenter(center) }
+            case .wefax:
+                if let s = WefaxStation(rawValue: request.presetID) { wefax.station = s }
+                if let center = request.centerHz { wefax.setCenter(center) }
             default:
                 break
             }

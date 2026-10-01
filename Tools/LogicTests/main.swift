@@ -6,6 +6,7 @@
 // Exit-Code 0 = alle Prüfungen bestanden. Neue Quelldateien, von denen getestete Typen abhängen,
 // müssen im Skript ergänzt werden.
 import Foundation
+import ImageIO
 import Darwin
 import AVFoundation
 
@@ -79,7 +80,9 @@ do {
     check(parse("digidec://start?mode=rtty") == .failure(.unknownAction("start")), "Falsche Aktion")
     check(parse("digidec://decode") == .failure(.missingMode), "Mode fehlt")
     check(parse("digidec://decode?mode=pactor") == .failure(.unknownMode("pactor")), "Unbekannter Mode")
-    check(parse("digidec://decode?mode=wefax") == .failure(.moduleNotAvailable(.wefax)), "Geplantes Modul")
+    check(parse("digidec://decode?mode=ft8") == .failure(.moduleNotAvailable(.ft8)), "Geplantes Modul")
+    check(parse("digidec://decode?mode=wefax&preset=dwd-3855") == .success(DecodeRequest(module: .wefax, presetID: "dwd-3855")), "WEFAX-Auftrag")
+    check(parse("digidec://decode?mode=wefax") == .success(DecodeRequest(module: .wefax, presetID: "dwd-7880")), "WEFAX-Standard DWD 7880")
     check(parse("digidec://decode?mode=cw&center=650") == .success(DecodeRequest(module: .cw, presetID: "ham", centerHz: 650)), "CW-Auftrag mit Ton")
     check(parse("digidec://decode?mode=navtex&preset=490") == .success(DecodeRequest(module: .navtex, presetID: "490")), "NAVTEX-Auftrag")
     check(parse("digidec://decode?mode=navtex") == .success(DecodeRequest(module: .navtex, presetID: "518")), "NAVTEX-Standard 518 kHz")
@@ -93,7 +96,7 @@ do {
 
 // MARK: - Modul-Liste
 do {
-    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == [.rtty, .navtex, .cw], "RTTY, NAVTEX und CW verfügbar")
+    check(DecoderModuleInfo.allCases.filter(\.isAvailable) == [.rtty, .navtex, .cw, .wefax], "RTTY, NAVTEX, CW und WEFAX verfügbar")
     for m in DecoderModuleInfo.allCases where m.isAvailable {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
     }
@@ -1113,6 +1116,181 @@ do {
     samples.prefix(48_000).withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: $0.count) }
     Thread.sleep(forTimeInterval: 0.3)
     check(decoder.takeOutput().segments.isEmpty, "Abgeschaltetes CW-Modul decodiert nicht")
+    pipeline.stop()
+}
+
+// MARK: - WEFAX-Kern aus fldigi 4.2.13 (M11)
+/// Testbild: weißer Rand, Verlauf, schwarzer Balken bei Spalte 600–629, weiße Blöcke alle 20 Zeilen
+func wefaxPattern(_ row: Int, _ col: Int, width: Int = 1809) -> UInt8 {
+    if col >= 600 && col < 630 { return 0 }
+    if (row / 20) % 2 == 0 && col >= 1200 && col < 1400 { return 255 }
+    if col > 100 && col < width - 100 { return UInt8(60 + 150 * (0.5 + 0.5 * sin(Double(col) / 90 + Double(row) / 25))) }
+    return 230
+}
+/// Spalte des Balkens (dunkelstes 30-px-Fenster im Spaltenprofil der Zeilen r0..<r1)
+func wefaxBar(_ img: WefaxImage, rows: Range<Int>) -> Int {
+    var prof = [Double](repeating: 0, count: img.width)
+    for r in rows where r < img.height { for c in 0..<img.width { prof[c] += Double(img.pixels[r * img.width + c]) } }
+    var best = 0, bv = Double.infinity
+    var sum = prof[0..<30].reduce(0, +)
+    for c in 0..<(img.width - 30) {
+        if sum < bv { bv = sum; best = c }
+        sum += prof[c + 30] - prof[c]
+    }
+    return best
+}
+/// Mittlere Abweichung vom Muster (Graustufen) bei bestem senkrechtem Versatz
+func wefaxError(_ img: WefaxImage, bar: Int, width: Int = 1809) -> (error: Double, rowOffset: Int) {
+    let shift = bar - 600
+    var best = (Double.infinity, 0)
+    for vo in -20...20 {
+        var e = 0.0, n = 0
+        for r in stride(from: 10, to: min(230, img.height), by: 2) where r - vo >= 0 && r - vo < 240 {
+            for c in stride(from: 160, to: width - 160, by: 11) where c + shift >= 0 && c + shift < img.width {
+                e += abs(Double(img.pixels[r * img.width + c + shift]) - Double(wefaxPattern(r - vo, c, width: width))); n += 1
+            }
+        }
+        if n > 500, e / Double(n) < best.0 { best = (e / Double(n), vo) }
+    }
+    return best
+}
+@MainActor func wefaxRun(_ samples: [Float], options: FldigiWefaxCore.Options = .init(),
+                         during: ((FldigiWefaxCore, Int) -> Void)? = nil) -> (saved: [WefaxImage], status: FldigiWefaxCore.Status) {
+    final class Box { var saved: [WefaxImage] = [] }
+    let box = Box()
+    let core = FldigiWefaxCore(options: options) { box.saved.append($0) }
+    samples.withUnsafeBufferPointer { buf in
+        var i = 0
+        while i < buf.count {
+            let n = min(220, buf.count - i)             // 20 ms bei 11 025 Hz
+            core.process(UnsafeBufferPointer(rebasing: buf[i..<(i + n)]))
+            during?(core, i)
+            i += n
+        }
+    }
+    return (box.saved, core.status)
+}
+do {
+    let gen = WefaxSignalGenerator()
+    let tx = gen.transmission(rows: 240) { r, c in wefaxPattern(r, c) }
+    let r = wefaxRun(tx + [Float](repeating: 0, count: 11025 * 5))
+    check(r.saved.count == 1, "WEFAX: ein Bild gespeichert, got \(r.saved.count)")
+    if let img = r.saved.first {
+        check(img.width == 1809 && (240...252).contains(img.height), "WEFAX: 1809 Pixel breit, ~240 Zeilen (\(img.width)×\(img.height))")
+        check(img.endReason == "ok" || img.endReason == "ok2", "WEFAX: Ende durch APT-Stopp (\(img.name))")
+        check(img.comments.contains("LPM:120") && img.comments.contains("Carrier:1900"), "WEFAX: fldigi-Kommentare")
+        let top = wefaxBar(img, rows: 10..<40), bottom = wefaxBar(img, rows: 200..<230)
+        check(abs(top - bottom) <= 2, "WEFAX: Zeilen gerade (Balken oben \(top), unten \(bottom); fldigi ohne Korrektur: ~30 px Schräglauf)")
+        check((588...600).contains(top), "WEFAX: Zeilenanfang aus Phasing (Balken bei \(top), Soll 600 − Filterlaufzeit)")
+        let e = wefaxError(img, bar: top)
+        check(e.error < 8, "WEFAX: Bild originalgetreu (Abweichung \(String(format: "%.1f", e.error)) Graustufen)")
+    }
+    // fldigi: der schwarze Nachlauf gilt als „starkes Phasing-Signal“ (PHASING); digitale Stille (exakt 0) liest es
+    // als Weiß und beginnt nach 20 Testzeilen ein neues Bild. Wesentlich: das erste Bild ist abgeschlossen.
+    check(r.status.rows < 30, "WEFAX: erstes Bild abgeschlossen, Empfang läuft weiter (\(r.status.state.label), \(r.status.rows) Zeilen)")
+
+    // DWD-Hub 850 Hz
+    var g850 = WefaxSignalGenerator()
+    g850.shiftHz = 850
+    var o850 = FldigiWefaxCore.Options()
+    o850.shiftHz = 850
+    let r850 = wefaxRun(g850.transmission(rows: 120) { r, c in wefaxPattern(r, c) }, options: o850)
+    check(r850.saved.count == 1 && wefaxError(r850.saved[0], bar: wefaxBar(r850.saved[0], rows: 10..<40)).error < 10, "WEFAX: Hub 850 Hz")
+
+    // IOC 288 (APT 675 Hz, 904 Pixel)
+    var g288 = WefaxSignalGenerator()
+    g288.ioc = 288
+    var o288 = FldigiWefaxCore.Options()
+    o288.ioc = 288
+    let r288 = wefaxRun(g288.transmission(rows: 200) { r, c in wefaxPattern(r, c * 2) }, options: o288)
+    check(r288.saved.count == 1 && r288.saved.first?.width == 904, "WEFAX: IOC 288 (904 Pixel), got \(r288.saved.map { "\($0.width)×\($0.height)" })")
+
+    // Rauschen ~ +4 dB in 3 kHz
+    let noisy = addNoise(tx, snrDB: 4)
+    let rn = wefaxRun(noisy + addNoise([Float](repeating: 0, count: 11025 * 40), snrDB: 4, seed: 3))
+    if let img = rn.saved.first {
+        let bar = wefaxBar(img, rows: 10..<230)
+        check((585...605).contains(bar), "WEFAX +4 dB: Zeilenanfang (\(bar))")
+        check(wefaxError(img, bar: bar).error < 25, "WEFAX +4 dB: Bild erkennbar (\(String(format: "%.1f", wefaxError(img, bar: bar).error)))")
+    } else {
+        check(false, "WEFAX +4 dB: Bild gespeichert")
+    }
+
+    // Knöpfe: Non-Stop, Speichern, Abbruch
+    var states: [FldigiWefaxCore.State] = []
+    var guiSaved = false
+    let rb = wefaxRun(Array(tx.prefix(11025 * 60))) { core, i in
+        if i == 220 * 10 { core.setManual(true); states.append(core.status.state) }
+        if i == 220 * 2000 { core.save(); guiSaved = true }
+        if i == 220 * 2500 { core.abort(); states.append(core.status.state) }
+    }
+    check(states.first == .image, "WEFAX Non-Stop: sofort Bildzeilen")
+    check(guiSaved && rb.saved.contains { $0.endReason == "gui" }, "WEFAX Speichern: Bild ohne Abbruch abgelegt")
+    check(states.last == .aptStart, "WEFAX Abbruch: zurück auf APT")
+}
+
+// MARK: - WEFAX-Einstellungen, PNG, Pipeline
+do {
+    let st = WefaxSettingsStore()
+    st.station = .dwd3855
+    check(st.options.shiftHz == 850 && st.tones.mark == st.centerHz + 425, "WEFAX DWD: Hub 850, Weiß oben")
+    check(WefaxStation.dwd7880.usbDial(center: 1900) == 7_878_100, "WEFAX 7880 kHz: USB-Dial 7878,1 kHz")
+    check(WefaxStation.allCases.map(\.rawValue).sorted() == DecoderModuleInfo.wefax.presetIDs.sorted(), "WEFAX-Sender = IDs im URL-Schema")
+    st.setCenter(5000)
+    check(st.options.centerHz == 2500, "WEFAX-Mitte begrenzt")
+    st.setCenter(1900)
+    st.station = .dwd7880
+
+    // PNG mit Kommentar
+    let img = WefaxImage(name: "wefax_test_ok.png", comments: "LPM:120\nCarrier:1900\n", width: 40, height: 10,
+                         pixels: (0..<400).map { UInt8($0 % 256) }, receivedAt: Date())
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("digidec-wefax-\(UUID().uuidString)")
+    if let url = try? WefaxController.writePNG(img, to: dir),
+       let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+       let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
+        let png = props[kCGImagePropertyPNGDictionary] as? [CFString: Any]
+        check((props[kCGImagePropertyPixelWidth] as? Int) == 40 && (props[kCGImagePropertyPixelHeight] as? Int) == 10, "WEFAX-PNG: Größe")
+        check((png?[kCGImagePropertyPNGDescription] as? String)?.contains("LPM:120") == true, "WEFAX-PNG: fldigi-Kommentar enthalten")
+    } else {
+        check(false, "WEFAX-PNG geschrieben und gelesen")
+    }
+    try? FileManager.default.removeItem(at: dir)
+    check(img.endReasonGerman == "APT-Stopp", "Grund des Endes aus dem Namen")
+
+    // Pipeline 48 kHz → 11 025 Hz → WEFAX
+    let pipeline = AudioPipeline()
+    let decoder = WefaxDecoder(pipeline: pipeline)
+    final class Saved: @unchecked Sendable { var list: [WefaxImage] = [] }
+    decoder.configure(options: FldigiWefaxCore.Options())
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    var gen = WefaxSignalGenerator()
+    gen.sampleRate = 48_000
+    let samples = gen.transmission(rows: 80, phasingLines: 12) { r, c in wefaxPattern(r, c) }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    var live: (pixels: [UInt8], width: Int, rows: Int)?
+    var saved: [WefaxImage] = []
+    while i < samples.count {
+        let n = min(96_000, samples.count - i)
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.15)
+        let out = decoder.takeOutput()
+        if let l = out.live, l.rows > (live?.rows ?? 0) { live = l }   // nach dem Speichern kommt das geleerte Bild
+        saved += out.saved
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    saved += decoder.takeOutput().saved
+    check((live?.rows ?? 0) > 20 && live?.width == 1809, "Pipeline: laufendes Bild für die Anzeige (\(live?.rows ?? 0) Zeilen)")
+    if let img = saved.first {
+        let bar = wefaxBar(img, rows: 10..<70)
+        check(abs(wefaxBar(img, rows: 10..<20) - wefaxBar(img, rows: 60..<70)) <= 2 && (585...605).contains(bar),
+              "Pipeline 48 kHz -> WEFAX: Bild gerade und ausgerichtet (Balken \(bar))")
+    } else {
+        check(false, "Pipeline 48 kHz -> WEFAX: Bild gespeichert")
+    }
+    decoder.setEnabled(false)
     pipeline.stop()
 }
 

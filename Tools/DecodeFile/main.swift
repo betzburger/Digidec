@@ -19,6 +19,11 @@ func usage() -> Never {
       --cw                  CW statt RTTY (fldigi-CW-Empfänger); dazu --center <Ton-Hz> (Standard 700)
       --wpm <n>             CW-Startgeschwindigkeit (Standard 18, Nachführung ±10)
       --mf                  CW Matched Filter (Bandbreite 2 × WpM)
+
+      --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
+      --lpm <n>             WEFAX Zeilen je Minute (Standard 120)
+      --shift <Hz>          WEFAX Hub (Standard 800, DWD 850); --center <Hz> NF-Mitte (Standard 1900)
+      --nonstop             WEFAX ohne APT-Steuerung (ganze Aufnahme als ein Bild)
     """)
     exit(2)
 }
@@ -39,6 +44,10 @@ var synopOut = false
 var cwMode = false
 var cwWPM = 18
 var cwMF = false
+var wefaxMode = false
+var wefaxLPM = 120
+var wefaxShift = 800
+var wefaxNonStop = false
 while !args.isEmpty {
     let a = args.removeFirst()
     func value() -> String { guard !args.isEmpty else { usage() }; return args.removeFirst() }
@@ -54,6 +63,10 @@ while !args.isEmpty {
     case "--cw": cwMode = true
     case "--wpm": cwWPM = Int(value()) ?? 18
     case "--mf": cwMF = true
+    case "--wefax": wefaxMode = true
+    case "--lpm": wefaxLPM = Int(value()) ?? 120
+    case "--shift": wefaxShift = Int(value()) ?? 800
+    case "--nonstop": wefaxNonStop = true
     case "--help", "-h": usage()
     default: print("Unbekannte Option \(a)"); usage()
     }
@@ -62,6 +75,52 @@ while !args.isEmpty {
 let wavURL = URL(fileURLWithPath: wavPath)
 let defaultInfo = wavURL.deletingPathExtension().appendingPathExtension("json")
 let infoURL = infoPath.map { URL(fileURLWithPath: $0) } ?? defaultInfo
+
+// MARK: - WEFAX
+
+if wefaxMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: FldigiWefaxCore.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    var o = FldigiWefaxCore.Options()
+    o.lpm = wefaxLPM
+    o.shiftHz = wefaxShift
+    o.centerHz = Int(center ?? 1900)
+    print("WEFAX · IOC \(o.ioc) · \(o.lpm) LPM · Hub \(o.shiftHz) Hz · Mitte \(o.centerHz) Hz" + (wefaxNonStop ? " · Non-Stop" : ""))
+    var images: [WefaxImage] = []
+    let core = FldigiWefaxCore(options: o) { images.append($0) }
+    if wefaxNonStop { core.setManual(true) }
+    var lastState = FldigiWefaxCore.State.idle
+    var samples = 0
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) {
+            core.process($0)
+            samples += $0.count
+        }
+        let st = core.status
+        if st.state != lastState {
+            print(String(format: "%7.1f s  %@  (Korrelation %.0f, S/N %.0f dB, Mitte %.0f Hz)",
+                         Double(samples) / FldigiWefaxCore.sampleRate, st.state.label, st.metric, st.snrDB, st.centerHz))
+            lastState = st.state
+        }
+    }
+    if wefaxNonStop || core.status.state == .image { core.save() }   // laufendes Bild am Ende sichern
+    let dir = wavURL.deletingLastPathComponent()
+    for var img in images {
+        img.name = wavURL.deletingPathExtension().lastPathComponent + "." + img.name
+        if let url = try? WefaxController.writePNG(img, to: dir) {
+            print("Bild \(img.width)×\(img.height) (\(img.endReasonGerman)) -> \(url.lastPathComponent)")
+        }
+    }
+    if images.isEmpty { print("Kein Bild erkannt") }
+    exit(0)
+}
 
 // MARK: - CW
 

@@ -29,6 +29,7 @@ let package = Package(
                 .headerSearchPath("src/misc"),
                 .headerSearchPath("src/navtex"),
                 .headerSearchPath("src/cw"),
+                .headerSearchPath("src/wefax"),
                 .headerSearchPath("compat")
             ]
         ),
