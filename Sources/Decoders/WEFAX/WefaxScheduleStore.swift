@@ -109,18 +109,13 @@ public final class WefaxScheduleStore: ObservableObject {
         message = "Lade DWD-Seite …"
         defer { isUpdating = false }
         do {
-            let page = try await Self.download(WefaxScheduleSource.pageURL, maxBytes: 3_000_000)
-            guard let html = String(data: page, encoding: .utf8), let pdfURL = WefaxScheduleSource.faxPDFURL(inHTML: html) else {
+            let html = try await DWDPlanFetcher.html(from: WefaxScheduleSource.pageURL)
+            guard let pdfURL = WefaxScheduleSource.faxPDFURL(inHTML: html) else {
                 message = "Link zum Sendeplan nicht gefunden (Seite des DWD geändert?) – Plan unverändert"
                 return
             }
             message = "Lade \(pdfURL.lastPathComponent) …"
-            let pdf = try await Self.download(pdfURL, maxBytes: 3_000_000)
-            guard pdf.starts(with: Array("%PDF".utf8)), let doc = PDFDocument(data: pdf) else {
-                message = "Download ist kein PDF – Plan unverändert"
-                return
-            }
-            let text = (0..<doc.pageCount).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n")
+            let text = try await DWDPlanFetcher.pdfText(from: pdfURL)
             guard let new = WefaxSchedule.parse(text: text) else {
                 message = "Sendeplan konnte nicht gelesen werden (Format geändert?) – Plan unverändert"
                 return
@@ -139,17 +134,6 @@ public final class WefaxScheduleStore: ObservableObject {
         } catch {
             message = "Abruf fehlgeschlagen: \(error.localizedDescription)"
         }
-    }
-
-    nonisolated private static func download(_ url: URL, maxBytes: Int) async throws -> Data {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
-        request.setValue("Digidec", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        guard data.count <= maxBytes else { throw URLError(.dataLengthExceedsMaximum) }
-        return data
     }
 
     // MARK: - Ablage

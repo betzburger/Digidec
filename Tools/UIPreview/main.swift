@@ -33,11 +33,11 @@ func run() {
     let wf = WefaxSettingsStore()
     let wfc = WefaxController(pipeline: pipeline, settings: wf)
     save(VStack(spacing: 10) {
-        WefaxTuningPanel(controller: wfc, settings: wf, schedule: schedState.wefaxSchedule, auto: schedState.wefaxAuto).radioCard(title: "Abstimmanzeige")
+        WefaxTuningPanel(controller: wfc, settings: wf, schedule: schedState.wefaxSchedule, auto: schedState.autoRecorder).radioCard(title: "Abstimmanzeige")
         WefaxSettingsPanel(settings: wf).radioCard(title: "WEFAX")
         WefaxGallery(controller: wfc).radioCard(title: "Bilder")
     }, width: right, name: "wefax_rechts", dir: dir)
-    save(WefaxImagePanel(controller: wfc, schedule: schedState.wefaxSchedule, auto: schedState.wefaxAuto).frame(height: 300).radioCard(title: "Wetterfax"), width: 700, name: "wefax_bild", dir: dir)
+    save(WefaxImagePanel(controller: wfc, schedule: schedState.wefaxSchedule, auto: schedState.autoRecorder, openSchedule: {}).frame(height: 300).radioCard(title: "Wetterfax"), width: 700, name: "wefax_bild", dir: dir)
 
     // FT8
     let ft = FT8SettingsStore()
@@ -62,7 +62,15 @@ func run() {
     // WEFAX-Sendeplan (Fenster)
     schedState.wefaxSchedule.selected = ["1636", "1800", "0430"]
     schedState.wefaxSchedule.autoEnabled = true
-    save(WefaxScheduleSheet(store: schedState.wefaxSchedule, auto: schedState.wefaxAuto, scrolls: false), width: 820, name: "wefax_sendeplan", dir: dir)
+    schedState.rttySchedule.selected = ["1-0005", "2-0005", "2-0305"]
+    schedState.rttySchedule.autoEnabled = true
+    func tabFrame<V: View>(_ v: V) -> some View { v.padding(16).frame(width: 900).background(RadioTheme.bgPanel) }
+    save(tabFrame(VStack(alignment: .leading, spacing: 10) {
+        ScheduleNextLine(auto: schedState.autoRecorder)
+        WefaxScheduleTab(store: schedState.wefaxSchedule, auto: schedState.autoRecorder, close: {}, scrolls: false)
+    }), width: 900, name: "wefax_sendeplan", dir: dir)
+    save(tabFrame(RttyScheduleTab(store: schedState.rttySchedule, auto: schedState.autoRecorder, close: {}, scrolls: false)), width: 900, name: "rtty_sendeplan", dir: dir)
+    save(tabFrame(NavtexScheduleTab(store: schedState.navtexPlan, auto: schedState.autoRecorder, close: {}, scrolls: false)), width: 900, name: "navtex_sendeplan", dir: dir)
     // WEFAX-Bildeditor: synthetische „Karte“ mit weißem Rand in der Mitte (Naht)
     let ew = 900, eh = 560
     var epx = [UInt8](repeating: 255, count: ew * eh)
@@ -72,7 +80,7 @@ func run() {
     } }
     let eimg = WefaxImage(name: "wefax_20261001_123600_7880_ok.png", comments: "", width: ew, height: eh, pixels: epx, receivedAt: Date(), fileURL: nil)
     save(WefaxImageEditor(controller: wfc, image: eimg), width: 940, name: "wefax_editor", dir: dir)
-    save(WefaxNextLine(store: schedState.wefaxSchedule, auto: schedState.wefaxAuto).radioCard(title: "WEFAX"), width: 330, name: "wefax_naechste", dir: dir)
+    save(WefaxNextLine(store: schedState.wefaxSchedule, auto: schedState.autoRecorder).radioCard(title: "WEFAX"), width: 330, name: "wefax_naechste", dir: dir)
 }
 
 MainActor.assumeIsolated { run() }

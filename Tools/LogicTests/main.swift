@@ -2540,24 +2540,24 @@ do {
 
     func utc(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
     // Nächste und laufende Sendung
-    check(plan.next(after: utc("2026-10-01T16:06:00Z"))?.broadcast.id == "1636", "Sendeplan: 16:06 UTC → nächste 16:36")
-    check(plan.next(after: utc("2026-10-01T16:36:00Z"))?.broadcast.id == "1800", "Sendeplan: genau 16:36 → nächste ist 18:00 (16:36 läuft)")
-    check(plan.next(after: utc("2026-10-01T23:00:00Z")).map { $0.broadcast.id == "0430" && $0.start == utc("2026-10-02T04:30:00Z") } == true,
+    check(ScheduleCalc.next(items: plan.items, after: utc("2026-10-01T16:06:00Z"))?.item.id == "1636", "Sendeplan: 16:06 UTC → nächste 16:36")
+    check(ScheduleCalc.next(items: plan.items, after: utc("2026-10-01T16:36:00Z"))?.item.id == "1800", "Sendeplan: genau 16:36 → nächste ist 18:00 (16:36 läuft)")
+    check(ScheduleCalc.next(items: plan.items, after: utc("2026-10-01T23:00:00Z")).map { $0.item.id == "0430" && $0.start == utc("2026-10-02T04:30:00Z") } == true,
           "Sendeplan: nach 22:00 → morgen 04:30")
-    check(plan.running(at: utc("2026-10-01T16:40:00Z"))?.broadcast.id == "1636", "Sendeplan: 16:40 läuft die Sendung von 16:36")
-    check(plan.running(at: utc("2026-10-01T16:00:00Z")) == nil, "Sendeplan: 16:00 Sendepause, nichts läuft")
+    check(ScheduleCalc.running(items: plan.items, at: utc("2026-10-01T16:40:00Z"))?.item.id == "1636", "Sendeplan: 16:40 läuft die Sendung von 16:36")
+    check(ScheduleCalc.running(items: plan.items, at: utc("2026-10-01T16:00:00Z")) == nil, "Sendeplan: 16:00 Sendepause, nichts läuft")
 
     // Automatische Aufnahme: Zeitfenster und Einmaligkeit
     let sel: Set<String> = ["1636"]
-    check(plan.due(selected: sel, at: utc("2026-10-01T16:34:00Z"), handled: []) == nil, "Auto: 2:00 vor Beginn noch nicht")
-    check(plan.due(selected: sel, at: utc("2026-10-01T16:34:40Z"), handled: [])?.broadcast.id == "1636", "Auto: 80 s vor Beginn startet die Vorbereitung")
-    let key = plan.due(selected: sel, at: utc("2026-10-01T16:36:30Z"), handled: [])?.key
-    check(key == "20261001-1636", "Auto: Schlüssel \(key ?? "–")")
-    check(plan.due(selected: sel, at: utc("2026-10-01T16:36:30Z"), handled: ["20261001-1636"]) == nil, "Auto: bereits begonnene Sendung nicht noch einmal")
-    check(plan.due(selected: sel, at: utc("2026-10-01T16:39:00Z"), handled: []) == nil, "Auto: 3 min nach Beginn kein Einstieg mehr (nur Restbild)")
-    check(plan.due(selected: sel, at: utc("2026-10-02T16:36:10Z"), handled: ["20261001-1636"])?.key == "20261002-1636", "Auto: nächster Tag zählt neu")
-    check(plan.due(selected: [], at: utc("2026-10-01T16:36:10Z"), handled: []) == nil, "Auto: ohne Auswahl keine Aufnahme")
-    check(plan.due(selected: ["0430"], at: utc("2026-10-01T23:59:00Z"), handled: []) == nil && plan.due(selected: ["0430"], at: utc("2026-10-02T04:29:00Z"), handled: [])?.key == "20261002-0430",
+    check(ScheduleCalc.due(items: plan.items, selected: sel, at: utc("2026-10-01T16:34:00Z"), handled: []) == nil, "Auto: 2:00 vor Beginn noch nicht")
+    check(ScheduleCalc.due(items: plan.items, selected: sel, at: utc("2026-10-01T16:34:40Z"), handled: [])?.item.id == "1636", "Auto: 80 s vor Beginn startet die Vorbereitung")
+    let key = ScheduleCalc.due(items: plan.items, selected: sel, at: utc("2026-10-01T16:36:30Z"), handled: [])?.key
+    check(key == "20261001-wefax-1636", "Auto: Schlüssel \(key ?? "–")")
+    check(ScheduleCalc.due(items: plan.items, selected: sel, at: utc("2026-10-01T16:36:30Z"), handled: ["20261001-wefax-1636"]) == nil, "Auto: bereits begonnene Sendung nicht noch einmal")
+    check(ScheduleCalc.due(items: plan.items, selected: sel, at: utc("2026-10-01T16:39:00Z"), handled: []) == nil, "Auto: 3 min nach Beginn kein Einstieg mehr (nur Restbild)")
+    check(ScheduleCalc.due(items: plan.items, selected: sel, at: utc("2026-10-02T16:36:10Z"), handled: ["20261001-wefax-1636"])?.key == "20261002-wefax-1636", "Auto: nächster Tag zählt neu")
+    check(ScheduleCalc.due(items: plan.items, selected: [], at: utc("2026-10-01T16:36:10Z"), handled: []) == nil, "Auto: ohne Auswahl keine Aufnahme")
+    check(ScheduleCalc.due(items: plan.items, selected: ["0430"], at: utc("2026-10-01T23:59:00Z"), handled: []) == nil && ScheduleCalc.due(items: plan.items, selected: ["0430"], at: utc("2026-10-02T04:29:00Z"), handled: [])?.key == "20261002-wefax-0430",
           "Auto: Sendung am nächsten Morgen")
 
     // Frequenz nach Tageszeit
@@ -2664,6 +2664,148 @@ do {
     let replaced = try? ctrl.saveEdited(img, shift: -415, replaceOriginal: true)
     check(replaced?.name == img.name && FileManager.default.fileExists(atPath: tmp.appendingPathComponent("bilder/wefax_20261001_123600_3855_ok_original.png").path),
           "Original ersetzen: Datei ersetzt, Sicherung …_original.png angelegt")
+}
+
+// MARK: - Sendepläne: RTTY (DWD), NAVTEX (IMO-Raster), gemeinsame Zeitrechnung und Entscheidungen der Aufnahmesteuerung
+do {
+    func utc(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    func read(_ path: String) -> String { (try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)) ?? "" }
+
+    // --- RTTY: Plan lesen ---
+    guard let p1 = RttySchedule.parse(text: read("Resources/Rtty/sendeplan_rtty_01_092023.txt"), program: 1),
+          let p2 = RttySchedule.parse(text: read("Resources/Rtty/sendeplan_rtty_02_092023.txt"), program: 2) else {
+        check(false, "RTTY-Plan: Auslesen der DWD-Pläne (Resources/Rtty) fehlgeschlagen")
+        throw NSError(domain: "Sendeplan", code: 2)
+    }
+    check(p1.broadcasts.count == 66 && p2.broadcasts.count == 86, "RTTY-Plan: 66 + 86 Sendungen (\(p1.broadcasts.count) + \(p2.broadcasts.count))")
+    check(p1.frequencies.map(\.hz) == [4_583_000, 7_646_000, 10_100_800] && p2.frequencies.map(\.hz) == [147_300, 11_039_000, 14_467_300],
+          "RTTY-Plan: Frequenzen Programm 1 und 2")
+    check(p2.frequencies[0].isLongwave && p2.frequencies[0].presetID == "dwd-lw" && p1.frequencies[0].presetID == "dwd-kw", "RTTY-Plan: Voreinstellung LW/KW je Frequenz")
+    check(p2.frequencies[0].shiftHalfHz == 42.5 && p1.frequencies[1].shiftHalfHz == 225, "RTTY-Plan: Hub ±42,5 Hz (LW) und ±225 Hz (KW)")
+    check(p2.frequencies[0].label == "147,3 kHz" && p1.frequencies[2].label == "10100,8 kHz" && p1.frequencies[0].label == "4583 kHz", "RTTY-Plan: Frequenzbeschriftung")
+    check(p1.broadcasts.first?.id == "1-0000" && p1.broadcasts.first?.header == "WODL45 EDZW 0000", "RTTY-Plan: erste Sendung 00:00 Sturmwarnungen WODL45")
+    check(p1.broadcasts.first?.title.hasPrefix("Sturmwarnungen für Deutsche Bucht") == true && p1.broadcasts.first?.title.contains("Nord- und Ostseeküste") == true,
+          "RTTY-Plan: zweizeiliger Titel zusammengeführt")
+    let seewetter = p1.broadcasts.first { $0.id == "1-0005" }
+    check(seewetter?.title == "Seewetterbericht Nord- und Ostsee" && seewetter?.header == "FQEN70 EDZW 0000" && seewetter?.durationMinutes == 15, "RTTY-Plan: 00:05 Seewetterbericht, 15 min")
+    let synop = p1.broadcasts.first { $0.id == "1-0035" }
+    check(synop?.title == "Verschlüsselte Wettermeldungen (Synop-Stationen), Termin 00 UTC ausgewählte Küstenstationen Europa, Nordamerika, Nordafrika" && synop?.header == nil && synop?.durationMinutes == 85,
+          "RTTY-Plan: Silbentrennung und Umbruch (Synop) bereinigt: \(synop?.title ?? "–")")
+    check(p2.broadcasts.first { $0.id == "2-1010" }?.header == "NOXX50 EDZW 0600 / NODL40 EDZW 0800", "RTTY-Plan: zweite Meldung ohne eigene Uhrzeit hängt an 10:10")
+    check(p2.broadcasts.first { $0.id == "2-0325" }?.title.contains("bis Shetlands") == true, "RTTY-Plan: „bisShetlands“ aus dem PDF bereinigt")
+    check(p1.broadcasts.last?.id == "1-2315" && p1.broadcasts.last?.durationMinutes == 45, "RTTY-Plan: letzte Sendung 23:15 reicht bis 24:00 (45 min)")
+    check(!p1.broadcasts.contains { $0.title.lowercased().contains("bei bedarf") } && !p2.broadcasts.contains { $0.title.lowercased().contains("bei bedarf") },
+          "RTTY-Plan: „bei Bedarf“-Hinweise sind keine Sendezeiten")
+    check(p1.broadcasts.allSatisfy { (1...120).contains($0.durationMinutes) } && p2.broadcasts.allSatisfy { (1...120).contains($0.durationMinutes) }, "RTTY-Plan: Dauern 1…120 min")
+    let merged = RttySchedule.merged([p1, p2])
+    check(merged.broadcasts.count == 152 && Set(merged.broadcasts.map(\.id)).count == 152, "RTTY-Plan: 152 Sendungen, Kennungen eindeutig")
+    check(zip(merged.broadcasts, merged.broadcasts.dropFirst()).allSatisfy { ($0.startMinute, $0.program) <= ($1.startMinute, $1.program) }, "RTTY-Plan: nach Beginn sortiert")
+    check(merged.items.count == 152 && merged.items.first?.service == .rtty && merged.items.first?.title.hasPrefix("P1 · ") == true, "RTTY-Plan: einheitliche Sendungen")
+    check(RttySchedule.parse(text: "kein Plan", program: 1) == nil, "RTTY-Plan: fremder Text wird abgewiesen")
+    check(RttySchedule.parse(text: read("Resources/Rtty/sendeplan_rtty_01_092023.txt").replacingOccurrences(of: "F1B", with: "F9X"), program: 1) == nil,
+          "RTTY-Plan: verändertes Format (Betriebsart) wird abgewiesen")
+
+    // Links auf der DWD-Seite
+    let html = """
+    <a href="/DE/fachnutzer/schifffahrt/funkausstrahlung/sendeplan_rtty_01_092023.pdf;jsessionid=AAA.live1?__blob=publicationFile&amp;v=1">P1</a>
+    <a href="/DE/fachnutzer/schifffahrt/funkausstrahlung/sendeplan_rtty_02_092023.pdf;jsessionid=AAA.live1?__blob=publicationFile&amp;v=1">P2</a>
+    <a href="/DE/fachnutzer/schifffahrt/funkausstrahlung/sendeplan_fax_092023.pdf;jsessionid=AAA.live1?__blob=publicationFile&amp;v=1">Fax</a>
+    """
+    check(RttyScheduleSource.pdfURL(program: 1, inHTML: html)?.absoluteString == "https://www.dwd.de/DE/fachnutzer/schifffahrt/funkausstrahlung/sendeplan_rtty_01_092023.pdf?__blob=publicationFile&v=1", "RTTY-Link: Programm 1")
+    check(RttyScheduleSource.pdfURL(program: 2, inHTML: html)?.lastPathComponent == "sendeplan_rtty_02_092023.pdf", "RTTY-Link: Programm 2")
+    check(WefaxScheduleSource.faxPDFURL(inHTML: html)?.lastPathComponent == "sendeplan_fax_092023.pdf", "Fax-Link wird nicht mit RTTY verwechselt")
+    check(RttyScheduleSource.pdfURL(program: 1, inHTML: "<html></html>") == nil, "RTTY-Link: keiner → nil")
+
+    // --- RTTY: Speicher, Frequenzwahl ---
+    for k in ["rttySchedSelected", "rttySchedAuto", "rttySchedReturn", "rttySchedDefaultFreq", "rttySchedOverrides"] { UserDefaults.standard.removeObject(forKey: k) }
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("digidec_sched_\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    let rs = RttyScheduleStore(directory: tmp)
+    check(rs.schedule.broadcasts.count == 152 && rs.sourceName.contains("eingebaut"), "RTTY-Speicher: eingebauter Plan geladen (\(rs.schedule.broadcasts.count))")
+    let b1 = rs.schedule.broadcasts.first { $0.id == "1-0505" || $0.program == 1 }!
+    let b2 = rs.schedule.broadcasts.first { $0.program == 2 }!
+    check(rs.automaticFrequency(program: 2, at: utc("2026-10-01T12:00:00Z"))?.hz == 147_300, "RTTY-Frequenz: Programm 2 automatisch Langwelle 147,3 kHz")
+    check(rs.automaticFrequency(program: 1, at: utc("2026-10-01T12:00:00Z"))?.hz == 7_646_000, "RTTY-Frequenz: Programm 1 mittags 7646 kHz")
+    check(rs.automaticFrequency(program: 1, at: utc("2026-10-01T22:00:00Z"))?.hz == 4_583_000 && rs.automaticFrequency(program: 1, at: utc("2026-10-01T05:00:00Z"))?.hz == 4_583_000,
+          "RTTY-Frequenz: Programm 1 abends/nachts 4583 kHz")
+    check(rs.frequency(for: b1, at: utc("2026-10-01T12:00:00Z"))?.hz == 7_646_000, "RTTY-Frequenz: Standard = Automatik")
+    rs.setDefaultFrequency(10_100_800, program: 1)
+    check(rs.frequency(for: b1, at: utc("2026-10-01T12:00:00Z"))?.hz == 10_100_800, "RTTY-Frequenz: Standardfrequenz Programm 1")
+    rs.setOverride(4_583_000, for: b1)
+    check(rs.frequency(for: b1, at: utc("2026-10-01T12:00:00Z"))?.hz == 4_583_000 && rs.frequency(for: b2, at: utc("2026-10-01T12:00:00Z"))?.hz == 147_300,
+          "RTTY-Frequenz: Wahl je Sendung übersteuert nur diese Sendung")
+    rs.setOverride(nil, for: b1)
+    check(rs.frequency(for: b1, at: utc("2026-10-01T12:00:00Z"))?.hz == 10_100_800, "RTTY-Frequenz: Sonderwahl entfernt")
+    rs.setOverride(123_456, for: b2)   // gibt es nicht im Programm → Standard
+    check(rs.frequency(for: b2, at: utc("2026-10-01T12:00:00Z"))?.hz == 147_300, "RTTY-Frequenz: unbekannte Frequenz wird ignoriert")
+    rs.toggle(b1)
+    check(rs.selected == [b1.id] && UserDefaults.standard.stringArray(forKey: "rttySchedSelected") == [b1.id], "RTTY-Speicher: Auswahl wird gespeichert")
+    rs.selectAll(); check(rs.selected.count == 152, "RTTY-Speicher: Alle")
+    rs.selectNone(); check(rs.selected.isEmpty, "RTTY-Speicher: Keine")
+    for k in ["rttySchedSelected", "rttySchedDefaultFreq", "rttySchedOverrides"] { UserDefaults.standard.removeObject(forKey: k) }
+
+    // RTTY-Ziel für das Funkgerät: Dial = Frequenz − NF-Mitte (USB)
+    check(RigTuneTarget(dialHz: Int64(p1.frequencies[0].hz) - 1000, mode: "USB").dialHz == 4_582_000 && RigTuneTarget(dialHz: 4_582_000, mode: "USB").label == "4,582 MHz USB",
+          "RTTY-QSY: 4583 kHz bei Ton 1000 Hz → Dial 4582 kHz USB")
+
+    // --- NAVTEX: Plan aus der Stationsliste ---
+    let navPlan = NavtexPlan.parse(csv: read("Resources/Stations/NAVTEX_Stations.csv"))
+    check(navPlan.stations.count == 204 && Set(navPlan.stations.map(\.id)).count == 204, "NAVTEX-Plan: 204 Stationen, Kennungen eindeutig (\(navPlan.stations.count))")
+    let s518 = navPlan.stations.first { $0.id == "DEU-518-S-Pinneberg" }
+    let l490 = navPlan.stations.first { $0.id == "DEU-490-L-Pinneberg" }
+    check(s518?.startMinutes == [180, 420, 660, 900, 1140, 1380], "NAVTEX-Plan: Pinneberg 518 kHz (S) 03:00, 07:00, 11:00, 15:00, 19:00, 23:00 UTC (laut DWD)")
+    check(l490?.startMinutes == [110, 350, 590, 830, 1070, 1310], "NAVTEX-Plan: Pinneberg 490 kHz (L) 01:50, 05:50, 09:50, 13:50, 17:50, 21:50 UTC")
+    check(!navPlan.stations.contains { $0.countryCode == "DEU" && $0.frequencyKHz == 518 && $0.letter == "L" }, "NAVTEX-Liste: Pinneberg auf 518 kHz ist nicht mehr „L“")
+    check(s518?.frequency == .f518 && l490?.frequency == .f490 && s518?.frequencyLabel == "518 kHz", "NAVTEX-Plan: Frequenzzuordnung")
+    // Raster: A = +0, B = +10 … X = +230 Minuten, sechs Fenster im Abstand von 240 Minuten
+    func station(_ letter: Character) -> NavtexStation {
+        NavtexStation(country: "X", countryCode: "XXX", frequencyKHz: 518, letter: letter, callsign: "", name: "T", navarea: "I", language: "")
+    }
+    check(station("A").startMinutes == [0, 240, 480, 720, 960, 1200] && station("B").slotOffsetMinutes == 10 && station("X").slotOffsetMinutes == 230,
+          "NAVTEX-Raster: A = 00:00, B = 00:10, X = 03:50")
+    check(station("X").startMinutes.last == 1430, "NAVTEX-Raster: X letztes Fenster 23:50")
+    check(navPlan.stations.allSatisfy { $0.startMinutes.count == 6 && $0.startMinutes.allSatisfy { (0..<1440).contains($0) } }, "NAVTEX-Plan: jede Station 6 gültige Fenster")
+    let navItems = navPlan.items(forStationIDs: ["DEU-518-S-Pinneberg", "DEU-490-L-Pinneberg"])
+    check(navItems.count == 12 && Set(navItems.map(\.id)).count == 12 && navItems.allSatisfy { $0.durationMinutes == 10 && $0.service == .navtex }, "NAVTEX-Plan: 12 Fenster, 10 min, eindeutige Kennungen")
+    check(navItems.first?.id == "DEU-518-S-Pinneberg@0300" || navItems.contains { $0.id == "DEU-518-S-Pinneberg@0300" }, "NAVTEX-Plan: Fenster-Kennung „…@0300“")
+    check(navPlan.station(forItemID: "DEU-518-S-Pinneberg@0300")?.id == "DEU-518-S-Pinneberg" && navPlan.station(forItemID: "gibt-es-nicht") == nil, "NAVTEX-Plan: Fenster → Station")
+    check(NavtexPlan.parse(csv: "unsinn\nA;B").stations.isEmpty && NavtexPlan.parse(csv: "Land;L;518.0;Z;X;Name;1;2;I;EE").stations.isEmpty, "NAVTEX-Plan: ungültige Zeilen (Kennung Z) werden verworfen")
+    for k in ["navtexSchedStations", "navtexSchedAuto", "navtexSchedReturn"] { UserDefaults.standard.removeObject(forKey: k) }
+    let nps = NavtexPlanStore(csv: read("Resources/Stations/NAVTEX_Stations.csv"))
+    check(nps.selectedStationIDs == NavtexPlan.defaultStationIDs && nps.items.count == 12, "NAVTEX-Speicher: erster Start wählt Pinneberg (S und L)")
+    nps.selectedStationIDs = []
+    let nps2 = NavtexPlanStore(csv: read("Resources/Stations/NAVTEX_Stations.csv"))
+    check(nps2.selectedStationIDs.isEmpty && nps2.items.isEmpty, "NAVTEX-Speicher: gespeicherte leere Wahl bleibt leer")
+    for k in ["navtexSchedStations"] { UserDefaults.standard.removeObject(forKey: k) }
+
+    // --- Zeitrechnung über alle Dienste ---
+    let navNext = ScheduleCalc.next(items: navItems, after: utc("2026-10-01T23:30:00Z"))
+    check(navNext.map { $0.item.id == "DEU-490-L-Pinneberg@0150" && $0.start == utc("2026-10-02T01:50:00Z") } == true, "Zeit: nach 23:30 UTC ist das nächste NAVTEX-Fenster 01:50 des Folgetags")
+    check(ScheduleCalc.running(items: navItems, at: utc("2026-10-01T15:05:00Z"))?.item.id == "DEU-518-S-Pinneberg@1500", "Zeit: 15:05 läuft das Fenster S 15:00")
+    check(ScheduleCalc.running(items: navItems, at: utc("2026-10-01T15:10:00Z")) == nil, "Zeit: Fenster endet nach 10 min")
+    let both = navItems + merged.items
+    check(ScheduleCalc.due(items: both, selected: Set(both.map(\.id)), at: utc("2026-10-01T02:59:00Z"), handled: [])?.item.id == "DEU-518-S-Pinneberg@0300", "Zeit: bei mehreren fälligen gewinnt der früheste Beginn")
+    let rttyOnly = merged.items
+    let rd = ScheduleCalc.due(items: rttyOnly, selected: ["2-0505"], at: utc("2026-10-01T05:04:00Z"), handled: [])
+    check(rd?.key == "20261001-rtty-2-0505" && rd?.end == utc("2026-10-01T05:20:00Z"), "Zeit: RTTY-Schlüssel und Ende (\(rd?.key ?? "nil"))")
+    check(Set(merged.items.map(\.id)).isDisjoint(with: Set(navItems.map(\.id))), "Zeit: Kennungen der Dienste überschneiden sich nicht")
+
+    // --- Entscheidungen der Aufnahmesteuerung ---
+    let end = utc("2026-10-01T05:23:00Z")
+    func due(_ iso: String, id: String = "x") -> ScheduleCalc.Due {
+        let s = utc(iso)
+        return ScheduleCalc.Due(item: ScheduledItem(service: .rtty, id: id, startMinute: 0, durationMinutes: 10, title: "t"), start: s, end: s.addingTimeInterval(600), key: id)
+    }
+    check(ScheduleCalc.decide(sessionEnd: nil, tail: 60, due: nil, now: end) == .idle, "Steuerung: nichts fällig → untätig")
+    check(ScheduleCalc.decide(sessionEnd: nil, tail: 60, due: due("2026-10-01T05:25:00Z"), now: utc("2026-10-01T05:23:40Z")) == .begin, "Steuerung: fällige Sendung ohne Aufnahme → beginnen")
+    check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: nil, now: utc("2026-10-01T05:22:00Z")) == .keep, "Steuerung: Sendung läuft → weiter")
+    check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: nil, now: utc("2026-10-01T05:23:30Z")) == .keep, "Steuerung: im Nachlauf → weiter")
+    check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: nil, now: utc("2026-10-01T05:24:10Z")) == .end, "Steuerung: Nachlauf vorbei → beenden")
+    check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: due("2026-10-01T05:25:00Z"), now: utc("2026-10-01T05:21:30Z")) == .keep, "Steuerung: Folgesendung wartet, bis die laufende zu Ende ist (kein Abschneiden)")
+    check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: due("2026-10-01T05:25:00Z"), now: utc("2026-10-01T05:22:56Z")) == .chain, "Steuerung: am Ende der laufenden nahtlos zur Folgesendung")
+    check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: due("2026-10-01T05:23:00Z"), now: utc("2026-10-01T05:22:56Z")) == .chain, "Steuerung: Folgesendung direkt im Anschluss")
+    check(ScheduleCalc.decide(sessionEnd: end, tail: 60, due: due("2026-10-01T05:15:00Z"), now: utc("2026-10-01T05:14:00Z")) == .skipConflict, "Steuerung: Überschneidung → überspringen")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

@@ -49,7 +49,7 @@ public struct MainWindowView: View {
                             } else if state.activeModule == .cw {
                                 CWReceivePanel(controller: state.cwController)
                             } else if state.activeModule == .wefax {
-                                WefaxImagePanel(controller: state.wefaxController, schedule: state.wefaxSchedule, auto: state.wefaxAuto)
+                                WefaxImagePanel(controller: state.wefaxController, schedule: state.wefaxSchedule, auto: state.autoRecorder, openSchedule: { state.scheduleSheet = .wefax })
                             } else if state.activeModule == .ft8 {
                                 FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
                             } else if state.activeModule == .ft4 {
@@ -83,7 +83,7 @@ public struct MainWindowView: View {
                             CWSettingsPanel(settings: state.cw)
                                 .radioCard(title: "CW")
                         } else if state.activeModule == .wefax {
-                            WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.wefaxAuto)
+                            WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.autoRecorder)
                                 .radioCard(title: "Abstimmanzeige")
                             WefaxSettingsPanel(settings: state.wefax)
                                 .radioCard(title: "WEFAX")
@@ -146,6 +146,9 @@ public struct MainWindowView: View {
         .sheet(isPresented: $showRTTYSettings) {
             RTTYSettingsSheet(settings: state.rtty)
         }
+        .sheet(item: $state.scheduleSheet) { service in
+            ScheduleSheet(state: state, tab: service)
+        }
     }
 }
 
@@ -185,12 +188,40 @@ private struct HeaderBar: View {
 
             Spacer()
 
+            ScheduleButton(state: state, auto: state.autoRecorder)
             RigControlToggle(state: state, rig: state.rig)
             RigBadge(rig: state.rig, audio: state.audio)
             UTCClock()
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
+    }
+}
+
+/// Öffnet den Sendeplan (Wetterfax, RTTY, NAVTEX); zeigt eine laufende geplante Aufnahme
+private struct ScheduleButton: View {
+    @ObservedObject var state: DigidecState
+    @ObservedObject var auto: ScheduleAutoRecorder
+
+    var body: some View {
+        Button {
+            let service = BroadcastService.allCases.first { $0.module == state.activeModule } ?? .wefax
+            state.scheduleSheet = service
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: auto.session != nil ? "record.circle.fill" : "calendar")
+                    .font(.system(size: 9, weight: .bold))
+                Text("SENDEPLAN")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+            }
+            .foregroundColor(auto.session != nil ? RadioTheme.ledRed : RadioTheme.textBright)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RadioTheme.bgDeep)
+            .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+        .help("Sendepläne von Wetterfax, RTTY und NAVTEX ansehen und Sendungen zur automatischen Aufnahme wählen")
     }
 }
 

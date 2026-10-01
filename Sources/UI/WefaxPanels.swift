@@ -7,8 +7,8 @@ import UniformTypeIdentifiers
 struct WefaxImagePanel: View {
     @ObservedObject var controller: WefaxController
     @ObservedObject var schedule: WefaxScheduleStore
-    @ObservedObject var auto: WefaxAutoRecorder
-    @State private var showSchedule = false
+    @ObservedObject var auto: ScheduleAutoRecorder
+    let openSchedule: () -> Void
 
     var body: some View {
         VStack(spacing: 6) {
@@ -28,7 +28,7 @@ struct WefaxImagePanel: View {
                 }
                 Spacer()
                 Button {
-                    showSchedule = true
+                    openSchedule()
                 } label: {
                     Label("SENDEPLAN", systemImage: auto.session != nil ? "record.circle.fill" : "calendar")
                 }
@@ -85,9 +85,6 @@ struct WefaxImagePanel: View {
             .background(RadioTheme.bgDeep)
             .cornerRadius(6)
         }
-        .sheet(isPresented: $showSchedule) {
-            WefaxScheduleSheet(store: schedule, auto: auto)
-        }
     }
 }
 
@@ -97,7 +94,7 @@ struct WefaxTuningPanel: View {
     @ObservedObject var controller: WefaxController
     @ObservedObject var settings: WefaxSettingsStore
     @ObservedObject var schedule: WefaxScheduleStore
-    @ObservedObject var auto: WefaxAutoRecorder
+    @ObservedObject var auto: ScheduleAutoRecorder
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

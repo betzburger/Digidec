@@ -124,23 +124,9 @@ public struct WefaxSchedule: Equatable, Codable, Sendable {
         return nil
     }
 
-    /// Ausgewählte Ausstrahlung, die jetzt aufgenommen werden soll: ab `lead` Sekunden vor dem Beginn bis `tail` Sekunden
-    /// nach dem Ende. `handled` enthält Schlüssel bereits begonnener Aufnahmen („JJJJMMTT-HHMM“).
-    public func due(selected: Set<String>, at date: Date, handled: Set<String>, lead: TimeInterval = 90, tail: TimeInterval = 60)
-        -> (broadcast: WefaxBroadcast, start: Date, end: Date, key: String)? {
-        for dayOffset in [-1, 0, 1] {
-            let day = date.addingTimeInterval(Double(dayOffset) * 86_400)
-            for b in broadcasts where selected.contains(b.id) {
-                let start = Self.startDate(of: b, onDayOf: day)
-                let end = start.addingTimeInterval(Double(b.durationMinutes) * 60)
-                let key = Self.dayKey(start) + "-" + b.id
-                // Wer später als 2 Minuten nach Beginn einsteigt, bekäme nur ein Restbild: nicht mehr starten
-                if date >= start.addingTimeInterval(-lead) && date < min(end.addingTimeInterval(tail), start.addingTimeInterval(120)) && !handled.contains(key) {
-                    return (b, start, end, key)
-                }
-            }
-        }
-        return nil
+    /// Plan in einheitlicher Form für Zeitrechnung und automatische Aufnahme
+    public var items: [ScheduledItem] {
+        broadcasts.map { ScheduledItem(service: .wefax, id: $0.id, startMinute: $0.startMinute, durationMinutes: $0.durationMinutes, title: $0.title) }
     }
 
     public static func dayKey(_ date: Date) -> String {
@@ -163,17 +149,26 @@ public struct WefaxSchedule: Equatable, Codable, Sendable {
     }
 }
 
+/// Download-Links auf den DWD-Seiten (HTML → PDF-Adresse)
+public enum DWDScheduleLinks {
+    /// Erster Link, dessen Dateiname auf `namePattern` (regulärer Ausdruck, z. B. `sendeplan_fax_\d+\.pdf`) passt.
+    /// `jsessionid` wird entfernt, relative Adressen werden zu `base` aufgelöst.
+    public static func pdfURL(namePattern: String, inHTML html: String, base: URL) -> URL? {
+        guard let re = try? NSRegularExpression(pattern: "href=\"([^\"]*" + namePattern + "[^\"]*)\"") else { return nil }
+        let range = NSRange(html.startIndex..., in: html)
+        guard let m = re.firstMatch(in: html, range: range), let r = Range(m.range(at: 1), in: html) else { return nil }
+        var link = String(html[r]).replacingOccurrences(of: "&amp;", with: "&")
+        if let semi = link.range(of: #";jsessionid=[^?]*"#, options: .regularExpression) { link.removeSubrange(semi) }
+        return URL(string: link, relativeTo: base)?.absoluteURL
+    }
+}
+
 /// Auslesen des Download-Links aus der DWD-Seite „Funkausstrahlung Sender Pinneberg“
 public enum WefaxScheduleSource {
     public static let pageURL = URL(string: "https://www.dwd.de/DE/fachnutzer/schifffahrt/funkausstrahlung/_node.html")!
 
     /// URL des aktuellen Faksimile-Sendeplans (PDF) aus dem HTML der Seite; `jsessionid` wird entfernt.
     public static func faxPDFURL(inHTML html: String, base: URL = pageURL) -> URL? {
-        guard let re = try? NSRegularExpression(pattern: #"href="([^"]*sendeplan_fax_\d+\.pdf[^"]*)""#) else { return nil }
-        let range = NSRange(html.startIndex..., in: html)
-        guard let m = re.firstMatch(in: html, range: range), let r = Range(m.range(at: 1), in: html) else { return nil }
-        var link = String(html[r]).replacingOccurrences(of: "&amp;", with: "&")
-        if let semi = link.range(of: #";jsessionid=[^?]*"#, options: .regularExpression) { link.removeSubrange(semi) }
-        return URL(string: link, relativeTo: base)?.absoluteURL
+        DWDScheduleLinks.pdfURL(namePattern: #"sendeplan_fax_\d+\.pdf"#, inHTML: html, base: base)
     }
 }

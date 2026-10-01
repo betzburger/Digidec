@@ -38,7 +38,11 @@ public final class DigidecState: ObservableObject {
     public let sstv = SSTVSettingsStore()
     public let sstvController: SSTVController
     public let wefaxSchedule = WefaxScheduleStore()
-    public private(set) var wefaxAuto: WefaxAutoRecorder!
+    public let rttySchedule = RttyScheduleStore()
+    public let navtexPlan = NavtexPlanStore()
+    public private(set) var autoRecorder: ScheduleAutoRecorder!
+    /// Welcher Sendeplan gerade im Fenster gezeigt wird (nil = Fenster zu)
+    @Published public var scheduleSheet: BroadcastService?
     /// Darf Digidec das Funkgerät über den rigctld des Commanders abstimmen? Standard: aus (nur lesen).
     @Published public var rigControlEnabled: Bool {
         didSet { UserDefaults.standard.set(rigControlEnabled, forKey: "rigControlEnabled") }
@@ -62,7 +66,7 @@ public final class DigidecState: ObservableObject {
         efrController = EFRController(pipeline: audio.pipeline, settings: efr)
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
 
-        wefaxAuto = WefaxAutoRecorder(state: self, store: wefaxSchedule)
+        autoRecorder = ScheduleAutoRecorder(state: self, wefax: wefaxSchedule, rtty: rttySchedule, navtex: navtexPlan)
 
         // Nur das gewählte Modul decodiert
         $activeModule
@@ -140,6 +144,14 @@ public final class DigidecState: ObservableObject {
         case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
         case .rtty, .cw: return nil
         }
+    }
+
+    /// Stimmt das Funkgerät auf ein Ziel ab (geplante Aufnahme) – nur mit Freigabe (QSY AUTO) und Verbindung.
+    /// Die Abstimmung nach Modul-/Voreinstellungswechsel wird kurz unterdrückt, damit nicht doppelt gesendet wird.
+    public func tuneRig(to target: RigTuneTarget) {
+        guard rigControlEnabled, rig.radio != nil else { return }
+        suppressRigTuneUntil = Date().addingTimeInterval(3.0)
+        rig.tune(to: target)
     }
 
     /// Stellt das Funkgerät auf das Ziel des aktiven Moduls – nur mit Freigabe und Verbindung
