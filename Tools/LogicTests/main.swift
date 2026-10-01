@@ -1695,7 +1695,7 @@ do {
     check(fixed[0] == 0x10 && fixed[4] == 0x16, "EFR Fixed: Start 0x10 und Stop 0x16")
     check(fixed[3] == UInt8((0x49 + 0x12) & 0xFF), "EFR Fixed: Checksumme C+A")
 
-    // 2. CP56Time2a Zeitstempel-Codierung & Decodierung
+    // 2. Zeittelegramm: Codierung & Decodierung
     var cal = Calendar(identifier: .gregorian)
     cal.timeZone = TimeZone(secondsFromGMT: 7200)! // MESZ
     var comp = DateComponents()
@@ -1708,36 +1708,44 @@ do {
     comp.timeZone = cal.timeZone
     let testDate = cal.date(from: comp)!
 
-    let timeBytes = EFRSignalGenerator.encodeCP56Time2a(date: testDate, isSummer: true)
-    check(timeBytes.count == 7, "EFR Zeit: 7 Bytes CP56Time2a")
+    let timeBytes = EFRSignalGenerator.timeTelegramUserData(date: testDate, isSummer: true)
+    check(timeBytes.count == 7, "EFR Zeit: 7 Nutzbytes")
 
-    let parsed = EFRCore.parseEFRTime(timeBytes)
-    check(parsed != nil, "EFR Zeit: Erfolgreich geparst")
+    let parsed = EFRCore.parseTimeTelegram(timeBytes)
+    check(parsed != nil && parsed?.isSummer == true, "EFR Zeit: Erfolgreich geparst, Sommerzeit")
     if let p = parsed {
-        let pComp = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: p)
-        check(pComp.year == 2026, "EFR Zeit: Jahr 2026")
-        check(pComp.month == 10, "EFR Zeit: Monat 10")
-        check(pComp.day == 1, "EFR Zeit: Tag 1")
-        check(pComp.hour == 14, "EFR Zeit: Stunde 14")
-        check(pComp.minute == 30, "EFR Zeit: Minute 30")
-        check(pComp.second == 15, "EFR Zeit: Sekunde 15")
+        let pComp = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: p.date)
+        check(pComp.year == 2026 && pComp.month == 10 && pComp.day == 1, "EFR Zeit: Datum 01.10.2026")
+        check(pComp.hour == 14 && pComp.minute == 30 && pComp.second == 15, "EFR Zeit: 14:30:15")
     }
 
-    // 3. Variables Telegramm (0x68) mit Zeittelegramm als ASDU
-    let varFrame = EFRSignalGenerator.buildVariableFrame(control: 0x73, address: 0x0C, asdu: timeBytes)
+    // Echte Telegramme (DCF39 über WebSDR, aus dcf39_decoder von mryndzionek, MIT): 17:10:32 MESZ, Mittwoch 16.04.2025
+    let realTime = EFRCore.parseTimeTelegram([0x00, 0x80, 0x0A, 0x91, 0x70, 0x04, 0x19])
+    var realCal = Calendar(identifier: .gregorian)
+    realCal.timeZone = TimeZone(secondsFromGMT: 7200)!
+    let rc = realTime.map { realCal.dateComponents([.year, .month, .day, .hour, .minute, .second, .weekday], from: $0.date) }
+    check(rc?.year == 2025 && rc?.month == 4 && rc?.day == 16 && rc?.hour == 17 && rc?.minute == 10 && rc?.second == 32 && rc?.weekday == 4,
+          "EFR Zeit: echtes Zeittelegramm = Mi 16.04.2025 17:10:32 MESZ")
+    check(EFRCore.parseTimeTelegram([0x00, 0x80, 0x0A, 0x91, 0x50, 0x04, 0x19]) == nil, "EFR Zeit: falscher Wochentag abgewiesen")
+    check(EFRCore.parseTimeTelegram([0x01, 0x80, 0x0A, 0x91, 0x70, 0x04, 0x19]) == nil, "EFR Zeit: erstes Byte ≠ 0 abgewiesen")
+    check(EFRCore.parseTimeTelegram([0x00, 0x80, 0x0A, 0x91, 0x7F, 0x04, 0x19]) == nil, "EFR Zeit: Tag 31 im April abgewiesen")
+
+    // 3. Variables Telegramm (0x68) mit Zeittelegramm
+    let varFrame = EFRSignalGenerator.buildTimeTelegram(date: testDate, isSummer: true)
     check(varFrame[0] == 0x68 && varFrame[3] == 0x68, "EFR Var: Startzeichen 0x68 doppelt")
     check(varFrame[1] == varFrame[2], "EFR Var: Längenbytes identisch")
     check(varFrame.last == 0x16, "EFR Var: Stopzeichen 0x16")
     let l = Int(varFrame[1])
     check(varFrame.count == l + 6, "EFR Var: Gesamtlänge L + 6")
+    // Gleiche Bytefolge wie die echte Aufnahme: 68 0A 0A 68 <C> 00 00 00 <sek<<2> <min> <std> <wt|tag> <monat> <jahr> <CS> 16
+    check(varFrame[5] == 0 && varFrame[6] == 0 && varFrame[7] == 0, "EFR Var: A1 = A2 = 0 und führende Null der Zeitnutzdaten")
 }
 
 // MARK: - EFR 200 Baud FSK-Demodulation, 8E1 Framing & Audio-Decodierung
 do {
     // 1. Variables Zeittelegramm mit aktueller Uhrzeit (Zeitfelder gelten nur nahe der Systemzeit)
     let testDate = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
-    let timeBytes = EFRSignalGenerator.encodeCP56Time2a(date: testDate, isSummer: false)
-    let varFrame = EFRSignalGenerator.buildVariableFrame(control: 0x73, address: 0x0C, asdu: timeBytes)
+    let varFrame = EFRSignalGenerator.buildTimeTelegram(date: testDate, isSummer: false, number: 7)
 
     let bits = EFRSignalGenerator.bytesTo8E1Bits(varFrame, leadBits: 20, tailBits: 20)
     let audio = EFRSignalGenerator.generateFSKAudio(bits: bits, centerHz: 1500.0, shiftHz: 340.0)
@@ -1760,8 +1768,8 @@ do {
     check(decoded.count == 1, "EFR Audio: Genau 1 variables Telegramm empfangen (got \(decoded.count))")
     if let tel = decoded.first {
         check(tel.frameType == .variable, "EFR Audio: Typ variable")
-        check(tel.controlByte == 0x73, "EFR Audio: Control-Byte 0x73")
-        check(tel.address == 0x0C, "EFR Audio: Adresse 0x0C")
+        check(tel.controlByte == 0x77 && tel.telegramNumber == 7, "EFR Audio: Steuerbyte 0x77, Telegrammnummer 7")
+        check(tel.address == 0 && tel.address2 == 0, "EFR Audio: A1 = A2 = 0")
         check(tel.isTimeSync == true, "EFR Audio: Zeittelegramm erkannt")
         check(tel.decodedTime != nil, "EFR Audio: Datum decodiert")
     }
@@ -2193,7 +2201,7 @@ do {
 
     // --- EFR: kein Telegramminhalt wird erfunden ---
     let payload: [UInt8] = [0x64, 0x3C, 0x1E, 0x00, 0x01]
-    let rawFrame = EFRSignalGenerator.buildVariableFrame(control: 0x53, address: 0x21, asdu: payload)
+    let rawFrame = EFRSignalGenerator.buildVariableFrame(control: 0x53, address: 0x21, asdu: [0x00] + payload)   // A1 0x21, A2 0x00
     let efrCore = EFRCore(centerHz: 1500, shiftHz: 340)
     var efrOut: [EFRCore.DecodedTelegram] = []
     efrCore.onTelegramDecoded = { efrOut.append($0) }
@@ -2202,13 +2210,70 @@ do {
     check(efrOut.count == 1 && efrOut[0].isTimeSync == false, "EFR: Nutzdaten ohne Zeitfeld sind kein Zeittelegramm")
     check(efrOut.first.map { !$0.summary.contains("Leistungsstufe") && !$0.summary.contains("Abregelung") && $0.summary.contains("64 3C 1E 00 01") } == true,
           "EFR: Nutzdaten als Hex, keine geratene Schaltbedeutung (\(efrOut.first?.summary ?? "–"))")
-    // Zeitfeld nur nahe der Systemzeit
-    let oldTime = EFRSignalGenerator.encodeCP56Time2a(date: Date(timeIntervalSince1970: 1_000_000_000), isSummer: false)
-    check(EFRCore.parseEFRTime(oldTime) != nil && EFRCore.parseEFRTime(oldTime, near: Date()) == nil, "EFR: Zeitfeld von 2001 wird mit Plausibilitätsfenster nicht als Uhrzeit gewertet")
-    check(EFRCore.parseEFRTime(EFRSignalGenerator.encodeCP56Time2a(date: Date()), near: Date()) != nil, "EFR: aktuelles Zeitfeld wird erkannt")
-    var feb30 = EFRSignalGenerator.encodeCP56Time2a(date: Date(), isSummer: false)
-    feb30[4] = 30; feb30[5] = 2
-    check(EFRCore.parseEFRTime(feb30) == nil, "EFR: 30. Februar abgewiesen")
+    // Echtes Telegramm aus der DCF39-Aufnahme (dcf39_decoder, MIT): Nr. 2, A1 A3, A2 A3, Nutzdaten 60 10 F2 9D CF, CRC 3B
+    let realFrame: [UInt8] = [0x68, 0x08, 0x08, 0x68, 0x27, 0xA3, 0xA3, 0x60, 0x10, 0xF2, 0x9D, 0xCF, 0x3B, 0x16]
+    let rc2 = EFRCore(centerHz: 1500, shiftHz: 340)
+    var realOut: [EFRCore.DecodedTelegram] = []
+    rc2.onTelegramDecoded = { realOut.append($0) }
+    EFRSignalGenerator.generateFSKAudio(bits: EFRSignalGenerator.bytesTo8E1Bits(realFrame, leadBits: 20, tailBits: 20), centerHz: 1500, shiftHz: 340)
+        .withUnsafeBufferPointer { rc2.process($0) }
+    check(realOut.first?.telegramNumber == 2 && realOut.first?.address == 0xA3 && realOut.first?.address2 == 0xA3
+          && realOut.first?.summary.contains("60 10 F2 9D CF") == true, "EFR: echtes DCF39-Telegramm Nr. 2, A1/A2 = A3, Nutzdaten 60 10 F2 9D CF")
+
+    // Nutzdaten sehen nie zufällig wie ein Zeittelegramm aus: A1 = A2 = 0 und führendes Nullbyte sind Pflicht
+    var randomTimeLike = 0
+    for _ in 0..<2000 {
+        let rb = (0..<7).map { _ in UInt8(truncatingIfNeeded: Int(gauss() * 80 + 128)) }
+        if EFRCore.parseTimeTelegram(rb) != nil { randomTimeLike += 1 }
+    }
+    check(randomTimeLike < 10, "EFR: zufällige 7-Byte-Folgen gelten selten als Zeittelegramm (\(randomTimeLike)/2000)")
+    // Telegramm mit Text (Sendername im Testtelegramm)
+    let named = EFRSignalGenerator.buildVariableFrame(control: 0x17, address: 0x00, asdu: [0x00] + Array("DCF39".utf8))
+    let ec = EFRCore(centerHz: 1500, shiftHz: 340)
+    var namedOut: [EFRCore.DecodedTelegram] = []
+    ec.onTelegramDecoded = { namedOut.append($0) }
+    EFRSignalGenerator.generateFSKAudio(bits: EFRSignalGenerator.bytesTo8E1Bits(named, leadBits: 20, tailBits: 20), centerHz: 1500, shiftHz: 340)
+        .withUnsafeBufferPointer { ec.process($0) }
+    check(namedOut.first?.summary.contains("Text: DCF39") == true && namedOut.first?.isTimeSync == false, "EFR: Testtelegramm mit Sendernamen als Text (\(namedOut.first?.summary ?? "–"))")
+
+    // --- EFR: Polarität (Mark = untere Frequenz; invertiert z. B. bei LSB) wird automatisch erkannt ---
+    for inverted in [false, true] {
+        let c = EFRCore(centerHz: 1500, shiftHz: 340)
+        var got: [EFRCore.DecodedTelegram] = []
+        c.onTelegramDecoded = { got.append($0) }
+        let a = EFRSignalGenerator.generateFSKAudio(bits: EFRSignalGenerator.bytesTo8E1Bits(rawFrame, leadBits: 20, tailBits: 20),
+                                                    centerHz: 1500, shiftHz: 340, inverted: inverted)
+        a.withUnsafeBufferPointer { c.process($0) }
+        check(got.count == 1 && got.first?.rawBytes == rawFrame, "EFR: Telegramm bei \(inverted ? "invertierter" : "normaler") Polarität decodiert (\(got.count))")
+        check(c.polarityInverted == inverted, "EFR: Polarität \(inverted ? "invertiert" : "normal") erkannt")
+        check(c.getStatus().markHz < c.getStatus().spaceHz, "EFR: Mark liegt unter Space (\(Int(c.getStatus().markHz)) < \(Int(c.getStatus().spaceHz)) Hz)")
+    }
+
+    // --- EFR: echte Aufnahme (DCF39 über WebSDR, MIT, siehe TestData/EFR/README.md) ---
+    let efrWav = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("TestData/EFR/dcf39_websdr_8k.wav")
+    if let file = try? AVAudioFile(forReading: efrWav),
+       let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+       (try? file.read(into: buf)) != nil, let ch = buf.floatChannelData?[0] {
+        let real = EFRCore(centerHz: 1570, shiftHz: 340)
+        var got: [EFRCore.DecodedTelegram] = []
+        real.onTelegramDecoded = { got.append($0) }
+        var idx = 0
+        let n = Int(buf.frameLength)
+        while idx < n {
+            let c = min(160, n - idx)
+            real.process(UnsafeBufferPointer(start: ch + idx, count: c))
+            idx += c
+        }
+        check(file.processingFormat.sampleRate == 8000, "EFR echt: Testdatei hat 8 kHz")
+        check(got.count == 2 && got.allSatisfy { $0.isTimeSync }, "EFR echt: 2 Zeittelegramme decodiert (\(got.count))")
+        check(got.first?.summary.contains("16.04.2025 17:10:32 MESZ") == true && got.last?.summary.contains("17:10:42 MESZ") == true,
+              "EFR echt: Mi 16.04.2025 17:10:32 und 17:10:42 MESZ (\(got.map(\.summary)))")
+        check(got.first?.rawHex == "68 0A 0A 68 37 00 00 00 80 0A 91 70 04 19 DF 16", "EFR echt: Rohbytes wie im Fremddecoder")
+        check(real.polarityInverted == false, "EFR echt: normale Polarität (Mark = untere Frequenz, USB)")
+    } else {
+        check(false, "EFR echt: TestData/EFR/dcf39_websdr_8k.wav nicht lesbar")
+    }
 
     // --- EFR: Rauschen ---
     let carrier = 0.8 * 0.8 / 2.0

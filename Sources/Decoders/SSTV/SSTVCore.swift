@@ -609,10 +609,9 @@ public final class SSTVDecoderEngine: @unchecked Sendable {
         return (i >= 0 && i < freqBuf.count) ? freqBuf[i] : Self.blackHz
     }
 
-    /// Mittelwert der Frequenz im Kernbereich [lo, hi) (in Samples); Ränder werden wegen der Flankenzeit ausgespart.
-    private func averageFrequency(lo: Double, hi: Double) -> Double {
-        let center = (lo + hi) / 2.0
-        let half = max(0.5, (hi - lo) * 0.35)
+    /// Mittelwert der Frequenz um `center` (in Samples); die Ränder des Pixels werden wegen der Flankenzeit ausgespart.
+    private func averageFrequency(center: Double, span: Double) -> Double {
+        let half = max(0.5, span * 0.35)
         let i0 = Int((center - half).rounded())
         let i1 = max(i0 + 1, Int((center + half).rounded()))
         var sum = 0.0
@@ -622,7 +621,7 @@ public final class SSTVDecoderEngine: @unchecked Sendable {
 
     private func meanFrequency(_ seg: SSTVSegment, syncEnd: Int, fs: Double) -> Double {
         let lo = Double(syncEnd) + seg.start * fs
-        return averageFrequency(lo: lo, hi: lo + seg.duration * fs)
+        return averageFrequency(center: lo + seg.duration * fs / 2.0, span: seg.duration * fs)
     }
 
     /// Tastet einen Zeilenabschnitt in `width` Bildpunkte ab.
@@ -630,10 +629,15 @@ public final class SSTVDecoderEngine: @unchecked Sendable {
         let w = s.width
         let origin = Double(syncEnd) + seg.start * fs
         let pixelN = seg.duration * fs / Double(w)
+        // Der Demodulator verschmiert Übergänge über ±6 Samples um die Flanke (gemessen an einem echten Robot-36-Signal). Die Randpixel eines Abschnitts würden den
+        // angrenzenden Sync-/Trennimpuls einmischen (z. B. grüner Rand bei Robot 36, wo der Sync direkt auf das Chroma
+        // folgt): Abtastpunkte bleiben deshalb ≥ 6 Samples innerhalb des Abschnitts.
+        let guardSamples = 6.0
+        let first = origin + guardSamples, last = origin + seg.duration * fs - guardSamples
         var out = [UInt8](repeating: 0, count: w)
         for x in 0..<w {
-            let lo = origin + Double(x) * pixelN
-            out[x] = SSTVFMDemodulator.frequencyToPixelByte(averageFrequency(lo: lo, hi: lo + pixelN))
+            let center = min(max(origin + (Double(x) + 0.5) * pixelN, first), last)
+            out[x] = SSTVFMDemodulator.frequencyToPixelByte(averageFrequency(center: center, span: pixelN))
         }
         return out
     }

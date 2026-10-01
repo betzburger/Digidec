@@ -90,7 +90,7 @@ public final class EFRSettingsStore: ObservableObject {
 
 extension EFRSettingsStore: TuningTarget {
     public var tones: (mark: Double, space: Double) {
-        (centerHz + 170.0, centerHz - 170.0)
+        (centerHz - 170.0, centerHz + 170.0)   // Mark = untere, Space = obere Frequenz
     }
     public var markerBandwidth: Double { 340.0 }
 }

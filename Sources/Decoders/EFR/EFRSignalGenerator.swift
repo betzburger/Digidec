@@ -27,32 +27,26 @@ public enum EFRSignalGenerator {
         return [0x10, control, address, UInt8(cs), 0x16]
     }
 
-    /// Kodiert Datum/Uhrzeit in ein CP56Time2a 7-Byte Feld
-    public static func encodeCP56Time2a(date: Date, isSummer: Bool = false) -> [UInt8] {
+    /// Nutzbytes eines Zeittelegramms: `00, Sekunde << 2, Minute, Stunde | Sommerzeit << 7, Wochentag << 5 | Tag, Monat, Jahr`
+    /// (Wochentag 0 = Sonntag). Format nach dcf39_decoder (mryndzionek, MIT) und echten DCF39-Aufnahmen.
+    public static func timeTelegramUserData(date: Date, isSummer: Bool = false) -> [UInt8] {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(secondsFromGMT: isSummer ? 7200 : 3600) ?? .current
+        let c = cal.dateComponents([.year, .month, .day, .weekday, .hour, .minute, .second], from: date)
+        return [
+            0,
+            UInt8(((c.second ?? 0) << 2) & 0xFF),
+            UInt8(c.minute ?? 0),
+            UInt8((c.hour ?? 0) & 0x7F) | (isSummer ? 0x80 : 0),
+            UInt8((((c.weekday ?? 1) - 1) & 0x07) << 5) | UInt8((c.day ?? 1) & 0x1F),
+            UInt8(c.month ?? 1),
+            UInt8((c.year ?? 2000) % 100),
+        ]
+    }
 
-        let comp = cal.dateComponents([.year, .month, .day, .weekday, .hour, .minute, .second, .nanosecond], from: date)
-        let sec = comp.second ?? 0
-        let ms = sec * 1000 + (comp.nanosecond ?? 0) / 1_000_000
-        let min = comp.minute ?? 0
-        let hour = comp.hour ?? 0
-        let day = comp.day ?? 1
-        let weekday = comp.weekday ?? 1 // 1 = So, 2 = Mo ...
-        let efrWeekday = (weekday == 1) ? 7 : (weekday - 1) // 1 = Mo ... 7 = So
-        let month = comp.month ?? 1
-        let year2 = (comp.year ?? 2026) % 100
-
-        var bytes = [UInt8](repeating: 0, count: 7)
-        bytes[0] = UInt8(ms & 0xFF)
-        bytes[1] = UInt8((ms >> 8) & 0xFF)
-        bytes[2] = UInt8(min & 0x3F)
-        bytes[3] = UInt8(hour & 0x1F) | (isSummer ? 0x80 : 0x00)
-        bytes[4] = UInt8(day & 0x1F) | (UInt8(efrWeekday & 0x07) << 5)
-        bytes[5] = UInt8(month & 0x0F)
-        bytes[6] = UInt8(year2 & 0x7F)
-
-        return bytes
+    /// Vollständiges Zeittelegramm (A1 = A2 = 0) mit Telegrammnummer im oberen Nibble des Steuerbytes
+    public static func buildTimeTelegram(date: Date, isSummer: Bool = false, number: UInt8 = 3) -> [UInt8] {
+        buildVariableFrame(control: (number << 4) | 0x07, address: 0, asdu: [0] + timeTelegramUserData(date: date, isSummer: isSummer))
     }
 
     /// Wandelt Bytes in ein 8E1-Bitmuster (Start=0, 8 Datenbits LSB-first, Even Parity, Stop=1)
@@ -89,13 +83,14 @@ public enum EFRSignalGenerator {
 
     /// Erzeugt 8-kHz-FSK-Audiosignal aus den 8E1-Bits
     public static func generateFSKAudio(bits: [Bool], centerHz: Double = 1500.0, shiftHz: Double = 340.0,
-                                        amplitude: Float = 0.8, snrDb: Double? = nil) -> [Float] {
+                                        amplitude: Float = 0.8, snrDb: Double? = nil, inverted: Bool = false) -> [Float] {
         let samplesPerBit = Int(sampleRate / baudRate) // 8000 / 200 = 40 Samples
         let totalSamples = bits.count * samplesPerBit
         var samples = [Float](repeating: 0.0, count: totalSamples)
 
-        let markHz = centerHz + shiftHz / 2.0
-        let spaceHz = centerHz - shiftHz / 2.0
+        // Mark = untere, Space = obere Frequenz (DCF39: 138,830 / 139,170 kHz); `inverted` simuliert die falsche Seitenbandlage
+        let markHz = inverted ? centerHz + shiftHz / 2.0 : centerHz - shiftHz / 2.0
+        let spaceHz = inverted ? centerHz - shiftHz / 2.0 : centerHz + shiftHz / 2.0
         let twoPi = 2.0 * Double.pi
 
         var phase: Double = 0.0
