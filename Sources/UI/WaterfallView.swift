@@ -127,7 +127,7 @@ private struct FrequencyAxis: View {
                 tick.move(to: CGPoint(x: x, y: size.height - 4))
                 tick.addLine(to: CGPoint(x: x, y: size.height))
                 ctx.stroke(tick, with: .color(RadioTheme.textDim), lineWidth: 1)
-                let label = Text("\(Int(f))")
+                let label = Text(verbatim: "\(Int(f))")   // ohne Tausenderpunkt (Frequenzskala)
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
                 ctx.draw(label, at: CGPoint(x: min(max(x, 14), size.width - 14), y: 6), anchor: .center)

@@ -173,13 +173,17 @@ struct CWSettingsPanel: View {
                     .help("Matched Filter: Bandbreite = 2 × WpM (fldigi)")
             }
             HStack(spacing: 6) {
-                label("ATTACK")
+                label("ATTACK").frame(width: 46, alignment: .leading)
                 picker3(\.attack)
                 Spacer()
-                label("DECAY")
-                picker3(\.decay)
             }
-            .help("Pegelnachführung der Hüllkurve (fldigi: Attack/Decay). Bei Fading schneller")
+            .help("Anstieg der Pegelnachführung (fldigi: Attack). Bei Fading schneller")
+            HStack(spacing: 6) {
+                label("DECAY").frame(width: 46, alignment: .leading)
+                picker3(\.decay)
+                Spacer()
+            }
+            .help("Abfall der Pegelnachführung (fldigi: Decay)")
             HStack(spacing: 6) {
                 Button("SQL") { settings.options.squelchOn.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
@@ -201,7 +205,7 @@ struct CWSettingsPanel: View {
 
     private func picker3(_ key: WritableKeyPath<FldigiCWCore.Options, Int>) -> some View {
         HStack(spacing: 3) {
-            ForEach(Array(["L", "M", "S"].enumerated()), id: \.offset) { i, s in
+            ForEach(Array(["LANGSAM", "MITTEL", "SCHNELL"].enumerated()), id: \.offset) { i, s in
                 Button(s) { settings.options[keyPath: key] = i }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.options[keyPath: key] == i))
             }

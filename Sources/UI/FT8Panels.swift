@@ -59,26 +59,34 @@ struct FT8ActivityPanel: View {
 /// Tabelle wie WSJT-X: UTC · dB · DT · Freq · Meldung · Entfernung
 struct FT8Table: View {
     let entries: [FT8Entry]
+    /// false: ohne ScrollView (UI-Vorschau)
+    var scrolls = true
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    header
-                    ForEach(Array(entries.enumerated()), id: \.element.id) { i, e in
-                        let newCycle = i == 0 || entries[i - 1].decode.cycleStart != e.decode.cycleStart
-                        if newCycle && i > 0 {
-                            Rectangle().fill(RadioTheme.borderSubtle).frame(height: 1).padding(.vertical, 1)
-                        }
-                        row(e).id(e.id)
+        if scrolls {
+            ScrollViewReader { proxy in
+                ScrollView { rows }
+                    .onChange(of: entries.last?.id) { _, id in
+                        if let id { proxy.scrollTo(id, anchor: .bottom) }
                     }
-                }
-                .padding(6)
             }
-            .onChange(of: entries.last?.id) { _, id in
-                if let id { proxy.scrollTo(id, anchor: .bottom) }
+        } else {
+            rows
+        }
+    }
+
+    private var rows: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            header
+            ForEach(Array(entries.enumerated()), id: \.element.id) { i, e in
+                let newCycle = i == 0 || entries[i - 1].decode.cycleStart != e.decode.cycleStart
+                if newCycle && i > 0 {
+                    Rectangle().fill(RadioTheme.borderSubtle).frame(height: 1).padding(.vertical, 1)
+                }
+                row(e).id(e.id)
             }
         }
+        .padding(6)
     }
 
     private var header: some View {
@@ -104,7 +112,7 @@ struct FT8Table: View {
             Text(FT8Controller.utc.string(from: d.cycleStart)).frame(width: 48, alignment: .leading)
             Text(String(format: "%+d", d.snrDB)).frame(width: 28, alignment: .trailing)
             Text(String(format: "%.1f", d.dt)).frame(width: 34, alignment: .trailing)
-            Text("\(Int(d.freqHz.rounded()))").frame(width: 40, alignment: .trailing)
+            Text(verbatim: "\(Int(d.freqHz.rounded()))").frame(width: 40, alignment: .trailing)
             Text(d.text + (d.isUncertain ? " ?" : "")).frame(maxWidth: .infinity, alignment: .leading)
             Text(e.km.map { String(format: "%.0f", $0) } ?? "").frame(width: 50, alignment: .trailing)
         }

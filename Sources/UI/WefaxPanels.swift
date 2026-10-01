@@ -110,15 +110,16 @@ struct WefaxTuningPanel: View {
                     .foregroundColor(RadioTheme.ledYellow)
             }
             HStack(spacing: 6) {
-                Button("APT ÜBERSPR.") { controller.skipAPT() }
+                Button { controller.skipAPT() } label: { Label("APT", systemImage: "forward.end.fill") }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Nicht auf den APT-Startton warten, gleich Phasing suchen (fldigi: Skip APT)")
-                Button("PHASING ÜBERSPR.") { controller.skipPhasing() }
+                    .help("APT überspringen: nicht auf den Startton warten, gleich Phasing suchen (fldigi: Skip APT)")
+                Button { controller.skipPhasing() } label: { Label("PHASING", systemImage: "forward.end.fill") }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Sofort Bildzeilen schreiben (fldigi: Skip phasing)")
-                Button("ABBRUCH") { controller.abort() }
+                    .help("Phasing überspringen: sofort Bildzeilen schreiben (fldigi: Skip phasing)")
+                Spacer()
+                Button { controller.abort() } label: { Image(systemName: "xmark") }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Bild verwerfen und wieder auf APT warten")
+                    .help("Abbruch: Bild verwerfen und wieder auf APT warten")
             }
             HStack(spacing: 6) {
                 Button("NON-STOP") { controller.setNonStop(!(controller.status?.manual ?? false)) }
@@ -166,36 +167,40 @@ struct WefaxSettingsPanel: View {
                 }
             }
             if let dial = settings.station.usbDial(center: settings.centerHz) {
-                Text("USB-Dial \(String(format: "%.1f", dial / 1000).replacingOccurrences(of: ".", with: ",")) kHz → Mitte \(settings.options.centerHz) Hz")
+                Text(verbatim: "USB-Dial \(String(format: "%.1f", dial / 1000).replacingOccurrences(of: ".", with: ",")) kHz → Mitte \(settings.options.centerHz) Hz")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
             }
             HStack(spacing: 6) {
-                label("LPM")
+                label("LPM").frame(width: 40, alignment: .leading)
                 ForEach(FldigiWefaxCore.lpmValues, id: \.self) { v in
                     Button("\(v)") { settings.options.lpm = v }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.options.lpm == v))
                 }
                 Spacer()
-                label("IOC")
+            }
+            .help("Zeilen je Minute (DWD: 120)")
+            HStack(spacing: 6) {
+                label("IOC").frame(width: 40, alignment: .leading)
                 ForEach([576, 288], id: \.self) { v in
                     Button("\(v)") { settings.options.ioc = v }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.options.ioc == v))
                 }
-            }
-            HStack(spacing: 6) {
+                Spacer()
                 label("HUB")
                 ForEach([800, 850], id: \.self) { v in
                     Button("\(v)") { settings.options.shiftHz = v }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.options.shiftHz == v))
                 }
-                Spacer()
-                label("FILTER")
-                ForEach(Array(["S", "M", "B"].enumerated()), id: \.offset) { i, s in
+            }
+            HStack(spacing: 6) {
+                label("FILTER").frame(width: 40, alignment: .leading)
+                ForEach(Array(["SCHMAL", "MITTEL", "BREIT"].enumerated()), id: \.offset) { i, s in
                     Button(s) { settings.options.filter = i }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.options.filter == i))
-                        .help(["Schmal", "Mittel", "Breit"][i] + " (ACfax-Tiefpass, fldigi)")
+                        .help("ACfax-Tiefpass aus fldigi")
                 }
+                Spacer()
             }
             HStack(spacing: 6) {
                 Button("AFC") { settings.options.afc.toggle() }

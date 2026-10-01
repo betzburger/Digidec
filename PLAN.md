@@ -724,6 +724,13 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - Live-Empfang, z. B. 20 m (Dial 14,074 MHz USB) oder 40 m (7,074 MHz).
     - Rechneruhr prüfen (automatische Zeit). Den mittleren DT der Stationen beobachten und die „Zeitkorrektur“ so einstellen, dass er bei 0 liegt (Startwert 0,2 s).
     - Optional mit WSJT-X auf demselben Signal vergleichen. Eine Aufnahme ab Zyklusbeginn lässt sich mit `decode_file.sh --ft8 --wsjtx` auswerten.
+- **0.13.1 (01.10.2026): Layout-Prüfung ohne App-Start.** `Tools/UIPreview/render.sh <ordner>` rendert die Karten von CW, WEFAX und FT8 offscreen als PNG (ImageRenderer).
+  Stepper und Textfelder erscheinen dort als Platzhalter, ScrollView-Inhalte fehlen; das ist eine Grenze von ImageRenderer.
+  Gefunden und behoben:
+  - WEFAX: LPM-Knöpfe brachen senkrecht um; neue Zeilen LPM / IOC+Hub / Filter.
+  - WEFAX: Knöpfe „APT/PHASING überspringen“ jetzt mit Symbol; Abbruch als ✕.
+  - CW: Attack/Decay waren zu schmal; jetzt je eine Zeile mit LANGSAM/MITTEL/SCHNELL.
+  - Frequenzen erschienen mit deutschem Tausenderpunkt („1.234“): FT8-Tabelle, WEFAX-Hinweis und die Wasserfall-Skala (seit M3). Jetzt `Text(verbatim:)`.
 - **Nächster Schritt:** Alle geplanten Module sind umgesetzt. Offen ist vor allem der Live-Test aller Module durch den Nutzer. Danach Feinschliff, z. B.:
   - DIGIDEC-Menü der Commander um NAVTEX/WEFAX/FT8-Frequenzen erweitern (Regeln der Commander beachten)
   - FT4
