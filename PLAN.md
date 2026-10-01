@@ -432,6 +432,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M22 | PSK | ✅ 01.10.2026 (v0.25.0): fldigi-PSK-Empfänger (`Vendor/Fldigi/src/psk`): BPSK31/63/125/250 und QPSK31/63/125/250, AFC, Squelch, DCD, S/N und IMD, Phasenvektor, Bänder für QSY, Log, `decode_file.sh --psk`; synthetisch geprüft, Live-Empfang offen |
 | M23 | Olivia, Contestia, MT63 | ✅ 01.10.2026 (v0.26.0): Jalocha-Bibliotheken aus fldigi (`src/olivia`, `src/mt63`) mit Empfangsrahmen; Olivia/Contestia 4–64 Töne × 125–2000 Hz, MT63 500/1000/2000 Hz kurz/lang; Wasserfall-Klick setzt die Mitte; synthetisch geprüft, Live-Empfang offen |
 | M24 | DSC | ✅ 01.10.2026 (v0.27.0): Digitaler Selektivruf MF/HF (ITU-R M.493, 100 Bd / 170 Hz) in Swift; an echter 8414,5-kHz-Aufnahme (5 Küstenfunk-Testrufe, alle ECC OK) und an aufgezeichneten Symbolfolgen geprüft; Meldungsliste, Seenot hervorgehoben, Mittennachführung, Kanäle für QSY |
+| M25 | ALE | ✅ 01.10.2026 (v0.28.0): ALE 2G (MIL-STD-188-141, 8-FSK 125 Bd) in Swift nach der MIT-Referenz openALE; Golay, 16 Taktlagen, Raster-Prüfung, Adressen und Klartext, Frequenznachführung; an einer echten 30-s-Aufnahme geprüft (3 Aussendungen, 38 Wörter, lesbarer Klartext) |
 ---
 
 ## 11. Aktueller Stand
@@ -900,8 +901,17 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Tests:** 1083 Logiktests.
   - **Grenzen:** nur MF/HF 100 Bd (kein UKW-DSC Kanal 70); Notruf-Quittungen werden nicht in ihre Nutzdaten zerlegt; keine Küstenfunkstellen-Namen/Länder (MID).
   - **Offen:** Live-Empfang (z. B. 8414,5 kHz: Küstenfunkstellen senden dort regelmäßig Testrufe), Warnton bei Seenot (noch nicht eingebaut; Digidec hat keine Audioausgabe), Notruf-Quittungen auswerten.
+- **0.28.0 (01.10.2026): M25 ALE (Automatic Link Establishment, 2G).**
+  - **Quellen:** Eigene Swift-Umsetzung nach MIL-STD-188-141A/B Anhang A anhand der MIT-lizenzierten Referenz **openALE** (Vendor/_upstream/openale, lokal); Herkunft, Aufbau, Grenzen: `Vendor/Ale/UPSTREAM_ALE.md`. Kein Fremdcode im Projekt.
+  - **Kern (`Sources/Decoders/ALE/ALECore.swift`):** `ALEGolay` ((24,12), 3 Fehler korrigierbar, Mindestgewicht 8 geprüft), `ALECodec` (Wort ↔ 49 Symbole, 2-von-3-Mehrheit mit Zählung einstimmiger Bit, Zeichensätze), `ALEDemodulator` (acht Töne 750 … 2500 Hz, **16 Taktlagen** parallel), `ALEWordCollector`, `ALEGridTracker` (Raster 392 ms gegen Fehlalarme durch verschobene Fenster), `ALEMessageBuilder`/`ALEMessage` (Adressen aus mehreren Wörtern, Klartext, Art), `ALEFrequencyError` (Verstimmung am bekannten Wort messen), `ALESignalGenerator`.
+  - **Modul/Oberfläche:** `ALEModule` (Verstimmung von Hand oder AUTO, Zuverlässigkeit streng/normal/empfindlich, Decoder als 8-kHz-Senke mit Nachführung, Controller mit Log `ALE-JJJJ-MM-TT.txt`), Panels: Aussendungsliste (UTC, Art, Q, Inhalt), Abstimmanzeige (SYNC, Reinheit, Verstimmung, Wörter), Einstellungen. Wasserfall: Tonblock 750 … 2500 Hz mit Klick auf die Mitte. URL `digidec://decode?mode=ale&center=1625`. Kein QSY (keine feste Frequenz; ALE-Netze arbeiten auf vielen Kanälen im Wechsel).
+  - **Nachweis:** Echte Aufnahme (sigidwiki 2G ALE, 30 s): 3 Aussendungen, 38 Wörter: Kennung „SHAEENQ2“ (zweimal), Anruf an „USMANQ7“ mit Klartext „WE ALSO PAWCED MSG TO OUR SECTION ALREDY TODAY MORNING ABOUT HOLIDAY HER“. Rundlauf: genau die gesendeten Wörter und Wortende auf 8 Abtastwerte genau, Adressen mit 9 und 6 Zeichen, Sounding, Nachricht, Verstimmung 12 Hz, beliebige Taktlage, 12 dB und 6 dB S/N, Rauschen und Dauerton ergeben nichts; Raster lehnt verschobene Fenster ab; Frequenzfehler −25 … +30 Hz auf ±3 Hz gemessen; Pipeline 48 kHz → 8 kHz mit Nachführung von 22 Hz Verstimmung.
+  - **Werkzeug:** `decode_file.sh <wav|mp3> --ale [--offset Hz] [--minvotes n]`.
+  - **Tests:** 1134 Logiktests.
+  - **Grenzen/Offen:** nur ALE 2G (kein 3G/4G/AQC); CMD-Wörter roh; keine Netz-/Stationsnamen; Live-Empfang offen (ALE-Kanäle liegen u. a. bei 3,596 / 7,102 / 10,145 / 14,109 MHz USB; Hinweis: nicht alle Netze senden jederzeit).
+  - **Rechtlicher Hinweis (keine Rechtsberatung):** Inhalt und Adressen von ALE-Verkehr, der nicht für die Allgemeinheit bestimmt ist (Behörden, Militär, kommerzielle Netze), unterliegen in Deutschland dem Fernmeldegeheimnis; Aufzeichnen und Weitergeben ist heikel. Erkennen von Sounding und Signalanalyse sind unkritisch. Das Log von Digidec schreibt auf Wunsch alles mit; es lässt sich mit LOG ausschalten.
 - **Nächste Schritte:**
-  - Live-Tests der neuen Module (WSPR, PSK, Olivia, MT63, DSC) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
+  - Live-Tests der neuen Module (WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
   - Weitere Module aus Abschnitt 9: POCSAG/DTMF (multimon-ng), APRS 1200 (direwolf), ACARS (acarsdec), JT65/JT9 (WSJT-X).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

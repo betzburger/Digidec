@@ -28,6 +28,8 @@ func usage() -> Never {
 
       --dsc                 DSC (ITU-R M.493, 100 Bd / 170 Hz); --center <Mitte-Hz> (Standard 1700), --noauto schaltet die Mittennachführung ab, --rev kehrt um
 
+      --ale                 ALE (MIL-STD-188-141, 8-FSK 125 Bd); --offset <Hz> Verstimmung der Töne (Standard 0), --minvotes <n> (Standard 36)
+
       --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
       --lpm <n>             WEFAX Zeilen je Minute (Standard 120)
       --shift <Hz>          WEFAX Hub (Standard 800, DWD 850); --center <Hz> NF-Mitte (Standard 1900)
@@ -59,6 +61,9 @@ var cwMF = false
 var pskModeID: String?
 var oliviaID: String?
 var dscMode = false
+var aleMode = false
+var aleOffset = 0.0
+var aleVotes = 36
 var dscAuto = true
 var mt63ID: String?
 var pskAFC = true
@@ -88,6 +93,9 @@ while !args.isEmpty {
     case "--psk": pskModeID = value()
     case "--olivia": oliviaID = value()
     case "--dsc": dscMode = true
+    case "--ale": aleMode = true
+    case "--offset": aleOffset = Double(value()) ?? 0
+    case "--minvotes": aleVotes = Int(value()) ?? 36
     case "--noauto": dscAuto = false
     case "--mt63": mt63ID = value()
     case "--noafc": pskAFC = false
@@ -250,6 +258,53 @@ if let pskModeID {
         print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
                      100 * Double(d) / Double(max(1, max(a.count, b.count)))))
     }
+    exit(0)
+}
+
+// MARK: - ALE
+
+if aleMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: ALEDemodulator.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    print("ALE · Verstimmung \(aleOffset) Hz · mindestens \(aleVotes) einstimmige Bit")
+    let demod = ALEDemodulator(offsetHz: aleOffset)
+    demod.minUnanimous = aleVotes
+    var collector = ALEWordCollector()
+    var tracker = ALEGridTracker()
+    var builder = ALEMessageBuilder()
+    var messages: [(Double, ALEMessage)] = []
+    var accepted = 0, candidates = 0
+    var total = 0
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    func handle(_ words: [ALEWord]) {
+        for w in words where tracker.accept(w) {
+            accepted += 1
+            if let m = builder.add(w, offsetHz: demod.offsetHz) { messages.append((Double(m.words.first!.endSample) / 8000, m)) }
+        }
+    }
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+            demod.process(chunk) { w, _ in candidates += 1; collector.add(w) }
+            total += chunk.count
+            handle(collector.take(now: total))
+            tracker.idle(now: total)
+            if let m = builder.flush(nowSample: total, offsetHz: demod.offsetHz) { messages.append((Double(m.words.first!.endSample) / 8000, m)) }
+        }
+    }
+    handle(collector.take(now: total, force: true))
+    if let m = builder.flush(nowSample: total + 100_000, offsetHz: demod.offsetHz, force: true) { messages.append((Double(m.words.first!.endSample) / 8000, m)) }
+    for (t, m) in messages {
+        print(String(format: "%6.1f s  %@  Q%d  ", t, m.kind.padding(toLength: 9, withPad: " ", startingAt: 0), m.quality) + m.summary)
+    }
+    let dur = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "%.0f s Audio in %.2f s: %d Aussendungen, %d Wörter (%d Kandidaten)", dur, Date().timeIntervalSince(began), messages.count, accepted, candidates))
     exit(0)
 }
 

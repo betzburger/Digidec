@@ -3528,5 +3528,213 @@ do {
     pipeline.stop()
 }
 
+// MARK: - ALE (MIL-STD-188-141): Golay, Wortcodec, Raster, Demodulator
+do {
+    check(parse("digidec://decode?mode=ale&center=1700") == .success(DecodeRequest(module: .ale, presetID: "ale", centerHz: 1700)), "ALE-Auftrag")
+    check(parse("digidec://decode?mode=ale") == .success(DecodeRequest(module: .ale, presetID: "ale")), "ALE-Standard")
+
+    // Golay (24,12): Mindestabstand 8, alle Fehler bis Gewicht 3 korrigierbar, Gewicht 4 erkennbar
+    var minWeight = 99
+    for i in 1..<4096 { minWeight = min(minWeight, ALEGolay.encode(UInt16(i)).nonzeroBitCount) }
+    check(minWeight == 8, "ALE Golay: Mindestgewicht \(minWeight)")
+    var corrected = 0, tried = 0
+    for i in stride(from: 3, to: 4096, by: 53) {
+        let cw = ALEGolay.encode(UInt16(i))
+        for a in stride(from: 0, to: 24, by: 2) { for b in (a + 1)..<24 { for c in stride(from: b + 1, to: 24, by: 3) {
+            tried += 1
+            if ALEGolay.decode(cw ^ (1 << UInt32(a)) ^ (1 << UInt32(b)) ^ (1 << UInt32(c)))?.info == UInt16(i) { corrected += 1 }
+        } } }
+    }
+    check(corrected == tried && tried > 1000, "ALE Golay: 3 Fehler werden korrigiert (\(corrected)/\(tried))")
+    check(ALEGolay.decode(ALEGolay.encode(0x5A5) ^ 0b1111)?.info != 0x5A5 || ALEGolay.decode(ALEGolay.encode(0x5A5) ^ 0b1111) == nil, "ALE Golay: 4 Fehler werden nicht fälschlich als gültig übernommen")
+    check(ALEGolay.parity(0x001) == 0x5C7 && ALEGolay.parity(0x800) == 0xAE3 && ALEGolay.encode(0x003) == 0x003_000 | UInt32(0x5C7 ^ 0xB8D), "ALE Golay: Prüfbits der Basisvektoren, linear")
+
+    // Wortcodec: 24 Bit → 49 Symbole → 24 Bit; Zeichensätze
+    check(ALECodec.freqToSymbol == [0, 1, 3, 2, 6, 7, 5, 4] && ALECodec.symbolToFreqIndex[6] == 4 && ALECodec.symbolToFreqIndex[4] == 7, "ALE: Tonzuordnung (Gray)")
+    let w24 = ALECodec.word24(preamble: .tis, chars: Array("ABC".utf8))
+    check(w24 == 0b101_1000001_1000010_1000011, "ALE: 24-Bit-Wort TIS ABC")
+    let sym = ALECodec.symbols(word24: w24)
+    check(sym.count == 49 && sym.allSatisfy { $0 < 8 }, "ALE: 49 Symbole")
+    let dec = ALECodec.decode(symbols: sym[...])
+    check(dec?.word24 == w24 && dec?.unanimous == 48 && dec?.errors == 0, "ALE: Wort fehlerfrei zurück (48 einstimmige Bit)")
+    var damaged = sym
+    for i in [2, 9, 20, 31, 44] { damaged[i] = (damaged[i] + 3) & 7 }        // 5 falsche Symbole = bis zu 15 falsche Bit
+    check(ALECodec.decode(symbols: damaged[...], minUnanimous: 20)?.word24 == w24, "ALE: 5 falsche Symbole werden durch Mehrheit und Golay repariert")
+    check(ALECodec.decode(symbols: sym[...], minUnanimous: 49) == nil, "ALE: Schwelle über 48 liefert nichts")
+    // Ungültige Zeichen (Kleinbuchstaben) in einem Adresswort werden verworfen
+    let bad = ALECodec.word24(preamble: .to, chars: Array("abc".utf8))
+    check(ALECodec.decode(symbols: ALECodec.symbols(word24: bad)[...]) == nil, "ALE: Kleinbuchstaben in einem TO-Wort ungültig")
+    let text = ALECodec.word24(preamble: .data, chars: Array("hi!".utf8))
+    check(ALECodec.decode(symbols: ALECodec.symbols(word24: text)[...]) == nil, "ALE: Kleinbuchstaben auch in DATA ungültig (Expanded 64)")
+    let ok64 = ALECodec.word24(preamble: .data, chars: Array("HI!".utf8))
+    check(ALECodec.decode(symbols: ALECodec.symbols(word24: ok64)[...])?.word24 == ok64, "ALE: DATA mit Satzzeichen (Expanded 64)")
+    let cmd = ALECodec.word24(preamble: .cmd, chars: [0x7E, 0x01, 0x55])
+    check(ALECodec.decode(symbols: ALECodec.symbols(word24: cmd)[...])?.word24 == cmd, "ALE: CMD-Wort mit Binärdaten wird ohne Zeichenprüfung angenommen")
+
+    // Rundlauf Audio → Wörter → Raster → Aussendung
+    func decodeAudio(_ audio: [Float], offset: Double = 0, votes: Int = 36) -> (words: [ALEWord], messages: [ALEMessage]) {
+        let demod = ALEDemodulator(offsetHz: offset)
+        demod.minUnanimous = votes
+        var collector = ALEWordCollector()
+        var tracker = ALEGridTracker()
+        var builder = ALEMessageBuilder()
+        var words: [ALEWord] = [], messages: [ALEMessage] = []
+        var total = 0
+        var pos = 0
+        while pos < audio.count {
+            let n = min(800, audio.count - pos)
+            audio[pos..<(pos + n)].withUnsafeBufferPointer { demod.process($0) { w, _ in collector.add(w) } }
+            pos += n
+            total = pos
+            for w in collector.take(now: total) where tracker.accept(w) {
+                words.append(w)
+                if let m = builder.add(w, offsetHz: offset) { messages.append(m) }
+            }
+            tracker.idle(now: total)
+            if let m = builder.flush(nowSample: total, offsetHz: offset) { messages.append(m) }
+        }
+        for w in collector.take(now: total, force: true) where tracker.accept(w) {
+            words.append(w)
+            if let m = builder.add(w, offsetHz: offset) { messages.append(m) }
+        }
+        if let m = builder.flush(nowSample: total, offsetHz: offset, force: true) { messages.append(m) }
+        return (words, messages)
+    }
+    let call = ALESignalGenerator.words(address: .to, "W1AWJ") + [(ALEPreamble.tis, Array("DL1".utf8)), (ALEPreamble.data, Array("ABC".utf8))]
+    let r = decodeAudio(ALESignalGenerator.audio(words: call))
+    check(r.words.map { "\($0.preamble.name):\($0.text)" } == ["TO:W1A", "DATA:WJ@", "TIS:DL1", "DATA:ABC"], "ALE Rundlauf: genau die gesendeten Wörter, got \(r.words.map { "\($0.preamble.name):\($0.text)" })")
+    check(r.messages.count == 1 && r.messages[0].quality == 48, "ALE Rundlauf: eine Aussendung, Q48 (\(r.messages.count))")
+    check(r.words.first.map { abs($0.endSample - 6308) <= 8 } == true, "ALE Rundlauf: Wortende bei 6308 (\(r.words.first?.endSample ?? 0))")
+
+    // Adressen: Fortsetzungsworte DATA/REP, Auffüllen mit „@“
+    let addrWords = ALESignalGenerator.words(address: .to, "CALLSIGNX") + ALESignalGenerator.words(address: .tis, "EDWARD") + ALESignalGenerator.words(address: .tis, "W1AW")
+    let am = decodeAudio(ALESignalGenerator.audio(words: addrWords)).messages.first
+    check(am?.addresses(.to) == ["CALLSIGNX"] && am?.addresses(.tis) == ["EDWARD", "W1AW"], "ALE: Adressen aus mehreren Wörtern zusammengesetzt: \(am?.summary ?? "-")")
+    check(am?.kind == "ANRUF", "ALE: Art ANRUF")
+    let snd = decodeAudio(ALESignalGenerator.audio(words: ALESignalGenerator.words(address: .twas, "DL1ABC"))).messages.first
+    check(snd?.kind == "SOUNDING" && snd?.addresses(.twas) == ["DL1ABC"], "ALE: Sounding (TWAS)")
+    let msgWords = ALESignalGenerator.words(address: .to, "ALL") + [(ALEPreamble.cmd, [0x7E, 0x41, 0x4D]), (.data, Array("HEL".utf8)), (.rep, Array("LO ".utf8)), (.data, Array("WOR".utf8)), (.rep, Array("LD@".utf8))]
+    let mm = decodeAudio(ALESignalGenerator.audio(words: msgWords)).messages.first
+    check(mm?.kind == "NACHRICHT" && mm?.parts.filter { $0.preamble == .data || $0.preamble == .rep }.map(\.text).joined() == "HELLO WORLD@", "ALE: Nachricht aus DATA/REP-Wörtern: \(mm?.summary ?? "-")")
+
+    // Verstimmung, Rauschen, falscher Takt
+    check(decodeAudio(ALESignalGenerator.audio(words: call, offsetHz: 12)).words.count == 4, "ALE: Töne 12 Hz zu hoch, Wörter trotzdem gelesen")
+    check(decodeAudio(ALESignalGenerator.audio(words: call, offsetHz: 12), offset: 12).words.count == 4, "ALE: Verstimmung 12 Hz eingestellt")
+    check(decodeAudio(ALESignalGenerator.audio(words: call, lead: 0.4137)).words.count == 4, "ALE: beliebige Taktlage (Vorlauf 0,4137 s)")
+    var st: UInt64 = 31
+    func gauss() -> Double {
+        st = st &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(st >> 11) + 1) / Double((1 << 53) + 2)
+        st = st &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(st >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+    for (snr, minWords) in [(12.0, 4), (6.0, 3)] {
+        var a = ALESignalGenerator.audio(words: call)
+        let sigma = sqrt(0.125 / pow(10, snr / 10) / (2500.0 / 4000.0))
+        for i in 0..<a.count { a[i] += Float(gauss() * sigma) }
+        let n = decodeAudio(a).words.count
+        check(n >= minWords, "ALE bei \(Int(snr)) dB S/N (in 2500 Hz): \(n) von 4 Wörtern")
+    }
+    var noise = [Float](repeating: 0, count: 8000 * 40)
+    for i in 0..<noise.count { noise[i] = Float(gauss() * 0.2) }
+    check(decodeAudio(noise).words.isEmpty, "ALE: Rauschen ergibt keine Wörter")
+    // Ein einzelner Dauerton und Mehrtonfolgen (keine Wörter)
+    var tone = [Float](repeating: 0, count: 80_000)
+    for i in 0..<tone.count { let ph: Double = 2.0 * Double.pi * 1500.0 * Double(i) / 8000.0; tone[i] = Float(0.5 * sin(ph)) }
+    check(decodeAudio(tone).words.isEmpty, "ALE: Dauerton ergibt keine Wörter")
+
+    // Raster: ein verschobenes Fenster gilt nicht
+    do {
+        var tr = ALEGridTracker()
+        func w(_ p: ALEPreamble, _ end: Int, _ votes: Int = 48, _ err: Int = 0) -> ALEWord { ALEWord(preamble: p, chars: Array("ABC".utf8), unanimous: votes, golayErrors: err, endSample: end) }
+        check(tr.accept(w(.to, 10_000)), "ALE-Raster: erstes TO-Wort")
+        check(!tr.accept(w(.data, 10_000 + 3136 + 64, 48)), "ALE-Raster: um ein Symbol verschobenes Wort abgelehnt")
+        check(tr.accept(w(.data, 10_000 + 3136 + 10, 40)), "ALE-Raster: Folgewort im Raster angenommen")
+        check(tr.accept(w(.cmd, 10_000 + 3136 * 3 + 20, 38)), "ALE-Raster: nach einem fehlenden Wort weiter im Raster")
+        var t2 = ALEGridTracker()
+        check(!t2.accept(w(.data, 5000)), "ALE-Raster: erstes Wort muss TO/TIS/TWAS/FROM/THRU sein")
+        check(!t2.accept(w(.to, 5000, 40)), "ALE-Raster: erstes Wort braucht ≥ 44 einstimmige Bit")
+        check(!t2.accept(w(.to, 5000, 48, 5)), "ALE-Raster: erstes Wort mit zu vielen Golay-Fehlern abgelehnt")
+        tr.idle(now: 10_000 + 3136 * 3 + 20 + 3136 * 4)
+        check(!tr.isLocked, "ALE-Raster: nach Pause wieder frei")
+    }
+
+    // Frequenzfehler am bekannten Wort messen
+    do {
+        let word = ALECodec.word24(preamble: .tis, chars: Array("DL1".utf8))
+        let symbols = ALECodec.symbols(word24: word)
+        for eps in [-25.0, -10.0, 0.0, 14.0, 30.0] {
+            let a = ALESignalGenerator.audio(words: [(ALEPreamble.tis, Array("DL1".utf8))], offsetHz: eps, lead: 0, tail: 0)
+            let est = ALEFrequencyError.estimate(samples: a, symbols: symbols, offset: 0)
+            check(est.map { abs($0 - eps) <= 3 } == true, "ALE-Frequenzfehler \(eps) Hz gemessen: \(est.map { String(format: "%.1f", $0) } ?? "nil")")
+        }
+        check(ALEFrequencyError.estimate(samples: [Float](repeating: 0, count: 3136), symbols: symbols, offset: 0) == nil, "ALE-Frequenzfehler: Stille ergibt nichts")
+    }
+
+    // Echte Aufnahme (sigidwiki „2G ALE“, 30 s): nur wenn lokal vorhanden
+    do {
+        let url = URL(fileURLWithPath: "Vendor/_upstream/ale_sigid.mp3")
+        if let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
+           let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: ALEDemodulator.sampleRate) {
+            var audio: [Float] = []
+            let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+            while true {
+                buf.frameLength = 0
+                try? file.read(into: buf, frameCount: 48_000)
+                guard buf.frameLength > 0 else { break }
+                src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { audio += $0 }
+            }
+            let real = decodeAudio(audio)
+            let kinds = real.messages.map(\.kind)
+            check(real.messages.count == 3 && real.words.count >= 35, "ALE echte Aufnahme: \(real.messages.count) Aussendungen, \(real.words.count) Wörter")
+            check(real.messages.filter { $0.addresses(.tis).contains("SHAEENQ2") }.count == 2, "ALE echte Aufnahme: Kennung „SHAEENQ2“ zweimal (\(kinds))")
+            let joined = real.messages.map(\.summary).joined(separator: " ")
+            check(joined.contains("USMANQ") && joined.contains("MORNING ABOUT HOLIDAY"), "ALE echte Aufnahme: Anruf an USMANQ und Klartext „…MORNING ABOUT HOLIDAY…“ (\(joined.prefix(300)))")
+            check(real.messages.allSatisfy { $0.quality >= 36 }, "ALE echte Aufnahme: alle Wörter mit ≥ 36 einstimmigen Bit")
+        } else {
+            print("Hinweis: ALE-Beispielaufnahme nicht vorhanden, echte Aussendung nicht geprüft")
+        }
+    }
+}
+
+// MARK: - ALE über die Pipeline (48 kHz → 8 kHz) mit Frequenznachführung
+do {
+    let pipeline = AudioPipeline()
+    let decoder = ALEDecoder(pipeline: pipeline)
+    decoder.configure(offset: 0, auto: true, sensitivity: .normal)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    let words = ALESignalGenerator.words(address: .to, "BOB") + ALESignalGenerator.words(address: .tis, "ALICE")
+    var audio8: [Float] = []
+    for _ in 0..<3 { audio8 += ALESignalGenerator.audio(words: words, offsetHz: 22, lead: 0.5, tail: 0.5) }   // dreimal hintereinander: die Nachführung lernt
+    var audio48 = [Float](repeating: 0, count: audio8.count * 6)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 6, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio8[k] * (1 - f) + (k + 1 < audio8.count ? audio8[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    var got: [ALEMessage] = []
+    var lastOffset = 0.0
+    while i < audio48.count {
+        let n = min(9_600, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.006)
+        let o = decoder.takeOutput()
+        got += o.messages
+        lastOffset = o.offset
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    let o = decoder.takeOutput()
+    got += o.messages
+    lastOffset = o.offset
+    check(got.count >= 2 && got.contains { $0.addresses(.tis) == ["ALICE"] && $0.addresses(.to) == ["BOB"] }, "ALE über die Pipeline 48 kHz → 8 kHz (\(got.count) Aussendungen)")
+    check(abs(lastOffset - 22) <= 6, "ALE-Pipeline: Verstimmung wird nachgeführt (\(lastOffset) Hz)")
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

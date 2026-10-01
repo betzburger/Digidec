@@ -67,6 +67,20 @@ func run() {
         PSKSettingsPanel(settings: ps).radioCard(title: "PSK")
     }, width: right, name: "psk_rechts", dir: dir)
 
+    // ALE
+    let al = ALESettingsStore()
+    let alc = ALEController(pipeline: pipeline, settings: al)
+    save(VStack(spacing: 10) {
+        ALETuningPanel(controller: alc, settings: al).radioCard(title: "Abstimmanzeige")
+        ALESettingsPanel(settings: al).radioCard(title: "ALE")
+    }, width: right, name: "ale_rechts", dir: dir)
+    func aleWords(_ list: [(ALEPreamble, String)]) -> [ALEWord] { list.enumerated().map { ALEWord(preamble: $1.0, chars: Array($1.1.utf8), unanimous: 48, golayErrors: 0, endSample: ($0 + 1) * 3136) } }
+    let aleMsgs = [
+        ALEMessage(receivedAt: Date(timeIntervalSince1970: 1_790_000_008), words: aleWords([(.tis, "SHA"), (.data, "EEN"), (.rep, "Q2@")]), offsetHz: 0),
+        ALEMessage(receivedAt: Date(timeIntervalSince1970: 1_790_000_014), words: aleWords([(.to, "USM"), (.data, "ANQ"), (.rep, "7@@"), (.cmd, "~AM"), (.data, "WE "), (.rep, "ALS"), (.data, "O P")]), offsetHz: 0),
+        ALEMessage(receivedAt: Date(timeIntervalSince1970: 1_790_000_027), words: aleWords([(.twas, "DL1"), (.data, "ABC")]), offsetHz: 0)]
+    save(ALETable(messages: aleMsgs, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "ALE Aussendungen"), width: 760, name: "ale_tabelle", dir: dir)
+
     // DSC
     let ds = DSCSettingsStore()
     let dsc = DSCController(pipeline: pipeline, settings: ds)
