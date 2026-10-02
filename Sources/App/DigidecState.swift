@@ -3,6 +3,11 @@ import SwiftUI
 import AVFoundation
 import Combine
 
+/// Darstellung im unteren Hauptbereich: Liste (bzw. Bild/Text), Karte oder beides übereinander
+public enum MapLayout: String, Sendable {
+    case list, map, split
+}
+
 /// Zentraler App-Zustand. Ab M5 kommt der RTTY-Decoder, ab M7 der rigctld-Client dazu.
 @MainActor
 public final class DigidecState: ObservableObject {
@@ -59,8 +64,12 @@ public final class DigidecState: ObservableObject {
     public private(set) var autoRecorder: ScheduleAutoRecorder!
     /// Welcher Sendeplan gerade im Fenster gezeigt wird (nil = Fenster zu)
     @Published public var scheduleSheet: BroadcastService?
-    /// Module, die statt der Liste die Karte zeigen (gemerkt)
-    @Published public private(set) var mapModules: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "mapModules") ?? [])
+    /// Darstellung je Modul: Liste, Karte oder beides (gemerkt). Frühere Versionen merkten nur „Karte“ in `mapModules`.
+    @Published public private(set) var mapLayouts: [String: String] = {
+        var d = (UserDefaults.standard.dictionary(forKey: "mapLayouts") as? [String: String]) ?? [:]
+        for m in UserDefaults.standard.stringArray(forKey: "mapModules") ?? [] where d[m] == nil { d[m] = MapLayout.map.rawValue }
+        return d
+    }()
     /// Darf Digidec das Funkgerät über den rigctld des Commanders abstimmen? Standard: aus (nur lesen).
     @Published public var rigControlEnabled: Bool {
         didSet { UserDefaults.standard.set(rigControlEnabled, forKey: "rigControlEnabled") }
@@ -320,15 +329,21 @@ public final class DigidecState: ObservableObject {
         }
     }
 
-    /// Zeigt das Modul gerade die Karte?
-    public func isMapVisible(_ module: DecoderModuleInfo) -> Bool {
-        module.hasMap && mapModules.contains(module.rawValue)
+    /// Wie zeigt das Modul seine Daten? Ohne Ortsdaten immer als Liste.
+    public func mapLayout(_ module: DecoderModuleInfo) -> MapLayout {
+        guard module.hasMap else { return .list }
+        return mapLayouts[module.rawValue].flatMap(MapLayout.init(rawValue:)) ?? .list
     }
 
-    public func toggleMap(_ module: DecoderModuleInfo) {
+    public func setMapLayout(_ layout: MapLayout, for module: DecoderModuleInfo) {
         guard module.hasMap else { return }
-        if mapModules.contains(module.rawValue) { mapModules.remove(module.rawValue) } else { mapModules.insert(module.rawValue) }
-        UserDefaults.standard.set(Array(mapModules), forKey: "mapModules")
+        mapLayouts[module.rawValue] = layout.rawValue
+        UserDefaults.standard.set(mapLayouts, forKey: "mapLayouts")
+    }
+
+    /// Zeigt das Modul die Karte (allein oder neben der Liste)?
+    public func isMapVisible(_ module: DecoderModuleInfo) -> Bool {
+        mapLayout(module) != .list
     }
 
     public func select(module: DecoderModuleInfo) {

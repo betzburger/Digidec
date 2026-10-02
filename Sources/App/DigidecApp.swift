@@ -86,8 +86,8 @@ enum SnapshotHelper {
                 if let m = DecoderModuleInfo(rawValue: parts[0]) {
                     DigidecState.shared.select(module: m)
                     if parts.count > 1 {
-                        let wantMap = parts[1] == "karte"
-                        if DigidecState.shared.isMapVisible(m) != wantMap { DigidecState.shared.toggleMap(m) }
+                        let layout: MapLayout = parts[1] == "karte" ? .map : parts[1] == "beide" ? .split : .list
+                        DigidecState.shared.setMapLayout(layout, for: m)
                     }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
@@ -108,8 +108,12 @@ enum SnapshotHelper {
         window.setContentSize(NSSize(width: 1400, height: 900))
         window.orderFrontRegardless()
         let id = CGWindowID(window.windowNumber)
-        if let img = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]) {
+        if let img = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]), img.width > 1000 {
             let rep = NSBitmapImageRep(cgImage: img)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        } else if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            // Ersatz, wenn das Fenster nicht sichtbar ist (Bildschirm gesperrt): Inhalt ohne Karte
+            view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         }
     }

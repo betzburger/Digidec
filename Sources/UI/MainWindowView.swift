@@ -9,6 +9,44 @@ public struct MainWindowView: View {
         self.state = state
     }
 
+    /// Hauptbereich des aktiven Moduls ohne Karte (Liste, Text, Bild)
+    @ViewBuilder
+    private var mainPanel: some View {
+        if state.activeModule == .navtex {
+                                NavtexReceivePanel(controller: state.navtexController)
+                            } else if state.activeModule == .cw {
+                                CWReceivePanel(controller: state.cwController)
+                            } else if state.activeModule == .olivia {
+                                TextModeReceivePanel(controller: state.oliviaController)
+                            } else if state.activeModule == .mt63 {
+                                TextModeReceivePanel(controller: state.mt63Controller)
+                            } else if state.activeModule == .dsc {
+                                DSCMessagePanel(controller: state.dscController)
+                            } else if state.activeModule == .ale {
+                                ALEMessagePanel(controller: state.aleController)
+                            } else if state.activeModule == .aprs {
+                                APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
+                            } else if state.activeModule == .psk {
+                                PSKReceivePanel(controller: state.pskController)
+                            } else if state.activeModule == .wefax {
+                                WefaxImagePanel(controller: state.wefaxController, schedule: state.wefaxSchedule, auto: state.autoRecorder, openSchedule: { state.scheduleSheet = .wefax })
+                            } else if state.activeModule == .ft8 {
+                                FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
+                            } else if state.activeModule == .ft4 {
+                                FT4ActivityPanel(controller: state.ft4Controller, settings: state.ft4)
+                            } else if state.activeModule == .wspr {
+                                WSPRActivityPanel(controller: state.wsprController, settings: state.wspr)
+                            } else if state.activeModule == .dcf77 {
+                                DCF77MainPanel(controller: state.dcf77Controller, settings: state.dcf77)
+                            } else if state.activeModule == .efr {
+                                EFRMainPanel(controller: state.efrController, settings: state.efr)
+                            } else if state.activeModule == .sstv {
+                                SSTVImagePanel(controller: state.sstvController)
+                            } else {
+                                ReceivePanel(controller: state.rttyController, settings: state.rtty)
+                            }
+    }
+
     public var body: some View {
         ZStack {
             RadioTheme.bgPanel.ignoresSafeArea()
@@ -58,44 +96,23 @@ public struct MainWindowView: View {
                         .radioCard(title: "Wasserfall")
 
                         Group {
-                            if state.isMapVisible(state.activeModule) {
+                            switch state.mapLayout(state.activeModule) {
+                            case .list:
+                                mainPanel
+                            case .map:
                                 ModuleMapView(state: state)
-                            } else if state.activeModule == .navtex {
-                                NavtexReceivePanel(controller: state.navtexController)
-                            } else if state.activeModule == .cw {
-                                CWReceivePanel(controller: state.cwController)
-                            } else if state.activeModule == .olivia {
-                                TextModeReceivePanel(controller: state.oliviaController)
-                            } else if state.activeModule == .mt63 {
-                                TextModeReceivePanel(controller: state.mt63Controller)
-                            } else if state.activeModule == .dsc {
-                                DSCMessagePanel(controller: state.dscController)
-                            } else if state.activeModule == .ale {
-                                ALEMessagePanel(controller: state.aleController)
-                            } else if state.activeModule == .aprs {
-                                APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
-                            } else if state.activeModule == .psk {
-                                PSKReceivePanel(controller: state.pskController)
-                            } else if state.activeModule == .wefax {
-                                WefaxImagePanel(controller: state.wefaxController, schedule: state.wefaxSchedule, auto: state.autoRecorder, openSchedule: { state.scheduleSheet = .wefax })
-                            } else if state.activeModule == .ft8 {
-                                FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
-                            } else if state.activeModule == .ft4 {
-                                FT4ActivityPanel(controller: state.ft4Controller, settings: state.ft4)
-                            } else if state.activeModule == .wspr {
-                                WSPRActivityPanel(controller: state.wsprController, settings: state.wspr)
-                            } else if state.activeModule == .dcf77 {
-                                DCF77MainPanel(controller: state.dcf77Controller, settings: state.dcf77)
-                            } else if state.activeModule == .efr {
-                                EFRMainPanel(controller: state.efrController, settings: state.efr)
-                            } else if state.activeModule == .sstv {
-                                SSTVImagePanel(controller: state.sstvController)
-                            } else {
-                                ReceivePanel(controller: state.rttyController, settings: state.rtty)
+                            case .split:
+                                GeometryReader { geo in
+                                    VStack(spacing: 8) {
+                                        mainPanel.frame(maxHeight: .infinity)
+                                        ModuleMapView(state: state)
+                                            .frame(height: max(190, geo.size.height * 0.42))
+                                    }
+                                }
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.isMapVisible(state.activeModule) ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -264,31 +281,42 @@ private struct HeaderBar: View {
     }
 }
 
-/// Schaltet zwischen Liste und Karte des aktiven Moduls um
+/// Darstellung des unteren Bereichs: Liste (bzw. Bild/Text), Karte oder beides übereinander
 private struct MapToggleButton: View {
     @ObservedObject var state: DigidecState
 
     var body: some View {
         let module = state.activeModule
-        let on = state.isMapVisible(module)
+        let current = state.mapLayout(module)
+        HStack(spacing: 2) {
+            segment("list.bullet", "LISTE", .list, current, module, help: "Liste, Text oder Bild des Moduls (Wetterfax-Bild, Empfangstext …)")
+            segment("map", "KARTE", .map, current, module, help: "Nur die Karte zeigen (Stationen, Sender, Positionen)")
+            segment("rectangle.split.1x2", "BEIDE", .split, current, module, help: "Liste bzw. Bild oben, Karte darunter")
+        }
+        .padding(2)
+        .background(RadioTheme.bgDeep)
+        .cornerRadius(5)
+        .opacity(module.hasMap ? 1 : 0.5)
+        .help(module.hasMap ? "Darstellung umschalten" : "\(module.displayName) hat keine Ortsdaten, daher keine Karte")
+    }
+
+    private func segment(_ icon: String, _ text: String, _ layout: MapLayout, _ current: MapLayout, _ module: DecoderModuleInfo, help: String) -> some View {
         Button {
-            state.toggleMap(module)
+            state.setMapLayout(layout, for: module)
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: on ? "list.bullet" : "map")
-                    .font(.system(size: 9, weight: .bold))
-                Text(on ? "LISTE" : "KARTE")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 9, weight: .bold))
+                Text(text).font(.system(size: 9, weight: .bold, design: .monospaced))
             }
-            .foregroundColor(!module.hasMap ? RadioTheme.textDim : on ? RadioTheme.vfdCyan : RadioTheme.textBright)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(on ? RadioTheme.vfdCyan.opacity(0.18) : RadioTheme.bgDeep)
+            .foregroundColor(current == layout ? RadioTheme.vfdCyan : RadioTheme.textMuted)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(current == layout ? RadioTheme.vfdCyan.opacity(0.18) : .clear)
             .cornerRadius(4)
         }
         .buttonStyle(.plain)
         .disabled(!module.hasMap)
-        .help(module.hasMap ? (on ? "Zur Liste zurück" : "Karte dieses Moduls zeigen (Stationen, Sender, Positionen)") : "\(module.displayName) hat keine Ortsdaten")
+        .help(help)
     }
 }
 
