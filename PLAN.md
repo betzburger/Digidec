@@ -1010,6 +1010,12 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Schiffe und Bojen:** Die Karte kannte nur Meldungen mit WMO-Stationsnummer; Schiffe (BBXX mit Rufzeichen) und Bojen fielen weg. Jetzt Schlüssel = Rufzeichen, Ort aus der Meldung, bei erneuter Meldung von einem anderen Ort der bisherige Weg (bis 40 Punkte) als Linie.
   - **Tests:** 1641 Logiktests (+62: alle drei Berichte, Gebiete, Wetterlage mit Ziel, Fronten, Übersetzung, Robustheit, Karte, Schiffe mit Weg, Positionen). Dabei fiel auf: ein Steuerzeichen (ETX) am Zeilenanfang verdeckte die Überschrift der Sturmwarnung; der Parser entfernt Steuerzeichen jetzt.
   - **Grenzen/Offen:** Format der Nautischen Warnnachrichten (WWXX60) und der Zeitreihenberichte (FQEN75 bis 79) unbekannt, nur Positionen werden gefunden; Warntexte der Küstenwarnungen („NR. 479 …“) werden nicht ausgewertet; keine Aufnahme eines echten Sturmwarnungsberichts vorhanden (nur „no warning“); Hoch/Tief-Lage nur so genau wie die Ortsliste.
+- **0.41.1 (02.10.2026): Fehlerbehebung RTTY-Karte: SYNOP-Werte fehlten.**
+  - **Anlass:** Aufnahme `RTTY_2026-10-02_193704Z`: Stationen standen als Symbol auf der Karte, Temperatur, Druck und Wind fehlten, obwohl der Decoder sie im Klartext lieferte.
+  - **Ursache:** fldigi gibt den Klartext einer Meldung in mehreren Stücken aus, getrennt durch den Rohtext (Echo der Fünfergruppen). `SynopLog.flush` wertete jedes Stück einzeln aus; Folgestücke ohne „WMO Station=“ wurden verworfen, nur der Anfang (Station, Ort) kam an.
+  - **Behebung:** `SynopLog` hält den Klartext der laufenden Meldung zusammen und setzt sie bei jedem neuen Stück neu zusammen (`parseRun`), bis die nächste Station beginnt; die Art (Land/Schiff/Boje) wird über die abgeschnittene Zeile „… observation“ weitergereicht; Schiffe beginnen auch bei „Ship/Buoy identifier=“; der Weg eines Schiffs bleibt bei Teilständen erhalten.
+  - **Hinweis zur Anzeige:** Die Ansicht SYMBOL zeigt Werte nur im Popup; Zahlen auf der Karte gibt es in den Ansichten Temperatur, Druck, Wind und Sicht.
+  - **Tests:** Logiktest mit Klartext in Stücken (Aufnahme vom 02.10.2026).
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.

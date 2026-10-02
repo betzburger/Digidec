@@ -290,6 +290,8 @@ public final class SynopLog {
     private var lastWindUnit: String?
     /// Der laufende Block hat keine Kopfzeile bekommen (der Hinweis steht im Klartext), bis „Bulletin end“ kommt
     private var guessedRun = false
+    /// Art der Meldung, die im angefangenen Klartext steht (Land, Schiff, Boje)
+    private var pendingKind = "Land"
 
     public init() {}
 
@@ -298,9 +300,12 @@ public final class SynopLog {
         pending = ""
         lastWindUnit = nil
         guessedRun = false
+        pendingKind = "Land"
     }
 
-    /// Klartext vom Decoder (`decoded == true`) sammeln; Rohtext (`false`) schließt den Klartextblock ab
+    /// Klartext vom Decoder (`decoded == true`) sammeln; Rohtext (`false`) löst nur eine Auswertung aus.
+    /// Der Klartext einer Meldung kommt in mehreren Stücken, getrennt durch den Rohtext – er bleibt deshalb gesammelt,
+    /// bis die nächste Station beginnt.
     public func feed(_ s: String, decoded: Bool, at date: Date = Date()) {
         if decoded {
             pending += s
@@ -309,18 +314,19 @@ public final class SynopLog {
         }
     }
 
-    /// Angefangenen Klartextblock auswerten (z. B. vor dem Zeichnen der Karte)
+    /// Gesammelten Klartext auswerten (nach jedem Rohtextstück und vor dem Zeichnen der Karte).
+    /// Die laufende Meldung wird dabei jedes Mal neu zusammengesetzt und ersetzt ihren früheren, unvollständigen Stand.
     public func flush(at date: Date = Date()) {
         guard !pending.isEmpty else { return }
         let text = pending
-        pending = ""
         if text.contains("Note=Header missing") { guessedRun = true }
-        for var obs in Self.parse(text, at: date) {
+        let parsed = Self.parseRun(text, at: date, kind: pendingKind)
+        for var obs in parsed.observations {
             if guessedRun { obs.headerGuessed = true }
             // Wandert ein Schiff, zeichnet die Karte seinen Weg
-            if let old = observations[obs.id], let op = old.position {
+            if let old = observations[obs.id] {
                 var t = old.track
-                if t.last != op, obs.position != op { t.append(op) }
+                if let op = old.position, t.last != op, obs.position != op { t.append(op) }
                 obs.track = Array(t.suffix(40))
             }
             if let u = obs.windUnit { lastWindUnit = u } else if obs.windSpeedValue != nil {
@@ -328,6 +334,11 @@ public final class SynopLog {
                 obs.windUnitAssumed = true
             }
             observations[obs.id] = obs
+        }
+        // Nur die letzte, möglicherweise noch unvollständige Meldung bleibt stehen
+        if let cut = parsed.openStart {
+            pending = String(text[cut...])
+            pendingKind = parsed.kind
         }
         if text.contains("Bulletin end") { guessedRun = false }
         if observations.count > 600, let oldest = observations.values.min(by: { $0.received < $1.received }) {
@@ -337,10 +348,18 @@ public final class SynopLog {
 
     /// Klartext in Beobachtungen zerlegen (ein „WMO Station=…“ beginnt eine neue)
     public static func parse(_ text: String, at date: Date) -> [SynopObservation] {
+        parseRun(text, at: date, kind: "Land").observations
+    }
+
+    /// Wie `parse`; zusätzlich: Beginn der letzten Meldung im Text (`openStart`) und ihre Art, damit weitere Klartextstücke
+    /// angehängt werden können. Eine Zeile „Land station observation“ gehört zur Meldung, die danach beginnt.
+    static func parseRun(_ text: String, at date: Date, kind initialKind: String) -> (observations: [SynopObservation], openStart: String.Index?, kind: String) {
         var out: [SynopObservation] = []
         var cur: [String: String] = [:]
         var lines: [String] = []
-        var kind = "Land"
+        var kind = initialKind
+        var nextKind = initialKind
+        var openStart: String.Index?
         var guessedHeader = false
         func finish() {
             // Schiffe und Bojen haben keine WMO-Stationsnummer, sondern ein Rufzeichen („Ship/Buoy identifier“)
@@ -376,10 +395,14 @@ public final class SynopLog {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }
             if line.hasPrefix("Note=Header missing") { guessedHeader = true; lines.append(line); continue }
-            if line.hasPrefix("WMO Station=") { finish() }
-            if line.contains("Land station observation") { kind = "Land" }
-            else if line.hasPrefix("Ship observation") { kind = "Schiff" }
-            else if line.hasPrefix("Buoy observation") { kind = "Boje" }
+            if line.hasPrefix("WMO Station=") || line.hasPrefix("Ship/Buoy identifier=") {
+                finish()
+                kind = nextKind
+                openStart = raw.startIndex
+            }
+            if line.contains("Land station observation") { nextKind = "Land" }
+            else if line.hasPrefix("Ship observation") { nextKind = "Schiff" }
+            else if line.hasPrefix("Buoy observation") { nextKind = "Boje" }
             if let eq = line.firstIndex(of: "=") {
                 let k = String(line[line.startIndex..<eq]).trimmingCharacters(in: .whitespaces)
                 let v = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
@@ -388,7 +411,7 @@ public final class SynopLog {
             lines.append(line)
         }
         finish()
-        return out
+        return (out, openStart, kind)
     }
 
     /// Was die Karte an den SYNOP-Stationen zeigt

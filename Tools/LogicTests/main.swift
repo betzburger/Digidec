@@ -4419,6 +4419,21 @@ do {
     let leba = log.observations["12120"]
     check(leba?.headerGuessed == true && leba?.temperatureC == 12.6 && leba?.pressureHPa == 1031 && leba?.windDirectionDeg != nil && leba?.visibilityKm == 13, "SYNOP-Log: Werte von Leba (\(String(describing: leba?.temperatureC)), \(String(describing: leba?.pressureHPa)))")
     check(log.observations["12330"]?.windUnit == "kn" && log.observations["12330"]?.windUnitAssumed == true, "SYNOP-Log: unbekannte Windeinheit wird von der ersten Meldung übernommen (\(String(describing: log.observations["12330"]?.windUnit)), \(String(describing: log.observations["12330"]?.windSpeedValue)))")
+    // Klartext einer Meldung in Stücken, dazwischen Rohtext (echter Empfang 02.10.2026, 62305 Sallum Plateau)
+    let chunked = SynopLog()
+    let pieces: [(String, Bool)] = [
+        ("\tNote=Header missing: time and wind unit assumed (UTC 18:00, knots)\n", true), ("AAXX 02184 62305", false),
+        (" Land station observation\n\tUTC observation time=2026-10-02 18:00\n", true), ("02184 99504 10000", false),
+        ("\tWMO Station=62305\n\tWMO station=Sallum Plateau\n\tLongitude=0.0\n\tLatitude=50.4\n", true), ("/2308 10186", false),
+        ("\tVisibility=20 km\n\tWind direction=225 degrees\n\tWind speed=8 knots (Anemometer)\n\tTemperature=18.6 °C\n", true), ("20121 40301", false),
+        ("\tSea level pressure=1030 hPa\n", true), ("22200", false),
+        ("\tWMO Station=62050\n\tLongitude=-4.4\n\tLatitude=50.0\n\tTemperature=17.2 °C\n", true), ("NNNN", false)
+    ]
+    for (t, d) in pieces { chunked.feed(t, decoded: d) }
+    chunked.flush()
+    let sal = chunked.observations["62305"]
+    check(chunked.observations.count == 2 && sal?.temperatureC == 18.6 && sal?.pressureHPa == 1030 && sal?.windDirectionDeg == 225 && sal?.windSpeedValue == 8 && sal?.visibilityKm == 20, "SYNOP-Log: Klartext in Stücken, getrennt durch Rohtext, wird zu einer Meldung (\(String(describing: sal?.temperatureC)), \(String(describing: sal?.pressureHPa)))")
+    check(chunked.observations["62050"]?.temperatureC == 17.2 && chunked.observations["62050"]?.position == GeoPoint(lat: 50.0, lon: -4.4) && sal?.headerGuessed == true, "SYNOP-Log: zweite Station getrennt, Kopfzeilenhinweis bleibt")
     let home = GeoPoint(lat: 49.77, lon: 9.95)
     for layer in SynopLog.Layer.allCases {
         let c = log.content(home: home, now: Date(), layer: layer)
