@@ -33,6 +33,7 @@ let package = Package(
                 .headerSearchPath("src/psk"),
                 .headerSearchPath("src/mt63"),
                 .headerSearchPath("src/olivia"),
+                .headerSearchPath("src/mfsk"),
                 .headerSearchPath("mt63data"),
                 .headerSearchPath("compat")
             ]

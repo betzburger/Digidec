@@ -24,6 +24,7 @@ func usage() -> Never {
                             dazu --center <Träger-Hz> (Standard 1000); --noafc schaltet die Frequenznachführung ab, --rev kehrt QPSK um
 
       --olivia <kennung>    Olivia/Contestia (fldigi): olivia-8-500 | olivia-16-1000 | contestia-8-500 … (Töne-Bandbreite); --center <Mitte-Hz> (Standard 1500)
+      --mfsk <kennung>      MFSK/DominoEX/Thor (fldigi): mfsk16 | mfsk32 | dominoex11 | thor16 | … (siehe DecoderModuleInfo.mfsk); --center <Mitte-Hz> (Standard 1500), --noafc
       --mt63 <kennung>      MT63 (fldigi): 500s | 500l | 1000s | 1000l | 2000s | 2000l (S = kurz, L = lang); --center <Mitte-Hz> (Standard 1500)
 
       --dsc                 DSC (ITU-R M.493, 100 Bd / 170 Hz); --center <Mitte-Hz> (Standard 1700), --noauto schaltet die Mittennachführung ab, --rev kehrt um
@@ -69,6 +70,7 @@ var cwWPM = 18
 var cwMF = false
 var pskModeID: String?
 var oliviaID: String?
+var mfskID: String?
 var dscMode = false
 var dscVHF = false
 var aleMode = false
@@ -113,6 +115,7 @@ while !args.isEmpty {
     case "--mf": cwMF = true
     case "--psk": pskModeID = value()
     case "--olivia": oliviaID = value()
+    case "--mfsk": mfskID = value()
     case "--dsc": dscMode = true
     case "--vhf": dscVHF = true
     case "--ale": aleMode = true
@@ -576,6 +579,41 @@ if dscMode {
     }
     let dur = Double(file.length) / file.processingFormat.sampleRate
     print(String(format: "%.0f s Audio in %.2f s: %d Rufe (%d Roh-Treffer), Rahmen eingerastet %d mal, Mitte am Ende %.0f Hz", dur, Date().timeIntervalSince(began), lines, calls.count, lockedAt.count, demod.centerHz))
+    exit(0)
+}
+
+// MARK: - MFSK, DominoEX, Thor
+
+if let id = mfskID {
+    guard let mode = MFSKMode(rawValue: id) else { print("Unbekannte MFSK-Kennung: \(id)"); exit(1) }
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: mode.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    let carrier = center ?? 1500
+    var o = FldigiMFSKCore.Options()
+    o.mode = mode
+    o.afc = pskAFC
+    print("\(mode.displayName) · Mitte \(Int(carrier)) Hz · \(Int(mode.bandwidthHz)) Hz breit")
+    var bytes: [UInt8] = []
+    let core = FldigiMFSKCore(options: o, centerHz: carrier) { bytes.append($0) }
+    let started = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { core.process($0) }
+    }
+    let text = PSKDecoder.text(from: bytes)
+    let out = outPath.map { URL(fileURLWithPath: $0) } ?? wavURL.deletingPathExtension().appendingPathExtension("digidec.txt")
+    try? text.write(to: out, atomically: true, encoding: .utf8)
+    let duration = Double(file.length) / file.processingFormat.sampleRate
+    let s = core.status
+    print(String(format: "Decodiert: %.0f s Audio in %.2f s, %d Zeichen -> %@", duration, Date().timeIntervalSince(started), text.count, out.lastPathComponent))
+    print(String(format: "Mitte am Ende %.1f Hz, Metrik %.0f", s.centerHz, s.metric))
+    print(text)
     exit(0)
 }
 

@@ -110,6 +110,14 @@ func run() {
         MT63SettingsPanel(settings: mt).radioCard(title: "MT63")
     }, width: right, name: "olivia_mt63_rechts", dir: dir)
 
+    // MFSK, DominoEX, Thor
+    let mf = MFSKSettingsStore()
+    let mfc = MFSKController(pipeline: pipeline, settings: mf)
+    save(VStack(spacing: 10) {
+        MFSKTuningPanel(controller: mfc, settings: mf).radioCard(title: "Abstimmanzeige")
+        MFSKSettingsPanel(settings: mf).radioCard(title: "MFSK · DOMINOEX · THOR")
+    }, width: right, name: "mfsk_rechts", dir: dir)
+
     // WSPR
     let ws = WSPRSettingsStore()
     let wsc = WSPRController(pipeline: pipeline, settings: ws)

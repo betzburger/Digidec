@@ -3270,6 +3270,139 @@ do {
     check(olNoBytes.count <= 2, "Olivia: Squelch an unterdrückt Rauschen (\(olNoBytes.count) Zeichen)")
 }
 
+// MARK: - MFSK, DominoEX, Thor: Voreinstellungen, URL, Betriebsarten
+do {
+    check(parse("digidec://decode?mode=mfsk&preset=thor22&center=1200") == .success(DecodeRequest(module: .mfsk, presetID: "thor22", centerHz: 1200)), "MFSK-Auftrag Thor 22")
+    check(parse("digidec://decode?mode=mfsk") == .success(DecodeRequest(module: .mfsk, presetID: "mfsk16")), "MFSK-Standard MFSK16")
+    check(Set(DecoderModuleInfo.mfsk.presetIDs) == Set(MFSKMode.allCases.map(\.rawValue)) && DecoderModuleInfo.mfsk.presetIDs.count == MFSKMode.allCases.count, "MFSK: Kennungen = Betriebsarten (\(MFSKMode.allCases.count))")
+    check(MFSKMode.mfsk16.family == .mfsk && MFSKMode.dominoex11.family == .dominoex && MFSKMode.thor25x4.family == .thor, "MFSK: Familien")
+    check(MFSKMode.mfsk16.displayName == "MFSK16" && MFSKMode.dominoex11.displayName == "DominoEX 11" && MFSKMode.thormicro.displayName == "Thor Micro", "MFSK: Namen")
+    check(MFSKMode.mfsk11.sampleRate == 11_025 && MFSKMode.mfsk16.sampleRate == 8_000 && MFSKMode.thor56.sampleRate == 16_000 && MFSKMode.dominoex22.sampleRate == 11_025, "MFSK: Abtastraten")
+    check(RigTuneTarget.psk(band: .free) == nil, "MFSK hat keine feste Frequenz (kein QSY)")
+}
+
+// MARK: - MFSK, DominoEX, Thor aus fldigi (synthetisch)
+do {
+    var state: UInt64 = 0x2468ACE1
+    func gauss() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(state >> 11) + 1) / Double((1 << 53) + 2)
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(state >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+    let text = "CQ CQ CQ de DL1ABC DL1ABC pse k. The quick brown fox jumps over the lazy dog 0123456789"
+    func run(_ mode: MFSKMode, center: Double = 1500, snr: Double? = nil, rxCenter: Double? = nil, tweak: (inout FldigiMFSKCore.Options) -> Void = { _ in }) -> String? {
+        guard var x = FldigiMFSKCore.synthesize(text, mode: mode, centerHz: center) else { return nil }
+        let rate = mode.sampleRate
+        x = [Float](repeating: 0, count: Int(rate)) + x + [Float](repeating: 0, count: Int(rate * 12))
+        if let snr {
+            let sigma = sqrt(0.5 * 0.49 / pow(10, snr / 10) / (2500.0 / (rate / 2)))
+            x = x.map { $0 * 0.7 + Float(gauss() * sigma) }
+        } else {
+            x = x.map { $0 * 0.7 }
+        }
+        var o = FldigiMFSKCore.Options(); o.mode = mode
+        tweak(&o)
+        var bytes: [UInt8] = []
+        let core = FldigiMFSKCore(options: o, centerHz: rxCenter ?? center) { bytes.append($0) }
+        x.withUnsafeBufferPointer { core.process($0) }
+        return PSKDecoder.text(from: bytes)
+    }
+    // Alle Betriebsarten außer den sehr langsamen (MFSK4, DominoEX Micro, Thor Micro): Rundlauf
+    for mode in MFSKMode.allCases where ![.mfsk4, .dominoexmicro, .thormicro].contains(mode) {
+        if let r = run(mode) {
+            check(r.contains("The quick brown fox jumps over the lazy dog 012345"), "\(mode.displayName): Text, got \(r.prefix(100).debugDescription)")
+        } else { check(false, "\(mode.displayName): Testsignal nicht erzeugt") }
+    }
+    // Mitte, Umkehrung, Umstellen der Mitte
+    check(run(.mfsk16, center: 1000)?.contains(text) == true, "MFSK16 bei 1000 Hz")
+    check(run(.mfsk16, center: 2200)?.contains(text) == true, "MFSK16 bei 2200 Hz")
+    check(run(.dominoex11, center: 1000)?.contains(text) == true, "DominoEX 11 bei 1000 Hz")
+    check(run(.thor16, center: 2000)?.contains(text) == true, "Thor 16 bei 2000 Hz")
+    check(run(.mfsk16, center: 1500, tweak: { $0.reverse = true }) != nil, "MFSK16 mit REV läuft durch")
+    do {
+        var bytes: [UInt8] = []
+        let core = FldigiMFSKCore(options: FldigiMFSKCore.Options(), centerHz: 900) { bytes.append($0) }
+        if var x = FldigiMFSKCore.synthesize(text, mode: .mfsk16, centerHz: 1800) {
+            x = [Float](repeating: 0, count: 8_000) + x + [Float](repeating: 0, count: 24_000)
+            core.setCenter(1800)
+            x.withUnsafeBufferPointer { core.process($0) }
+            check(PSKDecoder.text(from: bytes).contains(text), "MFSK16: Mitte nach dem Anlegen umgestellt")
+            check(abs(core.status.centerHz - 1800) < 6 && core.status.tones == 16, "MFSK16: Status Mitte und Töne (\(core.status.centerHz))")
+        }
+    }
+    // AFC: 8 Hz neben der Mitte
+    check(run(.mfsk16, center: 1503, rxCenter: 1500)?.contains("The quick brown fox") == true, "MFSK16: AFC holt 3 Hz Versatz ein (Tonabstand 15,6 Hz)")
+    // Betriebsart am Empfänger umgestellt
+    do {
+        var bytes: [UInt8] = []
+        var o = FldigiMFSKCore.Options(); o.mode = .mfsk32
+        let core = FldigiMFSKCore(options: o, centerHz: 1500) { bytes.append($0) }
+        o.mode = .mfsk16
+        core.configure(o)
+        check(core.options.mode == .mfsk16 && core.status.sampleRate == 8_000 && core.status.tones == 16, "MFSK: Betriebsart umgestellt")
+        o.mode = .thor16
+        core.configure(o)
+        check(core.status.tones == 18, "MFSK: Umstellen auf Thor (18 Töne)")
+    }
+    // Rauschen
+    check(run(.mfsk16, snr: 0)?.contains("The quick brown fox") == true, "MFSK16 bei 0 dB S/N")
+    check(run(.mfsk32, snr: 6)?.contains("The quick brown fox") == true, "MFSK32 bei 6 dB S/N")
+    check(run(.dominoex11, snr: 3)?.contains("quick brown fox") == true, "DominoEX 11 bei 3 dB S/N")
+    check(run(.thor16, snr: 0)?.contains("quick brown fox") == true, "Thor 16 bei 0 dB S/N")
+    // Squelch: Rauschen ergibt (fast) nichts
+    var noise = [Float](repeating: 0, count: 8_000 * 40)
+    for i in 0..<noise.count { noise[i] = Float(gauss() * 0.2) }
+    for mode in [MFSKMode.mfsk16, .dominoex16, .thor16] {
+        var bytes: [UInt8] = []
+        let rate = Int(mode.sampleRate)
+        var n = noise
+        if rate != 8_000 { n = [Float](repeating: 0, count: rate * 40); for i in 0..<n.count { n[i] = Float(gauss() * 0.2) } }
+        var o = FldigiMFSKCore.Options(); o.mode = mode
+        let core = FldigiMFSKCore(options: o, centerHz: 1500) { bytes.append($0) }
+        n.withUnsafeBufferPointer { core.process($0) }
+        check(bytes.count <= 12, "\(mode.displayName): Squelch an unterdrückt Rauschen (\(bytes.count) Zeichen)")
+    }
+}
+
+// MARK: - MFSK über die Pipeline (48 kHz → 8000 / 11025 Hz)
+do {
+    let pipeline = AudioPipeline()
+    let decoder = MFSKDecoder(pipeline: pipeline)
+    pipeline.start(inputRate: 48_000)
+    let msg = "CQ CQ DE DL1ABC PSE K"
+    for mode in [MFSKMode.mfsk16, .mfsk22, .thor16] {
+        var o = FldigiMFSKCore.Options(); o.mode = mode
+        decoder.configure(options: o, centerHz: 1500)
+        decoder.setEnabled(true)
+        let rate = mode.sampleRate
+        let sig = FldigiMFSKCore.synthesize(msg, mode: mode, centerHz: 1500) ?? []
+        let audioN = [Float](repeating: 0, count: Int(rate)) + sig.map { $0 * 0.7 } + [Float](repeating: 0, count: Int(rate * 3))
+        let ratio = 48_000 / rate
+        var audio48 = [Float](repeating: 0, count: Int(Double(audioN.count) * ratio))
+        for i in 0..<audio48.count {
+            let x = Double(i) / ratio, k = Int(x), f = Float(x - Double(k))
+            audio48[i] = k + 1 < audioN.count ? audioN[k] * (1 - f) + audioN[k + 1] * f : audioN[min(k, audioN.count - 1)]
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+        var i = 0
+        var text = ""
+        while i < audio48.count {
+            let n = min(9_600, audio48.count - i)
+            audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+            i += n
+            Thread.sleep(forTimeInterval: 0.006)
+            text += decoder.takeOutput().text
+        }
+        Thread.sleep(forTimeInterval: 0.4)
+        text += decoder.takeOutput().text
+        check(text.contains(msg), "\(mode.displayName) über die Pipeline (\(Int(rate)) Hz): \(text.prefix(60).debugDescription)")
+        decoder.setEnabled(false)
+    }
+    pipeline.stop()
+}
+
 // MARK: - MT63 und Olivia über die Pipeline (48 kHz → 8 kHz)
 do {
     let pipeline = AudioPipeline()

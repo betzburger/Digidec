@@ -439,6 +439,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M29 | Töne (DTMF, Selektivruf) | ✅ 02.10.2026 (v0.30.0): DTMF, ZVEI 1/2/3, DZVEI, PZVEI, CCIR, EEA, EIA gleichzeitig, Goertzel-Erkennung, Tonfolgenliste, Log |
 | M30 | ACARS | ✅ 02.10.2026 (v0.31.0): AM-Audio, MSK 2400 Bd (`Vendor/Acars/UPSTREAM_ACARS.md`); an der echten acarsdec-Aufnahme alle 7 Meldungen wie dort; Flugzeugliste, OOOI-Berichte, Karte mit Start- und Zielflughäfen (OurAirports, gemeinfrei), Bitfehlerkorrektur über Prüfsumme |
 | M31 | UKW-DSC Kanal 70 | ✅ 02.10.2026 (v0.32.0): Teil des DSC-Moduls (Kanal „K70“, 156,525 MHz, FM): 1200 Bd, Y 1300 Hz / B 2100 Hz; gleiche Zeichen-, Phasing- und ECC-Logik wie MF/HF; AFSK-Demodulator im Rohbit-Betrieb |
+| M32 | MFSK, DominoEX, Thor | ✅ 02.10.2026 (v0.33.0): ein Modul „MFSK“ mit 35 Betriebsarten aus fldigi 4.2.13 (`Vendor/Fldigi/UPSTREAM_MFSK.md`); Text, Rufzeichenkarte, Abtastraten 8000/11025/16000 Hz |
 ---
 
 ## 11. Aktueller Stand
@@ -947,9 +948,15 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Aufbau:** ITU-R M.493: UKW-DSC hat dieselben 10-Bit-Zeichen, Phasing, DX/RX-Verschachtelung und ECC wie MF/HF, nur 1200 Bd und die Töne 1300 Hz (Y, Bit 1) / 2100 Hz (B, Bit 0). Je zwei Demodulatoren (flach, mit Vorverzerrung) mit je fünf Entscheidern speisen zehn `DSCFramer`; der `DSCCallCollector` behält den besten Ruf. Kein Warnton (vom Nutzer nicht gewünscht).
   - **Tests:** Rundlauf Ruf und Notruf, Blockgrößen, Baudrate ±0,5 %, 12 und 6 dB S/N, zwei Rufe hintereinander, Rauschen, Kanal und Funkgerät FM.
   - **Grenzen/Offen:** nur mit Testsignal geprüft, keine echte Aufnahme von Kanal 70; Live-Empfang offen (156,525 MHz, FM-Audio, Rauschsperre offen).
+- **0.33.0 (02.10.2026): M32 MFSK, DominoEX, Thor.**
+  - **Dateien:** `Vendor/Fldigi/src/mfsk/*` (erzeugt von `port_mfsk.py` aus fldigi `mfsk.cxx`, `dominoex.cxx`, `thor.cxx`), `Vendor/Fldigi/include/fldigi_mfsk.h`, `Sources/Decoders/MFSK/{FldigiMFSKCore,MFSKModule}.swift`, Panels in `Sources/UI/TextModePanels.swift`. URL `digidec://decode?mode=mfsk&preset=mfsk16|mfsk32|…|dominoex11|…|thor16|…&center=1500`. Kein QSY (keine feste Frequenz). `decode_file.sh <wav> --mfsk mfsk16 --center 1500`.
+  - **Betriebsarten:** MFSK 4, 8, 11, 16, 22, 31, 32, 64, 128, 64L, 128L; DominoEX Micro, 4, 5, 8, 11, 16, 22, 44, 88; Thor Micro, 4, 5, 8, 11, 16, 22, 25, 32, 44, 56, 100, 25x4, 50x1, 50x2. Drei Senken (8000, 11025, 16000 Hz), es arbeitet die passende. MFSK mit AFC, DominoEX mit optionalem MultiPsk-FEC.
+  - **Abweichungen:** Bilder (MFSK „Pic:“, Thor „pic%“) werden aus dem Signal genommen, aber nicht angezeigt; Squelch-Voreinstellung 30 (fldigi 5 liefert bei Rauschen Zeichen); `slowcpu` aus (alle Pfade); DominoEX/Thor nur ein Decoder gleichzeitig.
+  - **Tests:** 1444+ Logiktests (+60: alle Betriebsarten im Rundlauf außer den drei sehr langsamen, Mitten, AFC, Umstellen, Rauschen, Squelch, Pipeline 48 kHz → 8000/11025 Hz).
+  - **Grenzen/Offen:** nur gegen das eigene fldigi-Testsignal geprüft, **nicht** gegen echte Aussendungen oder das Original-fldigi (Sende- und Empfangsseite stammen beide aus fldigi); keine Bildanzeige; keine Sekundärtext-Ausgabe. Live-Empfang offen (z. B. MFSK16 auf 14,0795 / 7,0775 MHz USB, DominoEX auf 14,0705 MHz, Thor 14,0775 MHz).
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
-  - Weitere fldigi-Modi (MFSK, DominoEX, Thor, Throb, IFKP, FSQ, Hell, 8PSK), SELCAL, JT65/JT9 (WSJT-X).
+  - Weitere fldigi-Modi (Throb, IFKP, FSQ, Hell, 8PSK/PSKR), SELCAL, JT65/JT9 (WSJT-X); MFSK-/Thor-Bildempfang.
   - Parallelbetrieb mehrerer Module (kein Warnton, vom Nutzer nicht gewünscht).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

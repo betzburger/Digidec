@@ -38,6 +38,8 @@ public final class DigidecState: ObservableObject {
     public let oliviaController: OliviaController
     public let mt63 = MT63SettingsStore()
     public let mt63Controller: MT63Controller
+    public let mfsk = MFSKSettingsStore()
+    public let mfskController: MFSKController
     public let dsc = DSCSettingsStore()
     public let dscController: DSCController
     public let ale = ALESettingsStore()
@@ -95,6 +97,7 @@ public final class DigidecState: ObservableObject {
         pskController = PSKController(pipeline: audio.pipeline, settings: psk)
         oliviaController = OliviaController(pipeline: audio.pipeline, settings: olivia)
         mt63Controller = MT63Controller(pipeline: audio.pipeline, settings: mt63)
+        mfskController = MFSKController(pipeline: audio.pipeline, settings: mfsk)
         dscController = DSCController(pipeline: audio.pipeline, settings: dsc)
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
         aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
@@ -137,6 +140,7 @@ public final class DigidecState: ObservableObject {
                 self?.pskController.setActive(module == .psk)
                 self?.oliviaController.setActive(module == .olivia)
                 self?.mt63Controller.setActive(module == .mt63)
+                self?.mfskController.setActive(module == .mfsk)
                 self?.dscController.setActive(module == .dsc)
                 self?.aleController.setActive(module == .ale)
                 self?.aprsController.setActive(module == .aprs)
@@ -195,6 +199,7 @@ public final class DigidecState: ObservableObject {
             pskController.rigDescription = rig.description
             oliviaController.rigDescription = rig.description
             mt63Controller.rigDescription = rig.description
+            mfskController.rigDescription = rig.description
             dscController.rigDescription = rig.description
             aleController.rigDescription = rig.description
             aprsController.rigDescription = rig.description
@@ -233,7 +238,7 @@ public final class DigidecState: ObservableObject {
         case .aprs:   return .aprs(channel: aprs.channel)
         case .acars:  return .acars(channel: acars.channel)
         case .pager:  return .pager(channel: pager.channel)
-        case .rtty, .cw, .olivia, .mt63, .ale, .tones: return nil
+        case .rtty, .cw, .olivia, .mt63, .mfsk, .ale, .tones: return nil
         }
     }
 
@@ -315,6 +320,9 @@ public final class DigidecState: ObservableObject {
                 case .mt63:
                     if let preset = request.presetID, let o = FldigiMT63Core.Options(presetID: preset) { mt63.options = o }
                     if let center = request.centerHz { mt63.setCenter(center) }
+                case .mfsk:
+                    if let preset = request.presetID, let m = MFSKMode(rawValue: preset) { mfsk.options.mode = m }
+                    if let center = request.centerHz { mfsk.setCenter(center) }
                 case .psk:
                     if let preset = request.presetID, let m = PSKMode(rawValue: preset) { psk.options.mode = m }
                     if let center = request.centerHz { psk.setCenter(center) }

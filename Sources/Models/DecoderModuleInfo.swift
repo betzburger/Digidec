@@ -9,6 +9,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case psk
     case olivia
     case mt63
+    case mfsk
     case dsc
     case ale
     case aprs
@@ -33,6 +34,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .psk:    return "PSK"
         case .olivia: return "OLIVIA"
         case .mt63:   return "MT63"
+        case .mfsk:   return "MFSK"
         case .dsc:    return "DSC"
         case .ale:    return "ALE"
         case .aprs:   return "APRS"
@@ -59,7 +61,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .dsc, .ale, .aprs, .acars, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk, .dsc, .ale, .aprs, .acars, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -79,6 +81,9 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .tones: return ["all"]
         case .dsc: return ["8414", "2187", "4207", "6312", "12577", "16804", "70"]   // = DSCChannel.rawValue (ohne „frei“)
         case .mt63: return ["1000s", "1000l", "500s", "500l", "2000s", "2000l"]   // = FldigiMT63Core.Options.presetID
+        case .mfsk: return ["mfsk16", "mfsk32", "mfsk8", "mfsk4", "mfsk11", "mfsk22", "mfsk31", "mfsk64", "mfsk128", "mfsk64l", "mfsk128l",
+                           "dominoex11", "dominoex16", "dominoex22", "dominoex8", "dominoex5", "dominoex4", "dominoexmicro", "dominoex44", "dominoex88",
+                           "thor16", "thor8", "thor11", "thor22", "thor32", "thor25", "thor44", "thor56", "thor100", "thor5", "thor4", "thormicro", "thor25x4", "thor50x1", "thor50x2"]   // = MFSKMode.rawValue
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue
         case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]   // = FT4Band.rawValue

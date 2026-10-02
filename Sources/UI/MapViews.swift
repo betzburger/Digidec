@@ -19,6 +19,7 @@ struct ModuleMapView: View {
             case .psk:    TextCallMapView(model: state.pskController.textModel, mode: "PSK", home: state.home)
             case .olivia: TextCallMapView(model: state.oliviaController.textModel, mode: "Olivia", home: state.home)
             case .mt63:   TextCallMapView(model: state.mt63Controller.textModel, mode: "MT63", home: state.home)
+            case .mfsk:   TextCallMapView(model: state.mfskController.textModel, mode: state.mfsk.options.mode.family == .mfsk ? "MFSK" : state.mfsk.options.mode.family == .thor ? "Thor" : "DominoEX", home: state.home)
             case .wefax:  FixedSiteMapView(sites: Transmitters.dwd("wefax", frequency: "\(state.wefax.station.label) kHz"), home: state.home,
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
@@ -39,7 +40,7 @@ extension DecoderModuleInfo {
     var mainViewName: String {
         switch self {
         case .wefax, .sstv: return "BILD"
-        case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "TEXT"
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
         case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "LISTE"
         }
@@ -48,7 +49,7 @@ extension DecoderModuleInfo {
     var mainViewIcon: String {
         switch self {
         case .wefax, .sstv: return "photo"
-        case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "text.alignleft"
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
         case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "list.bullet"
         }
@@ -58,7 +59,7 @@ extension DecoderModuleInfo {
         switch self {
         case .wefax: return "Das empfangene Wetterfax-Bild"
         case .sstv: return "Das empfangene SSTV-Bild"
-        case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "Der empfangene Text"
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "Der empfangene Text"
         case .dcf77: return "Atomuhr, Zeitvergleich und Telegramm"
         case .efr: return "Rundsteuertelegramme"
         case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"

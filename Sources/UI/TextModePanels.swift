@@ -243,3 +243,80 @@ struct MT63SettingsPanel: View {
         }
     }
 }
+
+// MARK: - MFSK / DominoEX / Thor
+
+struct MFSKTuningPanel: View {
+    @ObservedObject var controller: MFSKController
+    @ObservedObject var settings: MFSKSettingsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(settings.options.mode.displayName.uppercased())
+                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                    .foregroundColor(RadioTheme.vfdGreen)
+                Spacer()
+                Text(String(format: "%d Hz breit · %.0f Hz Audio", Int(settings.options.mode.bandwidthHz), settings.options.mode.sampleRate))
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+            }
+            .help("Breite des Tonfeldes. Absender und Empfänger müssen dieselbe Betriebsart haben")
+            SignalBar(metric: controller.status?.metric ?? 0, squelch: settings.options.squelchOn ? settings.options.squelch : nil)
+                .help("fldigi-Metrik des Decoders (0 … 100). Der Squelch-Strich zeigt die Schwelle des Reglers")
+            HStack {
+                readout("TÖNE", controller.status.map { "\($0.tones)" } ?? "---")
+                Spacer()
+                readout("MITTE", "\(Int(settings.centerHz.rounded())) Hz")
+            }
+        }
+    }
+}
+
+struct MFSKSettingsPanel: View {
+    @ObservedObject var settings: MFSKSettingsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            familyRow("MFSK", .mfsk, help: "MFSK: 16 oder 32 Töne, Viterbi-Korrektur; häufig MFSK16 (15,6 Baud) und MFSK32")
+            familyRow("DOMINO", .dominoex, help: "DominoEX: IFK+ (Differenzmodulation), unempfindlich gegen Abstimmfehler und Mehrwegeempfang")
+            familyRow("THOR", .thor, help: "Thor: wie DominoEX, mit Vorwärtsfehlerkorrektur und Verschachtelung")
+            HStack(spacing: 6) {
+                Button("REV") { settings.options.reverse.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
+                    .help("Seitenband umkehren (bei LSB)")
+                if settings.options.mode.family == .mfsk {
+                    Button("AFC") { settings.options.afc.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
+                        .help("Frequenznachführung (fldigi): die Mitte folgt dem Signal")
+                }
+                if settings.options.mode.family == .dominoex {
+                    Button("FEC") { settings.options.fec.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.fec))
+                        .help("MultiPsk-Vorwärtsfehlerkorrektur (nur, wenn der Sender sie benutzt)")
+                }
+                Button("SQL") { settings.options.squelchOn.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
+                    .help("Ausgabe nur, wenn die Signalqualität über der Schwelle liegt")
+                Slider(value: $settings.options.squelch, in: 0...100)
+                    .disabled(!settings.options.squelchOn)
+            }
+            Text(verbatim: "Klick in den Wasserfall setzt die Mitte. Mitte \(Int(settings.centerHz.rounded())) Hz, Band \(Int(settings.centerHz - settings.options.mode.bandwidthHz / 2)) … \(Int(settings.centerHz + settings.options.mode.bandwidthHz / 2)) Hz")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(RadioTheme.textMuted)
+        }
+    }
+
+    private func familyRow(_ title: String, _ family: MFSKMode.Family, help: String) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            smallLabel(title).frame(width: 46, alignment: .leading).padding(.top, 5).help(help)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 5), spacing: 3) {
+                ForEach(MFSKMode.mode(for: family)) { m in
+                    Button { settings.options.mode = m } label: { Text(verbatim: m.shortName).lineLimit(1).minimumScaleFactor(0.6) }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.mode == m))
+                        .help("\(m.displayName), \(Int(m.bandwidthHz)) Hz breit")
+                }
+            }
+        }
+    }
+}
