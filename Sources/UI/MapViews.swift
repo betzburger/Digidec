@@ -211,7 +211,7 @@ private struct RTTYMapView: View {
 
     private var sites: [TransmitterSite] {
         switch presetID {
-        case "dwd-kw": return Transmitters.dwd("rtty", frequency: "DDK2 4583 kHz · DDK9 7646 kHz · DDH9 10100,8 kHz")
+        case "dwd-kw": return Transmitters.dwd("rtty", frequency: "DDK2 4583 kHz · DDH7 7646 kHz · DDK9 10100,8 kHz · DDH9 11039 kHz · DDH8 14467,3 kHz")
         case "dwd-lw": return Transmitters.dwd("rtty", frequency: "DDH47 147,3 kHz")
         default: return []
         }

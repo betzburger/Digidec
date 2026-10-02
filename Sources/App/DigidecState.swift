@@ -175,6 +175,8 @@ public final class DigidecState: ObservableObject {
         observeForTuning(efr.$station)
         observeForTuning(wefax.$station)
         observeForTuning(navtex.$frequency)
+        observeForTuning(rtty.$presetID)
+        observeForTuning(rtty.$dwdFrequencyHz)
 
         // rigctld des Funkgeräts, dessen Codec gerade gelesen wird (bei Dateiwiedergabe keins)
         audio.$activeInput.combineLatest(audio.$sourceKind)
@@ -242,8 +244,17 @@ public final class DigidecState: ObservableObject {
         case .aprs:   return .aprs(channel: aprs.channel)
         case .acars:  return .acars(channel: acars.channel)
         case .pager:  return .pager(channel: pager.channel)
-        case .rtty, .cw, .olivia, .mt63, .mfsk, .hell, .ale, .tones: return nil
+        case .rtty:   return rttyDWDTarget
+        case .cw, .olivia, .mt63, .mfsk, .hell, .ale, .tones: return nil
         }
+    }
+
+    /// DWD-Funkfernschreiben: gewählte Frequenz des Presets, sonst die Automatik des Sendeplans (Tageszeit); andere Presets nichts
+    public var rttyDWDTarget: RigTuneTarget? {
+        guard rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw" else { return nil }
+        let hz = rtty.selectedDWDFrequencyHz
+            ?? rttySchedule.automaticFrequency(program: rtty.presetID == "dwd-lw" ? 2 : 1, at: Date())?.hz
+        return hz.map { RigTuneTarget.rtty(frequencyHz: $0, centerHz: rtty.centerHz) }
     }
 
     /// Stimmt das Funkgerät auf ein Ziel ab (geplante Aufnahme) – nur mit Freigabe (QSY AUTO) und Verbindung.

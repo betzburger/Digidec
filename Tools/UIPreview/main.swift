@@ -118,6 +118,16 @@ func run() {
         MFSKSettingsPanel(settings: mf).radioCard(title: "MFSK · DOMINOEX · THOR")
     }, width: right, name: "mfsk_rechts", dir: dir)
 
+    // RTTY: DWD-Presets mit Frequenzwahl
+    let rs = RTTYSettingsStore()
+    rs.select(presetID: "dwd-kw")
+    rs.selectDWDFrequency(7_646_000, presetID: "dwd-kw")
+    let rsched = RttyScheduleStore(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("uipreview_rtty"))
+    save(VStack(spacing: 8) { PresetPanel(rtty: rs, schedule: rsched) }.radioCard(title: "Preset"), width: right, name: "rtty_preset_dwd_kw", dir: dir)
+    rs.select(presetID: "dwd-lw")
+    save(VStack(spacing: 8) { PresetPanel(rtty: rs, schedule: rsched) }.radioCard(title: "Preset"), width: right, name: "rtty_preset_dwd_lw", dir: dir)
+    rs.select(presetID: "ham")
+
     // Hell
     let hl = HellSettingsStore()
     let hlc = HellController(pipeline: pipeline, settings: hl)

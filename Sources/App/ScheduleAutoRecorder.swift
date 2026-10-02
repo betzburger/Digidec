@@ -181,9 +181,10 @@ public final class ScheduleAutoRecorder: ObservableObject {
                 return
             }
             state.rtty.select(presetID: f.presetID)
+            state.rtty.selectDWDFrequency(f.hz, presetID: f.presetID)
             enableLog(state.rttyController.logEnabled) { state.rttyController.logEnabled = true }
             state.rttyController.logger.markSession("Sendeplan: \(item.title) · \(f.label) · \(b.header ?? "")")
-            target = RigTuneTarget(dialHz: Int64(f.hz) - Int64(state.rtty.centerHz.rounded()), mode: "USB")
+            target = RigTuneTarget.rtty(frequencyHz: f.hz, centerHz: state.rtty.centerHz)
         case .navtex:
             guard let station = navtexStore.plan.station(forItemID: item.id), let f = station.frequency else {
                 note = "NAVTEX-Aufnahme übersprungen: unbekannte Station für \(item.title)"

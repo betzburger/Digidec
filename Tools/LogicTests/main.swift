@@ -4642,6 +4642,40 @@ do {
 }
 pagerModuleTests()
 
+// MARK: - RTTY: DWD-Frequenzwahl und Abstimmziel
+@MainActor func rttyFrequencyTests() {
+    let s = RTTYSettingsStore()
+    for id in ["dwd-kw", "dwd-lw"] { s.selectDWDFrequency(nil, presetID: id) }
+    s.select(presetID: "dwd-kw")
+    check(s.selectedDWDFrequencyHz == nil, "RTTY: ohne Wahl gilt die Automatik")
+    s.selectDWDFrequency(7_646_000, presetID: "dwd-kw")
+    check(s.selectedDWDFrequencyHz == 7_646_000, "RTTY: DWD-KW-Frequenz gewählt")
+    s.select(presetID: "dwd-lw")
+    check(s.selectedDWDFrequencyHz == nil, "RTTY: die Wahl gilt je Preset (LW hat keine)")
+    s.selectDWDFrequency(147_300, presetID: "dwd-lw")
+    s.select(presetID: "dwd-kw")
+    check(s.selectedDWDFrequencyHz == 7_646_000 && s.dwdFrequencyHz["dwd-lw"] == 147_300, "RTTY: Wahlen bleiben je Preset erhalten")
+    s.selectDWDFrequency(14_070_000, presetID: "ham")
+    s.select(presetID: "ham")
+    check(s.selectedDWDFrequencyHz == nil && s.dwdFrequencyHz["ham"] == nil, "RTTY: andere Presets haben keine Frequenzwahl")
+    s.selectDWDFrequency(nil, presetID: "dwd-kw")
+    s.selectDWDFrequency(nil, presetID: "dwd-lw")
+    s.select(presetID: "ham")
+    // Abstimmziel: Dial = Sendefrequenz − NF-Mitte, USB
+    let t = RigTuneTarget.rtty(frequencyHz: 4_583_000, centerHz: 1000)
+    check(t.dialHz == 4_582_000 && t.mode == "USB", "RTTY-Abstimmziel 4583 kHz bei Mitte 1000 Hz: Dial \(t.dialHz)")
+    check(RigTuneTarget.rtty(frequencyHz: 147_300, centerHz: 1696.4).dialHz == 145_604 && RigCommand.frequency(145_604) != nil, "RTTY-Abstimmziel 147,3 kHz (Langwelle) gültig")
+    check(RigTuneTarget.rtty(frequencyHz: 10_100_800, centerHz: 1000).dialHz == 10_099_800, "RTTY-Abstimmziel 10100,8 kHz")
+    // Frequenzen je Preset aus dem Sendeplan
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("digidec_rttyfreq_\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    let rs = RttyScheduleStore(directory: tmp)
+    let kw = rs.schedule.frequencies.filter { $0.presetID == "dwd-kw" }.map(\.hz).sorted()
+    let lw = rs.schedule.frequencies.filter { $0.presetID == "dwd-lw" }.map(\.hz)
+    check(kw == [4_583_000, 7_646_000, 10_100_800, 11_039_000, 14_467_300] && lw == [147_300], "RTTY: DWD-Frequenzen aus dem Plan (KW \(kw), LW \(lw))")
+}
+rttyFrequencyTests()
+
 
 // MARK: - ACARS
 do {

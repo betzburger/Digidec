@@ -79,6 +79,11 @@ public struct RigTuneTarget: Equatable, Sendable {
         station.usbDial(center: centerHz).map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "USB") }
     }
 
+    /// RTTY auf einer Sendefrequenz (Träger in der Mitte von Mark und Space): Dial = Frequenz − NF-Mitte, USB
+    public static func rtty(frequencyHz: Double, centerHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64(frequencyHz.rounded()) - Int64(centerHz.rounded()), mode: "USB")
+    }
+
     public static func navtex(frequency: NavtexFrequency, centerHz: Double) -> RigTuneTarget {
         RigTuneTarget(dialHz: Int64(frequency.usbDial(center: centerHz).rounded()), mode: "USB")
     }

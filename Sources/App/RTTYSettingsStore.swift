@@ -19,6 +19,8 @@ public final class RTTYSettingsStore: ObservableObject {
     @Published public private(set) var centerHz: Double
     /// Erhöht sich bei jeder Mittenwahl von Hand oder per Auftrag – nicht bei AFC-Nachführung
     @Published public private(set) var manualCenterRevision = 0
+    /// Gewählte DWD-Sendefrequenz je Preset ("dwd-kw", "dwd-lw") in Hz; ohne Eintrag gilt die Automatik (Tageszeit)
+    @Published public private(set) var dwdFrequencyHz: [String: Double]
     /// Seitenband: automatisch aus rigctld oder von Hand
     @Published public var sidebandMode: SidebandMode {
         didSet { save() }
@@ -34,6 +36,7 @@ public final class RTTYSettingsStore: ObservableObject {
         static let reverse = "rttyReverseByPreset2"
         static let options = "rttyDecodeOptions"
         static let sideband = "rttySidebandMode"
+        static let dwdFrequency = "rttyDwdFrequencyHz"
     }
 
     public init() {
@@ -47,6 +50,7 @@ public final class RTTYSettingsStore: ObservableObject {
         let c = d.double(forKey: Keys.center)
         centerHz = Self.centerRange.contains(c) ? c : Self.defaultCenter
         sidebandMode = d.string(forKey: Keys.sideband).flatMap(SidebandMode.init(rawValue:)) ?? .auto
+        dwdFrequencyHz = (d.dictionary(forKey: Keys.dwdFrequency) as? [String: Double]) ?? [:]
         d.removeObject(forKey: "rttyReverseByPreset")
     }
 
@@ -97,6 +101,16 @@ public final class RTTYSettingsStore: ObservableObject {
         presetID = id
         save()
     }
+
+    /// DWD-Sendefrequenz für ein Preset wählen (nil = Automatik nach Tageszeit). Das Preset wird dabei nicht gewechselt.
+    public func selectDWDFrequency(_ hz: Double?, presetID id: String) {
+        guard id == "dwd-kw" || id == "dwd-lw" else { return }
+        dwdFrequencyHz[id] = hz
+        UserDefaults.standard.set(dwdFrequencyHz, forKey: Keys.dwdFrequency)
+    }
+
+    /// Gewählte DWD-Frequenz des aktuellen Presets (nil = Automatik oder kein DWD-Preset)
+    public var selectedDWDFrequencyHz: Double? { dwdFrequencyHz[presetID] }
 
     public func toggleReverse() {
         if presetID == "custom" {

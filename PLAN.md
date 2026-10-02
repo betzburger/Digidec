@@ -444,6 +444,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M34 | Throb, IFKP, FSQ | ✅ 02.10.2026 (v0.35.0): drei weitere Familien im Modul „MFSK“ (14 Betriebsarten, jetzt 49); 12- und 16-kHz-Senken |
 | M35 | Hell | ✅ 02.10.2026 (v0.36.0): Feld Hell, Slow Hell, X5, X9, FSK Hell 245/105, Hell 80 aus fldigi; Bildanzeige (Raster) mit PNG-Export |
 | M36 | PSKR und 8PSK | ✅ 02.10.2026 (v0.37.0): im Modul PSK 4 PSKR- und 11 8PSK-Betriebsarten (mit FEC, 16 kHz); Sendeseite von fldigi für das Testsignal |
+| M37 | RTTY: DWD-Frequenzwahl | ✅ 02.10.2026 (v0.38.0): Knöpfe für die DWD-Sendefrequenzen unter den Presets DWD KW und DWD LW; stellt bei QSY AUTO das Funkgerät (USB-Dial = Frequenz − NF-Mitte) |
 ---
 
 ## 11. Aktueller Stand
@@ -979,6 +980,11 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Dateien:** `Vendor/Fldigi/src/psk/psk_rx.cpp` (erzeugt von `port_psk.py`, jetzt mit den Sendefunktionen), `psk_compat.h`, `fldigi_psk.*` (Modi, Abtastrate, Testsignal mit fldigis Sendeseite), `FldigiPSKCore.swift` (`PSKMode` mit Familien BPSK, QPSK, PSKR, 8PSK), `PSKModule.swift` (zweite Senke 16 kHz), `PSKPanels.swift` (Moduswahl nach Familien). Kennungen `psk125r|psk250r|psk500r|psk1000r|8psk125|8psk125fl|8psk125f|8psk250|8psk250fl|8psk250f|8psk500|8psk500f|8psk1000|8psk1000f|8psk1200f`.
   - **Tests:** alle 15 neuen Betriebsarten im Rundlauf, Pipeline 48 kHz → 16 kHz.
   - **Grenzen/Offen:** Mehrträger-PSKR (z. B. 4X_PSK63R), 16PSK und OFDM nicht angebunden; nur gegen das eigene fldigi-Testsignal geprüft; 8PSK-Bandbreiten bis über 1 kHz (Marker nur Symbolrate).
+- **0.38.0 (02.10.2026): M37 RTTY: Frequenzknöpfe für DWD KW und DWD LW.**
+  - **Dateien:** `Sources/App/RTTYSettingsStore.swift` (`dwdFrequencyHz` je Preset, `selectDWDFrequency`, gespeichert), `Sources/Rig/RigTuning.swift` (`RigTuneTarget.rtty(frequencyHz:centerHz:)`), `Sources/App/DigidecState.swift` (`rttyDWDTarget`, Abstimmung bei Wechsel von Preset und Frequenz), `Sources/UI/MainWindowView.swift` (`PresetPanel` mit Frequenzreihe), `ScheduleAutoRecorder.swift` (nutzt dasselbe Ziel und merkt die Frequenz).
+  - **Verhalten:** Unter dem gewählten Preset DWD KW erscheinen die fünf Frequenzen aus dem Sendeplan (4583 DDK 2, 7646 DDH 7, 10100,8 DDK 9 – Programm 1; 11039 DDH 9, 14467,3 DDH 8 – Programm 2), unter DWD LW die 147,3 kHz (DDH 47). Ein Klick wählt die Frequenz und stellt mit QSY AUTO das Funkgerät auf USB-Dial = Frequenz − NF-Mitte. Ohne Wahl gilt die Automatik des Sendeplans (Tageszeit; LW: 147,3). Die Wahl gilt je Preset und bleibt erhalten. Das Preset „Amateur“ und „Eigene“ stimmen nichts ab.
+  - **Korrektur:** Die Senderliste der RTTY-Karte nannte falsche Rufzeichen (7646 kHz = DDH 7, 10100,8 kHz = DDK 9) und kannte nur drei der fünf Frequenzen; jetzt wie im Plan.
+  - **Tests:** 1551 Logiktests (+9: Wahl je Preset, andere Presets ohne Wahl, Abstimmziele 4583 / 147,3 / 10100,8 kHz, Frequenzen aus dem Plan).
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.

@@ -250,7 +250,7 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
 
                             VStack(spacing: 8) {
-                                PresetPanel(rtty: state.rtty)
+                                PresetPanel(rtty: state.rtty, schedule: state.rttySchedule)
                                 RTTYQuickControls(settings: state.rtty, showSettings: $showRTTYSettings)
                             }
                             .radioCard(title: "Preset")
@@ -521,10 +521,55 @@ private struct ModuleBar: View {
 
 // MARK: - Preset (Auswahl; weitere Einstellungen folgen mit M5)
 
-private struct PresetPanel: View {
+struct PresetPanel: View {
     @ObservedObject var rtty: RTTYSettingsStore
+    @ObservedObject var schedule: RttyScheduleStore
 
     var body: some View {
+        VStack(spacing: 8) {
+            presetGrid
+            if rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw" {
+                frequencyRow
+            }
+        }
+    }
+
+    /// Frequenzen des gewählten DWD-Presets aus dem Sendeplan (Langwelle oder Kurzwelle)
+    private var frequencies: [RttyFrequency] {
+        schedule.schedule.frequencies.filter { $0.presetID == rtty.presetID }.sorted { $0.hz < $1.hz }
+    }
+
+    /// Aktive Frequenz: Wahl des Nutzers, sonst Automatik nach Tageszeit
+    private var activeHz: Double? {
+        rtty.selectedDWDFrequencyHz ?? schedule.automaticFrequency(program: rtty.presetID == "dwd-lw" ? 2 : 1, at: Date())?.hz
+    }
+
+    private var frequencyRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: frequencies.count > 3 ? 3 : max(1, frequencies.count)), spacing: 4) {
+                ForEach(frequencies) { f in
+                    Button {
+                        rtty.selectDWDFrequency(f.hz, presetID: rtty.presetID)
+                    } label: {
+                        VStack(spacing: 1) {
+                            Text(f.label)
+                            Text("\(f.callsign) · P\(f.program)")
+                                .font(.system(size: 7.5, weight: .medium, design: .monospaced))
+                                .foregroundColor(RadioTheme.textDim)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: activeHz == f.hz))
+                    .help("\(f.callsign), Programm \(f.program), \(f.label), Hub ±\(String(format: "%g", f.shiftHalfHz).replacingOccurrences(of: ".", with: ",")) Hz. Nur mit QSY AUTO wird das Funkgerät auf den USB-Dial (Frequenz minus NF-Mitte) abgestimmt")
+                }
+            }
+            Text(rtty.selectedDWDFrequencyHz == nil ? "Frequenz automatisch nach Tageszeit" : "Frequenz von Hand gewählt")
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .foregroundColor(RadioTheme.textMuted)
+        }
+    }
+
+    private var presetGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
             ForEach(RTTYPreset.all) { preset in
                 Button {
