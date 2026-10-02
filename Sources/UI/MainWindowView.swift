@@ -289,9 +289,9 @@ private struct MapToggleButton: View {
         let module = state.activeModule
         let current = state.mapLayout(module)
         HStack(spacing: 2) {
-            segment("list.bullet", "LISTE", .list, current, module, help: "Liste, Text oder Bild des Moduls (Wetterfax-Bild, Empfangstext …)")
+            segment(module.mainViewIcon, module.mainViewName, .list, current, module, help: module.mainViewHelp)
             segment("map", "KARTE", .map, current, module, help: "Nur die Karte zeigen (Stationen, Sender, Positionen)")
-            segment("rectangle.split.1x2", "BEIDE", .split, current, module, help: "Liste bzw. Bild oben, Karte darunter")
+            segment("rectangle.split.1x2", "BEIDE", .split, current, module, help: "\(module.mainViewName.capitalized) oben, Karte darunter")
         }
         .padding(2)
         .background(RadioTheme.bgDeep)

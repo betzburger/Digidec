@@ -34,6 +34,36 @@ struct ModuleMapView: View {
 }
 
 extension DecoderModuleInfo {
+    /// Name der gewohnten Ansicht im Umschalter: Bild, Text, Liste oder Anzeige
+    var mainViewName: String {
+        switch self {
+        case .wefax, .sstv: return "BILD"
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "TEXT"
+        case .dcf77, .efr: return "ANZEIGE"
+        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale: return "LISTE"
+        }
+    }
+
+    var mainViewIcon: String {
+        switch self {
+        case .wefax, .sstv: return "photo"
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "text.alignleft"
+        case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
+        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale: return "list.bullet"
+        }
+    }
+
+    var mainViewHelp: String {
+        switch self {
+        case .wefax: return "Das empfangene Wetterfax-Bild"
+        case .sstv: return "Das empfangene SSTV-Bild"
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "Der empfangene Text"
+        case .dcf77: return "Atomuhr, Zeitvergleich und Telegramm"
+        case .efr: return "Rundsteuertelegramme"
+        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale: return "Die Liste der empfangenen Stationen und Meldungen"
+        }
+    }
+
     /// Hat das Modul eine Kartenanzeige?
     var hasMap: Bool {
         switch self {
