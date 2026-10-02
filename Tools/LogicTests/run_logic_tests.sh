@@ -55,6 +55,7 @@ swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/DSC/DSCCore.swift $S/Decoders/DSC/DSCVHF.swift $S/Decoders/DSC/DSCModule.swift \
     $S/Decoders/Olivia/FldigiOliviaCore.swift $S/Decoders/Olivia/OliviaModule.swift \
     $S/Decoders/MFSK/FldigiMFSKCore.swift $S/Decoders/MFSK/MFSKModule.swift \
+    $S/Decoders/Hell/FldigiHellCore.swift $S/Decoders/Hell/HellModule.swift \
     $S/Decoders/MT63/FldigiMT63Core.swift $S/Decoders/MT63/MT63Module.swift \
     $S/Decoders/WEFAX/FldigiWefaxCore.swift $S/Decoders/WEFAX/WefaxModule.swift $S/Decoders/WEFAX/WefaxSchedule.swift $S/Decoders/WEFAX/WefaxImageTools.swift $S/Decoders/WEFAX/WefaxScheduleStore.swift \
     $S/Models/BroadcastSchedule.swift $S/Models/DWDPlanFetcher.swift $S/Decoders/RTTY/RttySchedule.swift $S/Decoders/RTTY/RttyScheduleStore.swift \

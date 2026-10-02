@@ -40,6 +40,8 @@ public final class DigidecState: ObservableObject {
     public let mt63Controller: MT63Controller
     public let mfsk = MFSKSettingsStore()
     public let mfskController: MFSKController
+    public let hell = HellSettingsStore()
+    public let hellController: HellController
     public let dsc = DSCSettingsStore()
     public let dscController: DSCController
     public let ale = ALESettingsStore()
@@ -98,6 +100,7 @@ public final class DigidecState: ObservableObject {
         oliviaController = OliviaController(pipeline: audio.pipeline, settings: olivia)
         mt63Controller = MT63Controller(pipeline: audio.pipeline, settings: mt63)
         mfskController = MFSKController(pipeline: audio.pipeline, settings: mfsk)
+        hellController = HellController(pipeline: audio.pipeline, settings: hell)
         dscController = DSCController(pipeline: audio.pipeline, settings: dsc)
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
         aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
@@ -141,6 +144,7 @@ public final class DigidecState: ObservableObject {
                 self?.oliviaController.setActive(module == .olivia)
                 self?.mt63Controller.setActive(module == .mt63)
                 self?.mfskController.setActive(module == .mfsk)
+                self?.hellController.setActive(module == .hell)
                 self?.dscController.setActive(module == .dsc)
                 self?.aleController.setActive(module == .ale)
                 self?.aprsController.setActive(module == .aprs)
@@ -238,7 +242,7 @@ public final class DigidecState: ObservableObject {
         case .aprs:   return .aprs(channel: aprs.channel)
         case .acars:  return .acars(channel: acars.channel)
         case .pager:  return .pager(channel: pager.channel)
-        case .rtty, .cw, .olivia, .mt63, .mfsk, .ale, .tones: return nil
+        case .rtty, .cw, .olivia, .mt63, .mfsk, .hell, .ale, .tones: return nil
         }
     }
 
@@ -323,6 +327,9 @@ public final class DigidecState: ObservableObject {
                 case .mfsk:
                     if let preset = request.presetID, let m = MFSKMode(rawValue: preset) { mfsk.options.mode = m }
                     if let center = request.centerHz { mfsk.setCenter(center) }
+                case .hell:
+                    if let preset = request.presetID, let m = HellMode(rawValue: preset) { hell.options.mode = m }
+                    if let center = request.centerHz { hell.setCenter(center) }
                 case .psk:
                     if let preset = request.presetID, let m = PSKMode(rawValue: preset) { psk.options.mode = m }
                     if let center = request.centerHz { psk.setCenter(center) }

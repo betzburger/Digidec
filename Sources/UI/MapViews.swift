@@ -24,7 +24,7 @@ struct ModuleMapView: View {
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
             case .efr:    FixedSiteMapView(sites: Transmitters.efr(state.efr.station), home: state.home, hint: "EFR: Rundsteuersender")
-            case .sstv, .ale, .pager, .tones:
+            case .sstv, .ale, .pager, .tones, .hell:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -39,7 +39,7 @@ extension DecoderModuleInfo {
     /// Name der gewohnten Ansicht im Umschalter: Bild, Text, Liste oder Anzeige
     var mainViewName: String {
         switch self {
-        case .wefax, .sstv: return "BILD"
+        case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
         case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "LISTE"
@@ -48,7 +48,7 @@ extension DecoderModuleInfo {
 
     var mainViewIcon: String {
         switch self {
-        case .wefax, .sstv: return "photo"
+        case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
         case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "list.bullet"
@@ -59,6 +59,7 @@ extension DecoderModuleInfo {
         switch self {
         case .wefax: return "Das empfangene Wetterfax-Bild"
         case .sstv: return "Das empfangene SSTV-Bild"
+        case .hell: return "Das empfangene Hell-Bild (Schrift als Raster)"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "Der empfangene Text"
         case .dcf77: return "Atomuhr, Zeitvergleich und Telegramm"
         case .efr: return "Rundsteuertelegramme"

@@ -48,9 +48,10 @@ enum {
 };
 
 // fldigi modem.h: Fähigkeiten
-enum { CAP_NONE = 0, CAP_AFC = 1 << 0, CAP_AFC_SR = 1 << 1, CAP_REV = 1 << 2, CAP_IMG = 1 << 3 };
+enum { CAP_NONE = 0, CAP_AFC = 1 << 0, CAP_AFC_SR = 1 << 1, CAP_REV = 1 << 2, CAP_IMG = 1 << 3, CAP_BW = 1 << 4 };
+struct fntchr { char c; int byte[14]; };
 
-namespace Digiscope { enum scope_mode { PHASE = 0, SCOPE = 1, DOMDATA = 2, RTTY = 3 }; }
+namespace Digiscope { enum scope_mode { PHASE = 0, SCOPE = 1, DOMDATA = 2, RTTY = 3, BLANK = 4 }; }
 enum status_timeout { STATUS_CLEAR, STATUS_DIM };
 
 /// fldigi-Einstellungen, die die Empfänger lesen (Standardwerte aus fldigi configuration.h)
@@ -68,6 +69,19 @@ struct FamProgdefaults {
 	bool   DOMINOEX_FILTER  = true;
 	bool   DOMINOEX_FEC     = false;
 	bool   rx_lowercase     = false;
+	// Feld Hell
+	double HELL_BW          = 245.0;
+	double HELL_BW_FH = 245.0, HELL_BW_SH = 30.0, HELL_BW_X5 = 1225.0, HELL_BW_X9 = 2205.0;
+	double HELL_BW_FSKH245 = 250.0, HELL_BW_FSKH105 = 120.0, HELL_BW_HELL80 = 450.0;
+	int    HellRcvWidth     = 2;
+	int    HellRcvHeight    = 20;
+	bool   HellBlackboard   = false;
+	bool   HellMarquee      = false;
+	int    HellXmtWidth     = 1;
+	bool   HellXmtIdle      = false;
+	int    HellPulseFast    = 1;
+	int    hellagc          = 2;
+	int    feldfontnbr      = 4;
 	// FSQ: Mittelungslänge, Geschwindigkeit (Baud), Treffer
 	int    fsq_movavg       = 4;
 	double fsqbaud          = 4.5;
@@ -102,6 +116,7 @@ struct FamProgStatus {
 struct FamWaterfall {
 	double carrier = 1000;
 	double Carrier() const { return carrier; }
+	void redraw_marker() {}
 };
 
 // Bildempfang (MFSK): Ersatz für fldigis Bildfenster. Die Pixel gehen an den Rückruf des Modems.
@@ -161,6 +176,9 @@ public:
 	void put_rx_char(int c) { if (on_char) on_char(on_char_ctx, c); }
 	void put_sec_char(int c) { if (on_sec_char && c) on_sec_char(on_char_ctx, c); }
 	void put_echo_char(int) {}
+	// Feld Hell: eine Rasterspalte (2 · Spaltenlänge Werte 0 … 255) an den Rückruf
+	void (*on_column)(void *ctx, const int *data, int len) = nullptr;
+	void put_rx_data(int *data, int len) { if (on_column) on_column(on_char_ctx, data, len); }
 	void set_scope_mode(int) {}
 	void set_scope(double *, int, bool = false) {}
 	void set_video(double *, int, bool = true) {}

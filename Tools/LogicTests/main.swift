@@ -3407,6 +3407,94 @@ do {
     pipeline.stop()
 }
 
+// MARK: - Hell: Voreinstellungen, URL, Raster
+do {
+    check(parse("digidec://decode?mode=hell&preset=fskh245&center=1400") == .success(DecodeRequest(module: .hell, presetID: "fskh245", centerHz: 1400)), "Hell-Auftrag FSK Hell 245")
+    check(parse("digidec://decode?mode=hell") == .success(DecodeRequest(module: .hell, presetID: "feld")), "Hell-Standard Feld Hell")
+    check(Set(DecoderModuleInfo.hell.presetIDs) == Set(HellMode.allCases.map(\.rawValue)), "Hell: Kennungen = Betriebsarten")
+    check(!DecoderModuleInfo.hell.hasMap && DecoderModuleInfo.hell.isAvailable, "Hell: verfügbar, ohne Karte")
+    check(HellMode.fskh245.isFSK && !HellMode.feld.isFSK && HellMode.x9.bandwidthHz > HellMode.x5.bandwidthHz, "Hell: Betriebsarten")
+}
+
+// MARK: - Hell aus fldigi (synthetisch)
+do {
+    func decode(_ text: String, mode: HellMode, noiseSigma: Double = 0, center: Double = 1500, tweak: (inout FldigiHellCore.Options) -> Void = { _ in }) -> (columns: [[UInt8]], status: FldigiHellCore.Status?) {
+        guard var x = FldigiHellCore.synthesize(text, mode: mode, centerHz: center) else { return ([], nil) }
+        // Kein Nachlauf: ohne Signal liefert FSK-Hell schwarze Spalten, solange der AGC-Pegel über dem Squelch liegt
+        x = [Float](repeating: 0, count: 8_000) + x.map { $0 * 0.5 }
+        if noiseSigma > 0 { for i in 0..<x.count { x[i] += Float(Double.random(in: -1...1) * noiseSigma) } }
+        var o = FldigiHellCore.Options(); o.mode = mode; o.columnRepeat = 1
+        tweak(&o)
+        var cols: [[UInt8]] = []
+        let core = FldigiHellCore(options: o, centerHz: center) { cols.append($0) }
+        x.withUnsafeBufferPointer { core.process($0) }
+        return (cols, core.status)
+    }
+    /// Tinte: dunkle Bildpunkte der aktuellen Spaltenhälfte
+    func ink(_ cols: [[UInt8]]) -> Int {
+        cols.reduce(0) { acc, c in acc + c[(c.count / 2)...].filter { $0 < 128 }.count }
+    }
+    for mode in HellMode.allCases where mode != .slow {
+        let one = decode("HELLO WORLD", mode: mode)
+        let two = decode("HELLO WORLD HELLO WORLD", mode: mode)
+        let a = ink(one.columns), b = ink(two.columns)
+        check(one.columns.count > 50 && one.columns.allSatisfy { $0.count == 40 }, "\(mode.displayName): Spalten (\(one.columns.count)) mit 2 · 20 Werten")
+        check(a > 150 && Double(b) > 1.6 * Double(a) && Double(b) < 2.4 * Double(a), "\(mode.displayName): Tinte verdoppelt sich mit dem Text (\(a) → \(b))")
+    }
+    // Slow Hell braucht lange (1/8 der Geschwindigkeit): kurzer Text
+    do {
+        let one = decode("HI", mode: .slow), two = decode("HI HI", mode: .slow)
+        let a = ink(one.columns), b = ink(two.columns)
+        check(a > 40 && Double(b) > 1.4 * Double(a), "Slow Hell: Tinte wächst mit dem Text (\(a) → \(b))")
+    }
+    // Spaltenlänge und Wiederholung
+    do {
+        let r = decode("HELLO", mode: .feld) { $0.columnHeight = 28; $0.columnRepeat = 3 }
+        check(r.columns.allSatisfy { $0.count == 56 } && r.status?.columnHeight == 28, "Hell: Spaltenlänge 28 → 56 Werte")
+        let r1 = decode("HELLO", mode: .feld) { $0.columnRepeat = 1 }
+        check(Double(r.columns.count) > 2.6 * Double(r1.columns.count), "Hell: Wiederholung 3× (\(r1.columns.count) → \(r.columns.count) Spalten)")
+    }
+    // Mitte und Rauschen
+    check(ink(decode("HELLO WORLD", mode: .feld, center: 1000).columns) > 150, "Hell bei 1000 Hz")
+    check(ink(decode("HELLO WORLD", mode: .feld, noiseSigma: 0.1).columns) > 150, "Hell mit Rauschen")
+    // Blackboard kehrt die Werte um
+    do {
+        let normal = decode("HELLO", mode: .feld)
+        let board = decode("HELLO", mode: .feld) { $0.blackboard = true }
+        let darkN = normal.columns.reduce(0) { $0 + $1.filter { $0 < 128 }.count }
+        let darkB = board.columns.reduce(0) { $0 + $1.filter { $0 < 128 }.count }
+        check(darkB > 3 * darkN, "Hell: Tafeldarstellung kehrt um (\(darkN) / \(darkB) dunkle Punkte)")
+    }
+    // Squelch: Stille und Rauschen ergeben (fast) keine Spalten
+    do {
+        var cols: [[UInt8]] = []
+        let core = FldigiHellCore(options: FldigiHellCore.Options(), centerHz: 1500) { cols.append($0) }
+        let quiet = [Float](repeating: 0, count: 8_000 * 20)
+        quiet.withUnsafeBufferPointer { core.process($0) }
+        check(cols.isEmpty, "Hell: Stille ergibt keine Spalten (\(cols.count))")
+    }
+}
+
+// MARK: - Hell-Raster
+@MainActor func hellRasterTests() {
+    let r = HellRasterModel()
+    check(r.image == nil && r.columnCount == 0, "Hell-Raster: leer")
+    var col = [UInt8](repeating: 255, count: 40)
+    col[0] = 0     // unterste Zeile
+    r.append(column: col, background: 255)
+    r.append(column: col, background: 255)
+    r.refresh()
+    check(r.columnCount == 2 && r.image != nil && Int(r.image!.size.width) == HellRasterModel.lineWidth && Int(r.image!.size.height) == 40, "Hell-Raster: Bild \(r.image?.size.width ?? 0)×\(r.image?.size.height ?? 0)")
+    // Zeilenumbruch nach lineWidth Spalten
+    for _ in 0..<HellRasterModel.lineWidth { r.append(column: col, background: 255) }
+    r.refresh()
+    check(Int(r.image!.size.height) == 40 * 2 + 3, "Hell-Raster: zweite Zeile")
+    check(r.pngData() != nil, "Hell-Raster: PNG")
+    r.clear()
+    check(r.image == nil && r.columnCount == 0, "Hell-Raster: gelöscht")
+}
+hellRasterTests()
+
 // MARK: - MT63 und Olivia über die Pipeline (48 kHz → 8 kHz)
 do {
     let pipeline = AudioPipeline()

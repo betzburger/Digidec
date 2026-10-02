@@ -22,6 +22,8 @@ public struct MainWindowView: View {
                                 TextModeReceivePanel(controller: state.mt63Controller)
                             } else if state.activeModule == .mfsk {
                                 TextModeReceivePanel(controller: state.mfskController)
+                            } else if state.activeModule == .hell {
+                                HellRasterPanel(controller: state.hellController, settings: state.hell)
                             } else if state.activeModule == .dsc {
                                 DSCMessagePanel(controller: state.dscController)
                             } else if state.activeModule == .ale {
@@ -76,6 +78,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.mt63, audio: state.audio)
                             } else if state.activeModule == .mfsk {
                                 WaterfallView(model: state.waterfall, rtty: state.mfsk, audio: state.audio)
+                            } else if state.activeModule == .hell {
+                                WaterfallView(model: state.waterfall, rtty: state.hell, audio: state.audio)
                             } else if state.activeModule == .dsc {
                                 WaterfallView(model: state.waterfall, rtty: state.dsc, audio: state.audio)
                             } else if state.activeModule == .ale {
@@ -189,7 +193,12 @@ public struct MainWindowView: View {
                             MFSKTuningPanel(controller: state.mfskController, settings: state.mfsk)
                                 .radioCard(title: "Abstimmanzeige")
                             MFSKSettingsPanel(settings: state.mfsk)
-                                .radioCard(title: "MFSK · DOMINOEX · THOR")
+                                .radioCard(title: "MFSK · DOMINOEX · THOR · THROB · IFKP · FSQ")
+                        } else if state.activeModule == .hell {
+                            HellTuningPanel(controller: state.hellController, settings: state.hell)
+                                .radioCard(title: "Abstimmanzeige")
+                            HellSettingsPanel(settings: state.hell)
+                                .radioCard(title: "HELL")
                         } else if state.activeModule == .psk {
                             PSKTuningPanel(controller: state.pskController, settings: state.psk)
                                 .radioCard(title: "Abstimmanzeige")
@@ -256,7 +265,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -575,6 +584,7 @@ private struct StatusBar: View {
     @ObservedObject var olivia: OliviaSettingsStore
     @ObservedObject var mt63: MT63SettingsStore
     @ObservedObject var mfsk: MFSKSettingsStore
+    @ObservedObject var hell: HellSettingsStore
     @ObservedObject var dsc: DSCSettingsStore
     @ObservedObject var ale: ALESettingsStore
     @ObservedObject var aprs: APRSSettingsStore
@@ -651,6 +661,7 @@ private struct StatusBar: View {
         case .dsc: return "DSC · \(dsc.channel.label) kHz · Mitte \(Int(dsc.centerHz.rounded())) Hz · 100 Bd / 170 Hz" + (dsc.autoCenter ? " · AUTO" : "") + (dsc.reversed ? " · REV" : "")
         case .mt63: return "MT63 · \(mt63.options.label) · Mitte \(Int(mt63.centerHz.rounded())) Hz" + (mt63.options.squelchOn ? " · SQL \(Int(mt63.options.squelch))" : " · SQL aus")
         case .mfsk: return "\(mfsk.options.mode.displayName.uppercased()) · Mitte \(Int(mfsk.centerHz.rounded())) Hz · \(Int(mfsk.options.mode.bandwidthHz)) Hz breit" + (mfsk.options.reverse ? " · REV" : "") + (mfsk.options.squelchOn ? " · SQL \(Int(mfsk.options.squelch))" : " · SQL aus")
+        case .hell: return "\(hell.options.mode.displayName.uppercased()) · Mitte \(Int(hell.centerHz.rounded())) Hz · \(Int(hell.options.mode.bandwidthHz)) Hz breit" + (hell.options.reverse && hell.options.mode.isFSK ? " · REV" : "") + (hell.options.squelchOn ? " · SQL \(Int(hell.options.squelch))" : " · SQL aus")
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current
         case .ft4: return ft4Current

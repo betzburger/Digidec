@@ -118,6 +118,21 @@ func run() {
         MFSKSettingsPanel(settings: mf).radioCard(title: "MFSK · DOMINOEX · THOR")
     }, width: right, name: "mfsk_rechts", dir: dir)
 
+    // Hell
+    let hl = HellSettingsStore()
+    let hlc = HellController(pipeline: pipeline, settings: hl)
+    if let x = FldigiHellCore.synthesize("CQ DE DL1ABC", mode: .feld, centerHz: 1500) {
+        var o = FldigiHellCore.Options(); o.columnRepeat = 1
+        let core = FldigiHellCore(options: o, centerHz: 1500) { hlc.raster.append(column: $0, background: 255) }
+        ([Float](repeating: 0, count: 8000) + x.map { $0 * 0.5 } + [Float](repeating: 0, count: 8000)).withUnsafeBufferPointer { core.process($0) }
+        hlc.raster.refresh()
+    }
+    save(HellRasterPanel(controller: hlc, settings: hl).frame(height: 140).background(RadioTheme.bgDeep).radioCard(title: "Hell-Bild"), width: 760, name: "hell_raster", dir: dir)
+    save(VStack(spacing: 10) {
+        HellTuningPanel(controller: hlc, settings: hl).radioCard(title: "Abstimmanzeige")
+        HellSettingsPanel(settings: hl).radioCard(title: "HELL")
+    }, width: right, name: "hell_rechts", dir: dir)
+
     // WSPR
     let ws = WSPRSettingsStore()
     let wsc = WSPRController(pipeline: pipeline, settings: ws)

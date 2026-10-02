@@ -37,6 +37,7 @@ module Fldigi {
     header "$F/include/fldigi_olivia.h"
     header "$F/include/fldigi_mt63.h"
     header "$F/include/fldigi_mfsk.h"
+    header "$F/include/fldigi_hell.h"
     export *
 }
 module FT8 {

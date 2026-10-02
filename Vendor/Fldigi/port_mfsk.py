@@ -653,4 +653,69 @@ void fsq::init()
 
 '''
 write('src/mfsk/fsq_rx.cpp', body)
+
+# ===================================================================== Hell (Feld Hell und Verwandte)
+write('src/mfsk/feldhell_12.inc', read('feld/FeldHell-12.cxx'))
+h = read('include/feld.h')
+h = must(h, '#include "modem.h"\n', f'#include "mfsk_compat.h" // {M}: Umgebung statt fldigi-Modem\n')
+h = must(h, 'class feld : public modem {', f'class feld : public fam_modem_base {{ // {M}\n\tfriend struct fldigi_hell; // {M}: C-Hülle')
+write('src/mfsk/feld_rx.h', h)
+
+c = read('feld/feld.cxx')
+parts = [f'''// ----------------------------------------------------------------------------
+// feld_rx.cpp  --  Feld-Hell-Empfänger aus fldigi 4.2.13 (src/feld/feld.cxx), erzeugt von port_mfsk.py
+//
+// Copyright (C) 2006-2008 Dave Freese, W1HKJ (Feld Hell: Rudolf Hell, 1929). GNU GPL v3.
+// {M}: Empfangsfunktionen und Sendefunktionen (nur für das Testsignal) wörtlich übernommen, außer wie unten
+// vermerkt; die Sendesteuerung (tx_process) entfällt. Rasterspalten gehen an einen Rückruf statt in das
+// Raster-Widget. Einstellungen/Anzeigen: mfsk_compat.h. Schriftart: nur „hell 12“ (fldigi-Standard, feldfontnbr 4).
+// ----------------------------------------------------------------------------
+#include <cstring>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
+#include "feld_rx.h"
+
+#include "feldhell_12.inc"
+
+''']
+for sig in ['void feld::rx_init()', 'void feld::restart()', 'feld::~feld()', 'feld::feld(trx_mode m)', 'cmplx feld::mixer(cmplx in)',
+            'void feld::FSKH_rx(cmplx z)', 'void feld::rx(cmplx z)', 'int feld::rx_process(const double *buf, int len)',
+            'int feld::get_font_data(unsigned char c, int col)', 'double feld::nco(double freq)', 'void feld::send_symbol(int currsymb, int nextsymb)',
+            'void feld::send_null_column()', 'void feld::tx_char(char c)', 'void feld::initKeyWaveform()']:
+    parts.append(block(c, sig))
+body = ''.join(parts)
+body = must(body, '\tguard_lock raster_lock(&feld_mutex);\n\n\tdouble f;', f'\t// {M}: keine Sperre (ein Thread)\n\n\tdouble f;')
+body = must(body, '\tguard_lock raster_lock(&feld_mutex);\n\n\tdouble x, avg;', f'\t// {M}: keine Sperre (ein Thread)\n\n\tdouble x, avg;')
+# Rasterspalten an den Rückruf: je Aufruf 2·RxColumnLen Werte (vorherige und aktuelle Spalte)
+body = body.replace('REQ(put_rx_data, col_data, 2 * RxColumnLen);', 'put_rx_data(col_data, 2 * RxColumnLen);')
+body = must(body, '\tREQ(set_HellBW, filter_bandwidth);\n', f'\t// {M}: Anzeige der Filterbreite entfällt\n')
+body = must(body, '\twf->redraw_marker();\n\n\tREQ(&Raster::set_marquee, FHdisp, progdefaults.HellMarquee);\n', f'\t// {M}: Marker und Raster-Widget entfallen\n')
+body = must(body, '\tset_bandwidth(hell_bandwidth);', '\tset_bandwidth(hell_bandwidth);')
+body = must(body, '\t\twf->redraw_marker();\n', f'\t\t// {M}: Marker entfällt\n')
+body = must(body, '\twf->redraw_marker();\n\n\tREQ', '\t// x\n\tREQ') if False else body
+# send_symbol: kein Mithören über den Empfänger
+body = must(body, '\trx_process(outbuf, outlen);\n', f'\t// {M}: Mithören über den Empfänger entfällt\n')
+# Schrift: nur hell 12
+a = body.index('\tswitch (progdefaults.feldfontnbr) {')
+b = body.index('\t}\n\tfor (int i = 0; i < 14; i++) ordbits')
+body = body[:a] + f'\tfont = feldhell_12;   // {M}: nur die Standardschrift\n' + body[b+3:]
+body += f'''// {M}: init() ohne modem::init(); Trägerfrequenz setzt Digidec
+void feld::init()
+{{
+	initKeyWaveform();
+	set_scope_mode(Digiscope::BLANK);
+	rx_init();
+}}
+
+void feld::tx_init()
+{{
+	txcounter = 0.0;
+	tx_state = PREAMBLE;
+	preamble = 3;
+	prevsymb = false;
+}}
+
+'''
+write('src/mfsk/feld_rx.cpp', body)
 print('ok')

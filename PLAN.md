@@ -442,6 +442,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M32 | MFSK, DominoEX, Thor | ✅ 02.10.2026 (v0.33.0): ein Modul „MFSK“ mit 35 Betriebsarten aus fldigi 4.2.13 (`Vendor/Fldigi/UPSTREAM_MFSK.md`); Text, Rufzeichenkarte, Abtastraten 8000/11025/16000 Hz |
 | M33 | SELCAL | ✅ 02.10.2026 (v0.34.0): im Modul TÖNE als weitere Norm (ARINC 714, 16 Töne 313–1479 Hz, zwei Impulse mit je zwei Tönen); Hann-Fenster 80 ms, Anzeige „AB-CD“ |
 | M34 | Throb, IFKP, FSQ | ✅ 02.10.2026 (v0.35.0): drei weitere Familien im Modul „MFSK“ (14 Betriebsarten, jetzt 49); 12- und 16-kHz-Senken |
+| M35 | Hell | ✅ 02.10.2026 (v0.36.0): Feld Hell, Slow Hell, X5, X9, FSK Hell 245/105, Hell 80 aus fldigi; Bildanzeige (Raster) mit PNG-Export |
 ---
 
 ## 11. Aktueller Stand
@@ -966,9 +967,16 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Abweichungen:** siehe `Vendor/Fldigi/UPSTREAM_MFSK.md` (Nr. 8 bis 10): Throb-Squelch skaliert, IFKP ohne Bild/Avatar/Protokolle/1500-Hz-Bindung, FSQ ohne gerichtete Befehle (Zeichen wie im Monitor).
   - **Tests:** 1479 Logiktests (+20): Rundlauf aller Betriebsarten außer IFKP 0,5 und FSQ 1,5 (sehr langsam), Rauschen, Squelch, Pipeline.
   - **Grenzen/Offen:** nur gegen das eigene fldigi-Testsignal geprüft; kein Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichen und CRC werden nicht ausgewertet.
+- **0.36.0 (02.10.2026): M35 Hell.**
+  - **Dateien:** `Vendor/Fldigi/src/mfsk/feld_rx.*` (erzeugt von `port_mfsk.py`), `fldigi_hell.*` (C-Schnittstelle), `Sources/Decoders/Hell/{FldigiHellCore,HellModule}.swift` (Kern, Einstellungen, Decoder, Controller, `HellRasterModel`), `Sources/UI/HellPanels.swift`. URL `digidec://decode?mode=hell&preset=feld|slow|x5|x9|fskh245|fskh105|hell80&center=1500`. Kein QSY, keine Karte.
+  - **Anzeige:** Hell-Bild (Schrift als Raster, wie das Raster-Fenster von fldigi), Umschalter-Name BILD; Einstellungen: Betriebsart, Spaltenhöhe 14 … 42, Spaltenbreite 1× … 3×, AGC, REV (FSK), Tafeldarstellung, Squelch; Bild als PNG speichern.
+  - **Abweichungen:** siehe `UPSTREAM_MFSK.md` Nr. 11 (keine Zeichenerkennung; Schrift „hell 12“ nur im Testsignal).
+  - **Tests:** 1509 Logiktests (+30): URL, Kennungen, Rundlauf aller Betriebsarten (Spalten, Tinte), Spaltenlänge, Wiederholung, Mitte, Rauschen, Tafel, Squelch (Stille), Raster-Bild und PNG.
+  - **Beobachtung:** Der MT63-Logiktest „1000S Text“ schlug in einem von rund zehn Läufen mit leerer Ausgabe fehl (danach in acht weiteren Läufen nicht mehr); vermutlich unbestimmter Speicher in der MT63-Bibliothek; noch nicht untersucht.
+  - **Grenzen/Offen:** nur gegen das eigene fldigi-Testsignal geprüft; keine Zeilensynchronisation des Bildes (wie fldigi); FSK-Hell zeigt ohne Signal schwarze Spalten, solange der Pegel über dem Squelch liegt.
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
-  - Weitere fldigi-Modi (Hell, 8PSK/PSKR), JT65/JT9 (WSJT-X); Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichenauswertung.
+  - Weitere fldigi-Modi (8PSK/PSKR), JT65/JT9 (WSJT-X); Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichenauswertung.
   - Parallelbetrieb mehrerer Module (kein Warnton, vom Nutzer nicht gewünscht).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
