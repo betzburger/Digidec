@@ -210,16 +210,18 @@ private struct RTTYMapView: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 270)
-        .help("Was die Karte an den Wetterstationen zeigt: Symbol oder Messwert")
+        .frame(width: 330)
+        .help("Was die Karte zeigt: Wetterstationen als Symbol oder Messwert (Temperatur, Druck, Wind, Sicht) oder SEE: Seegebiete, Warnungen, Hochs, Tiefs, Fronten")
     }
 
     private func content(now: Date) -> MapContent {
-        var content = controller.textModel.synop.content(home: home.point, now: now, transmitters: sites, layer: layer)
+        var content = layer == .sea
+            ? controller.textModel.sea.content(home: home.point, now: now, transmitters: sites)
+            : controller.textModel.synop.content(home: home.point, now: now, transmitters: sites, layer: layer)
         let calls = HeardMapBuilder.content(controller.textModel.calls.heard, home: home.point, now: now, mode: "RTTY")
         content.markers += calls.markers
         content.lines += calls.lines
-        content.emptyHint = "Noch keine SYNOP-Meldung oder kein Rufzeichen mit Ort empfangen"
+        if layer != .sea { content.emptyHint = "Noch keine SYNOP-Meldung oder kein Rufzeichen mit Ort empfangen" }
         return content
     }
 

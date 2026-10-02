@@ -202,6 +202,8 @@ public struct SynopObservation: Identifiable, Equatable, Sendable {
     public var visibilityKm: Double?
     /// Die Einheit stammt nicht aus der Meldung
     public var windUnitAssumed = false
+    /// Frühere Orte desselben Schiffs oder derselben Boje (älteste zuerst), ohne den aktuellen
+    public var track: [GeoPoint] = []
 
     public var windSpeedKn: Double? {
         guard let v = windSpeedValue else { return nil }
@@ -315,6 +317,12 @@ public final class SynopLog {
         if text.contains("Note=Header missing") { guessedRun = true }
         for var obs in Self.parse(text, at: date) {
             if guessedRun { obs.headerGuessed = true }
+            // Wandert ein Schiff, zeichnet die Karte seinen Weg
+            if let old = observations[obs.id], let op = old.position {
+                var t = old.track
+                if t.last != op, obs.position != op { t.append(op) }
+                obs.track = Array(t.suffix(40))
+            }
             if let u = obs.windUnit { lastWindUnit = u } else if obs.windSpeedValue != nil {
                 obs.windUnit = lastWindUnit ?? "kn"
                 obs.windUnitAssumed = true
@@ -335,7 +343,8 @@ public final class SynopLog {
         var kind = "Land"
         var guessedHeader = false
         func finish() {
-            guard let wmo = cur["WMO Station"] else { cur = [:]; lines = []; return }
+            // Schiffe und Bojen haben keine WMO-Stationsnummer, sondern ein Rufzeichen („Ship/Buoy identifier“)
+            guard let wmo = cur["WMO Station"] ?? cur["Ship/Buoy identifier"] else { cur = [:]; lines = []; return }
             var name = cur["WMO station"] ?? ""
             if name.hasPrefix("WMO_") { name = "" }
             var pos: GeoPoint?
@@ -369,8 +378,8 @@ public final class SynopLog {
             if line.hasPrefix("Note=Header missing") { guessedHeader = true; lines.append(line); continue }
             if line.hasPrefix("WMO Station=") { finish() }
             if line.contains("Land station observation") { kind = "Land" }
-            else if line.contains("Ship") || line.contains("SHIP") { kind = "Schiff" }
-            else if line.contains("uoy") { kind = "Boje" }
+            else if line.hasPrefix("Ship observation") { kind = "Schiff" }
+            else if line.hasPrefix("Buoy observation") { kind = "Boje" }
             if let eq = line.firstIndex(of: "=") {
                 let k = String(line[line.startIndex..<eq]).trimmingCharacters(in: .whitespaces)
                 let v = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
@@ -384,7 +393,7 @@ public final class SynopLog {
 
     /// Was die Karte an den SYNOP-Stationen zeigt
     public enum Layer: String, CaseIterable, Sendable, Identifiable {
-        case symbol, temperature, pressure, wind, visibility
+        case symbol, temperature, pressure, wind, visibility, sea
         public var id: String { rawValue }
         public var title: String {
             switch self {
@@ -393,6 +402,7 @@ public final class SynopLog {
             case .pressure: return "DRUCK"
             case .wind: return "WIND"
             case .visibility: return "SICHT"
+            case .sea: return "SEE"
             }
         }
         public var help: String {
@@ -402,6 +412,7 @@ public final class SynopLog {
             case .pressure: return "Luftdruck auf Meereshöhe in hPa (sonst Stationsdruck)"
             case .wind: return "Windgeschwindigkeit in Knoten mit Pfeil in Windrichtung, Farbe nach Beaufort"
             case .visibility: return "Sichtweite in km, rot (schlecht) bis grün (gut)"
+            case .sea: return "Seegebiete mit Wind aus dem Seewetterbericht, Warnungen, Hochs, Tiefs und Fronten"
             }
         }
     }
@@ -432,9 +443,9 @@ public final class SynopLog {
             let sub = "\(o.kind) · WMO \(o.wmo)" + (o.temperature.map { " · \($0)" } ?? "")
             var marker = MapMarker(id: "synop-" + o.id, coordinate: p, title: o.name, subtitle: sub, details: details,
                                    symbol: o.kind == "Schiff" ? "ferry.fill" : o.kind == "Boje" ? "circle.dotted" : "cloud.sun.fill",
-                                   tone: .weather, heardAt: o.received)
+                                   tone: .weather, heardAt: o.received, track: o.track + (o.track.isEmpty ? [] : [p]))
             switch layer {
-            case .symbol:
+            case .symbol, .sea:
                 break
             case .temperature:
                 guard let t = o.temperatureC else { continue }

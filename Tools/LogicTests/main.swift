@@ -4429,6 +4429,7 @@ do {
         case .pressure: check(withPoint.count == 2 && withPoint.allSatisfy { $0.valueText == "1031" }, "Karte Luftdruck: \(withPoint.map { $0.valueText ?? "-" })")
         case .wind: check(withPoint.contains { $0.headingDeg != nil && $0.valueText == "2" }, "Karte Wind: Pfeil und Knoten (\(withPoint.map { $0.valueText ?? "-" }))")
         case .visibility: check(withPoint.contains { $0.valueText == "13" }, "Karte Sicht: \(withPoint.map { $0.valueText ?? "-" })")
+        case .sea: break
         }
     }
     let wind = log.content(home: home, now: Date(), layer: .wind).markers.first { $0.id == "synop-12120" }
@@ -4441,6 +4442,157 @@ do {
     check(SynopObservation.km("4 km") == 4 && SynopObservation.km("800 m") == 0.8, "Sicht in km")
     // Bei der Erkennung zählt die Stationsliste
     check(SynopHeaderRecovery.isStation("12120") && !SynopHeaderRecovery.isStation("99999") && SynopHeaderRecovery.isSecondGroup("12963") && !SynopHeaderRecovery.isSecondGroup("99514") && SynopHeaderRecovery.isFourthGroup("10126") && !SynopHeaderRecovery.isFourthGroup("62002"), "Erkennung: Stationsnummer, Gruppen")
+}
+
+// MARK: - Seewetterberichte des DWD (FQEN70, FQEN71, WODL45) für die Karte – echte Berichte vom 02.10.2026
+do {
+    let samples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Samples")
+    func sample(_ name: String) -> String { (try? String(contentsOf: samples.appendingPathComponent(name), encoding: .utf8)) ?? "" }
+    let fq70 = sample("DWD_FQEN70_20261002_1700.txt"), fq71 = sample("DWD_FQEN71_20261002_1700.txt"), wodl = sample("DWD_WODL45_20261002_1800.txt")
+    check(!fq70.isEmpty && !fq71.isEmpty && !wodl.isEmpty, "Beispielberichte gelesen (\(samples.path))")
+
+    let r = SeaBulletinParser.parse(fq70)
+    check(r.issued?.contains("02.10.2026") == true && r.issued?.contains("1700") == true, "Ausgabezeit: \(r.issued ?? "-")")
+    check(r.forecasts.count == 18 && r.days == ["friday", "saturday"], "FQEN70: 9 Gebiete an 2 Tagen (\(r.forecasts.count), \(r.days))")
+    let gb = r.forecasts.first { $0.areaID == "germanbight" && $0.day == "friday" }
+    check(gb?.wind == "southwest to south about 3, increasing about 4." && gb?.maxBeaufort == 4 && gb?.windFromDeg == 225, "Deutsche Bucht Freitag: Wind \(gb?.wind ?? "-")")
+    check(gb?.weather.contains("coastal fog patches") == true && gb?.sea.contains("1,5 meter") == true, "Deutsche Bucht: Sicht/Wetter und Seegang (\(gb?.weather ?? "-"), \(gb?.sea ?? "-"))")
+    let fi = r.forecasts.first { $0.areaID == "fischer" && $0.day == "friday" }
+    check(fi?.maxBeaufort == 5, "Fischer Freitag: Windstärke 5 (\(String(describing: fi?.maxBeaufort)))")
+    let bs = r.forecasts.first { $0.areaID == "belts" && $0.day == "saturday" }
+    check(bs?.wind.hasPrefix("first light and variable winds") == true && bs?.wind.contains("slowly shifting southwest to west") == true && bs?.maxBeaufort == 4, "Belte und Sund Samstag: Wind über zwei Zeilen (\(bs?.wind ?? "-"))")
+    let wb = r.forecasts.first { $0.areaID == "westbaltic" && $0.day == "friday" }
+    check(wb?.weather.contains("later coastal fog patches") == true && wb?.weather.contains("rain with poor visibility") == true, "Westliche Ostsee: Sicht/Wetter über zwei Zeilen (\(wb?.weather ?? "-"))")
+    check(r.forecasts.first { $0.areaID == "kattegat" && $0.day == "friday" }?.windFromDeg == 270, "Kattegat: Wind aus West")
+    check(r.forecasts.first { $0.areaID == "belts" && $0.day == "friday" }?.windFromDeg == nil, "Belte und Sund Freitag: leichter Wind ohne Richtung")
+
+    // Wetterlage
+    check(r.synopsis.hasPrefix("A high 1037 Belarus moves to Romania."), "Wetterlage gelesen")
+    check(r.systems.count == 4, "Wetterlage: vier Druckgebiete (\(r.systems.map { "\($0.kind.rawValue) \($0.pressure ?? 0)" }))")
+    if r.systems.count == 4 {
+        let h1 = r.systems[0], t1 = r.systems[1], t2 = r.systems[2], h2 = r.systems[3]
+        check(h1.kind == .high && h1.pressure == 1037 && h1.position.map { abs($0.lat - 53.7) < 0.5 && abs($0.lon - 28.0) < 0.5 } == true, "Hoch 1037 über Belarus")
+        check(h1.destination.map { abs($0.lat - 45.9) < 0.5 && abs($0.lon - 25.0) < 0.5 } == true, "… zieht nach Rumänien")
+        check(t1.kind == .low && t1.pressure == 987 && t1.position.map { $0.lon < -30 && $0.lat > 55 } == true && t1.destination == nil, "Tief 987 über der Irminger See (zieht nicht)")
+        check(t2.kind == .low && t2.name == "secondary low" && t2.pressure == 1011 && t2.position.map { abs($0.lat - 56.8) < 0.5 && abs($0.lon + 4.2) < 0.5 } == true, "Randtief 1011 erreicht Schottland")
+        check(t2.destination.map { $0.lat > 62 && $0.lon < 10 } == true, "… zieht zur Norwegischen See")
+        check(h2.kind == .high && h2.pressure == 1032 && h2.position.map { $0.lat > 51 && $0.lat < 55 && $0.lon > 8 && $0.lon < 14 } == true, "Hoch 1032 über Norddeutschland (nördlicher als die Landesmitte)")
+        check(h2.destination.map { $0.lat > 54 && $0.lon > 14 && $0.lon < 21 } == true, "… zieht zur Südlichen Ostsee")
+    }
+    check(r.fronts.count == 1 && r.fronts[0].kind == .cold && r.fronts[0].points.count == 2, "Kaltfront von Südschweden nach Ostdeutschland (\(r.fronts.map { $0.points.count }))")
+    if let f = r.fronts.first, f.points.count == 2 {
+        check(f.points[0].lat > 57 && f.points[1].lat < 53 && f.points[1].lon > 10, "Front: Südschweden (\(f.points[0].lat)) – Ostdeutschland (\(f.points[1].lat), \(f.points[1].lon))")
+    }
+
+    // Küstenabschnitte
+    let c = SeaBulletinParser.parse(fq71)
+    check(c.forecasts.count == 8 && Set(c.forecasts.map(\.areaID)) == Set(SeaArea.all.filter { $0.kind == .coast }.map(\.id)), "FQEN71: 8 Küstenabschnitte (\(c.forecasts.count))")
+    check(c.forecasts.first { $0.areaID == "helgoland" }?.wind == "southwest about 3, shifting south to southeast." && c.forecasts.allSatisfy { $0.day == "friday" }, "Helgoland: Wind, Tag Freitag")
+    check(c.forecasts.first { $0.areaID == "bodden" }?.weather.contains("moderate visibility") == true, "Boddengewässer: Sicht/Wetter über zwei Zeilen")
+    check(c.systems.count == 4, "FQEN71 enthält dieselbe Wetterlage")
+
+    // Sturmwarnungen
+    let w = SeaBulletinParser.parse(wodl)
+    check(w.warnings.count == 3 && w.warnings.allSatisfy { $0.level == 0 } && Set(w.warnings.map(\.areaID)) == ["germanbight", "westbaltic", "southbaltic"], "WODL45: drei Gebiete ohne Warnung (\(w.warnings.map { "\($0.areaID) \($0.level)" }))")
+    let storm = SeaBulletinParser.parse("STRONG WIND, GALE AND STORM WARNINGS FOR SEA AREAS:\nGERMAN BIGHT, WESTERN AND SOUTHERN BALTIC.\n\nGERMAN BIGHT:\nSTORM WARNING SOUTHWEST 9 TO 10.\n\nWESTERN BALTIC:\nGALE WARNING NORTHWEST.\n\nSOUTHERN BALTIC:\nno warning.\n\nCOASTAL AREA WARNINGS:\n")
+    check(storm.warnings.first { $0.areaID == "germanbight" }?.level == 10 && storm.warnings.first { $0.areaID == "westbaltic" }?.level == 8 && storm.warnings.first { $0.areaID == "southbaltic" }?.level == 0,
+          "Warnstufen aus dem Text (\(storm.warnings.map { "\($0.areaID) \($0.level)" }))")
+
+    // Funkfernschreiben: Großbuchstaben, Zeilenende CR/LF, Fehler
+    let rtty = fq70.uppercased().replacingOccurrences(of: "\n", with: "\r\n").replacingOccurrences(of: "GERMAN BIGHT:", with: "GERMAN BIGHI:").replacingOccurrences(of: "FORECAST SATURDAY:", with: "FORECAST SATURDAY:")
+    let rr = SeaBulletinParser.parse(rtty)
+    check(rr.forecasts.count == 18 && rr.forecasts.first { $0.areaID == "germanbight" && $0.day == "friday" }?.maxBeaufort == 4, "Großbuchstaben, CR/LF und ein Zeichenfehler im Gebietsnamen (\(rr.forecasts.count))")
+    check(rr.systems.count == 4 && rr.fronts.count == 1, "Wetterlage auch in Großbuchstaben (\(rr.systems.count), \(rr.fronts.count))")
+    // Empfang mitten im Bericht: ohne Tagesüberschrift
+    let mid = SeaBulletinParser.parse("SKAGERRAK:\nWIND: SOUTHWESTERLY WINDS 4 TO 5, FIRST LOCALLY 6.\nVISIBILITY/WEATHER: GOOD VISIBILITY.\nSEA: 1,5 METER.\nKATTEGAT:\nWIND: WEST 3 TO 4,\nSHIFTING SLOWLY SOUTHWEST.\nSEA: NORTHERN PART 1 METER.\n")
+    check(mid.forecasts.count == 2 && mid.forecasts[0].day == "forecast" && mid.forecasts[0].maxBeaufort == 6 && mid.forecasts[1].wind == "WEST 3 TO 4, SHIFTING SLOWLY SOUTHWEST.", "Empfang mitten im Bericht: Vorhersage ohne Tag (\(mid.forecasts.map(\.wind)))")
+    check(SeaBulletinParser.parse("CQ CQ CQ DE DDK2 DDH7 DDK9\r\nFREQUENCIES 4583 KHZ\r\nRYRYRY\r\n").isEmpty, "Testbild des DWD ergibt keinen Bericht")
+
+    // Gebiete
+    check(SeaArea.match("German Bight")?.id == "germanbight" && SeaArea.match("DEUTSCHE BUCHT")?.id == "germanbight" && SeaArea.match("German Bighz")?.id == "germanbight", "Gebietsname: englisch, deutsch, ein Fehler")
+    check(SeaArea.match("Southern Baltic")?.id == "southbaltic" && SeaArea.match("Southeastern Baltic")?.id == "sebaltic" && SeaArea.match("Wind") == nil && SeaArea.match("Coastal areas of German North Sea") == nil, "ähnliche Namen bleiben getrennt")
+    check(Set(SeaArea.all.map(\.id)).count == SeaArea.all.count && SeaArea.all.allSatisfy { $0.center.isValid && $0.radiusKm > 0 }, "Gebietsliste: eindeutig, gültige Lagen")
+
+    // Ortsnamen
+    let ger = Gazetteer.locate("germany")!, north = Gazetteer.locate("northern Germany")!, east = Gazetteer.locate("eastern Germany")!
+    check(north.lat > ger.lat && abs(north.lon - ger.lon) < 0.01 && east.lon > ger.lon, "Gazetteer: nördliches und östliches Deutschland")
+    let ice = Gazetteer.locate("Iceland")!, swIce = Gazetteer.locate("close to the southwest of Iceland")!
+    check(swIce.lat < ice.lat - 1.5 && swIce.lon < ice.lon - 3, "Gazetteer: „southwest of Iceland“ liegt außerhalb südwestlich")
+    check(Gazetteer.locate("the northeastern part of the Irminger Sea").map { $0.lat > 61.5 && $0.lon > -35 } == true && Gazetteer.locate("Atlantis") == nil, "Gazetteer: Teil eines Meeres, Unbekanntes → nil")
+    check(Gazetteer.locate("area St. Petersburg").map { abs($0.lat - 59.9) < 0.1 } == true, "Gazetteer: „area St. Petersburg“")
+
+    // Übersetzung
+    check(SeaPhrase.german("southwest to south about 3, increasing about 4.") == "Südwest bis Süd um 3, zunehmend um 4.", "Übersetzung Wind: \(SeaPhrase.german("southwest to south about 3, increasing about 4."))")
+    check(SeaPhrase.german("later coastal fog patches.") == "Später Küstennebelfelder.", "Übersetzung Nebel: \(SeaPhrase.german("later coastal fog patches."))")
+    check(SeaPhrase.german("northwestern part later 1,5 meter.") == "Nordwestteil später 1,5 Meter.", "Übersetzung Seegang: \(SeaPhrase.german("northwestern part later 1,5 meter."))")
+    check(SeaPhrase.german("light and variable winds") == "Schwache umlaufende Winde" && SeaPhrase.germanDay("friday") == "Freitag", "Übersetzung: schwache Winde, Wochentag")
+
+    // Log und Karte
+    let log = SeaLog()
+    log.feed(fq70, decoded: false)
+    log.feed("RYRYRYRY\r\n", decoded: false)
+    log.feed("Latitude=51.4\n", decoded: true)          // Klartext zählt nicht
+    check(log.report.forecasts.count == 18, "SeaLog: Bericht (\(log.report.forecasts.count))")
+    log.feed(fq71, decoded: false)
+    log.feed("\u{03}\r\nNNNN\r\n", decoded: false)      // Steuerzeichen und Telegrammende zwischen den Berichten
+    log.feed(storm.warnings.isEmpty ? "" : "STRONG WIND, GALE AND STORM WARNINGS FOR SEA AREAS:\nGERMAN BIGHT:\nSTORM WARNING SOUTHWEST 9.\nWESTERN BALTIC:\nno warning.\n", decoded: false)
+    let home = GeoPoint(lat: 49.77, lon: 9.95)
+    let content = log.content(home: home, now: Date())
+    let areaMarkers = content.markers.filter { $0.id.hasPrefix("sea-") }
+    check(areaMarkers.count == 17, "Karte: 9 Seegebiete und 8 Küstenabschnitte (\(areaMarkers.count))")
+    let bight = content.markers.first { $0.id == "sea-germanbight" }
+    check(bight?.valueText == "4" && bight?.title == "Deutsche Bucht" && bight?.radiusKm == 110 && bight?.headingDeg == 45, "Karte Deutsche Bucht: Windstärke 4, Pfeil nach Nordost (\(String(describing: bight?.headingDeg)))")
+    check(bight?.details.contains { $0.hasPrefix("Freitag: Wind Südwest bis Süd um 3, zunehmend um 4.") } == true && bight?.details.contains { $0.contains("Seegang: Nordwestteil später 1,5 Meter.") } == true, "Popup: deutsche Fassung je Tag")
+    check(content.markers.contains { $0.id == "warn-germanbight" && $0.tone == .alert } && !content.markers.contains { $0.id == "warn-westbaltic" }, "Karte: Warnung nur für die Deutsche Bucht")
+    check(content.markers.filter { $0.id.hasPrefix("system-") }.count == 4 && content.lines.contains { $0.id == "system-move-0" } && content.lines.contains { $0.id == "front-0" }, "Karte: Hochs, Tiefs, Zugrichtung und Front")
+    let h = content.markers.first { $0.id == "system-0" }
+    check(h?.valueText == "H 1037" && h?.title == "Hoch 1037 hPa", "Karte: Hoch 1037 (\(h?.valueText ?? "-"))")
+    check(SeaLog().content(home: home, now: Date()).markers.isEmpty, "Karte ohne Bericht: leer")
+    log.clear()
+    check(log.report.isEmpty, "SeaLog geleert")
+}
+
+// MARK: - Schiffs- und Bojenmeldungen mit Weg, Positionen in Warnnachrichten
+do {
+    SynopDecoder.loadStations()
+    func segments(_ text: String) -> [TextSegment] {
+        var segs: [TextSegment] = []
+        let d = SynopDecoder { segs.append($0) }
+        for scalar in text.unicodeScalars { d.feed(Character(scalar)) }
+        d.flush()
+        return segs
+    }
+    let log = SynopLog()
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    for seg in segments("SMVX41 EDZW 021800\r\nBBXX DBCB 02184 99530 10078 41656 10202 20196 40146 52007 22200 =\r\nBBXX DHBR 02184 99521 10065 41/80 11205 20191 40152 =\r\nNNNN\r\n") {
+        log.feed(seg.text, decoded: seg.decoded, at: t0)
+    }
+    log.flush(at: t0)
+    check(log.observations.count == 2 && Set(log.observations.keys) == ["DBCB", "DHBR"], "Schiffsmeldungen: Rufzeichen als Schlüssel (\(log.observations.keys.sorted()))")
+    let ship = log.observations["DBCB"]
+    check(ship?.kind == "Schiff" && ship?.position == GeoPoint(lat: 53.0, lon: 7.8) && ship?.track.isEmpty == true, "Schiff DBCB: Ort 53,0 N 7,8 E (\(String(describing: ship?.position)))")
+    // später meldet das Schiff von einem anderen Ort: Weg
+    for seg in segments("BBXX DBCB 02214 99535 10091 41656 10202 20196 40146 =\r\nNNNN\r\n") { log.feed(seg.text, decoded: seg.decoded, at: t0.addingTimeInterval(3 * 3600)) }
+    log.flush(at: t0.addingTimeInterval(3 * 3600))
+    let moved = log.observations["DBCB"]
+    check(moved?.position == GeoPoint(lat: 53.5, lon: 9.1) && moved?.track == [GeoPoint(lat: 53.0, lon: 7.8)], "Schiff DBCB: neuer Ort, Weg mit dem alten (\(String(describing: moved?.position)), \(String(describing: moved?.track)))")
+    let sc = log.content(home: GeoPoint(lat: 49.77, lon: 9.95), now: t0.addingTimeInterval(3 * 3600 + 60))
+    check(sc.markers.first { $0.id == "synop-DBCB" }?.track.count == 2 && sc.markers.first { $0.id == "synop-DHBR" }?.track.isEmpty == true && sc.markers.first { $0.id == "synop-DBCB" }?.symbol == "ferry.fill", "Karte: Weg des Schiffs, Fährensymbol")
+
+    // Positionen in Warnnachrichten
+    let nav = NauticalPositions.extract("NAVAREA I WARNING 123.\nDERELICT AT 54-12.5N 007-30.2E.\n\nBUOY OFF POSITION 5430N 01015E UNLIT.\n\nWRECK 54\u{00B0}20'N 007\u{00B0}40'E MARKED.\r\n")
+    check(nav.count == 3, "Positionen: drei Formen (\(nav.count))")
+    if nav.count == 3 {
+        check(abs(nav[0].point.lat - 54.2083) < 0.001 && abs(nav[0].point.lon - 7.5033) < 0.001 && nav[0].context.contains("DERELICT"), "Position 54-12.5N 007-30.2E mit Absatz")
+        check(abs(nav[1].point.lat - 54.5) < 0.001 && abs(nav[1].point.lon - 10.25) < 0.001, "Position 5430N 01015E (kompakt)")
+        check(abs(nav[2].point.lat - 54.3333) < 0.001 && abs(nav[2].point.lon - 7.6667) < 0.001, "Position 54°20′N 007°40′E")
+    }
+    check(NauticalPositions.extract("BBXX DBCB 02184 99530 10078 41656 10202 20196 40146 =\r\n99-99N 200-10E 7-3N 5\r\n").isEmpty, "SYNOP-Gruppen und ungültige Positionen ergeben nichts")
+    check(NauticalPositions.extract("12-30S 045-10W TEST").first.map { $0.point.lat < 0 && $0.point.lon < 0 } == true, "Position Süd/West")
+    let seaLog = SeaLog()
+    seaLog.feed("NAVAREA I WARNING 5.\r\nOBSTRUCTION 54-10N 007-50E.\r\n", decoded: false)
+    let cm = seaLog.content(home: nil, now: Date()).markers.filter { $0.id.hasPrefix("nav-") }
+    check(cm.count == 1 && cm[0].tone == .highlight && cm[0].details[0].contains("OBSTRUCTION"), "Karte: Warnposition als Punkt")
 }
 
 @MainActor func homeTests() {

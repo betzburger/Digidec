@@ -1,0 +1,99 @@
+
+FQDL70 DWHA 021700
+ 
+weather and sea bulletin for north- and baltic sea
+issued by marine weather service hamburg
+02.10.2026, 1700 UTC:
+
+general synoptic situation:
+A high 1037 Belarus moves to Romania. A low 987 Irminger Sea 
+weakens. The associated cold front extends from southern Sweden 
+to eastern Germany and moves to the Baltic States. A secondary 
+low 1011 will reach Scotland on Friday evening and move to the 
+Norwegian Sea while deepening. A high 1032 northern Germany moves
+to the southern Baltic Sea.
+
+Forecast Friday:
+German Bight:
+wind: southwest to south about 3, increasing about 4.
+visibility/weather: later coastal fog patches.
+sea: northwestern part later 1,5 meter.
+Southwestern North Sea:
+wind: southwest to south about 4.
+visibility/weather: good visibility.
+sea: humber later 1,5 meter.
+Fischer:
+wind: southwest to south about 4, later about 5.
+visibility/weather: good visibility.
+sea: western part later 2 meter.
+Skagerrak:
+wind: southwesterly winds 4 to 5, first locally 6.
+visibility/weather: good visibility.
+sea: 1,5 meter.
+Kattegat:
+wind: west 3 to 4, shifting slowly southwest.
+visibility/weather: first locally rain with poor visibility, 
+later coastal fog patches.
+sea: northern part 1 meter.
+Belts and Sound:
+wind: light and variable winds.
+visibility/weather: first locally rain with poor visibility, 
+later fog patches.
+sea: below 0,5 meter.
+Western Baltic:
+wind: first locally northwest to west 4, otherwise light and 
+variable winds.
+visibility/weather: first locally rain with poor visibility, 
+later coastal fog patches.
+sea: eastern part first 0,5 meter.
+Southern Baltic:
+wind: southwesterly winds about 3, shifting northwest.
+visibility/weather: western part locally rain with poor 
+visibility, southern part later coastal fog patches.
+sea: northeastern part first 1 meter.
+Southeastern Baltic:
+wind: southeast about 4, shifting southwest about 3.
+visibility/weather: good visibility.
+sea: first 1,5 meter.
+
+Forecast Saturday:
+German Bight:
+wind: south to southwest about 4, shifting slowly northwest.
+visibility/weather: first and later coastal fog patches.
+sea: northwestern part at times 1,5 meter.
+Southwestern North Sea:
+wind: south to southwest about 4, abating.
+visibility/weather: later locally rain with moderate visibility.
+sea: humber first 1,5 meter.
+Fischer:
+wind: south about 5, slowly shifting west to northwest about 4.
+visibility/weather: for a time rain with poor visibility.
+sea: at times 2 meter.
+Skagerrak:
+wind: southwesterly winds about 5.
+visibility/weather: for a time shower with moderate visibility.
+sea: 1,5 meter.
+Kattegat:
+wind: southwesterly winds about 3, increasing about 4.
+visibility/weather: at times coastal fog patches.
+sea: northern part 1 meter.
+Belts and Sound:
+wind: first light and variable winds, otherwise south 3 to 4, 
+slowly shifting southwest to west.
+visibility/weather: at times coastal fog patches.
+sea: below 0,5 meter.
+Western Baltic:
+wind: light and variable winds.
+visibility/weather: at times coastal fog patches.
+sea: below 0,5 meter.
+Southern Baltic:
+wind: first locally northwest and later locally southwest 4, 
+otherwise light and variable winds.
+visibility/weather: at times coastal fog patches.
+sea: first 0,5 meter.
+Southeastern Baltic:
+wind: west to southwest 3 to 4, for a time light and variable 
+winds.
+visibility/weather: later coastal fog patches.
+sea: first 0,5 meter.
+

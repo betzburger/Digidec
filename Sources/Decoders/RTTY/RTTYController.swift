@@ -15,6 +15,8 @@ public final class ReceiveTextModel: ObservableObject {
     /// Rufzeichen und SYNOP-Meldungen aus dem Text, für die Karte
     public let calls = CallsignLog()
     public let synop = SynopLog()
+    /// Seewetterberichte und Sturmwarnungen aus dem Text, für die Karte
+    public let sea = SeaLog()
     /// Rufzeichen im Text suchen (aus bei NAVTEX)
     public var scansCallsigns = true
 
@@ -23,6 +25,7 @@ public final class ReceiveTextModel: ObservableObject {
         guard !s.isEmpty else { return }
         if scansCallsigns && !decoded { calls.feed(s) }
         synop.feed(s, decoded: decoded)
+        sea.feed(s, decoded: decoded)
         text += s
         if text.count > Self.maxCharacters {
             text = String(text.suffix(Self.maxCharacters * 3 / 4))
@@ -39,6 +42,7 @@ public final class ReceiveTextModel: ObservableObject {
         characterCount = 0
         calls.clear()
         synop.clear()
+        sea.clear()
         onClear?()
     }
 }
