@@ -4,7 +4,7 @@ import Foundation
 
 /// Tonfolgen: DTMF (Zweitonwahl) und Selektivrufe mit Einzeltönen
 public enum ToneStandard: String, CaseIterable, Identifiable, Sendable {
-    case dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia
+    case dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia, selcal
 
     public var id: String { rawValue }
 
@@ -19,6 +19,7 @@ public enum ToneStandard: String, CaseIterable, Identifiable, Sendable {
         case .ccir:  return "CCIR"
         case .eea:   return "EEA"
         case .eia:   return "EIA"
+        case .selcal: return "SELCAL"
         }
     }
 
@@ -33,6 +34,7 @@ public enum ToneStandard: String, CaseIterable, Identifiable, Sendable {
         case .ccir:  return "CCIR, 100 ms je Ton (Seefunk, Schiffsrufe, Betriebsfunk)"
         case .eea:   return "EEA, 40 ms je Ton"
         case .eia:   return "EIA, 33 ms je Ton"
+        case .selcal: return "SELCAL (ARINC 714, Flugfunk auf HF): vier Buchstaben aus zwei Doppeltönen von je 1 s, 0,2 s Pause; ruft ein Flugzeug (z. B. AB-CD)"
         }
     }
 
@@ -48,6 +50,7 @@ public enum ToneStandard: String, CaseIterable, Identifiable, Sendable {
         case .ccir:  return [1981, 1124, 1197, 1275, 1358, 1446, 1540, 1640, 1747, 1860, 2400, 930, 2247, 991, 2110, 1055]
         case .eea:   return [1981, 1124, 1197, 1275, 1358, 1446, 1540, 1640, 1747, 1860, 1055, 930, 2400, 991, 2110, 2247]
         case .eia:   return [600, 741, 882, 1023, 1164, 1305, 1446, 1587, 1728, 1869, 2151, 2433, 2010, 2292, 459, 1091]
+        case .selcal: return ToneStandard.selcalFrequencies
         }
     }
 
@@ -59,12 +62,18 @@ public enum ToneStandard: String, CaseIterable, Identifiable, Sendable {
         case .ccir: return 0.1
         case .eea: return 0.04
         case .eia: return 0.033
+        case .selcal: return 1.0
         }
     }
 
+    /// SELCAL-Töne (ARINC 714) in Hz, Index = Buchstabe A B C D E F G H J K L M P Q R S
+    public static let selcalFrequencies: [Double] = [312.6, 346.7, 384.6, 426.6, 473.2, 524.8, 582.1, 645.7, 716.1, 794.3, 881.0, 977.2, 1083.9, 1202.3, 1333.5, 1479.1]
+    public static let selcalLetters = Array("ABCDEFGHJKLMPQRS")
+
     /// Zeichen für einen Tonindex
     public func symbol(_ i: Int) -> Character {
-        Array("0123456789ABCDEF")[i]
+        if self == .selcal { return Self.selcalLetters[i] }
+        return Array("0123456789ABCDEF")[i]
     }
 }
 
@@ -122,20 +131,31 @@ public final class ToneDecoder {
     private var sequenceStart = Date()
     private var active = false
     private var releaseHops = 0
+    // SELCAL: zwei Impulse mit je zwei gleichzeitigen Tönen
+    private var hann: [Float] = []
+    private var selHop = 0
+    private var selCandidate: String?
+    private var selCandidateHops = 0
+    private var selCounted = false
+    private var selFirst: (pair: String, lastHop: Int, start: Date)?
 
     public init(standard: ToneStandard, sampleRate: Double = 8_000) {
         self.standard = standard
         self.sampleRate = sampleRate
         goertzels = standard.frequencies.map { Goertzel(frequency: $0, sampleRate: sampleRate) }
         // Fenster: bei dichten Tönen (Abstand ≥ 73 Hz) mindestens 20 ms, höchstens 60 % der Tondauer
-        let w = max(0.02, min(0.04, standard.toneSeconds * 0.6))
+        let w = standard == .selcal ? 0.08 : max(0.02, min(0.04, standard.toneSeconds * 0.6))
         windowLength = Int(w * sampleRate)
-        hop = Int(0.005 * sampleRate)
+        hop = Int((standard == .selcal ? 0.025 : 0.005) * sampleRate)
+        if standard == .selcal {
+            hann = (0..<windowLength).map { Float(0.5 - 0.5 * cos(2 * .pi * Double($0) / Double(windowLength - 1))) }
+        }
     }
 
     public func reset() {
         window.removeAll()
         candidate = -1; candidateHops = 0; lastEmitted = -2; silentHops = 0; sequence = ""; active = false; sinceHop = 0
+        selCandidate = nil; selCandidateHops = 0; selCounted = false; selFirst = nil
     }
 
     /// `onChange`: Folge hat sich geändert (Text, abgeschlossen?)
@@ -152,6 +172,7 @@ public final class ToneDecoder {
     }
 
     private func step(now: Date, onChange: (ToneSequence) -> Void) {
+        if standard == .selcal { stepSelcal(now: now, onChange: onChange); return }
         let detected = standard == .dtmf ? detectDTMF() : detectSingle()
         // Schritte, in denen das Fenster ganz im Ton liegt: (Tondauer − Fenster) / Schritt + 1; davon gut die Hälfte genügt
         let steady = (standard.toneSeconds - Double(windowLength) / sampleRate) / 0.005 + 1
@@ -221,6 +242,49 @@ public final class ToneDecoder {
     }
 }
 
+// MARK: - SELCAL
+
+extension ToneDecoder {
+    /// Ein Schritt der SELCAL-Erkennung: zwei Impulse (je zwei Töne, mindestens 0,35 s stabil), Pause höchstens 0,6 s
+    fileprivate func stepSelcal(now: Date, onChange: (ToneSequence) -> Void) {
+        selHop += 1
+        let minStable = 14, maxGap = 24
+        if let pair = detectSelcalPair() {
+            if pair == selCandidate { selCandidateHops += 1 } else { selCandidate = pair; selCandidateHops = 1; selCounted = false }
+            if selCandidateHops >= minStable && !selCounted {
+                selCounted = true
+                if let first = selFirst, (selHop - selCandidateHops + 1) - first.lastHop <= maxGap, first.pair != pair {   // Pause bis zum Beginn des zweiten Impulses
+                    onChange(ToneSequence(start: first.start, standard: .selcal, text: first.pair + "-" + pair, isComplete: true))
+                    selFirst = nil
+                } else {
+                    selFirst = (pair, selHop, now)
+                }
+            }
+            if selCounted, selFirst?.pair == pair { selFirst?.lastHop = selHop }
+        } else {
+            selCandidate = nil; selCandidateHops = 0; selCounted = false
+            if let first = selFirst, selHop - first.lastHop > maxGap { selFirst = nil }
+        }
+    }
+
+    /// Die beiden stärksten SELCAL-Töne (Hann-Fenster, 80 ms): Buchstabenpaar in aufsteigender Reihenfolge, oder nil
+    fileprivate func detectSelcalPair() -> String? {
+        var total = 0.0
+        for v in window { total += Double(v) * Double(v) }
+        total /= Double(window.count)
+        guard total > 1e-6 else { return nil }
+        var weighted = [Float](repeating: 0, count: window.count)
+        for i in 0..<window.count { weighted[i] = window[i] * hann[i] }
+        // Hann-Fenster: kohärente Verstärkung 0,5, Leistung also 0,25
+        let p = goertzels.map { $0.power(weighted[...]) / 0.25 }
+        let order = (0..<16).sorted { p[$0] > p[$1] }
+        let a = order[0], b = order[1], c = order[2]
+        guard (p[a] + p[b]) * 2 > 0.35 * total, p[b] * 16 > p[a], p[c] * 8 < p[b] else { return nil }
+        let lo = min(a, b), hi = max(a, b)
+        return String(ToneStandard.selcalLetters[lo]) + String(ToneStandard.selcalLetters[hi])
+    }
+}
+
 // MARK: - Testsignal
 
 public enum ToneSignalGenerator {
@@ -257,6 +321,24 @@ public enum ToneSignalGenerator {
             out += [Float](repeating: 0, count: Int(gap * sampleRate))
         }
         out += [Float](repeating: 0, count: Int(1.0 * sampleRate))
+        return out
+    }
+
+    /// SELCAL: Code aus vier Buchstaben (z. B. „ABCD“): zwei Impulse von je 1 s mit je zwei Tönen, 0,2 s Pause
+    public static func selcal(_ code: String, sampleRate: Double = 8_000, amplitude: Float = 0.25, lead: Double = 0.3, tail: Double = 1.0,
+                              pulse: Double = 1.0, gap: Double = 0.2) -> [Float] {
+        let letters = Array(code.uppercased().filter { ToneStandard.selcalLetters.contains($0) })
+        guard letters.count == 4 else { return [] }
+        var out = [Float](repeating: 0, count: Int(lead * sampleRate))
+        for pair in [letters[0..<2], letters[2..<4]] {
+            let f = pair.map { ToneStandard.selcalFrequencies[ToneStandard.selcalLetters.firstIndex(of: $0)!] }
+            for i in 0..<Int(pulse * sampleRate) {
+                let t = Double(i) / sampleRate
+                out.append(amplitude * (Float(sin(2 * .pi * f[0] * t)) + Float(sin(2 * .pi * f[1] * t))))
+            }
+            out += [Float](repeating: 0, count: Int(gap * sampleRate))
+        }
+        out += [Float](repeating: 0, count: Int(tail * sampleRate))
         return out
     }
 }

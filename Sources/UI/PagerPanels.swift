@@ -309,7 +309,7 @@ struct TonesTuningPanel: View {
                 Text("TÖNE")
                     .font(.system(size: 16, weight: .black, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdGreen)
-                Text("DTMF · SELEKTIVRUF")
+                Text("DTMF · SELEKTIVRUF · SELCAL")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
             }
@@ -335,7 +335,7 @@ struct TonesSettingsPanel: View {
                         .help(s.note)
                 }
             }
-            Text("Mehrere Normen laufen gleichzeitig. ZVEI 1, 2 und 3 unterscheiden sich nur in den Hilfstönen: Stimmt die Ziffernfolge, ist es meist ZVEI 1 (Deutschland). Zeichen A–F sind Hilfs- und Wiederholtöne.")
+            Text("Mehrere Normen laufen gleichzeitig. ZVEI 1, 2 und 3 unterscheiden sich nur in den Hilfstönen: Stimmt die Ziffernfolge, ist es meist ZVEI 1 (Deutschland). Zeichen A–F sind Hilfs- und Wiederholtöne. SELCAL ruft Flugzeuge auf HF (USB): zwei Doppeltöne ergeben einen Code wie AB-CD.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }

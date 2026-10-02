@@ -29,7 +29,7 @@ extension TonesSettingsStore: TuningTarget {
     public var tones: (mark: Double, space: Double) { (0, 0) }
     public var markerBandwidth: Double { 0 }
     public func setCenter(_ hz: Double) {}
-    public var markerStyle: WaterfallMarkerStyle { .none("TÖNE · Tonfolgen überall im Spektrum (DTMF 697–1633 Hz, Selektivruf 450–2800 Hz)") }
+    public var markerStyle: WaterfallMarkerStyle { .none("TÖNE · Tonfolgen überall im Spektrum (SELCAL 313–1479 Hz, DTMF 697–1633 Hz, Selektivruf 450–2800 Hz)") }
 }
 
 // MARK: - Decoder

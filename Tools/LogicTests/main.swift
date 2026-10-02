@@ -4420,7 +4420,7 @@ do {
         }
         return out
     }
-    for std in ToneStandard.allCases where std != .dtmf {
+    for std in ToneStandard.allCases where std != .dtmf && std != .selcal {
         let syms = [1, 2, 3, 4, 5, 0, 7, 9]
         let got = toneRun(std, ToneSignalGenerator.selcall(std, symbols: syms))
         check(got == ["123450" + "79"], "\(std.name): Folge 12345079 (\(got))")
@@ -4436,9 +4436,34 @@ do {
     let two = ToneSignalGenerator.selcall(.ccir, symbols: [1, 2, 3]) + ToneSignalGenerator.selcall(.ccir, symbols: [4, 5, 6])
     check(toneRun(.ccir, two) == ["123", "456"], "CCIR: zwei Folgen nacheinander")
     check(ToneStandard.zvei1.frequencies.count == 16 && ToneStandard.dtmf.frequencies.count == 8 && ToneStandard.ccir.toneSeconds == 0.1, "Normtabellen")
+    // SELCAL (ARINC 714): 16 Töne A–S ohne I, N, O; zwei Impulse mit je zwei Tönen
+    check(ToneStandard.selcal.frequencies.count == 16 && ToneStandard.selcalLetters.count == 16 && !ToneStandard.selcalLetters.contains("I") && !ToneStandard.selcalLetters.contains("N") && !ToneStandard.selcalLetters.contains("O"), "SELCAL: Töne und Buchstaben")
+    check(zip(ToneStandard.selcalFrequencies, ToneStandard.selcalFrequencies.dropFirst()).allSatisfy { $1 > $0 }, "SELCAL: Töne aufsteigend")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("ABCD")) == ["AB-CD"], "SELCAL: AB-CD")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("DAMR")) == ["AD-MR"], "SELCAL: Buchstabenpaare werden aufsteigend geordnet (DAMR → AD-MR)")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("JKPQ")) == ["JK-PQ"], "SELCAL: benachbarte Töne JK-PQ")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("SHFG")) == ["HS-FG"], "SELCAL: HS-FG (höchster Ton S)")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("ABCD", pulse: 0.8, gap: 0.3)) == ["AB-CD"], "SELCAL: kürzere Impulse, längere Pause")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("ABCD") + ToneSignalGenerator.selcal("EFGH")) == ["AB-CD", "EF-GH"], "SELCAL: zwei Rufe nacheinander")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("QRSA", amplitude: 0.01).map { $0 + Float.random(in: -0.004...0.004, using: &g) }) == ["QR-AS"], "SELCAL: leise mit Rauschen")
+    check(toneRun(.selcal, ToneSignalGenerator.selcal("ABCD", gap: 1.5)).isEmpty, "SELCAL: zu lange Pause zwischen den Impulsen ergibt keinen Ruf")
+    let onePulse = Array(ToneSignalGenerator.selcal("ABCD").prefix(Int(8000 * 1.4))) + [Float](repeating: 0, count: 16_000)
+    check(toneRun(.selcal, onePulse).isEmpty, "SELCAL: ein einzelner Impuls ergibt keinen Ruf")
+    check(toneRun(.selcal, ToneSignalGenerator.selcall(.zvei1, symbols: [1, 2, 3, 4, 5])).isEmpty, "SELCAL: ZVEI-Folge ergibt keinen Ruf")
+    // Tonhöhenfehler im Empfänger (SSB-Abstimmung): 5 Hz tiefer
+    let shifted: [Float] = {
+        var rx = ToneSignalGenerator.selcal("ABCD", sampleRate: 8_000)
+        // Versatz über eine leicht andere Abtastrate nachbilden: 1,25 % Zeitdehnung = 4 … 5 Hz tiefer bei 313 … 427 Hz
+        let f = 1.0125
+        rx = (0..<Int(Double(rx.count) / f)).map { i in rx[min(rx.count - 1, Int(Double(i) * f))] }
+        return rx
+    }()
+    check(toneRun(.selcal, shifted) == ["AB-CD"], "SELCAL: 4 bis 5 Hz Frequenzfehler bei tiefen Tönen werden toleriert")
+
     // Sprache/Musik-ähnliches Signal (Mehrfachtöne) wird nicht als DTMF gelesen
     let chord = (0..<40_000).map { i -> Float in let t = Double(i) / 8000; return 0.15 * Float(sin(2 * .pi * 440 * t) + sin(2 * .pi * 554 * t) + sin(2 * .pi * 659 * t)) } + [Float](repeating: 0, count: 8000)
     check(toneRun(.dtmf, chord).isEmpty, "DTMF: Akkord 440/554/659 Hz wird nicht gelesen")
+    check(toneRun(.selcal, chord).isEmpty, "SELCAL: Akkord 440/554/659 Hz wird nicht gelesen")
 }
 
 @MainActor func pagerModuleTests() {

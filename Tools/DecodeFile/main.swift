@@ -34,7 +34,7 @@ func usage() -> Never {
                             --slicers <n> (Standard 7), --pre auto|off|on Vorverzerrung für de-emphasiertes Audio (Standard auto: beide Wege), --center <Mitte-Hz> (Standard 1700), --home <Locator> für Entfernungen
 
       --pager               Funkruf (POCSAG 512/1200/2400, FLEX): je Meldung eine Zeile; --rates 512,1200 schränkt die Baudraten ein
-      --tones [normen]      DTMF und Selektivrufe (dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia), Normen durch Komma getrennt (Standard: dtmf,zvei1)
+      --tones [normen]      DTMF und Selektivrufe (dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia, selcal), Normen durch Komma getrennt (Standard: dtmf,zvei1)
 
       --acars               ACARS (AM-Audio, MSK 2400 Bd): je Meldung eine Zeile; --channel <n> wählt bei Mehrkanaldateien den Kanal (ab 0)
 
