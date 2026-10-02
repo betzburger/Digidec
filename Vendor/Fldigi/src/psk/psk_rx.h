@@ -145,10 +145,14 @@ private:
 	bool			PSKviterbi;
 	double			vphase;
 	double			maxamp;
-	// ABWEICHUNG fldigi (Digidec): file-static Zustand von fldigi (rx_symbol) je Instanz
+	// ABWEICHUNG fldigi (Digidec): file-static Zustand von fldigi (rx_symbol, tx_bit, tx_xpsk) je Instanz
 	double			averageamp_ = 0;
 	int				counter_ = 0;
 	int				dcdOFFcounter_ = 0;
+	int				bitcount_ = 0;
+	int				xpsk_sym_ = 0;
+	int				bitcount2_ = 0;
+	unsigned int	xpsk_sym2_ = 0;
 
 
 //MULTI-CARRIER

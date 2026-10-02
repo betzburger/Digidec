@@ -61,10 +61,13 @@ struct PskProgdefaults {
 	int    ServerAFCrange   = 25;
 	double ServerACQsn      = 9.0;
 	bool   report_when_visible = false;
+	double pilot_power      = -20;   // Sendeseite (Testsignal)
+	bool   softPSK          = false;
 };
 
 /// fldigi progStatus-Felder
 struct PskProgStatus {
+	bool   psk8DCDShortFlag = false;
 	double carrier          = 0;
 	bool   afconoff         = true;
 	bool   sqlonoff         = true;
@@ -112,7 +115,7 @@ public:
 	bool   reverse  = false;
 	bool   stopflag = false;
 	int    sigsearch = 0;
-	int    symbols = 0, acc_symbols = 0, ovhd_symbols = 0;
+	int    symbols = 0, acc_symbols = 0, ovhd_symbols = 0, char_symbols = 0;
 	double s2n_metric = 0, s2n_sum = 0, s2n_sum2 = 0, s2n_ncount = 0;
 	bool   mailserver = false, mailclient = false;
 	bool   bHistory = false;
@@ -123,6 +126,14 @@ public:
 	PskWaterfall   *wf = &wf_;
 	PskDialogStub   dlg_;
 	PskDialogStub  *dlgViewer = &dlg_;
+
+	// Sendeseite (nur Testsignal): Samples gehen in diesen Puffer
+	double outbuf[65536];
+	std::vector<float> *tx_sink = nullptr;
+	double get_txfreq_woffset() const { return frequency; }
+	void ModulateXmtr(double *buf, int len) {
+		if (tx_sink) for (int i = 0; i < len; i++) tx_sink->push_back((float)buf[i]);
+	}
 
 	// Ausgaben für Digidec
 	void (*on_char)(void *ctx, int c) = nullptr;

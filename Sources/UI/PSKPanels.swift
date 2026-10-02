@@ -155,13 +155,50 @@ struct PhaseVectorScope: View {
 struct PSKSettingsPanel: View {
     @ObservedObject var settings: PSKSettingsStore
 
+    private static func familyTitle(_ f: PSKMode.Family) -> String {
+        switch f {
+        case .bpsk: return "BPSK"
+        case .qpsk: return "QPSK"
+        case .pskr: return "PSKR"
+        case .psk8: return "8PSK"
+        }
+    }
+
+    private static func familyHelp(_ f: PSKMode.Family) -> String {
+        switch f {
+        case .bpsk: return "BPSK: Phasenumtastung mit 2 Phasen, Varicode"
+        case .qpsk: return "QPSK: 4 Phasen mit Viterbi-Decoder (K=5)"
+        case .pskr: return "PSKR: BPSK mit Vorwärtsfehlerkorrektur und Verschachtelung (robust bei Störungen)"
+        case .psk8: return "8PSK: 8 Phasen, 16 kHz Abtastrate; mit F oder FL zusätzlich Fehlerkorrektur"
+        }
+    }
+
+    private static func modeHelp(_ m: PSKMode) -> String {
+        switch m.family {
+        case .bpsk: return " · BPSK"
+        case .qpsk: return " · QPSK mit Viterbi-Decoder (K=5)"
+        case .pskr: return " · PSKR mit Fehlerkorrektur"
+        case .psk8: return m.hasFEC ? " · 8PSK mit Fehlerkorrektur" : " · 8PSK ohne Fehlerkorrektur"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
-                ForEach(PSKMode.allCases) { m in
-                    Button { settings.options.mode = m } label: { Text(m.displayName).lineLimit(1).minimumScaleFactor(0.7) }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.mode == m))
-                        .help(String(format: "%.2f Baud", m.baud) + (m.isQPSK ? " · QPSK mit Viterbi-Decoder (K=5)" : " · BPSK"))
+            ForEach(PSKMode.Family.allCases, id: \.self) { family in
+                HStack(alignment: .top, spacing: 4) {
+                    Text(Self.familyTitle(family))
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(RadioTheme.textDim)
+                        .frame(width: 34, alignment: .leading)
+                        .padding(.top, 5)
+                        .help(Self.familyHelp(family))
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+                        ForEach(PSKMode.allCases.filter { $0.family == family }) { m in
+                            Button { settings.options.mode = m } label: { Text(m.shortName).lineLimit(1).minimumScaleFactor(0.6) }
+                                .buttonStyle(ModeButtonStyle(isSelected: settings.options.mode == m))
+                                .help(String(format: "%.0f Baud", m.baud) + Self.modeHelp(m))
+                        }
+                    }
                 }
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {

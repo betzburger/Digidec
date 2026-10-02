@@ -443,6 +443,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M33 | SELCAL | ✅ 02.10.2026 (v0.34.0): im Modul TÖNE als weitere Norm (ARINC 714, 16 Töne 313–1479 Hz, zwei Impulse mit je zwei Tönen); Hann-Fenster 80 ms, Anzeige „AB-CD“ |
 | M34 | Throb, IFKP, FSQ | ✅ 02.10.2026 (v0.35.0): drei weitere Familien im Modul „MFSK“ (14 Betriebsarten, jetzt 49); 12- und 16-kHz-Senken |
 | M35 | Hell | ✅ 02.10.2026 (v0.36.0): Feld Hell, Slow Hell, X5, X9, FSK Hell 245/105, Hell 80 aus fldigi; Bildanzeige (Raster) mit PNG-Export |
+| M36 | PSKR und 8PSK | ✅ 02.10.2026 (v0.37.0): im Modul PSK 4 PSKR- und 11 8PSK-Betriebsarten (mit FEC, 16 kHz); Sendeseite von fldigi für das Testsignal |
 ---
 
 ## 11. Aktueller Stand
@@ -974,9 +975,13 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Tests:** 1509 Logiktests (+30): URL, Kennungen, Rundlauf aller Betriebsarten (Spalten, Tinte), Spaltenlänge, Wiederholung, Mitte, Rauschen, Tafel, Squelch (Stille), Raster-Bild und PNG.
   - **Beobachtung:** Der MT63-Logiktest „1000S Text“ schlug in einem von rund zehn Läufen mit leerer Ausgabe fehl (danach in acht weiteren Läufen nicht mehr); vermutlich unbestimmter Speicher in der MT63-Bibliothek; noch nicht untersucht.
   - **Grenzen/Offen:** nur gegen das eigene fldigi-Testsignal geprüft; keine Zeilensynchronisation des Bildes (wie fldigi); FSK-Hell zeigt ohne Signal schwarze Spalten, solange der Pegel über dem Squelch liegt.
+- **0.37.0 (02.10.2026): M36 PSKR und 8PSK.**
+  - **Dateien:** `Vendor/Fldigi/src/psk/psk_rx.cpp` (erzeugt von `port_psk.py`, jetzt mit den Sendefunktionen), `psk_compat.h`, `fldigi_psk.*` (Modi, Abtastrate, Testsignal mit fldigis Sendeseite), `FldigiPSKCore.swift` (`PSKMode` mit Familien BPSK, QPSK, PSKR, 8PSK), `PSKModule.swift` (zweite Senke 16 kHz), `PSKPanels.swift` (Moduswahl nach Familien). Kennungen `psk125r|psk250r|psk500r|psk1000r|8psk125|8psk125fl|8psk125f|8psk250|8psk250fl|8psk250f|8psk500|8psk500f|8psk1000|8psk1000f|8psk1200f`.
+  - **Tests:** alle 15 neuen Betriebsarten im Rundlauf, Pipeline 48 kHz → 16 kHz.
+  - **Grenzen/Offen:** Mehrträger-PSKR (z. B. 4X_PSK63R), 16PSK und OFDM nicht angebunden; nur gegen das eigene fldigi-Testsignal geprüft; 8PSK-Bandbreiten bis über 1 kHz (Marker nur Symbolrate).
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
-  - Weitere fldigi-Modi (8PSK/PSKR), JT65/JT9 (WSJT-X); Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichenauswertung.
+  - JT65/JT9 (WSJT-X), Mehrträger-PSKR/OFDM; Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichenauswertung.
   - Parallelbetrieb mehrerer Module (kein Warnton, vom Nutzer nicht gewünscht).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

@@ -3036,9 +3036,10 @@ do {
     let expected = PSKDecoder.text(from: Array(text.utf8))
     func run(_ mode: PSKMode, signalHz: Double, startHz: Double? = nil, snr: Double? = nil, afc: Bool = true, squelch: Bool = true) -> (text: String, center: Double, dcd: Bool)? {
         guard var x = FldigiPSKCore.synthesize(text, mode: mode, centerHz: signalHz) else { return nil }
-        x = [Float](repeating: 0, count: 8_000) + x + [Float](repeating: 0, count: 8_000)
+        let rate = Int(mode.sampleRate)
+        x = [Float](repeating: 0, count: rate) + x + [Float](repeating: 0, count: rate)
         if let snr {
-            let sigma = sqrt(0.5 / pow(10, snr / 10) / (2500.0 / 4000.0))
+            let sigma = sqrt(0.5 / pow(10, snr / 10) / (2500.0 / (mode.sampleRate / 2)))
             for i in 0..<x.count { x[i] += Float(gauss() * sigma) }
         }
         var bytes: [UInt8] = []
@@ -3051,7 +3052,7 @@ do {
     }
 
     // Alle Betriebsarten, sauberes Signal; QPSK verliert am Ende ggf. den Zeilenumbruch (Viterbi-Verzögerung)
-    for (i, m) in PSKMode.allCases.enumerated() {
+    for (i, m) in PSKMode.allCases.enumerated() where m.family == .bpsk || m.family == .qpsk {
         if let r = run(m, signalHz: 800 + Double(i) * 150) {
             check(r.text == expected || r.text == String(expected.dropLast()), "PSK \(m.displayName): Text, got \(r.text.debugDescription)")
             check(abs(r.center - (800 + Double(i) * 150)) < 1.0, "PSK \(m.displayName): Mitte \(r.center)")
@@ -3059,6 +3060,18 @@ do {
             check(false, "PSK \(m.displayName): Testsignal nicht erzeugt")
         }
     }
+
+    // PSKR und 8PSK (Fehlerkorrektur, Gray-Zuordnung): Text mit etwas Rauschen davor und danach
+    for m in PSKMode.allCases where m.family == .pskr || m.family == .psk8 {
+        if let r = run(m, signalHz: 1500) {
+            check(r.text.contains("CQ CQ CQ DE DL1ABC DL1ABC PSE K\nThe quick brown fox 0123456789"), "PSK \(m.displayName): Text, got \(r.text.prefix(120).debugDescription)")
+            check(abs(r.center - 1500) < 6, "PSK \(m.displayName): Mitte \(r.center)")
+        } else {
+            check(false, "PSK \(m.displayName): Testsignal nicht erzeugt")
+        }
+    }
+    check(PSKMode.psk8_125.sampleRate == 16_000 && PSKMode.psk125r.sampleRate == 8_000 && PSKMode.psk8_1200f.baud > 1200 && PSKMode.psk8_125f.hasFEC && !PSKMode.psk8_125.hasFEC && PSKMode.psk250r.hasFEC && !PSKMode.bpsk31.hasFEC, "PSK: Abtastrate, Symbolrate, FEC")
+    check(PSKMode(rawValue: "8psk250fl") == .psk8_250fl && PSKMode.psk8_500f.family == .psk8 && PSKMode.psk500r.family == .pskr && PSKMode.psk8_500f.shortName == "8-500F" && PSKMode.psk500r.shortName == "500R", "PSK: Kennungen, Familien, Kurznamen")
 
     // AFC zieht eine um wenige Hz falsche Mitte heran; ohne AFC nicht
     for off in [-6.0, 4.0] {
@@ -3134,6 +3147,31 @@ do {
     let out = decoder.takeOutput()
     check(out.text == "CQ CQ DE DL1ABC K\n", "PSK über die Pipeline 48 kHz → 8 kHz, got \(out.text.debugDescription)")
     check(out.status?.dcd == false || out.status != nil, "PSK: Status verfügbar")
+    decoder.setEnabled(false)
+    // 8PSK mit 16 kHz
+    var o8 = FldigiPSKCore.Options()
+    o8.mode = .psk8_250
+    decoder.configure(options: o8, centerHz: 1300)
+    decoder.setEnabled(true)
+    let audio16 = [Float](repeating: 0, count: 8_000) + (FldigiPSKCore.synthesize(msg, mode: .psk8_250, centerHz: 1300) ?? []) + [Float](repeating: 0, count: 16_000)
+    var audio48b = [Float](repeating: 0, count: audio16.count * 3)
+    for i in 0..<audio48b.count {
+        let x = Double(i) / 3, k = Int(x), f = Float(x - Double(k))
+        audio48b[i] = audio16[k] * (1 - f) + (k + 1 < audio16.count ? audio16[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var j = 0
+    var text8 = ""
+    while j < audio48b.count {
+        let n = min(4_800, audio48b.count - j)
+        audio48b[j..<(j + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        j += n
+        Thread.sleep(forTimeInterval: 0.004)
+        text8 += decoder.takeOutput().text
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    text8 += decoder.takeOutput().text
+    check(text8.contains("CQ CQ DE DL1ABC K"), "8PSK über die Pipeline 48 kHz → 16 kHz, got \(text8.prefix(60).debugDescription)")
     decoder.setEnabled(false)
     pipeline.stop()
 }

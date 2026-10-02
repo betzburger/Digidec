@@ -2091,6 +2091,405 @@ void psk::calcSN_IMD(cmplx z)
 	return;
 }
 
+void psk::tx_init()
+{
+	for (int car = 0; car < numcarriers; car++) {
+		phaseacc[car] = 0;
+		prevsymbol[car] = cmplx (1.0, 0.0);
+	}
+	preamble = dcdbits;
+	if (_pskr || _xpsk || _8psk || _16psk) {
+		// MFSK based varicode instead of psk
+		shreg = 1;
+		shreg2 = 1;
+	} else {
+		shreg = 0;
+		shreg2 = 0;
+	}
+	videoText();
+
+	// interleaver
+	bitshreg = 0;
+
+	symbols = 0;
+	acc_symbols = 0;
+	ovhd_symbols = 0;
+	accumulated_bits = 0;
+
+	if(_8psk && _puncturing) {
+		enc->init();
+		Txinlv->flush();
+	}
+
+	vphase = 0;
+	maxamp = 0;
+
+	if (mode == MODE_OFDM_500F || mode == MODE_OFDM_750F) { // || mode == MODE_OFDM_2000F) {
+		enc->init();
+		Txinlv->flush();
+	}
+
+}
+
+void psk::transmit(double *buf, int len)
+{
+	ModulateXmtr(buf, len);
+}
+
+#define SVP_MASK 0xF
+#define SVP_COUNT (SVP_MASK + 1)
+
+static cmplx sym_vec_pos[SVP_COUNT] = {
+	cmplx (-1.0, 0.0),				// 180 degrees
+	cmplx (-0.9238, -0.3826),		// 202.5 degrees
+	cmplx (-0.7071, -0.7071),		// 225 degrees
+	cmplx (-0.3826, -0.9238),		// 247.5 degrees
+	cmplx (0.0, -1.0),				// 270 degrees
+	cmplx (0.3826, -0.9238),		// 292.5 degrees
+	cmplx (0.7071, -0.7071),		// 315 degrees
+	cmplx (0.9238, -0.3826),		// 337.5 degrees
+	cmplx (1.0, 0.0),				// 0 degrees
+	cmplx (0.9238, 0.3826),			// 22.5 degrees
+	cmplx (0.7071, 0.7071),			// 45 degrees
+	cmplx (0.3826, 0.9238),			// 67.5 degrees
+	cmplx (0.0, 1.0),				// 90 degrees
+	cmplx (-0.3826, 0.9238),		// 112.5 degrees
+	cmplx (-0.7071, 0.7071),		// 135 degrees
+	cmplx (-0.9238, 0.3826) 		// 157.5 degrees
+};
+
+void psk::tx_carriers()
+{
+	double delta[MAX_CARRIERS];
+	double	ival, qval, shapeA, shapeB;
+	cmplx symbol;
+	double	frequencies[MAX_CARRIERS];
+
+	//Process all carrier's symbols, then submit to sound card
+	accumulated_bits = 0; //reset
+	frequencies[0] = get_txfreq_woffset() + ((-1 * numcarriers) + 1) * inter_carrier / 2;
+	delta[0] = TWOPI * frequencies[0] / samplerate;
+	for (int car = 1; car < symbols; car++) {
+		frequencies[car] = frequencies[car - 1] + inter_carrier;
+		delta[car] = TWOPI * frequencies[car] / samplerate;
+	}
+
+	int sym;
+	for (int car = 0; car < symbols; car++) {
+		sym = txsymbols[car];
+
+		if (_xpsk && !_disablefec) { // Use Gray-mapped xpsk constellation
+			symbol = prevsymbol[car] * graymapped_xpsk_pos[(sym & 3)];	// complex multiplication
+
+		} else if (_8psk && !_disablefec) { // Use Gray-mapped 8psk constellation
+			symbol = prevsymbol[car] * graymapped_8psk_pos[(sym & 7)];	// complex multiplication
+
+		} else if (_16psk && !_disablefec) { // Use Gray-mapped 16psk constellation
+				symbol = prevsymbol[car] * graymapped_16psk_pos[(sym & 15)];	// complex multiplication
+
+		} else { // Map the incoming symbols to the underlying 16psk constellation.
+			if (_xpsk) {
+				sym = sym * 4 + 2; // Give it the "X" constellation shape
+			} else if (_8psk) {
+				sym *= 2; // Map 8psk to 16psk
+			} else { // BPSK and QPSK
+				if (_qpsk && !reverse) {
+					sym = (4 - sym) & 3;
+				}
+				sym *= 4; // For BPSK and QPSK
+			}
+			symbol = prevsymbol[car] * sym_vec_pos[(sym & SVP_MASK)];	// complex multiplication
+		}
+
+
+		for (int i = 0; i < symbollen; i++) {
+
+			shapeA = tx_shape[i];
+
+			// ABWEICHUNG fldigi (Digidec): Testsignal-Fenster (IMD) entfällt
+
+			shapeB = (1.0 - shapeA);
+
+			ival = shapeA * prevsymbol[car].real() + shapeB * symbol.real();
+			qval = shapeA * prevsymbol[car].imag() + shapeB * symbol.imag();
+
+			if (car != 0) {
+				outbuf[i] += (ival * cos(phaseacc[car]) + qval * sin(phaseacc[car])) / numcarriers;
+			} else {
+				outbuf[i] = (ival * cos(phaseacc[car]) + qval * sin(phaseacc[car])) / numcarriers;
+			}
+
+			phaseacc[car] += delta[car];
+			if (phaseacc[car] > TWOPI) phaseacc[car] -= TWOPI;
+		}
+
+		prevsymbol[car] = symbol;
+	}
+
+	double amp=0;
+	bool tx_vestigial = false;
+	if (vestigial && progdefaults.pskpilot) {
+		tx_vestigial = true;
+		amp = pow(10, progdefaults.pilot_power / 20.0) * maxamp;
+	}
+	if (tx_vestigial) {
+		double dvp = TWOPI * (frequencies[0] - sc_bw) / samplerate;
+		for (int i = 0; i < symbollen; i++) {
+			outbuf[i] += amp * cos(vphase);
+			outbuf[i] /= (1 + amp);
+			vphase += dvp;
+			if (vphase > TWOPI) vphase -= TWOPI;
+		}
+	}
+
+	maxamp = 0;
+	for (int i = 0; i < symbollen; i++)
+		if (maxamp < fabs(outbuf[i])) maxamp = fabs(outbuf[i]);
+	if (maxamp) {
+		for (int i = 0; i < symbollen; i++)
+			outbuf[i] /= maxamp;
+	}
+
+	transmit(outbuf, symbollen);
+}
+
+void psk::tx_symbol(int sym)
+{
+	acc_symbols++;
+	txsymbols[symbols] = sym;
+	if (++symbols < numcarriers) {
+		return;
+	}
+	tx_carriers();
+	symbols = 0; //reset
+}
+
+void psk::tx_bit(int bit)
+{
+	unsigned int sym;
+	int &bitcount = bitcount_; // ABWEICHUNG fldigi (Digidec): je Instanz statt function-static
+	int &xpsk_sym = xpsk_sym_;
+
+	// qpsk transmission
+	if (_qpsk) {
+		sym = enc->encode(bit);
+		sym = sym & 3;//JD just to make sure
+		tx_symbol(sym);
+		// pskr (fec + interleaver) transmission
+	} else if (_pskr) {
+		// Encode into two bits
+		bitshreg = enc->encode(bit);
+		// pass through interleaver
+		if (mode != MODE_PSK63F) Txinlv->bits(&bitshreg);
+		// Send low bit first. tx_symbol expects 0 or 2 for BPSK
+		sym = (bitshreg & 1) << 1;
+		tx_symbol(sym);
+		sym = bitshreg & 2;
+		tx_symbol(sym);
+	} else if (_16psk || _8psk || _xpsk) {
+		if (_disablefec) {
+			//Accumulate tx bits until the correct number for symbol-size is reached
+			xpsk_sym |= bit << bitcount++ ;
+			if (bitcount == symbits) {
+				tx_symbol(xpsk_sym);
+				xpsk_sym = bitcount = 0;
+			}
+		} else
+			tx_xpsk(bit);
+		// else normal bpsk transmission
+	} else {
+		sym = bit << 1;
+		tx_symbol(sym);
+	}
+}
+
+void psk::tx_xpsk(int bit)
+{
+	int &bitcount = bitcount2_; // ABWEICHUNG fldigi (Digidec): je Instanz statt function-static
+	unsigned int &xpsk_sym = xpsk_sym2_;
+	int fecbits = 0;
+
+	// If invalid value of bitcount, reset to 0
+	if ( (_8psk && _puncturing) || _xpsk || _16psk)
+		if ( (bitcount & 0x1) )
+			bitcount = 0;
+
+	// Pass one bit and return two bits
+	bitshreg = enc->encode(bit);
+	// Interleave
+	Txinlv->bits(&bitshreg); // Bit-interleave
+	fecbits = bitshreg;
+
+	if (_xpsk) { // 2 bits-per-symbol. Transmit every call
+		xpsk_sym = static_cast<unsigned int>(fecbits);
+		tx_symbol(xpsk_sym);
+		return;
+	}
+
+	else if (_8psk && _puncturing) { // @ 2/3 rate
+
+		if ( 0 == bitcount) {
+			xpsk_sym = static_cast<unsigned int>(fecbits);
+			bitcount = 2;
+			return;
+
+		} else if ( 2 == bitcount ) {
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 1) << 2 ;
+			/// Punctured anyways, so skip -> //xpsk_sym |= (static_cast<unsigned int>(fecbits) & 2) << 2 ;
+			tx_symbol(xpsk_sym & 7); /// Drop/puncture the high-bit on Tx
+			xpsk_sym = bitcount = 0;
+			return;
+		}
+	}
+
+
+	else if (_8psk) { // 3 bits-per-symbol. Accumulate then tx.
+
+		if ( 0 == bitcount ) { // Empty xpsk_sym buffer: add 2 bits and return
+			xpsk_sym = static_cast<unsigned int>(fecbits);
+			bitcount = 2;
+			return ;
+
+		} else if ( 1 == bitcount ) { // xpsk_sym buffer with one bit: add 2 bits then tx and clear
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 1) << 1 ;
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 2) << 1 ;
+			tx_symbol(xpsk_sym);
+			xpsk_sym = bitcount = 0;
+			return;
+
+		} else if ( 2 == bitcount ) { // xpsk_sym buffer with 2 bits: add 1 then tx and save next bit
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 1) << 2 ;
+			tx_symbol(xpsk_sym);
+			xpsk_sym = bitcount = 0;
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 2) >> 1 ;
+			bitcount = 1;
+			return;
+		}
+	}
+
+	else if (_puncturing && _16psk) { // @ 3/4 Rate
+
+		if ( 0 == bitcount) {
+			xpsk_sym = static_cast<unsigned int>(fecbits);
+			bitcount = 2;
+			return;
+
+		} else if ( 2 == bitcount ) {
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 1) << 2 ;
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 2) << 2 ;
+			bitcount = 4;
+			return;
+		} else if ( 4 == bitcount ) {
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 1) << 4 ;
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 2) << 4 ;
+			xpsk_sym >>= 1; // Shift right to drop the lowest bit
+			xpsk_sym &= 15; // Drop the highest bit
+			tx_symbol(xpsk_sym);
+			xpsk_sym = bitcount = 0;
+			return;
+		}
+	}
+
+	else if (_16psk) { // 4 bits-per-symbol. Transmit every-other run.
+
+		if ( 0 == bitcount) {
+			xpsk_sym = static_cast<unsigned int>(fecbits);
+			bitcount = 2;
+			return;
+
+		} else if ( 2 == bitcount ) {
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 1) << 2 ;
+			xpsk_sym |= (static_cast<unsigned int>(fecbits) & 2) << 2 ;
+			//Txinlv->bits(&xpsk_sym);
+			tx_symbol(xpsk_sym & 7);
+			xpsk_sym = bitcount = 0;
+			return;
+		}
+	}
+}
+
+unsigned char ch;
+void psk::tx_char(unsigned char c)
+{
+	ch = c;
+	const char *code;
+	char_symbols = acc_symbols;
+	if (_pskr || _xpsk || _8psk || _16psk) {
+		//		acc_symbols = 0;
+		// ARQ varicode instead of MFSK for PSK63FEC
+		code = varienc(c);
+	} else {
+		code = psk_varicode_encode(c);
+	}
+	while (*code) {
+		tx_bit((*code - '0'));
+		code++;
+	}
+
+	// Insert PSK varicode character-delimiting bits
+	if (! _pskr && !_xpsk && !_8psk && !_16psk) {
+		tx_bit(0);
+		tx_bit(0);
+	}
+	char_symbols = acc_symbols - char_symbols;
+}
+
+void psk::tx_flush()
+{
+	if (_pskr) {
+		ovhd_symbols = ((numcarriers - symbols) % numcarriers);
+		//VK2ETA replace with a more effective flushing sequence (avoids cutting the last characters in low s/n)
+		for (int i = 0; i < ovhd_symbols/2; i++) tx_bit(0);
+
+		for (int i = 0; i < dcdbits / 2; i++) {
+			tx_bit(1);
+			tx_bit(1);
+		}
+
+	// QPSK - flush the encoder
+	} else if (_qpsk) {
+		for (int i = 0; i < dcdbits; i++) {
+			tx_bit(0);
+		}
+
+	// FEC enabled: Sens the NULL character in MFSk varicode as the flush / post-amble sequence
+	} else if (!_disablefec && (_xpsk || _8psk || _16psk) ) {
+		for (int i=0; i<flushlength; i++) {
+			tx_char(0); // Send <NUL> to clear bit accumulators on both Tx and Rx ends.
+		}
+
+	// FEC disabled: use unmodulated carrier (bpsk-like single tone)
+	} else if (_disablefec && ( _xpsk || _8psk || _16psk) ) {
+		for (int i=0; i<symbits; i++) {
+			tx_char(0); // Send <NUL> to clear bit accumulators on both Tx and Rx ends.
+		}
+
+		int symbol;
+		if (_16psk) symbol = 8;
+		else if (_8psk) symbol = 4;
+		else symbol = 2; // xpsk
+
+		for (int i = 0; i <= 96; i++) { // DCD window is only 32-bits wide. Send 3-times
+			tx_symbol(symbol);
+		}
+
+	// Standard BPSK postamble
+	} else {
+		for (int i = 0; i < dcdbits; i++) {
+			tx_symbol(2); // 0 degrees
+		}
+	}
+	for (int i = 0; i < 2048; i++) outbuf[i] = 0;
+	transmit(outbuf, 2048);
+}
+
+void psk::clearbits()
+{
+	bitshreg = 0;
+	enc->init();
+	Txinlv->flush();
+}
+
 
 // ABWEICHUNG fldigi (Digidec): fldigi legt jeden Decoder nur einmal je Moduswechsel an; die file-static-Variablen werden hier zurückgesetzt.
 void psk_rx_reset_statics() {

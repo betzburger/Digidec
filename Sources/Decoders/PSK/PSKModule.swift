@@ -78,7 +78,7 @@ extension PSKSettingsStore: TuningTarget {
 
 // MARK: - Decoder
 
-/// PSK-Kern als 8-kHz-Senke an der Pipeline (Verarbeitungs-Queue)
+/// PSK-Kern als Senke an der Pipeline (Verarbeitungs-Queue): 8 kHz, für 8PSK 16 kHz
 public final class PSKDecoder: @unchecked Sendable {
     public struct Output: Sendable {
         public var text: String
@@ -97,7 +97,8 @@ public final class PSKDecoder: @unchecked Sendable {
 
     public init(pipeline: AudioPipeline) {
         self.pipeline = pipeline
-        pipeline.addSink { [weak self] samples in self?.consume(samples) }
+        pipeline.addSink(rate: 8_000) { [weak self] samples in self?.consume(samples, rate: 8_000) }
+        pipeline.addSink(rate: 16_000) { [weak self] samples in self?.consume(samples, rate: 16_000) }
     }
 
     /// Betriebsart oder Optionen ändern; ein neuer Modus legt den Decoder neu an
@@ -145,13 +146,13 @@ public final class PSKDecoder: @unchecked Sendable {
         return s
     }
 
-    private func consume(_ samples: UnsafeBufferPointer<Float>) {
-        guard enabled, let core else { return }
+    private func consume(_ samples: UnsafeBufferPointer<Float>, rate: Double) {
+        guard enabled, let core, core.options.mode.sampleRate == rate else { return }
         core.process(samples)
         let status = core.status
         samplesSinceScope += samples.count
         var scope: [(phase: Double, amplitude: Double)]?
-        if samplesSinceScope >= 1600 {               // 5 × je Sekunde
+        if samplesSinceScope >= Int(rate / 5) {               // 5 × je Sekunde
             samplesSinceScope = 0
             scope = core.scope()
         }

@@ -7,6 +7,7 @@
 #define PSK_BLOCK 512   // fldigi ruft rx_process blockweise auf
 
 void psk_rx_reset_statics();   // psk_rx.cpp
+static trx_mode modeFor(int m);
 
 struct fldigi_psk {
 	psk *rx;
@@ -14,6 +15,40 @@ struct fldigi_psk {
 	double block[PSK_BLOCK];
 	int fill;
 	// psk hält Zustand privat; die C-Hülle ist Freund
+	/// Testsignal mit fldigis eigener Sendeseite (tx_init, Vorspann nach tx_process, tx_char, tx_flush): PSKR und 8PSK
+	static void synthReal(int mode, const char *text, double center, std::vector<float> &buf) {
+		psk_rx_reset_statics();
+		psk p(modeFor(mode));
+		p.tx_sink = &buf;
+		p.wf->carrier = center;
+		p.init();
+		p.frequency = center;
+		p.tx_init();
+		if (p._pskr) {
+			p.clearbits();
+			for (int i = 0; i < p.preamble / 2; i++) { p.tx_bit(1); p.tx_bit(0); }
+			while (p.acc_symbols % p.numcarriers) p.tx_bit(0);
+			p.tx_char(0);
+		} else if (p._8psk) {
+			if (!p._disablefec) p.clearbits();
+			if (p._disablefec) {
+				for (int i = 0; i < p.preamble; i++) p.tx_symbol(0);
+				p.tx_char(0);
+			} else {
+				p._disablefec = true;
+				for (int i = 0; i < p.preamble / 2; i++) p.tx_symbol(0);
+				p._disablefec = false;
+				for (int i = 0; i < p.preamble; i += 2) { p.tx_bit(0); p.tx_bit(0); }
+				p.tx_char(0);
+			}
+		} else {
+			for (int i = 0; i < p.preamble; i++) p.tx_symbol(0);
+		}
+		p.preamble = 0;
+		for (const char *t = text; *t; t++) p.tx_char((unsigned char)*t);
+		p.tx_flush();
+	}
+
 	static void status(const psk *r, fldigi_psk_status *out) {
 		out->center_hz = r->frequency;
 		out->metric = r->metric;
@@ -28,6 +63,21 @@ struct fldigi_psk {
 static trx_mode modeFor(int m)
 {
 	switch (m) {
+	case FLDIGI_PSK_PSK125R:   return MODE_PSK125R;
+	case FLDIGI_PSK_PSK250R:   return MODE_PSK250R;
+	case FLDIGI_PSK_PSK500R:   return MODE_PSK500R;
+	case FLDIGI_PSK_PSK1000R:  return MODE_PSK1000R;
+	case FLDIGI_PSK_8PSK125:   return MODE_8PSK125;
+	case FLDIGI_PSK_8PSK125FL: return MODE_8PSK125FL;
+	case FLDIGI_PSK_8PSK125F:  return MODE_8PSK125F;
+	case FLDIGI_PSK_8PSK250:   return MODE_8PSK250;
+	case FLDIGI_PSK_8PSK250FL: return MODE_8PSK250FL;
+	case FLDIGI_PSK_8PSK250F:  return MODE_8PSK250F;
+	case FLDIGI_PSK_8PSK500:   return MODE_8PSK500;
+	case FLDIGI_PSK_8PSK500F:  return MODE_8PSK500F;
+	case FLDIGI_PSK_8PSK1000:  return MODE_8PSK1000;
+	case FLDIGI_PSK_8PSK1000F: return MODE_8PSK1000F;
+	case FLDIGI_PSK_8PSK1200F: return MODE_8PSK1200F;
 	case FLDIGI_PSK_BPSK63:  return MODE_PSK63;
 	case FLDIGI_PSK_BPSK125: return MODE_PSK125;
 	case FLDIGI_PSK_BPSK250: return MODE_PSK250;
@@ -46,6 +96,11 @@ static void apply(fldigi_psk *p, const fldigi_psk_config *c)
 	p->rx->progStatus_.sqlonoff = c->squelch_on != 0;
 	p->rx->progStatus_.sldrSquelchValue = c->squelch;
 	p->rx->reverse = c->reverse != 0;
+}
+
+extern "C" double fldigi_psk_sample_rate(int mode)
+{
+	return mode >= FLDIGI_PSK_8PSK125 ? 16000.0 : 8000.0;
 }
 
 extern "C" fldigi_psk_config fldigi_psk_default_config(void)
@@ -191,6 +246,13 @@ struct PskSynth {
 
 extern "C" int fldigi_psk_synthesize(int mode, const char *text, double center_hz, float *out, int max_samples)
 {
+	if (mode >= FLDIGI_PSK_PSK125R) {       // PSKR und 8PSK: Sendeseite von fldigi
+		std::vector<float> buf;
+		fldigi_psk::synthReal(mode, text, center_hz, buf);
+		if ((int)buf.size() > max_samples) return -1;
+		for (size_t i = 0; i < buf.size(); i++) out[i] = buf[i];
+		return (int)buf.size();
+	}
 	PskSynth s(mode, center_hz);
 	for (int i = 0; i < s.dcdbits; i++) s.tx_symbol(0);     // Vorspann: Phasenumkehr
 	for (const char *t = text; *t; t++) s.tx_char((unsigned char)*t);

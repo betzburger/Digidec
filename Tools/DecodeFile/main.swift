@@ -20,7 +20,7 @@ func usage() -> Never {
       --wpm <n>             CW-Startgeschwindigkeit (Standard 18, Nachführung ±10)
       --mf                  CW Matched Filter (Bandbreite 2 × WpM)
 
-      --psk <modus>         PSK (fldigi-PSK-Empfänger): bpsk31 | bpsk63 | bpsk125 | bpsk250 | qpsk31 … qpsk250;
+      --psk <modus>         PSK (fldigi-PSK-Empfänger): bpsk31 | bpsk63 | bpsk125 | bpsk250 | qpsk31 … qpsk250 | psk125r … psk1000r | 8psk125 … 8psk1200f;
                             dazu --center <Träger-Hz> (Standard 1000); --noafc schaltet die Frequenznachführung ab, --rev kehrt QPSK um
 
       --olivia <kennung>    Olivia/Contestia (fldigi): olivia-8-500 | olivia-16-1000 | contestia-8-500 … (Töne-Bandbreite); --center <Mitte-Hz> (Standard 1500)
@@ -258,7 +258,7 @@ if let pskModeID {
         exit(1)
     }
     guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
-          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: FldigiPSKCore.sampleRate) else {
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: mode.sampleRate) else {
         print("Datei nicht lesbar: \(wavPath)")
         exit(1)
     }

@@ -73,7 +73,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .rtty: return ["ham", "dwd-kw", "dwd-lw", "custom"]
         case .navtex: return ["518", "490", "4209"]   // = NavtexFrequency.rawValue
         case .cw: return ["ham"]
-        case .psk: return ["bpsk31", "bpsk63", "bpsk125", "bpsk250", "qpsk31", "qpsk63", "qpsk125", "qpsk250"]   // = PSKMode.rawValue
+        case .psk: return ["bpsk31", "bpsk63", "bpsk125", "bpsk250", "qpsk31", "qpsk63", "qpsk125", "qpsk250", "psk125r", "psk250r", "psk500r", "psk1000r",
+                          "8psk125", "8psk125fl", "8psk125f", "8psk250", "8psk250fl", "8psk250f", "8psk500", "8psk500f", "8psk1000", "8psk1000f", "8psk1200f"]   // = PSKMode.rawValue
         case .olivia: return ["olivia-8-500", "olivia-4-250", "olivia-8-250", "olivia-16-500", "olivia-32-1000", "olivia-64-2000", "olivia-4-125", "olivia-4-500", "olivia-4-1000", "olivia-4-2000", "olivia-8-125", "olivia-8-1000", "olivia-8-2000", "olivia-16-1000", "olivia-16-2000", "olivia-32-2000", "olivia-64-500", "olivia-64-1000",
                          "contestia-8-500", "contestia-4-250", "contestia-4-500", "contestia-8-250", "contestia-16-500", "contestia-16-1000", "contestia-32-1000", "contestia-64-1000"]   // = FldigiOliviaCore.Options.presetID
         case .ale: return ["ale"]
