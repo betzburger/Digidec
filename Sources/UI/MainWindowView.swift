@@ -26,6 +26,8 @@ public struct MainWindowView: View {
                                 ALEMessagePanel(controller: state.aleController)
                             } else if state.activeModule == .aprs {
                                 APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
+                            } else if state.activeModule == .acars {
+                                ACARSMessagePanel(controller: state.acarsController, settings: state.acars)
                             } else if state.activeModule == .pager {
                                 PagerMessagePanel(controller: state.pagerController, settings: state.pager)
                             } else if state.activeModule == .tones {
@@ -76,6 +78,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ale, audio: state.audio)
                             } else if state.activeModule == .aprs {
                                 WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
+                            } else if state.activeModule == .acars {
+                                WaterfallView(model: state.waterfall, rtty: state.acars, audio: state.audio)
                             } else if state.activeModule == .pager {
                                 WaterfallView(model: state.waterfall, rtty: state.pager, audio: state.audio)
                             } else if state.activeModule == .tones {
@@ -120,7 +124,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -152,6 +156,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             APRSSettingsPanel(settings: state.aprs)
                                 .radioCard(title: "APRS")
+                        } else if state.activeModule == .acars {
+                            ACARSTuningPanel(controller: state.acarsController, settings: state.acars)
+                                .radioCard(title: "Abstimmanzeige")
+                            ACARSSettingsPanel(settings: state.acars)
+                                .radioCard(title: "ACARS")
                         } else if state.activeModule == .pager {
                             PagerTuningPanel(controller: state.pagerController, settings: state.pager)
                                 .radioCard(title: "Abstimmanzeige")
@@ -238,7 +247,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, dsc: state.dsc, ale: state.ale, aprs: state.aprs, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -559,6 +568,7 @@ private struct StatusBar: View {
     @ObservedObject var dsc: DSCSettingsStore
     @ObservedObject var ale: ALESettingsStore
     @ObservedObject var aprs: APRSSettingsStore
+    @ObservedObject var acars: ACARSSettingsStore
     @ObservedObject var pager: PagerSettingsStore
     @ObservedObject var tones: TonesSettingsStore
     @ObservedObject var ft8: FT8SettingsStore
@@ -622,6 +632,7 @@ private struct StatusBar: View {
         case .cw: return cwCurrent
         case .psk: return pskCurrent
         case .olivia: return "\(olivia.options.familyName.uppercased()) · \(olivia.options.label) · Mitte \(Int(olivia.centerHz.rounded())) Hz" + (olivia.options.reverse ? " · REV" : "") + (olivia.options.squelchOn ? " · SQL \(Int(olivia.options.squelch))" : " · SQL aus")
+        case .acars: return "ACARS · \(acars.channel.label) MHz AM · MSK 2400 Bd" + (acars.hideEmpty ? " · ohne leere" : "") + (acars.showUplink ? "" : " · nur Abwärts")
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")
         case .tones: return "TÖNE · " + ToneStandard.allCases.filter(tones.standards.contains).map(\.name).joined(separator: ", ")
         case .aprs: return "APRS · \(aprs.channel.label) MHz FM · AFSK 1200 Bd · Töne \(Int(aprs.centerHz - 500)) / \(Int(aprs.centerHz + 500)) Hz" + (aprs.repairBits ? " · Korrektur" : "") + (aprs.emphasis == .auto ? "" : aprs.emphasis == .on ? " · DE-EMPH." : " · FLACH")

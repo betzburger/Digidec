@@ -129,6 +129,36 @@ func run() {
     }
     save(WSPRTable(entries: wsEntries, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "WSPR Spots"), width: 700, name: "wspr_tabelle", dir: dir)
 
+    // ACARS
+    let ac = ACARSSettingsStore()
+    let acc = ACARSController(pipeline: pipeline, settings: ac)
+    acc.logEnabled = false
+    func am(_ reg: String, _ flt: String?, _ label: String, _ text: String, down: Bool = true) -> ACARSMessage {
+        ACARSMessage(time: Date(timeIntervalSince1970: 1_790_000_100), mode: "2", registration: reg, ack: "NAK", label: label, blockID: down ? "3" : "A", isDownlink: down,
+                     messageNumber: down ? "M01A" : nil, flightID: flt, text: text, continues: false, parityErrors: 0, corrected: 0, levelDB: -12)
+    }
+    for m in [am("D-AIXC", "LH1234", "Q1", "EDDF08150822105511200000EHAM"), am("N123UA", "UA0099", "Q2", "KJFK1530"),
+              am("D-AIPA", "LH0400", "H1", "- #M1AFPN/RP:DA:EDDF:AA:KJFK:F:N49.5W007.3"), am("D-AIXC", nil, "SA", "E3V", down: false),
+              am("G-EUPT", "BA0904", "Q0", "")] { acc.ingest(m) }
+    save(VStack(spacing: 10) {
+        ACARSTuningPanel(controller: acc, settings: ac).radioCard(title: "Abstimmanzeige")
+        ACARSSettingsPanel(settings: ac).radioCard(title: "ACARS")
+    }, width: right, name: "acars_rechts", dir: dir)
+    save(ACARSTable(messages: acc.messages, scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "ACARS Meldungen"), width: 700, name: "acars_tabelle", dir: dir)
+
+    // Funkruf und Töne
+    let pg = PagerSettingsStore()
+    let pgc = PagerController(pipeline: pipeline, settings: pg)
+    pgc.logEnabled = false
+    pgc.ingest(PagerMessage(time: Date(timeIntervalSince1970: 1_790_000_100), protocolName: "POCSAG 1200", address: 2504, function: 3, numeric: "", alpha: "DAPNET Rufzeichen DL1ABC Test"))
+    pgc.ingest(PagerMessage(time: Date(timeIntervalSince1970: 1_790_000_103), protocolName: "FLEX 1600", address: 1523020, function: 5, numeric: "", alpha: "Passage Ambulance Wilhelminabrug Leiden", detail: "00.045 A K"))
+    pgc.ingest(PagerMessage(time: Date(timeIntervalSince1970: 1_790_000_110), protocolName: "POCSAG 512", address: 273040, function: 0, numeric: "0123456789", alpha: "·dP2"))
+    save(PagerTable(messages: pgc.messages, watched: [2504], scrolls: false).background(RadioTheme.bgDeep).radioCard(title: "Funkruf"), width: 700, name: "pager_tabelle", dir: dir)
+    save(VStack(spacing: 10) {
+        PagerTuningPanel(controller: pgc, settings: pg).radioCard(title: "Abstimmanzeige")
+        PagerSettingsPanel(settings: pg).radioCard(title: "PAGER")
+    }, width: right, name: "pager_rechts", dir: dir)
+
     // WEFAX-Sendeplan (Fenster)
     schedState.wefaxSchedule.selected = ["1636", "1800", "0430"]
     schedState.wefaxSchedule.autoEnabled = true

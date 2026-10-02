@@ -34,6 +34,8 @@ func usage() -> Never {
       --pager               Funkruf (POCSAG 512/1200/2400, FLEX): je Meldung eine Zeile; --rates 512,1200 schränkt die Baudraten ein
       --tones [normen]      DTMF und Selektivrufe (dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia), Normen durch Komma getrennt (Standard: dtmf,zvei1)
 
+      --acars               ACARS (AM-Audio, MSK 2400 Bd): je Meldung eine Zeile; --channel <n> wählt bei Mehrkanaldateien den Kanal (ab 0)
+
       --ale                 ALE (MIL-STD-188-141, 8-FSK 125 Bd); --offset <Hz> Verstimmung der Töne (Standard 0), --minvotes <n> (Standard 36)
 
       --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
@@ -68,6 +70,8 @@ var pskModeID: String?
 var oliviaID: String?
 var dscMode = false
 var aleMode = false
+var acarsMode = false
+var fileChannel = 0
 var pagerMode = false
 var pagerRates = POCSAG.rates
 var tonesMode = false
@@ -110,6 +114,8 @@ while !args.isEmpty {
     case "--dsc": dscMode = true
     case "--ale": aleMode = true
     case "--aprs": aprsMode = true
+    case "--acars": acarsMode = true
+    case "--channel": fileChannel = Int(value()) ?? 0
     case "--pager": pagerMode = true
     case "--rates": pagerRates = value().split(separator: ",").compactMap { Int($0) }
     case "--tones": tonesMode = true; if let v = args.first, !v.hasPrefix("-") { tonesList = v; args.removeFirst() }
@@ -281,6 +287,37 @@ if let pskModeID {
         print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
                      100 * Double(d) / Double(max(1, max(a.count, b.count)))))
     }
+    exit(0)
+}
+
+// MARK: - ACARS
+
+if acarsMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: ACARSDecoder.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    let ch = min(max(0, fileChannel), Int(file.processingFormat.channelCount) - 1)
+    print("ACARS · Kanal \(ch) von \(file.processingFormat.channelCount)")
+    let rx = ACARSReceiver(sampleRate: ACARSDecoder.sampleRate)
+    var n = 0, samples = 0
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![ch], count: Int(buf.frameLength))) { chunk in
+            rx.process(chunk) { m in
+                n += 1
+                print(String(format: "%7.2f s  ", Double(samples) / ACARSDecoder.sampleRate) + ACARSController.logLine(m))
+            }
+            samples += chunk.count
+        }
+    }
+    let dur = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "%.1f s Audio in %.2f s: %d Meldungen", dur, Date().timeIntervalSince(began), n))
     exit(0)
 }
 

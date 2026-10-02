@@ -12,6 +12,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case dsc
     case ale
     case aprs
+    case acars
     case pager
     case tones
     case wefax
@@ -35,6 +36,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dsc:    return "DSC"
         case .ale:    return "ALE"
         case .aprs:   return "APRS"
+        case .acars:  return "ACARS"
         case .pager:  return "PAGER"
         case .tones:  return "TÖNE"
         case .wefax:  return "WEFAX"
@@ -57,7 +59,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .dsc, .ale, .aprs, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .dsc, .ale, .aprs, .acars, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -72,6 +74,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
                          "contestia-8-500", "contestia-4-250", "contestia-4-500", "contestia-8-250", "contestia-16-500", "contestia-16-1000", "contestia-32-1000", "contestia-64-1000"]   // = FldigiOliviaCore.Options.presetID
         case .ale: return ["ale"]
         case .aprs: return ["eu", "na", "iss", "au", "jp", "free"]   // = APRSChannel.rawValue
+        case .acars: return ["f131550", "f131725", "f131525", "f130025", "f136900", "free"]   // = ACARSChannel.rawValue
         case .pager: return ["dapnet", "free"]   // = PagerChannel.rawValue
         case .tones: return ["all"]
         case .dsc: return ["8414", "2187", "4207", "6312", "12577", "16804"]   // = DSCChannel.rawValue (ohne „frei“)

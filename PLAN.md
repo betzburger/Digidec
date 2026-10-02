@@ -437,6 +437,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M27 | Kartenanzeige | ✅ 02.10.2026 (v0.29.0): gemeinsame MapKit-Karte (`Sources/UI/MapPanel.swift`) mit Punkten, Wegen, Großkreislinien, Reichweitenkreisen, Standort (ein Locator für alle Module), Auswahl, Kartenstil; Umschalter **LISTE · KARTE · BEIDE** in der Kopfzeile (BEIDE: Liste bzw. Wetterfax-Bild oben, Karte darunter; je Modul gemerkt); für APRS, FT8, FT4, WSPR, DSC, NAVTEX, RTTY (SYNOP, Rufzeichen), CW/PSK/Olivia/MT63 (Rufzeichen im Text), WEFAX/DCF77/EFR (Sender); ohne Ortsdaten: SSTV, ALE |
 | M28 | Funkruf POCSAG und FLEX | ✅ 02.10.2026 (v0.30.0): POCSAG 512/1200/2400 und FLEX 1600/3200 (2 und 4 Pegel) in Swift (`Vendor/Pager/UPSTREAM_PAGER.md`); an den echten multimon-ng-Aufnahmen (POCSAG ×3, P2000-FLEX mit 44 Meldungen samt Gruppenrufen) gleiche Ergebnisse wie multimon-ng, bei Rauschen und wechselstromgekoppeltem Audio besser; Rufnummernliste mit Hervorhebung, Log |
 | M29 | Töne (DTMF, Selektivruf) | ✅ 02.10.2026 (v0.30.0): DTMF, ZVEI 1/2/3, DZVEI, PZVEI, CCIR, EEA, EIA gleichzeitig, Goertzel-Erkennung, Tonfolgenliste, Log |
+| M30 | ACARS | ✅ 02.10.2026 (v0.31.0): AM-Audio, MSK 2400 Bd (`Vendor/Acars/UPSTREAM_ACARS.md`); an der echten acarsdec-Aufnahme alle 7 Meldungen wie dort; Flugzeugliste, OOOI-Berichte, Karte mit Start- und Zielflughäfen (OurAirports, gemeinfrei), Bitfehlerkorrektur über Prüfsumme |
 ---
 
 ## 11. Aktueller Stand
@@ -933,9 +934,16 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Tools:** `decode_file.sh <wav> --pager [--rates 512,1200]` und `--tones [dtmf,zvei1,…]`.
   - **Tests:** 1339 Logiktests (+96: BCH mit Doppelfehlern, echte POCSAG-Codewörter, POCSAG-Rundlauf je Baudrate mit Ziffern, langen Meldungen, Inversion, Kopplung, Takt, Rauschen, Stille; FLEX-Rundlauf mit Testsignal; Tonfolgen aller Normen, DTMF mit 16 Tasten, Rauschen und Akkord; Controller und Listen).
   - **Grenzen/Offen:** FLEX-Phasen B/D und 3200 Baud sind nur über die Modustabelle und das Entschachteln abgedeckt, nicht an einer echten Aufnahme; keine Meldungsfolgen (Fragmente F/C werden einzeln angezeigt, wie bei multimon-ng); keine Skyper-Zeichensatzumsetzung; die Normen ZVEI/CCIR/EEA überlappen in den Frequenzen (bei mehreren eingeschalteten Normen gewinnt die längere Folge). Live-Empfang offen: DAPNET 439,9875 MHz, FM-Audio ohne Rauschsperre.
+- **0.31.0 (02.10.2026): M30 ACARS.**
+  - **Dateien:** `Sources/Decoders/ACARS/{ACARSCore,ACARSModule}.swift`, `Sources/UI/ACARSPanels.swift`, `Resources/Airports/airports.txt`. URL `digidec://decode?mode=acars&preset=f131550|f131725|f131525|f130025|f136900|free`. QSY AUTO stimmt in AM ab. 12-kHz-Senke.
+  - **Referenz:** acarsdec (`Vendor/_upstream/acarsdec`, mit `test.wav`), im Scratchpad gebaut (`-DHOST_NAME_MAX=255`). Die 7 echten Meldungen (PH-BXR, LN-DYY, F-GTAE, G-DBCK …) stimmen überein.
+  - **Anzeige:** Meldungsliste (Uhrzeit, Kennzeichen, Flug, Richtung, Label, Text oder Bezeichnung), Filter UPLINK und LEERE AUS, Tooltip mit Labelbedeutung und OOOI-Auswertung (Flughafen mit Ort). Karte (KARTE/BEIDE): Flughäfen aus den OOOI-Labels, Großkreislinien Start → Ziel, nur Flüge der letzten 6 Stunden.
+  - **Tests:** 1373 Logiktests (+34: CRC-Prüfwert, Rundlauf Demodulator/Generator, Rauschen, Inversion, leise, Reparatur von Ein- und Doppelbitfehlern, OOOI, Flughäfen, Controller, Karte, Filter, Kanäle).
+  - **Prüfung der Oberfläche:** Tabellen, Abstimmanzeige und Einstellungen offscreen (`Tools/UIPreview`, `acars_*.png`); die Karte selbst nicht gesehen (der Bildschirm war bei der letzten Prüfung gesperrt).
+  - **Grenzen/Offen:** Positionen aus dem Text (z. B. Label H1) werden nicht ausgewertet; Labelnamen nur für die häufigsten; keine Zusammenführung mehrteiliger Meldungen (ETB). Live-Empfang offen: 131,550 oder 131,725 MHz in AM, Rauschsperre offen. UIPreview rendert jetzt auch Funkruf und ACARS.
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
-  - ACARS (acarsdec), UKW-DSC Kanal 70, weitere fldigi-Modi, SELCAL, JT65/JT9 (WSJT-X).
+  - UKW-DSC Kanal 70, weitere fldigi-Modi, SELCAL, JT65/JT9 (WSJT-X).
   - Warnton bei DSC-Seenot und Audioausgabe; Parallelbetrieb mehrerer Module.
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

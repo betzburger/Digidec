@@ -4302,5 +4302,108 @@ do {
 }
 pagerModuleTests()
 
+
+// MARK: - ACARS
+do {
+    check(ACARS.crc([UInt8]("123456789".utf8)) == 0x2189, "ACARS-CRC (CRC-16/KERMIT) Prüfwert 0x2189: \(String(ACARS.crc([UInt8]("123456789".utf8)), radix: 16))")
+    let blk = ACARSSignalGenerator.block(registration: "D-AIXC", label: "H1", blockID: "3", messageNumber: "M01A", flightID: "LH1234", text: "Hallo ACARS Test EDDF EDDM")
+    func decode(_ audio: [Float]) -> [ACARSMessage] {
+        let r = ACARSReceiver()
+        var out: [ACARSMessage] = []
+        var i = 0
+        while i < audio.count {
+            let e = min(i + 240, audio.count)
+            audio[i..<e].withUnsafeBufferPointer { r.process($0) { out.append($0) } }
+            i = e
+        }
+        return out
+    }
+    let clean = ACARSSignalGenerator.audio(blocks: [blk, blk, blk]) + [Float](repeating: 0, count: 6000)
+    let got = decode(clean)
+    check(got.count == 3, "ACARS: drei Blöcke (\(got.count))")
+    check(got.first?.registration == "D-AIXC" && got.first?.flightID == "LH1234" && got.first?.label == "H1" && got.first?.text == "Hallo ACARS Test EDDF EDDM", "ACARS: Kennzeichen, Flug, Label, Text")
+    check(got.first?.isDownlink == true && got.first?.blockID == "3" && got.first?.messageNumber == "M01A" && got.first?.ack == "NAK" && got.first?.mode == "2", "ACARS: Richtung, Block, Nummer, Quittung, Modus")
+    check(got.first?.parityErrors == 0 && got.first?.corrected == 0, "ACARS: sauber ohne Korrektur")
+    // Aufwärts ohne Text und mit Text
+    let up = ACARSSignalGenerator.block(registration: "D-AIXC", ack: "5", label: "_d", blockID: "A", text: "", downlink: false)
+    let g2 = decode(ACARSSignalGenerator.audio(blocks: [up]) + [Float](repeating: 0, count: 6000))
+    check(g2.count == 1 && g2[0].label == "_d" && !g2[0].isDownlink && g2[0].isEmpty && g2[0].ack == "5", "ACARS: Aufwärtsmeldung ohne Text, Label „_d“")
+    // Rauschen, Phasenlage, Pegel
+    var g = SystemRandomNumberGenerator()
+    let noisy = clean.map { $0 + Float.random(in: -0.25...0.25, using: &g) }
+    check(decode(noisy).count >= 2, "ACARS: Rauschen")
+    check(decode(clean.map { -$0 }).count == 3, "ACARS: invertiert")
+    check(decode(ACARSSignalGenerator.audio(blocks: [blk], amplitude: 0.02) + [Float](repeating: 0, count: 6000)).count == 1, "ACARS: leise")
+    var quiet = [Float](repeating: 0, count: 48_000)
+    quiet = quiet.map { _ in Float.random(in: -0.5...0.5, using: &g) }
+    check(decode(quiet).isEmpty, "ACARS: Rauschen ergibt keine Meldung")
+    // Prüfung und Korrektur
+    let raw = ACARSParser.parse(ACARSBlock(bytes: [], crc: (0, 0), levelDB: 0))
+    check(raw == nil, "ACARS: leerer Block")
+    func frameBytes(_ b: [UInt8]) -> ACARSBlock {
+        // Block ab nach SOH: Bytes bis ETX, danach zwei Prüfbytes
+        let body = Array(b.dropFirst(5).dropLast(3))
+        return ACARSBlock(bytes: body, crc: (b[b.count - 3], b[b.count - 2]), levelDB: 0)
+    }
+    let ok = frameBytes(blk)
+    check(ACARSParser.parse(ok)?.text == "Hallo ACARS Test EDDF EDDM", "ACARS: Block aus Bytes")
+    var oneBit = ok
+    oneBit.bytes[20] ^= 0x04
+    let fixed1 = ACARSParser.parse(oneBit)
+    check(fixed1?.text == "Hallo ACARS Test EDDF EDDM" && fixed1?.corrected == 1 && fixed1?.parityErrors == 1, "ACARS: ein Bitfehler mit Paritätsfehler wird korrigiert")
+    var twoBits = ok
+    twoBits.bytes[22] ^= 0x14
+    let fixed2 = ACARSParser.parse(twoBits)
+    check(fixed2?.text == "Hallo ACARS Test EDDF EDDM" && fixed2?.corrected == 2, "ACARS: zwei Bitfehler im selben Zeichen werden korrigiert")
+    var bad = ok
+    bad.bytes[20] ^= 0x04; bad.bytes[30] ^= 0x08; bad.bytes[40] ^= 0x01; bad.bytes[41] ^= 0x02; bad.bytes[42] ^= 0x10
+    check(ACARSParser.parse(bad) == nil, "ACARS: zu viele Fehler werden verworfen")
+    // Label und OOOI
+    check(ACARSLabels.describe("Q0") == "Verbindungstest" && ACARSLabels.describe("ZZ") == nil, "ACARS: Label-Bezeichnungen")
+    let q1 = ACARSLabels.oooi(label: "Q1", text: "EDDF08150822105511200000EHAM")
+    check(q1?.from == "EDDF" && q1?.out == "0815" && q1?.off == "0822" && q1?.on == "1055" && q1?.in == "1120" && q1?.to == "EHAM", "ACARS: OOOI Q1 \(String(describing: q1))")
+    check(ACARSLabels.oooi(label: "Q2", text: "KJFK1530")?.eta == "1530" && ACARSLabels.oooi(label: "QA", text: "LSZH0710")?.out == "0710", "ACARS: OOOI Q2 und QA")
+    check(ACARSLabels.oooi(label: "H1", text: "EDDF") == nil && ACARSLabels.oooi(label: "Q1", text: "") == nil, "ACARS: kein OOOI bei anderem Label oder ohne Text")
+    // Flughäfen und Karte
+    check(AirportCatalog.shared.count > 4000, "Flughäfen geladen (\(AirportCatalog.shared.count))")
+    let fra = AirportCatalog.shared.lookup("eddf")
+    check(fra?.iata == "FRA" && fra.map { abs($0.point.lat - 50.03) < 0.1 && abs($0.point.lon - 8.56) < 0.1 } == true, "Flughafen EDDF Frankfurt")
+    check(AirportCatalog.shared.lookup("XXXX") == nil, "Unbekannter Flughafen")
+}
+
+@MainActor func acarsModuleTests() {
+    let c = ACARSController(pipeline: AudioPipeline(), settings: ACARSSettingsStore())
+    c.logEnabled = false
+    func msg(_ reg: String, _ flight: String?, _ label: String, _ text: String, down: Bool = true) -> ACARSMessage {
+        ACARSMessage(time: Date(timeIntervalSince1970: 1_790_000_000), mode: "2", registration: reg, ack: "NAK", label: label, blockID: down ? "3" : "A", isDownlink: down,
+                     messageNumber: down ? "M01A" : nil, flightID: flight, text: text, continues: false, parityErrors: 0, corrected: 0, levelDB: -10)
+    }
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    c.ingest(msg("D-AIXC", "LH1234", "Q1", "EDDF08150822105511200000EHAM"), at: t0)
+    c.ingest(msg("D-AIXC", "LH1234", "Q0", ""), at: t0)
+    c.ingest(msg("G-DBCK", "BA031T", "Q2", "LSZH1530"), at: t0)
+    c.ingest(msg("LN-DYY", nil, "H1", "Text", down: false), at: t0)
+    check(c.count == 4 && c.aircraft.count == 3, "ACARS-Controller: Meldungen und Flugzeuge")
+    let a = c.aircraft["D-AIXC"]!
+    check(a.from == "EDDF" && a.to == "EHAM" && a.flight == "LH1234" && a.messages == 2, "ACARS: Flugzeug mit Start und Ziel")
+    check(c.aircraft["G-DBCK"]?.from == "LSZH" && c.aircraft["G-DBCK"]?.eta == "1530", "ACARS: Q2 mit ETA")
+    let map = ACARSMapBuilder.content(Array(c.aircraft.values), home: Maidenhead.point("JN49WS"), now: Date(timeIntervalSince1970: 1_790_000_100))
+    check(map.markers.count == 3 && map.lines.count == 1 && map.lines[0].geodesic, "ACARS-Karte: drei Flughäfen, eine Strecke (\(map.markers.map(\.id)))")
+    check(map.markers.first { $0.id == "ap-EDDF" }?.details.contains { $0.contains("Start: LH1234") } == true, "ACARS-Karte: Start/Ziel in den Einzelheiten")
+    check(ACARSMapBuilder.content(Array(c.aircraft.values), home: nil, now: Date(timeIntervalSince1970: 1_790_000_000 + 8 * 3600)).markers.isEmpty, "ACARS-Karte: alte Flüge entfallen")
+    let line = ACARSController.logLine(msg("D-AIXC", "LH1234", "H1", "Hallo"))
+    check(line.contains("D-AIXC") && line.contains("LH1234") && line.contains("↓ H1") && line.contains("Hallo"), "ACARS-Logzeile: \(line)")
+    let s = ACARSSettingsStore()
+    s.showUplink = false; s.hideEmpty = true
+    let c2 = ACARSController(pipeline: AudioPipeline(), settings: s)
+    c2.logEnabled = false
+    c2.ingest(msg("A", nil, "Q0", "")); c2.ingest(msg("B", nil, "H1", "x", down: false)); c2.ingest(msg("C", nil, "H1", "y"))
+    check(c2.visible.map(\.registration) == ["C"], "ACARS: Filter Aufwärts und leere Meldungen")
+    check(ACARSChannel.f131550.frequencyHz == 131_550_000 && RigTuneTarget.acars(channel: .f131725) == RigTuneTarget(dialHz: 131_725_000, mode: "AM") && RigTuneTarget.acars(channel: .free) == nil, "ACARS-Kanäle und Abstimmziel AM")
+    if case .success(let r) = parse("digidec://decode?mode=acars&preset=f131725") { check(r.module == .acars && r.presetID == "f131725", "URL acars") } else { check(false, "URL acars abgelehnt") }
+    check(DecoderModuleInfo.acars.isAvailable && DecoderModuleInfo.acars.hasMap, "Modul ACARS verfügbar, mit Karte")
+}
+acarsModuleTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

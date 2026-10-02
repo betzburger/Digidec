@@ -32,6 +32,10 @@ cp "$DIR"/Resources/Rtty/* "$APP_BUNDLE/Contents/Resources/Rtty/"
 mkdir -p "$APP_BUNDLE/Contents/Resources/Wefax"
 cp "$DIR"/Resources/Wefax/* "$APP_BUNDLE/Contents/Resources/Wefax/"
 
+# OurAirports (gemeinfrei): Flughäfen für die ACARS-Karte
+mkdir -p "$APP_BUNDLE/Contents/Resources/Airports"
+cp "$DIR"/Resources/Airports/* "$APP_BUNDLE/Contents/Resources/Airports/"
+
 # AD1C DXCC-Länderdatei (cty.dat) für Rufzeichen-Zuordnung
 if [ -f "$DIR/Resources/cty.dat" ]; then
     cp "$DIR/Resources/cty.dat" "$APP_BUNDLE/Contents/Resources/cty.dat"
@@ -54,9 +58,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.30.0</string>
+    <string>0.31.0</string>
     <key>CFBundleVersion</key>
-    <string>0.30.0</string>
+    <string>0.31.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
