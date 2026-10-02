@@ -985,6 +985,10 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Verhalten:** Unter dem gewählten Preset DWD KW erscheinen die fünf Frequenzen aus dem Sendeplan (4583 DDK 2, 7646 DDH 7, 10100,8 DDK 9 – Programm 1; 11039 DDH 9, 14467,3 DDH 8 – Programm 2), unter DWD LW die 147,3 kHz (DDH 47). Ein Klick wählt die Frequenz und stellt mit QSY AUTO das Funkgerät auf USB-Dial = Frequenz − NF-Mitte. Ohne Wahl gilt die Automatik des Sendeplans (Tageszeit; LW: 147,3). Die Wahl gilt je Preset und bleibt erhalten. Das Preset „Amateur“ und „Eigene“ stimmen nichts ab.
   - **Korrektur:** Die Senderliste der RTTY-Karte nannte falsche Rufzeichen (7646 kHz = DDH 7, 10100,8 kHz = DDK 9) und kannte nur drei der fünf Frequenzen; jetzt wie im Plan.
   - **Tests:** 1551 Logiktests (+9: Wahl je Preset, andere Presets ohne Wahl, Abstimmziele 4583 / 147,3 / 10100,8 kHz, Frequenzen aus dem Plan).
+- **0.39.0 (02.10.2026): M38 macOS App Icon.**
+  - **Dateien:** `Resources/AppIcon-1024.png` (Master 1024x1024 PNG), `Resources/AppIcon.icns` (vollständiger macOS-Iconset 16–1024 px), `Tools/generate_app_icon.py` (Generator-Skript via `iconutil`).
+  - **Design & Metapher:** Reduzierter Apple-Stil, passend zur Design-Familie von FT-991A Commander und PCR-1500 Commander. Dunkler, schiefergrauer Squircle mit feiner gebürsteter Metallstruktur, Apple HIG-konformer Geometrie und sanftem Schlagschatten. Im Zentrum die funktionale Metapher der digitalen Decodierung: Eine analoge NF/HF-Sinusschwingung (VFD Cyan) geht nahtlos über in diskrete digitale Rechteck-Impulse / Baud-Bits (VFD Amber und Cyan).
+  - **Build-Integration:** `build_app.sh` bettet `AppIcon.icns` in `Digidec.app/Contents/Resources/` ein und registriert es über `CFBundleIconFile` in der `Info.plist`.
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
