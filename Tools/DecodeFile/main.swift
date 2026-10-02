@@ -28,6 +28,9 @@ func usage() -> Never {
 
       --dsc                 DSC (ITU-R M.493, 100 Bd / 170 Hz); --center <Mitte-Hz> (Standard 1700), --noauto schaltet die Mittennachführung ab, --rev kehrt um
 
+      --aprs                APRS/Packet-Radio (AFSK 1200 Bd, AX.25); Ausgabe je Paket als TNC2-Zeile mit Ort. --nofix schaltet die Ein-Bit-Reparatur ab,
+                            --slicers <n> (Standard 7), --pre auto|off|on Vorverzerrung für de-emphasiertes Audio (Standard auto: beide Wege), --center <Mitte-Hz> (Standard 1700), --home <Locator> für Entfernungen
+
       --ale                 ALE (MIL-STD-188-141, 8-FSK 125 Bd); --offset <Hz> Verstimmung der Töne (Standard 0), --minvotes <n> (Standard 36)
 
       --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
@@ -62,6 +65,11 @@ var pskModeID: String?
 var oliviaID: String?
 var dscMode = false
 var aleMode = false
+var aprsMode = false
+var aprsFix = true
+var aprsSlicers = 7
+var aprsPre = "auto"
+var homeLocator = "JN49WS"
 var aleOffset = 0.0
 var aleVotes = 36
 var dscAuto = true
@@ -94,6 +102,11 @@ while !args.isEmpty {
     case "--olivia": oliviaID = value()
     case "--dsc": dscMode = true
     case "--ale": aleMode = true
+    case "--aprs": aprsMode = true
+    case "--nofix": aprsFix = false
+    case "--slicers": aprsSlicers = Int(value()) ?? 7
+    case "--pre": aprsPre = value()
+    case "--home": homeLocator = value().uppercased()
     case "--offset": aleOffset = Double(value()) ?? 0
     case "--minvotes": aleVotes = Int(value()) ?? 36
     case "--noauto": dscAuto = false
@@ -258,6 +271,54 @@ if let pskModeID {
         print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
                      100 * Double(d) / Double(max(1, max(a.count, b.count)))))
     }
+    exit(0)
+}
+
+// MARK: - APRS
+
+if aprsMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: APRSDecoder.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    var options = AFSKDemodulator.Options()
+    options.slicers = aprsSlicers
+    options.repairBits = aprsFix
+    options.centerOffsetHz = (center ?? 1700) - 1700
+    print("APRS · AFSK 1200 Bd · \(aprsSlicers) Entscheider" + (aprsFix ? " · Bitkorrektur" : "") + " · Audio \(aprsPre)")
+    let demod = AFSKReceiver(sampleRate: APRSDecoder.sampleRate, options: options, emphasis: AFSKReceiver.Emphasis(rawValue: aprsPre) ?? .auto)
+    let home = Maidenhead.point(homeLocator)
+    var packets = 0, repaired = 0, withPosition = 0
+    var stations: [String: Int] = [:]
+    var samples = 0
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+            demod.process(chunk) { raw in
+                guard let frame = AX25Frame.parse(raw.bytes) else { return }
+                packets += 1
+                if raw.repaired { repaired += 1 }
+                stations[frame.source.text, default: 0] += 1
+                var line = String(format: "%7.1f s  ", Double(samples) / APRSDecoder.sampleRate) + (raw.repaired ? "~ " : "  ") + APRSController.tnc2Line(frame)
+                if let p = APRSParser.parse(frame), let pos = p.position {
+                    withPosition += 1
+                    line += "\n            ↳ \(p.kind.rawValue) \(Geo.format(pos))"
+                    if let h = home { line += String(format: " · %.0f km", Geo.distanceKm(h, pos)) }
+                    if let s = p.symbol { line += " · \(s.name)" }
+                    if let w = p.weather { line += " · \(w.summary)" }
+                }
+                print(line)
+            }
+            samples += chunk.count
+        }
+    }
+    let dur = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "%.0f s Audio in %.2f s: %d Pakete (%d repariert) von %d Stationen, %d mit Ort", dur, Date().timeIntervalSince(began), packets, repaired, stations.count, withPosition))
     exit(0)
 }
 

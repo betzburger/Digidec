@@ -32,7 +32,7 @@ done
 Tools/build_fldigi.sh "$OUT/fldigi"
 
 # 3. Testprogramm mit den getesteten Quellen bauen
-swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
+swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     -I "$OUT/fldigi/module" \
     Tools/LogicTests/main.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift $S/Models/DXCC.swift \
@@ -49,6 +49,7 @@ swiftc -O -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/CW/FldigiCWCore.swift $S/Decoders/CW/CWModule.swift \
     $S/Models/TextModeController.swift $S/Decoders/PSK/FldigiPSKCore.swift $S/Decoders/PSK/PSKModule.swift \
     $S/Decoders/ALE/ALECore.swift $S/Decoders/ALE/ALEModule.swift \
+    $S/Decoders/APRS/APRSPacket.swift $S/Decoders/APRS/AFSKModem.swift $S/Decoders/APRS/APRSModule.swift $S/Models/Geo.swift $S/Models/ModuleMaps.swift \
     $S/Decoders/DSC/DSCCore.swift $S/Decoders/DSC/DSCModule.swift \
     $S/Decoders/Olivia/FldigiOliviaCore.swift $S/Decoders/Olivia/OliviaModule.swift \
     $S/Decoders/MT63/FldigiMT63Core.swift $S/Decoders/MT63/MT63Module.swift \

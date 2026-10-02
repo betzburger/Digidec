@@ -42,6 +42,11 @@ public struct RigTuneTarget: Equatable, Sendable {
         band.dialHz.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
     }
 
+    /// APRS-Kanal: FM auf der Region-Frequenz (frei = nichts)
+    public static func aprs(channel: APRSChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
+    }
+
     public static func wspr(band: WSPRBand) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
 
     public static func sstv(channel: SSTVChannel) -> RigTuneTarget? {

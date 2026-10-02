@@ -21,6 +21,8 @@ public final class DigidecState: ObservableObject {
     public let waterfall: WaterfallModel
     public let rttyController: RTTYController
     public let rig = RigModel()
+    /// Eigener Standort für alle Karten und Entfernungen
+    public let home = HomeLocation()
     public let navtex = NavtexSettingsStore()
     public let navtexController: NavtexController
     public let cw = CWSettingsStore()
@@ -35,6 +37,8 @@ public final class DigidecState: ObservableObject {
     public let dscController: DSCController
     public let ale = ALESettingsStore()
     public let aleController: ALEController
+    public let aprs = APRSSettingsStore()
+    public let aprsController: APRSController
     public let wefax = WefaxSettingsStore()
     public let wefaxController: WefaxController
     public let ft8 = FT8SettingsStore()
@@ -55,6 +59,8 @@ public final class DigidecState: ObservableObject {
     public private(set) var autoRecorder: ScheduleAutoRecorder!
     /// Welcher Sendeplan gerade im Fenster gezeigt wird (nil = Fenster zu)
     @Published public var scheduleSheet: BroadcastService?
+    /// Module, die statt der Liste die Karte zeigen (gemerkt)
+    @Published public private(set) var mapModules: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "mapModules") ?? [])
     /// Darf Digidec das Funkgerät über den rigctld des Commanders abstimmen? Standard: aus (nur lesen).
     @Published public var rigControlEnabled: Bool {
         didSet { UserDefaults.standard.set(rigControlEnabled, forKey: "rigControlEnabled") }
@@ -76,6 +82,7 @@ public final class DigidecState: ObservableObject {
         mt63Controller = MT63Controller(pipeline: audio.pipeline, settings: mt63)
         dscController = DSCController(pipeline: audio.pipeline, settings: dsc)
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
+        aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
         ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
@@ -85,6 +92,22 @@ public final class DigidecState: ObservableObject {
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
 
         autoRecorder = ScheduleAutoRecorder(state: self, wefax: wefaxSchedule, rtty: rttySchedule, navtex: navtexPlan)
+
+        // Ein Standort für alle: der Locator der Karte gilt auch für Entfernungen in FT8, FT4, WSPR und die NAVTEX-Stationssuche
+        let syncLocators: @MainActor (String) -> Void = { [weak self] loc in
+            guard let self, Maidenhead.coordinate(loc) != nil else { return }
+            if ft8.locator != loc { ft8.locator = loc }
+            if ft4.locator != loc { ft4.locator = loc }
+            if wspr.locator != loc { wspr.locator = loc }
+            if navtex.locator != loc { navtex.locator = loc }
+        }
+        home.$locator.removeDuplicates().receive(on: RunLoop.main).sink { loc in syncLocators(loc.uppercased()) }.store(in: &cancellables)
+        for pub in [ft8.$locator, ft4.$locator, wspr.$locator, navtex.$locator] {
+            pub.removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] loc in
+                let v = loc.uppercased().trimmingCharacters(in: .whitespaces)
+                if let self, Maidenhead.coordinate(v) != nil, self.home.locator != v { self.home.locator = v }
+            }.store(in: &cancellables)
+        }
 
         // Nur das gewählte Modul decodiert
         $activeModule
@@ -98,6 +121,7 @@ public final class DigidecState: ObservableObject {
                 self?.mt63Controller.setActive(module == .mt63)
                 self?.dscController.setActive(module == .dsc)
                 self?.aleController.setActive(module == .ale)
+                self?.aprsController.setActive(module == .aprs)
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
                 self?.ft4Controller.setActive(module == .ft4)
@@ -115,6 +139,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(wspr.$band)
         observeForTuning(psk.$band)
         observeForTuning(dsc.$channel)
+        observeForTuning(aprs.$channel)
         observeForTuning(sstv.$channel)
         observeForTuning(efr.$station)
         observeForTuning(wefax.$station)
@@ -149,6 +174,7 @@ public final class DigidecState: ObservableObject {
             mt63Controller.rigDescription = rig.description
             dscController.rigDescription = rig.description
             aleController.rigDescription = rig.description
+            aprsController.rigDescription = rig.description
             dcf77Controller.sourceDescription = rig.description
             efrController.sourceDescription = rig.description
             sstvController.sourceDescription = rig.description
@@ -178,6 +204,7 @@ public final class DigidecState: ObservableObject {
         case .wefax:  return .wefax(station: wefax.station, centerHz: wefax.centerHz)
         case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
         case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
+        case .aprs:   return .aprs(channel: aprs.channel)
         case .rtty, .cw, .olivia, .mt63, .ale: return nil
         }
     }
@@ -204,7 +231,11 @@ public final class DigidecState: ObservableObject {
         audioStarted = true
         let start: @MainActor () -> Void = {
             let state = DigidecState.shared
-            if let request = state.currentRequest, RadioSource(requestSource: request.source) != nil || request.deviceUID != nil {
+            // Entwicklungshilfe: DIGIDEC_PLAY_FILE=/Pfad/aufnahme.wav spielt eine Datei statt des Live-Eingangs ab
+            if let path = ProcessInfo.processInfo.environment["DIGIDEC_PLAY_FILE"] {
+                state.audio.openFile(URL(fileURLWithPath: path))
+                state.audio.playFile()
+            } else if let request = state.currentRequest, RadioSource(requestSource: request.source) != nil || request.deviceUID != nil {
                 state.audio.apply(request: request)
             } else {
                 state.audio.startLive()
@@ -241,6 +272,9 @@ public final class DigidecState: ObservableObject {
                     if let center = request.centerHz { olivia.setCenter(center) }
                 case .ale:
                     if let center = request.centerHz { ale.setCenter(center) }
+                case .aprs:
+                    if let preset = request.presetID, let c = APRSChannel(rawValue: preset) { aprs.channel = c }
+                    if let center = request.centerHz { aprs.setCenter(center) }
                 case .dsc:
                     if let preset = request.presetID, let c = DSCChannel(rawValue: preset) { dsc.channel = c }
                     if let center = request.centerHz { dsc.setCenter(center) }
@@ -284,6 +318,17 @@ public final class DigidecState: ObservableObject {
         case .failure(let error):
             lastRequestError = error.description
         }
+    }
+
+    /// Zeigt das Modul gerade die Karte?
+    public func isMapVisible(_ module: DecoderModuleInfo) -> Bool {
+        module.hasMap && mapModules.contains(module.rawValue)
+    }
+
+    public func toggleMap(_ module: DecoderModuleInfo) {
+        guard module.hasMap else { return }
+        if mapModules.contains(module.rawValue) { mapModules.remove(module.rawValue) } else { mapModules.insert(module.rawValue) }
+        UserDefaults.standard.set(Array(mapModules), forKey: "mapModules")
     }
 
     public func select(module: DecoderModuleInfo) {

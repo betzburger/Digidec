@@ -131,41 +131,6 @@ public struct FT8Message: Equatable, Sendable {
     }
 }
 
-/// Maidenhead-Locator: Mittelpunkt, Entfernung, Richtung
-public enum Maidenhead {
-    /// Mittelpunkt des Feldes (4 oder 6 Zeichen) in Grad
-    public static func coordinate(_ locator: String) -> (lat: Double, lon: Double)? {
-        let l = Array(locator.uppercased())
-        guard l.count == 4 || l.count == 6,
-              let a = l[0].asciiValue, let b = l[1].asciiValue, let c = l[2].wholeNumberValue, let d = l[3].wholeNumberValue,
-              (65...82).contains(a), (65...82).contains(b) else { return nil }
-        var lon = Double(Int(a) - 65) * 20 - 180 + Double(c) * 2
-        var lat = Double(Int(b) - 65) * 10 - 90 + Double(d)
-        if l.count == 6, let e = l[4].asciiValue, let f = l[5].asciiValue, (65...88).contains(e), (65...88).contains(f) {
-            lon += Double(Int(e) - 65) * (2.0 / 24) + 1.0 / 24
-            lat += Double(Int(f) - 65) * (1.0 / 24) + 0.5 / 24
-        } else {
-            lon += 1
-            lat += 0.5
-        }
-        return (lat, lon)
-    }
-
-    /// Großkreis-Entfernung in km und Richtung in Grad (0 = Nord)
-    public static func distance(from a: String, to b: String) -> (km: Double, bearing: Double)? {
-        guard let p = coordinate(a), let q = coordinate(b) else { return nil }
-        let r = 6371.0
-        let φ1 = p.lat * .pi / 180, φ2 = q.lat * .pi / 180
-        let Δφ = φ2 - φ1, Δλ = (q.lon - p.lon) * .pi / 180
-        let h = sin(Δφ / 2) * sin(Δφ / 2) + cos(φ1) * cos(φ2) * sin(Δλ / 2) * sin(Δλ / 2)
-        let km = 2 * r * asin(min(1, sqrt(h)))
-        let y = sin(Δλ) * cos(φ2)
-        let x = cos(φ1) * sin(φ2) - sin(φ1) * cos(φ2) * cos(Δλ)
-        let bearing = (atan2(y, x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
-        return (km, bearing)
-    }
-}
-
 /// Swift-Hülle um ft8mon (`Vendor/FT8`): ein Aufruf decodiert einen 15-s-Zyklus.
 /// ft8mon hält seine Parameter global → Aufrufe werden in der C-Schnittstelle nacheinander ausgeführt.
 public enum FT8Core {

@@ -56,6 +56,7 @@ public final class NavtexController: ObservableObject {
     public init(pipeline: AudioPipeline, settings: NavtexSettingsStore) {
         self.settings = settings
         decoder = NavtexDecoder(pipeline: pipeline)
+        textModel.scansCallsigns = false
         logEnabled = UserDefaults.standard.object(forKey: "navtexLogEnabled") as? Bool ?? true
         decoder.configure(options: settings.options, centerHz: settings.centerHz)
         settings.objectWillChange

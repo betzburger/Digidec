@@ -12,10 +12,17 @@ public final class ReceiveTextModel: ObservableObject {
     var onAppend: ((String, Bool) -> Void)?
     var onClear: (() -> Void)?
     @Published public private(set) var characterCount = 0
+    /// Rufzeichen und SYNOP-Meldungen aus dem Text, für die Karte
+    public let calls = CallsignLog()
+    public let synop = SynopLog()
+    /// Rufzeichen im Text suchen (aus bei NAVTEX)
+    public var scansCallsigns = true
 
     /// `decoded`: Klartext einer SYNOP-Meldung (andere Farbe)
     func append(_ s: String, decoded: Bool = false) {
         guard !s.isEmpty else { return }
+        if scansCallsigns && !decoded { calls.feed(s) }
+        synop.feed(s, decoded: decoded)
         text += s
         if text.count > Self.maxCharacters {
             text = String(text.suffix(Self.maxCharacters * 3 / 4))
@@ -30,6 +37,8 @@ public final class ReceiveTextModel: ObservableObject {
     public func clear() {
         text = ""
         characterCount = 0
+        calls.clear()
+        synop.clear()
         onClear?()
     }
 }

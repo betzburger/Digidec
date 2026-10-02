@@ -3736,5 +3736,347 @@ do {
     pipeline.stop()
 }
 
+
+// MARK: - Geo: Entfernung, Richtung, Locator
+do {
+    let hamburg = GeoPoint(lat: 53.5511, lon: 9.9937), wuerzburg = GeoPoint(lat: 49.7913, lon: 9.9534)
+    let d = Geo.distanceKm(hamburg, wuerzburg)
+    check(abs(d - 418) < 6, "Hamburg–Würzburg etwa 418 km (\(d))")
+    check(abs(Geo.bearing(from: hamburg, to: wuerzburg) - 180) < 3, "Richtung Hamburg → Würzburg Süd")
+    check(abs(Geo.distanceKm(hamburg, hamburg)) < 0.001, "Entfernung zu sich selbst 0")
+    let dest = Geo.destination(from: hamburg, bearing: 90, km: 100)
+    check(abs(Geo.distanceKm(hamburg, dest) - 100) < 0.01 && abs(Geo.bearing(from: hamburg, to: dest) - 90) < 0.5, "Zielpunkt 100 km nach Osten")
+    check(Maidenhead.locator(GeoPoint(lat: 49.7913, lon: 9.9534)).hasPrefix("JN49"), "Locator Würzburg JN49…: \(Maidenhead.locator(GeoPoint(lat: 49.7913, lon: 9.9534)))")
+    check(Maidenhead.locator(Maidenhead.point("JN49WS")!) == "JN49WS", "Locator Rundlauf JN49WS")
+    check(Geo.format(GeoPoint(lat: 49.5, lon: -72.75)) == "49°30,00′ N 072°45,00′ W", "Koordinatenformat: \(Geo.format(GeoPoint(lat: 49.5, lon: -72.75)))")
+    check(Geo.compass(95) == "O" && Geo.compass(350) == "N" && Geo.compass(225) == "SW", "Himmelsrichtungen")
+    check(!GeoPoint(lat: 91, lon: 0).isValid && GeoPoint(lat: -90, lon: 180).isValid, "Gültiger Bereich")
+    let content = MapContent(markers: [MapMarker(id: "a", coordinate: GeoPoint(lat: 50, lon: 8), title: "A"),
+                                       MapMarker(id: "b", coordinate: GeoPoint(lat: 52, lon: 12), title: "B")], home: GeoPoint(lat: 49, lon: 10))
+    let r = content.region()!
+    check(abs(r.center.lat - 50.5) < 0.01 && abs(r.center.lon - 10) < 0.01 && r.latSpan >= 3 && r.lonSpan >= 4, "Kartenausschnitt umfasst alle Punkte")
+    check(MapContent().region() == nil, "Leere Karte: kein Ausschnitt")
+}
+
+// MARK: - AX.25 und APRS
+do {
+    check(HDLC.crc16(Array("123456789".utf8)) == 0x906E, "CRC-16/X.25 Prüfwert 0x906E")
+    let f = AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC", ssid: 9),
+                      digis: [AX25Address(call: "WIDE1", ssid: 1, repeated: true), AX25Address(call: "WIDE2", ssid: 1)],
+                      info: Array("!4903.50N/07201.75W-Test".utf8))
+    let bytes = f.encode()
+    let back = AX25Frame.parse(bytes)
+    check(back == f, "AX.25 Rahmen: Kodieren und Lesen")
+    check(f.header == "DL1ABC-9>APRS,WIDE1-1*,WIDE2-1", "TNC2-Kopf: \(f.header)")
+    check(HDLC.fcsValid(HDLC.withFCS(bytes)) && !HDLC.fcsValid(HDLC.withFCS(bytes).dropLast() + [0x00]), "FCS stimmt / stimmt nicht")
+    check(AX25Address(text: "DL1ABC-9")?.ssid == 9 && AX25Address(text: "TOOLONGCALL") == nil && AX25Address(text: "DL1ABC-16") == nil, "Adresse aus Text")
+    // Ein Bit gekippt: Reparatur findet es, Zufallsdaten nicht
+    var broken = HDLC.withFCS(bytes)
+    broken[20] ^= 0x04
+    check(!HDLC.fcsValid(broken), "Kaputter Rahmen erkannt")
+    check(AFSKDemodulator.repair(broken).map { Array($0.dropLast(2)) } == bytes, "Ein-Bit-Reparatur stellt den Rahmen her")
+    var junk = (0..<60).map { UInt8(($0 * 37 + 11) & 0xFF) }
+    junk += [0, 0]
+    check(AFSKDemodulator.repair(junk) == nil, "Zufallsdaten werden nicht repariert")
+}
+
+func aprsPacket(_ dest: String, _ info: String, source: String = "DL1ABC-9", digis: [String] = ["WIDE1-1"]) -> APRSPacket? {
+    let f = AX25Frame(dest: AX25Address(text: dest)!, source: AX25Address(text: source)!, digis: digis.map { AX25Address(text: $0)! }, info: Array(info.utf8))
+    return APRSParser.parse(f)
+}
+
+do {
+    // Unkomprimiert mit Kommentar
+    let p = aprsPacket("APRS", "!4903.50N/07201.75W-Test 001234")!
+    check(p.kind == .position && abs(p.position!.lat - 49.058333) < 1e-5 && abs(p.position!.lon + 72.029167) < 1e-5, "Position unkomprimiert: \(String(describing: p.position))")
+    check(p.symbol == APRSSymbol(table: "/", code: "-") && p.symbol?.name == "Haus" && p.comment == "Test 001234", "Symbol und Kommentar")
+    // Mit Zeitstempel, Kurs und Geschwindigkeit
+    let q = aprsPacket("APRS", "/092345z4903.50N/07201.75W>088/036Mein Auto")!
+    check(q.timestamp == "092345z" && q.courseDeg == 88 && q.speedKnots == 36 && q.comment == "Mein Auto", "Zeitstempel, Kurs 88°, 36 kn: \(String(describing: q.courseDeg)) \(String(describing: q.speedKnots)) \(q.comment)")
+    // Südliche und westliche Halbkugel, Mehrdeutigkeit
+    let s = aprsPacket("APRS", "!3345.  S/15112.  E>")!
+    check(s.position!.lat < -33.7 && s.position!.lon > 151.2 && s.ambiguity == 2, "Süd/Ost mit Mehrdeutigkeit 2: \(String(describing: s.position)) \(s.ambiguity)")
+    // Komprimiert (Beispiel der Spezifikation): 49,5° N 72,75° W, Kurs 88°, 36,2 kn
+    let c = aprsPacket("APRS", "=/5L!!<*e7>7P[")!
+    check(c.kind == .position && abs(c.position!.lat - 49.5) < 0.001 && abs(c.position!.lon + 72.75) < 0.001, "Position komprimiert: \(String(describing: c.position))")
+    check(c.courseDeg == 88 && abs((c.speedKnots ?? 0) - 36.2) < 0.2 && c.symbol?.code == ">", "Komprimiert: Kurs und Geschwindigkeit \(String(describing: c.courseDeg)) \(String(describing: c.speedKnots))")
+    // Höhe im Kommentar
+    check(aprsPacket("APRS", "!4903.50N/07201.75W>Test /A=001000")!.altitudeM.map { abs($0 - 304.8) < 0.1 } == true, "Höhe /A= in Fuß")
+    // Wetter mit Ort und ohne
+    let w = aprsPacket("APRS", "!4903.50N/07201.75W_220/004g005t077r000p000P000h50b09900")!
+    check(w.kind == .weather && w.weather?.temperatureC.map { abs($0 - 25) < 0.01 } == true && w.weather?.humidityPercent == 50
+          && w.weather?.pressureHPa == 990.0 && w.weather?.windDirDeg == 220, "Wetter mit Ort: \(w.weather?.summary ?? "-")")
+    let w2 = aprsPacket("APRS", "_10090556c220s004g005t-05h00b10132")!
+    check(w2.kind == .weather && w2.weather?.temperatureC.map { abs($0 + 20.56) < 0.05 } == true && w2.weather?.humidityPercent == 100
+          && w2.weather?.pressureHPa.map { abs($0 - 1013.2) < 0.01 } == true, "Wetter ohne Ort: \(w2.weather?.summary ?? "-")")
+    // Objekt
+    let o = aprsPacket("APRS", ";LEADER   *092345z4903.50N/07201.75W>088/036")!
+    check(o.kind == .object && o.name == "LEADER" && !o.killed && o.position != nil && o.stationKey == "LEADER", "Objekt")
+    let k = aprsPacket("APRS", ";LEADER   _092345z4903.50N/07201.75W>")!
+    check(k.killed, "Objekt gelöscht")
+    let it = aprsPacket("APRS", ")AID #2!4903.50N/07201.75Wa")!
+    check(it.kind == .item && it.name == "AID #2" && it.position != nil, "Gegenstand")
+    // Nachrichten
+    let m = aprsPacket("APRS", ":WU2Z     :Testing{003")!
+    check(m.message == APRSMessage(addressee: "WU2Z", text: "Testing", id: "003", kind: .text), "Nachricht mit Nummer")
+    let a = aprsPacket("APRS", ":DL1ABC-9 :ack003")!
+    check(a.message?.kind == .ack && a.message?.id == "003", "Quittung")
+    check(aprsPacket("APRS", ":BLN1     :Wetterwarnung")!.message?.kind == .bulletin, "Bulletin")
+    // Status, Telemetrie, NMEA
+    check(aprsPacket("APRS", ">Unterwegs in Würzburg")!.status == "Unterwegs in Würzburg", "Status")
+    check(aprsPacket("APRS", "T#005,199,000,255,073,123,01101001")!.telemetry == [199, 0, 255, 73, 123], "Telemetrie")
+    let n = aprsPacket("APRS", "$GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W*6A")!
+    check(n.kind == .nmea && abs(n.position!.lat - 48.1173) < 1e-3 && abs(n.position!.lon - 11.51667) < 1e-3 && n.speedKnots == 22.4, "NMEA GPRMC")
+    // Kein UI-Paket
+    let nonUI = AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC"), control: 0x2F, pid: nil, info: Array("x".utf8))
+    check(APRSParser.parse(nonUI) == nil, "Rahmen ohne UI-Control wird nicht als APRS gelesen")
+    // Gerät
+    check(aprsPacket("APDW17", ">x")!.device == "Dire Wolf" && aprsPacket("APRS", ">x")!.device == nil, "Gerät aus Zieladresse")
+}
+
+// MARK: - Mic-E: Kodierer nach APRS101 Kap. 10 gegen den Leser
+func micEEncode(lat: Double, lon: Double, speedKn: Int, course: Int, symbol: String = ">/", message: Int = 7) -> (dest: String, info: String) {
+    let north = lat >= 0, west = lon < 0
+    let la = abs(lat), lo = abs(lon)
+    let latDeg = Int(la), latMin = Int((la - Double(latDeg)) * 6000 + 0.5)   // in 1/100 Minuten
+    let digits = [latDeg / 10, latDeg % 10, (latMin / 100) / 10, (latMin / 100) % 10, (latMin % 100) / 10, latMin % 100 % 10]
+    let lonDeg = Int(lo), lonMinTotal = Int((lo - Double(lonDeg)) * 6000 + 0.5)
+    let bits = [message & 4 != 0, message & 2 != 0, message & 1 != 0]
+    var dest = ""
+    for i in 0..<6 {
+        var high = false
+        if i < 3 { high = bits[i] }
+        if i == 3 { high = north }
+        if i == 4 { high = lonDeg >= 100 || lonDeg < 10 }
+        if i == 5 { high = west }
+        dest.append(Character(UnicodeScalar(UInt8((high ? 80 : 48) + digits[i]))))
+    }
+    var dChar = 0
+    if lonDeg >= 100 && lonDeg < 110 { dChar = (lonDeg - 100) + 108 }
+    else if lonDeg >= 110 { dChar = lonDeg - 110 + 38 }
+    else if lonDeg < 10 { dChar = lonDeg + 118 }
+    else { dChar = lonDeg - 10 + 38 }
+    let lonMin = lonMinTotal / 100, lonHund = lonMinTotal % 100
+    let mChar = lonMin < 10 ? lonMin + 88 : lonMin - 10 + 38
+    let sp = speedKn / 10 + 28
+    let dc = (speedKn % 10) * 10 + course / 100 + 28
+    let se = course % 100 + 28
+    let info = "`" + String([dChar, mChar, lonHund + 28, sp, dc, se].map { Character(UnicodeScalar(UInt8($0))) }) + symbol.prefix(1) + symbol.suffix(1)
+    return (dest, info)
+}
+
+do {
+    let cases: [(Double, Double, Int, Int)] = [(33.4273, -112.129, 20, 251), (-33.8688, 151.2093, 0, 0), (49.7913, 9.9534, 55, 180),
+                                               (53.55, 9.99, 120, 359), (64.1466, -21.9426, 5, 90), (35.6762, 139.6503, 0, 45),
+                                               (-54.8, -68.3, 14, 300), (51.5074, -0.1278, 77, 10), (0.5, -105.5, 3, 123)]
+    for (lat, lon, sp, co) in cases {
+        let (dest, info) = micEEncode(lat: lat, lon: lon, speedKn: sp, course: co)
+        guard let p = aprsPacket(dest, info) else { check(false, "Mic-E nicht lesbar \(lat),\(lon)"); continue }
+        check(p.kind == .micE && abs(p.position!.lat - lat) < 0.0002 && abs(p.position!.lon - lon) < 0.0002,
+              "Mic-E Rundlauf \(lat), \(lon) → \(String(describing: p.position)), dest \(dest)")
+        check(p.speedKnots == Double(sp) && (p.courseDeg ?? 0) == (co == 360 ? 0 : co), "Mic-E Geschwindigkeit \(sp) und Kurs \(co): \(String(describing: p.speedKnots)) \(String(describing: p.courseDeg))")
+    }
+    let (d, i) = micEEncode(lat: 33.4273, lon: -112.129, speedKn: 20, course: 251)
+    let p = aprsPacket(d, i)!
+    check(p.micEStatus == "Außer Dienst" && p.symbol == APRSSymbol(table: "/", code: ">"), "Mic-E Status und Symbol")
+    check(aprsPacket(micEEncode(lat: 10, lon: 10, speedKn: 0, course: 0, message: 0).dest, i)!.micEStatus == "Notfall", "Mic-E Notfall (000)")
+    // Echte Aufnahme (WA8LMF, Raum Los Angeles): das erste Paket der Übungsfahrt
+    let real = aprsPacket("STPYQS", "'.]g!*u>/]\"6X}", source: "WA8LMF", digis: ["WIDE2-2"])!
+    check(real.kind == .micE && real.position!.lat > 34.0 && real.position!.lat < 34.3 && real.position!.lon < -117.9 && real.position!.lon > -118.3,
+          "Mic-E aus echter Aufnahme liegt bei Los Angeles: \(String(describing: real.position))")
+}
+
+// MARK: - AFSK-Demodulator: Rundlauf mit dem Testsignal
+func aprsRoundTrip(_ gen: (Double) -> [Float], rate: Double = 12_000, count: Int, options: AFSKDemodulator.Options = AFSKDemodulator.Options()) -> (found: Int, texts: Set<String>) {
+    var audio = gen(rate)
+    audio += [Float](repeating: 0, count: Int(rate * 0.5))
+    let d = AFSKDemodulator(sampleRate: rate, options: options)
+    var texts: Set<String> = []
+    var n = 0
+    audio.withUnsafeBufferPointer { d.process($0) { f in
+        n += 1
+        if let fr = AX25Frame.parse(f.bytes) { texts.insert(fr.tnc2) }
+    } }
+    _ = count
+    return (n, texts)
+}
+
+do {
+    let frames: [[UInt8]] = (0..<12).map { i in
+        AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC", ssid: i % 15), digis: [AX25Address(call: "WIDE1", ssid: 1)],
+                  info: Array(("!4903.50N/07201.75W-Test \(i) " + String(repeating: "xyz", count: 5 + i * 4)).utf8)).encode()
+    }
+    let want = Set(frames.compactMap { AX25Frame.parse($0)?.tnc2 })
+    func run(_ name: String, _ rate: Double = 12_000, minimum: Int = 12, _ gen: @escaping (Double) -> [Float]) {
+        let r = aprsRoundTrip(gen, rate: rate, count: frames.count)
+        check(r.texts.intersection(want).count >= minimum, "APRS \(name): \(r.texts.intersection(want).count) von \(frames.count) (verlangt \(minimum))")
+    }
+    run("sauber 12 kHz") { AFSKModulator.modulate(frames: frames, sampleRate: $0) }
+    run("sauber 8 kHz", 8_000) { AFSKModulator.modulate(frames: frames, sampleRate: $0) }
+    run("sauber 48 kHz", 48_000) { AFSKModulator.modulate(frames: frames, sampleRate: $0) }
+    run("Takt +1,5 %") { AFSKModulator.modulate(frames: frames, sampleRate: $0, baudError: 0.015) }
+    run("Takt −1,5 %") { AFSKModulator.modulate(frames: frames, sampleRate: $0, baudError: -0.015) }
+    run("Töne +50 Hz") { AFSKModulator.modulate(frames: frames, sampleRate: $0, toneOffsetHz: 50) }
+    run("Töne −50 Hz") { AFSKModulator.modulate(frames: frames, sampleRate: $0, toneOffsetHz: -50) }
+    run("de-emphasiert (Space 10 dB schwächer)") { AFSKModulator.modulate(frames: frames, sampleRate: $0, deEmphasis: true) }
+    run("leise (−40 dB)") { AFSKModulator.modulate(frames: frames, sampleRate: $0, amplitude: 0.01) }
+    // Ein einziger Entscheider genügt für saubere Signale; mehrere helfen bei Rauschen
+    var one = AFSKDemodulator.Options()
+    one.slicers = 1
+    let r1 = aprsRoundTrip({ AFSKModulator.modulate(frames: frames, sampleRate: $0) }, count: 12, options: one)
+    check(r1.texts.intersection(want).count == 12, "APRS: ein Entscheider, saubere Signale")
+    // Rauschen ohne Signal: kein Paket
+    var rng = SystemRandomNumberGenerator()
+    let noise = (0..<(12_000 * 20)).map { _ in Float.random(in: -0.5...0.5, using: &rng) }
+    let dn = AFSKDemodulator(sampleRate: 12_000)
+    var spurious = 0
+    noise.withUnsafeBufferPointer { dn.process($0) { _ in spurious += 1 } }
+    check(spurious == 0, "APRS: 20 s Rauschen ergeben kein Paket (\(spurious))")
+    // Verschobene Mitte: Option centerOffsetHz
+    var shifted = AFSKDemodulator.Options()
+    shifted.centerOffsetHz = 80
+    let rs = aprsRoundTrip({ AFSKModulator.modulate(frames: frames, sampleRate: $0, toneOffsetHz: 80) }, count: 12, options: shifted)
+    check(rs.texts.intersection(want).count == 12, "APRS: Abweichung der Töne um 80 Hz nachgestellt (\(rs.texts.intersection(want).count))")
+}
+
+// MARK: - AFSK-Empfänger: flaches und de-emphasiertes Audio, doppelte Rahmen
+do {
+    let one = AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC", ssid: 7), digis: [AX25Address(call: "WIDE1", ssid: 1)],
+                        info: Array("!4903.50N/07201.75W-Wiederholung".utf8)).encode()
+    func count(_ audio: [Float], _ emphasis: AFSKReceiver.Emphasis) -> Int {
+        let r = AFSKReceiver(sampleRate: 12_000, emphasis: emphasis)
+        var n = 0
+        let pad = audio + [Float](repeating: 0, count: 6_000)
+        // in 20-ms-Blöcken wie in der Pipeline
+        var i = 0
+        while i < pad.count {
+            let e = min(i + 240, pad.count)
+            pad[i..<e].withUnsafeBufferPointer { r.process($0) { _ in n += 1 } }
+            i = e
+        }
+        return n
+    }
+    // Derselbe Rahmen dreimal kurz hintereinander (Wiederholung des Absenders): jeder zählt, aber nicht doppelt je Weg
+    let flat = AFSKModulator.modulate(frames: [one, one, one], sampleRate: 12_000, preambleFlags: 8, gapSeconds: 0.05)
+    check(count(flat, .auto) == 3 && count(flat, .off) == 3, "Empfänger: drei gleiche Rahmen kurz hintereinander werden alle gemeldet (\(count(flat, .auto)))")
+    let deemph = AFSKModulator.modulate(frames: [one, one, one], sampleRate: 12_000, preambleFlags: 8, gapSeconds: 0.2, deEmphasis: true)
+    check(count(deemph, .auto) == 3 && count(deemph, .on) == 3, "Empfänger: de-emphasiertes Audio im Modus automatisch und „an“ (\(count(deemph, .auto)))")
+    check(count(flat, .on) == 3, "Empfänger: flaches Audio auch mit Vorverzerrung lesbar")
+}
+
+// MARK: - APRS-Controller: Stationsliste, Weg, Nachrichten, Karte
+do {
+    let controller = APRSController(pipeline: AudioPipeline(), settings: APRSSettingsStore())
+    controller.logEnabled = false
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    func raw(_ dest: String, _ info: String, source: String, digis: [String] = [], repaired: Bool = false) -> APRSRawFrame {
+        let via = digis.map { d -> AX25Address in
+            var a = AX25Address(text: d.replacingOccurrences(of: "*", with: ""))!
+            a.repeated = d.hasSuffix("*")
+            return a
+        }
+        let f = AX25Frame(dest: AX25Address(text: dest)!, source: AX25Address(text: source)!, digis: via, info: Array(info.utf8))
+        return APRSRawFrame(bytes: f.encode(), repaired: repaired, slicers: 1, level: 0.5)
+    }
+    controller.clear()
+    controller.ingest(raw("APRS", "!4903.50N/07201.75W>Auto", source: "DL1ABC-9", digis: ["WIDE1-1"]), at: t0)
+    controller.ingest(raw("APRS", "!4903.60N/07201.85W>Auto", source: "DL1ABC-9", digis: ["DB0XYZ*"]), at: t0.addingTimeInterval(60))
+    controller.ingest(raw("APRS", ":DL1ABC-9 :Hallo{1", source: "DK2DEF"), at: t0.addingTimeInterval(70))
+    controller.ingest(raw("APRS", "_10090556c220s004g005t077h50b09900", source: "WX1STN"), at: t0.addingTimeInterval(80))
+    controller.ingest(raw("APRS", ";LEADER   *092345z4903.00N/07201.00W>", source: "DL1ABC-9"), at: t0.addingTimeInterval(90))
+    controller.ingest(raw("APRS", "!1000.00N/01000.00E-Falsch", source: "BIT1ER", repaired: true), at: t0.addingTimeInterval(95))
+    check(controller.stations.count == 3, "Stationsliste: DL1ABC-9, WX1STN (kein Ort), LEADER; DK2DEF nur Nachricht, reparierter Rahmen nicht (\(controller.stations.map(\.id)))")
+    let dl = controller.stations.first { $0.id == "DL1ABC-9" }!
+    check(dl.packetCount == 2 && dl.track.count == 2 && !dl.direct, "Station: zwei Pakete, Weg mit zwei Punkten, zuletzt über Digipeater")
+    check(controller.stations.first { $0.id == "LEADER" }?.isObject == true, "Objekt unter seinem Namen")
+    check(controller.messages.count == 1 && controller.messages[0].to == "DL1ABC-9" && controller.messages[0].messageID == "1", "Nachrichtenliste")
+    check(controller.repairedCount == 1 && controller.frameCount == 6, "Zähler: 6 Pakete, davon 1 repariert")
+    let home = Maidenhead.point("JN49WS")
+    let map = APRSMapBuilder.content(stations: controller.stations, home: home, maxAge: 3600, now: t0.addingTimeInterval(120))
+    check(map.markers.count == 2 && map.markers.contains { $0.id == "DL1ABC-9" && $0.track.count == 2 } && map.markers.contains { $0.id == "LEADER" }, "Karte: zwei Punkte mit Ort, einer mit Weg")
+    let old = APRSMapBuilder.content(stations: controller.stations, home: home, maxAge: 3600, now: t0.addingTimeInterval(7200))
+    check(old.markers.isEmpty, "Karte: nach zwei Stunden nichts mehr bei Filter 1 h")
+    check(APRSMapBuilder.content(stations: controller.stations, home: home, maxAge: nil, now: t0.addingTimeInterval(7200)).markers.count == 2, "Karte: Filter „alle“")
+    check(map.markers.first { $0.id == "DL1ABC-9" }?.details.contains { $0.contains("km") } == true, "Karte: Entfernung vom Standort in den Einzelheiten")
+    let line = APRSController.tnc2Line(AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "A1B"), info: Array("x\r".utf8)))
+    check(line == "A1B>APRS:x<0x0d>", "TNC2-Zeile mit sichtbarem Steuerzeichen: \(line)")
+    check(APRSChannel.eu.frequencyHz == 144_800_000 && RigTuneTarget.aprs(channel: .iss) == RigTuneTarget(dialHz: 145_825_000, mode: "FM") && RigTuneTarget.aprs(channel: .free) == nil, "APRS-Kanäle und Abstimmziel FM")
+    check(DecoderModuleInfo.aprs.isAvailable && DecoderModuleInfo.aprs.presetIDs.contains("eu"), "Modul APRS verfügbar")
+    if case .success(let req) = parse("digidec://decode?mode=aprs&preset=iss&center=1700") { check(req.module == .aprs && req.presetID == "iss", "URL-Auftrag APRS") } else { check(false, "URL-Auftrag APRS abgelehnt") }
+}
+
+// MARK: - Karten der übrigen Module
+do {
+    let home = Maidenhead.point("JN49WS")
+    let now = Date(timeIntervalSince1970: 1_790_000_000)
+    // Gehörte Stationen (FT8, WSPR …): Locator vor DXCC, Zusammenfassung, Alter
+    let dxcc = DXCCDatabase.shared
+    let heard = [
+        HeardStation(call: "DL1ABC", grid: "JN49WR", dxcc: dxcc.lookup("DL1ABC"), snr: -8, time: now.addingTimeInterval(-60), text: "CQ DL1ABC JN49WR", isCQ: true),
+        HeardStation(call: "W1AW", grid: nil, dxcc: dxcc.lookup("W1AW"), snr: -15, time: now.addingTimeInterval(-120), text: "W1AW DL1ABC RR73"),
+        HeardStation(call: "DL1ABC", grid: "JN49WR", dxcc: dxcc.lookup("DL1ABC"), snr: -2, time: now.addingTimeInterval(-10), text: "DL1ABC K3ZK -02"),
+        HeardStation(call: "OLD1X", grid: "IO91", time: now.addingTimeInterval(-9_000)),
+        HeardStation(call: "NOPOS", time: now)
+    ]
+    let c = HeardMapBuilder.content(heard, home: home, now: now, mode: "FT8", maxAge: 3600)
+    check(c.markers.count == 2, "Gehörte Stationen: Dubletten zusammengefasst, zu alte und ohne Ort entfernt (\(c.markers.map(\.id)))")
+    let dl = c.markers.first { $0.id == "DL1ABC" }!
+    check(dl.subtitle?.contains("2×") == true && dl.details.contains { $0.contains("-02") }, "Jüngste Meldung gilt, Anzahl 2×")
+    let wa = c.markers.first { $0.id == "W1AW" }!
+    check(wa.details.contains { $0.contains("kein Locator") } && wa.coordinate.lon < -60, "Ohne Locator: Mittelpunkt des Landes (USA)")
+    check(c.lines.count == 1 && c.lines[0].geodesic, "Großkreislinie nur zu entfernten Stationen (DL1ABC liegt < 30 km vom Standort)")
+    // Rufzeichen im Text
+    let log = CallsignLog()
+    log.feed("CQ CQ CQ DE DL1ABC DL1ABC K\r\nDL1ABC DE W1AW W1AW KN TEST 599 NR5 K", at: now)
+    let calls = Set(log.heard.map(\.call))
+    check(calls == ["DL1ABC", "W1AW"], "Rufzeichen im Text: \(calls)")
+    let log2 = CallsignLog()
+    for ch in "CQ DE JA1XYZ PSE K " { log2.feed(String(ch), at: now) }
+    check(log2.heard.map(\.call) == ["JA1XYZ"], "Rufzeichen Zeichen für Zeichen")
+    let log3 = CallsignLog()
+    log3.feed("DL1ABC ist hier und W1AW auch ", at: now)
+    check(log3.heard.isEmpty, "Rufzeichen ohne CQ/DE und nur einmal gelten noch nicht")
+    // SYNOP
+    check(SynopCatalog.lookup(wmo: 10655).map { abs($0.point.lat - 49.77) < 0.1 && abs($0.point.lon - 9.95) < 0.1 } == true, "WMO-Liste: Würzburg 10655 (\(String(describing: SynopCatalog.lookup(wmo: 10655))), Ordner \(SynopDecoder.stationDirectory?.path ?? "-"))")
+    let synopText = "\n\tLand station observation\n\tWMO Station=10655\n\tWMO station=Wuerzburg\n\tTemperature=12.3 °C\n\tSea level pressure=1013 hPa\n\tWind speed=14 km/h\n\tWMO Station=62170\n\tLatitude=51.4\n\tLongitude=2.0\n\tTemperature=20.2 °C\n"
+    let obs = SynopLog.parse(synopText, at: now)
+    check(obs.count == 2 && obs[0].wmo == "10655" && obs[0].position != nil && obs[0].temperature == "12.3 °C" && obs[1].position == GeoPoint(lat: 51.4, lon: 2.0), "SYNOP-Klartext: Land (Ort aus Liste) und Schiff (Ort im Text)")
+    let sl = SynopLog()
+    sl.feed(synopText, decoded: true, at: now)
+    sl.feed("NEXT", decoded: false, at: now)
+    check(sl.content(home: home, now: now).markers.count == 2, "SYNOP-Karte: zwei Stationen")
+    // Sender
+    let tx = TransmitterMap.content(Transmitters.dcf77(), home: home)
+    check(tx.markers.count == 1 && tx.lines.count == 1 && tx.markers[0].radiusKm == 500, "Sender-Karte: DCF77 mit Linie und Reichweite")
+    let dist = Geo.distanceKm(home!, Transmitters.mainflingen)
+    check(dist > 40 && dist < 100, "JN49WS – Mainflingen (\(dist) km)")
+    check(Transmitters.efr(.custom).isEmpty && Transmitters.efr(.dcf39).count == 1, "EFR-Sender je Station")
+    // DSC
+    var m = DSCMessage(receivedAt: now, centerHz: 1700, symbols: [], format: .distress, category: "SEENOT", from: "211123456", nature: "Feuer/Explosion",
+                       position: "48°30′N 011°20′O", timeUTC: "12:34", eccOK: true, unreadable: 0)
+    check(m.geoPosition.map { abs($0.lat - 48.5) < 1e-6 && abs($0.lon - 11.3333) < 1e-3 } == true, "DSC-Position Nord/Ost")
+    m.position = "35°05′S 150°45′W"
+    check(m.geoPosition.map { $0.lat < 0 && $0.lon < 0 } == true, "DSC-Position Süd/West")
+    m.position = "48°30′N 011°20′O"
+    let dc = DSCMapBuilder.content([m], home: home, now: now.addingTimeInterval(300))
+    check(dc.markers.count == 1 && dc.markers[0].tone == .alert && dc.lines.count == 1, "DSC-Karte: Seenot rot, mit Linie")
+    m.position = nil
+    check(DSCMapBuilder.content([m], home: home, now: now).markers.isEmpty, "DSC ohne Position: kein Punkt")
+}
+
+@MainActor func homeTests() {
+    let key = "homeLocator"
+    let saved = UserDefaults.standard.string(forKey: key)
+    UserDefaults.standard.set("JO30", forKey: key)
+    let h = HomeLocation()
+    check(h.locator == "JO30" && h.point != nil, "Standort aus gespeichertem Locator")
+    h.locator = "kaputt"
+    check(UserDefaults.standard.string(forKey: key) == "JO30", "Ungültiger Locator wird nicht gespeichert")
+    h.locator = "JN49WS"
+    check(UserDefaults.standard.string(forKey: key) == "JN49WS", "Gültiger Locator wird gespeichert")
+    if let saved { UserDefaults.standard.set(saved, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
+}
+homeTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

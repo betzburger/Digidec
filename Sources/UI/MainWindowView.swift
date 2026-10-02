@@ -32,6 +32,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.dsc, audio: state.audio)
                             } else if state.activeModule == .ale {
                                 WaterfallView(model: state.waterfall, rtty: state.ale, audio: state.audio)
+                            } else if state.activeModule == .aprs {
+                                WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
                             } else if state.activeModule == .psk {
                                 WaterfallView(model: state.waterfall, rtty: state.psk, audio: state.audio)
                             } else if state.activeModule == .wefax {
@@ -56,7 +58,9 @@ public struct MainWindowView: View {
                         .radioCard(title: "Wasserfall")
 
                         Group {
-                            if state.activeModule == .navtex {
+                            if state.isMapVisible(state.activeModule) {
+                                ModuleMapView(state: state)
+                            } else if state.activeModule == .navtex {
                                 NavtexReceivePanel(controller: state.navtexController)
                             } else if state.activeModule == .cw {
                                 CWReceivePanel(controller: state.cwController)
@@ -68,6 +72,8 @@ public struct MainWindowView: View {
                                 DSCMessagePanel(controller: state.dscController)
                             } else if state.activeModule == .ale {
                                 ALEMessagePanel(controller: state.aleController)
+                            } else if state.activeModule == .aprs {
+                                APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
                             } else if state.activeModule == .psk {
                                 PSKReceivePanel(controller: state.pskController)
                             } else if state.activeModule == .wefax {
@@ -89,7 +95,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.isMapVisible(state.activeModule) ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -116,6 +122,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             ALESettingsPanel(settings: state.ale)
                                 .radioCard(title: "ALE")
+                        } else if state.activeModule == .aprs {
+                            APRSTuningPanel(controller: state.aprsController, settings: state.aprs)
+                                .radioCard(title: "Abstimmanzeige")
+                            APRSSettingsPanel(settings: state.aprs)
+                                .radioCard(title: "APRS")
                         } else if state.activeModule == .dsc {
                             DSCTuningPanel(controller: state.dscController, settings: state.dsc)
                                 .radioCard(title: "Abstimmanzeige")
@@ -192,7 +203,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, dsc: state.dsc, ale: state.ale, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, dsc: state.dsc, ale: state.ale, aprs: state.aprs, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -242,6 +253,7 @@ private struct HeaderBar: View {
 
             Spacer()
 
+            MapToggleButton(state: state)
             ScheduleButton(state: state, auto: state.autoRecorder)
             RigControlToggle(state: state, rig: state.rig)
             RigBadge(rig: state.rig, audio: state.audio)
@@ -249,6 +261,34 @@ private struct HeaderBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
+    }
+}
+
+/// Schaltet zwischen Liste und Karte des aktiven Moduls um
+private struct MapToggleButton: View {
+    @ObservedObject var state: DigidecState
+
+    var body: some View {
+        let module = state.activeModule
+        let on = state.isMapVisible(module)
+        Button {
+            state.toggleMap(module)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: on ? "list.bullet" : "map")
+                    .font(.system(size: 9, weight: .bold))
+                Text(on ? "LISTE" : "KARTE")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+            }
+            .foregroundColor(!module.hasMap ? RadioTheme.textDim : on ? RadioTheme.vfdCyan : RadioTheme.textBright)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(on ? RadioTheme.vfdCyan.opacity(0.18) : RadioTheme.bgDeep)
+            .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!module.hasMap)
+        .help(module.hasMap ? (on ? "Zur Liste zurück" : "Karte dieses Moduls zeigen (Stationen, Sender, Positionen)") : "\(module.displayName) hat keine Ortsdaten")
     }
 }
 
@@ -472,6 +512,7 @@ private struct StatusBar: View {
     @ObservedObject var mt63: MT63SettingsStore
     @ObservedObject var dsc: DSCSettingsStore
     @ObservedObject var ale: ALESettingsStore
+    @ObservedObject var aprs: APRSSettingsStore
     @ObservedObject var ft8: FT8SettingsStore
     @ObservedObject var ft4: FT4SettingsStore
     @ObservedObject var ft4Controller: FT4Controller
@@ -533,6 +574,7 @@ private struct StatusBar: View {
         case .cw: return cwCurrent
         case .psk: return pskCurrent
         case .olivia: return "\(olivia.options.familyName.uppercased()) · \(olivia.options.label) · Mitte \(Int(olivia.centerHz.rounded())) Hz" + (olivia.options.reverse ? " · REV" : "") + (olivia.options.squelchOn ? " · SQL \(Int(olivia.options.squelch))" : " · SQL aus")
+        case .aprs: return "APRS · \(aprs.channel.label) MHz FM · AFSK 1200 Bd · Töne \(Int(aprs.centerHz - 500)) / \(Int(aprs.centerHz + 500)) Hz" + (aprs.repairBits ? " · Korrektur" : "") + (aprs.emphasis == .auto ? "" : aprs.emphasis == .on ? " · DE-EMPH." : " · FLACH")
         case .ale: return "ALE · 8-FSK 125 Bd · Verstimmung \(Int(ale.offsetHz.rounded())) Hz" + (ale.auto ? " · AUTO" : "") + " · \(ale.sensitivity.rawValue)"
         case .dsc: return "DSC · \(dsc.channel.label) kHz · Mitte \(Int(dsc.centerHz.rounded())) Hz · 100 Bd / 170 Hz" + (dsc.autoCenter ? " · AUTO" : "") + (dsc.reversed ? " · REV" : "")
         case .mt63: return "MT63 · \(mt63.options.label) · Mitte \(Int(mt63.centerHz.rounded())) Hz" + (mt63.options.squelchOn ? " · SQL \(Int(mt63.options.squelch))" : " · SQL aus")
