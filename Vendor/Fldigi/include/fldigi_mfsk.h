@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------
-// fldigi_mfsk.h  --  C-Schnittstelle zu MFSK, DominoEX und Thor (fldigi 4.2.13, Dave Freese W1HKJ) für Swift
+// fldigi_mfsk.h  --  C-Schnittstelle zu MFSK, DominoEX, Thor, Throb, IFKP und FSQ (fldigi 4.2.13, Dave Freese W1HKJ) für Swift
 //
 // Digidec. Empfänger: src/mfsk/{mfsk,dominoex,thor}_rx.cpp (erzeugt von port_mfsk.py aus fldigi mfsk.cxx, dominoex.cxx,
 // thor.cxx), GPLv3. Alle Aufrufe vom selben Thread. Mehrere MFSK-Exemplare gleichzeitig sind möglich; DominoEX und Thor
@@ -18,13 +18,16 @@ enum {
     FLDIGI_MFSK_MODE_COUNT,
     FLDIGI_DOMINOEXMICRO = 16, FLDIGI_DOMINOEX4, FLDIGI_DOMINOEX5, FLDIGI_DOMINOEX8, FLDIGI_DOMINOEX11,
     FLDIGI_DOMINOEX16, FLDIGI_DOMINOEX22, FLDIGI_DOMINOEX44, FLDIGI_DOMINOEX88,
+    FLDIGI_THROB1 = 26, FLDIGI_THROB2, FLDIGI_THROB4, FLDIGI_THROBX1, FLDIGI_THROBX2, FLDIGI_THROBX4,
+    FLDIGI_IFKP05 = 48, FLDIGI_IFKP10, FLDIGI_IFKP20,
+    FLDIGI_FSQ15 = 56, FLDIGI_FSQ2, FLDIGI_FSQ3, FLDIGI_FSQ45, FLDIGI_FSQ6,
     FLDIGI_THORMICRO = 32, FLDIGI_THOR4, FLDIGI_THOR5, FLDIGI_THOR8, FLDIGI_THOR11, FLDIGI_THOR16, FLDIGI_THOR22,
     FLDIGI_THOR25, FLDIGI_THOR32, FLDIGI_THOR44, FLDIGI_THOR56, FLDIGI_THOR100, FLDIGI_THOR25X4, FLDIGI_THOR50X1,
     FLDIGI_THOR50X2
 };
 
 typedef struct {
-    int    mode;          ///< FLDIGI_MFSK*, FLDIGI_DOMINOEX*, FLDIGI_THOR*
+    int    mode;          ///< FLDIGI_MFSK*, FLDIGI_DOMINOEX*, FLDIGI_THROB*, FLDIGI_THOR*
     int    afc;           ///< Frequenznachführung (progStatus.afconoff, an; nur MFSK)
     int    fec;           ///< DominoEX: MultiPsk-FEC (progdefaults.DOMINOEX_FEC, aus)
     int    squelch_on;    ///< Squelch (sqlonoff, an)

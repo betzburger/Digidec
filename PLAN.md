@@ -441,6 +441,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M31 | UKW-DSC Kanal 70 | ✅ 02.10.2026 (v0.32.0): Teil des DSC-Moduls (Kanal „K70“, 156,525 MHz, FM): 1200 Bd, Y 1300 Hz / B 2100 Hz; gleiche Zeichen-, Phasing- und ECC-Logik wie MF/HF; AFSK-Demodulator im Rohbit-Betrieb |
 | M32 | MFSK, DominoEX, Thor | ✅ 02.10.2026 (v0.33.0): ein Modul „MFSK“ mit 35 Betriebsarten aus fldigi 4.2.13 (`Vendor/Fldigi/UPSTREAM_MFSK.md`); Text, Rufzeichenkarte, Abtastraten 8000/11025/16000 Hz |
 | M33 | SELCAL | ✅ 02.10.2026 (v0.34.0): im Modul TÖNE als weitere Norm (ARINC 714, 16 Töne 313–1479 Hz, zwei Impulse mit je zwei Tönen); Hann-Fenster 80 ms, Anzeige „AB-CD“ |
+| M34 | Throb, IFKP, FSQ | ✅ 02.10.2026 (v0.35.0): drei weitere Familien im Modul „MFSK“ (14 Betriebsarten, jetzt 49); 12- und 16-kHz-Senken |
 ---
 
 ## 11. Aktueller Stand
@@ -960,9 +961,14 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Aufbau:** Goertzel auf den 16 Tönen A B C D E F G H J K L M P Q R S (312,6 … 1479,1 Hz), Hann-Fenster 80 ms, Schritt 25 ms; je Schritt die zwei stärksten Töne (dritter mindestens 9 dB schwächer, beide mindestens 35 % der Leistung). Ein Impuls zählt nach 0,35 s Stabilität; der zweite muss binnen 0,6 s Pause beginnen. Ausgabe in aufsteigender Buchstabenfolge je Paar („DAMR“ → „AD-MR“).
   - **Tests:** Codes, benachbarte Töne, kurze Impulse, zwei Rufe, leise mit Rauschen, zu lange Pause, einzelner Impuls, ZVEI-Folge und Akkord ergeben nichts, 4–5 Hz Frequenzfehler.
   - **Grenzen/Offen:** nur Testsignale; kein Abgleich mit dem Flugplan oder Flugzeugkennung; 10 Hz und mehr Abstimmfehler (SSB) können Töne verfehlen. Live-Empfang offen (HF-Flugfunk, z. B. Shanwick, USB).
+- **0.35.0 (02.10.2026): M34 Throb, IFKP, FSQ.**
+  - **Dateien:** `Vendor/Fldigi/src/mfsk/{throb,ifkp,fsq}_rx.*` (erzeugt von `port_mfsk.py`), Erweiterungen in `fldigi_mfsk.*`, `FldigiMFSKCore.swift`, `MFSKModule.swift` (vier Senken: 8000, 11025, 12000, 16000 Hz), Panels. Kennungen `throb1|throb2|throb4|throbx1|throbx2|throbx4`, `ifkp05|ifkp10|ifkp20`, `fsq15|fsq2|fsq3|fsq45|fsq6`.
+  - **Abweichungen:** siehe `Vendor/Fldigi/UPSTREAM_MFSK.md` (Nr. 8 bis 10): Throb-Squelch skaliert, IFKP ohne Bild/Avatar/Protokolle/1500-Hz-Bindung, FSQ ohne gerichtete Befehle (Zeichen wie im Monitor).
+  - **Tests:** 1479 Logiktests (+20): Rundlauf aller Betriebsarten außer IFKP 0,5 und FSQ 1,5 (sehr langsam), Rauschen, Squelch, Pipeline.
+  - **Grenzen/Offen:** nur gegen das eigene fldigi-Testsignal geprüft; kein Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichen und CRC werden nicht ausgewertet.
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
-  - Weitere fldigi-Modi (Throb, IFKP, FSQ, Hell, 8PSK/PSKR), JT65/JT9 (WSJT-X); MFSK-/Thor-Bildempfang.
+  - Weitere fldigi-Modi (Hell, 8PSK/PSKR), JT65/JT9 (WSJT-X); Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichenauswertung.
   - Parallelbetrieb mehrerer Module (kein Warnton, vom Nutzer nicht gewünscht).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

@@ -48,7 +48,7 @@ extension MFSKSettingsStore: TuningTarget {
 
 // MARK: - Decoder
 
-/// MFSK-Kern als Senke an der Pipeline. Die Betriebsarten brauchen 8000, 11025 oder 16000 Hz: drei Senken, es arbeitet die passende.
+/// MFSK-Kern als Senke an der Pipeline. Die Betriebsarten brauchen 8000, 11025, 12000 oder 16000 Hz: vier Senken, es arbeitet die passende.
 public final class MFSKDecoder: @unchecked Sendable {
     public struct Output: Sendable {
         public var text: String
@@ -68,6 +68,7 @@ public final class MFSKDecoder: @unchecked Sendable {
         self.pipeline = pipeline
         pipeline.addSink(rate: 8_000) { [weak self] samples in self?.consume(samples, rate: 8_000) }
         pipeline.addSink(rate: 11_025) { [weak self] samples in self?.consume(samples, rate: 11_025) }
+        pipeline.addSink(rate: 12_000) { [weak self] samples in self?.consume(samples, rate: 12_000) }
         pipeline.addSink(rate: 16_000) { [weak self] samples in self?.consume(samples, rate: 16_000) }
     }
 

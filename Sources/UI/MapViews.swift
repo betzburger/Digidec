@@ -19,7 +19,7 @@ struct ModuleMapView: View {
             case .psk:    TextCallMapView(model: state.pskController.textModel, mode: "PSK", home: state.home)
             case .olivia: TextCallMapView(model: state.oliviaController.textModel, mode: "Olivia", home: state.home)
             case .mt63:   TextCallMapView(model: state.mt63Controller.textModel, mode: "MT63", home: state.home)
-            case .mfsk:   TextCallMapView(model: state.mfskController.textModel, mode: state.mfsk.options.mode.family == .mfsk ? "MFSK" : state.mfsk.options.mode.family == .thor ? "Thor" : "DominoEX", home: state.home)
+            case .mfsk:   TextCallMapView(model: state.mfskController.textModel, mode: state.mfsk.options.mode.family.title, home: state.home)
             case .wefax:  FixedSiteMapView(sites: Transmitters.dwd("wefax", frequency: "\(state.wefax.station.label) kHz"), home: state.home,
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")

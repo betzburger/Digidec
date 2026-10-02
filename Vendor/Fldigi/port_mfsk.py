@@ -293,4 +293,364 @@ void thor::init()
 
 '''
 write('src/mfsk/thor_rx.cpp', body)
+
+# ===================================================================== Throb
+h = read('include/throb.h')
+for inc in ['"modem.h"', '"globals.h"', '"complex.h"']:
+    h = must(h, f'#include {inc}\n', '')
+h = must(h, '#include "mbuffer.h"\n', f'#include "mbuffer.h"\n#include "mfsk_compat.h" // {M}: Umgebung statt fldigi-Modem\n')
+h = must(h, 'class throb : public modem {', f'class throb : public fam_modem_base {{ // {M}\n\tfriend struct fldigi_mfsk; // {M}: C-Hülle')
+write('src/mfsk/throb_rx.h', h)
+
+c = read('throb/throb.cxx')
+parts = [f'''// ----------------------------------------------------------------------------
+// throb_rx.cpp  --  Throb-Empfänger aus fldigi 4.2.13 (src/throb/throb.cxx), erzeugt von port_mfsk.py
+//
+// Copyright (C) 2006-2009 Dave Freese, W1HKJ, nach gmfsk (Tomi Manninen OH2BNS). GNU GPL v3.
+// {M}: Empfangsfunktionen und Sendefunktionen (nur für das Testsignal) wörtlich übernommen; die Sendesteuerung
+// (tx_process) entfällt. Einstellungen/Anzeigen: mfsk_compat.h.
+// ----------------------------------------------------------------------------
+#include <cstring>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
+#include "throb_rx.h"
+
+#define MAX_TONES	15
+
+#undef  CLAMP
+#define CLAMP(x,low,high)       (((x)>(high))?(high):(((x)<(low))?(low):(x)))
+
+char throbmsg[80];
+
+''']
+for sig in ['void  throb::tx_init()', 'void  throb::rx_init()', 'throb::~throb()', 'void throb::flip_syms()', 'void throb::reset_syms()',
+            'throb::throb(trx_mode throb_mode) : modem()', 'cmplx *throb::mk_rxtone(double freq, double *pulse, int len)',
+            'cmplx throb::mixer(cmplx in)', 'int throb::findtones(cmplx *word, int &tone1, int &tone2)', 'void throb::show_char(int c)',
+            'void throb::decodechar(int tone1, int tone2)', 'void throb::rx(cmplx in)', 'void throb::sync(cmplx in)',
+            'int throb::rx_process(const double *buf, int len)', 'double *throb::mk_semi_pulse(int len)', 'double *throb::mk_full_pulse(int len)',
+            'void throb::send(int symbol)']:
+    parts.append(block(c, sig))
+t0 = c.index('int throb::ThrobTonePairs[45][2] = {')
+parts.append(c[t0:])
+body = ''.join(parts)
+body = must(body, 'throb::throb(trx_mode throb_mode) : modem()', f'throb::throb(trx_mode throb_mode) : fam_modem_base() // {M}: Basisklasse')
+body = must(body, '\tpreamble = 4;\n\treset_syms();\n\tvideoText();\n}', '\tpreamble = 4;\n\treset_syms();\n\tvideoText();\n}')
+body += f'''// {M}: init() ohne modem::init(); Trägerfrequenz setzt Digidec
+void throb::init()
+{{
+	rx_init();
+	set_scope_mode(Digiscope::SCOPE);
+	set_freq(wf->Carrier());
+}}
+
+'''
+write('src/mfsk/throb_rx.cpp', body)
+
+# ===================================================================== IFKP
+write('src/mfsk/ifkp_varicode.inc', read('ifkp/ifkp_varicode.cxx'))
+h = read('include/ifkp.h')
+for inc in ['"trx.h"', '"modem.h"', '"complex.h"', '"picture.h"', '<FL/Fl_Shared_Image.H>']:
+    h = must(h, f'#include {inc}\n', '')
+h = must(h, '#include "filters.h"\n', f'#include "filters.h"\n#include <fstream>\n#include "gfft.h"\n#include "mfsk_compat.h" // {M}: Umgebung statt fldigi-Modem\n')
+h = must(h, 'class ifkp : public modem {', f'class ifkp : public fam_modem_base {{ // {M}\n\tfriend struct fldigi_mfsk; // {M}: C-Hülle')
+h = must(h, 'extern void init_def_ifkp_avatar(Fl_Group *w);\n', '')
+h = must(h, '\tdouble\t\t\tmetric;\n', f'\t// {M}: metric kommt aus der Basisklasse\n')
+h = must(h, 'public:\n\tint\t\t\tsymlen;\n', f'public:\n\t// {M}: symlen kommt aus der Basisklasse\n')
+write('src/mfsk/ifkp_rx.h', h)
+
+c = read('ifkp/ifkp.cxx')
+parts = [f'''// ----------------------------------------------------------------------------
+// ifkp_rx.cpp  --  IFKP-Empfänger aus fldigi 4.2.13 (src/ifkp/ifkp.cxx), erzeugt von port_mfsk.py
+//
+// Copyright (C) 2015 Dave Freese, W1HKJ (IFKP: Incremental Frequency Keying Plus, Murray Greenman ZL1BPU). GNU GPL v3.
+// {M}: Empfangsfunktionen und Sendefunktionen (nur für das Testsignal) wörtlich übernommen, außer wie unten
+// vermerkt. Bild- und Avatar-Senden und -Anzeige, Heard- und Audit-Protokolle, Rufzeichenliste und die Sendesteuerung
+// (tx_process) entfallen. Einstellungen/Anzeigen: mfsk_compat.h.
+// ----------------------------------------------------------------------------
+#include <cstring>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
+#include "ifkp_rx.h"
+
+#define IFKP_SR 16000
+
+#include "ifkp_varicode.inc"
+
+static char sz[21];
+
+int ifkp::IMAGEspp = IMAGESPP;
+std::string ifkp::imageheader;
+std::string ifkp::avatarheader;
+
+int no_signal = 0;
+
+''']
+for sig in ['void ifkp::init_nibbles()', 'ifkp::ifkp(trx_mode md) : modem()', 'ifkp::~ifkp()', 'void  ifkp::tx_init()', 'void  ifkp::rx_init()',
+            'void ifkp::rx_reset()', 'void ifkp::set_freq(double f)', 'void ifkp::restart()', 'bool ifkp::valid_char(int ch)',
+            'void ifkp::parse_pic(int ch)', 'void ifkp::process_tones()', 'void ifkp::recvpic(double smpl)', 'int ifkp::rx_process(const double *buf, int len)',
+            'void ifkp::transmit(double *buf, int len)', 'void ifkp::send_tone(int tone)', 'void ifkp::send_symbol(int sym)',
+            'void ifkp::send_idle()', 'void ifkp::send_char(int ch)']:
+    parts.append(block(c, sig))
+body = ''.join(parts)
+body = must(body, 'ifkp::ifkp(trx_mode md) : modem()', f'ifkp::ifkp(trx_mode md) : fam_modem_base() // {M}: Basisklasse')
+body = must(body, '\tREQ(put_freq, frequency);\n', f'\t// {M}: Frequenzanzeige entfällt\n', count=2)
+body = must(body, '\ttoggle_logs();\n\n\tactivate_ifkp_image_item(true);\n', f'\t// {M}: Protokolle und Bildmenü entfallen\n')
+body = must(body, '\tifkp_deleteTxViewer();\n\tifkp_deleteRxViewer();\n\theard_log.close();\n\taudit_log.close();\n\n\tactivate_ifkp_image_item(false);\n', f'\t// {M}: Bildfenster, Protokolle und Bildmenü entfallen\n')
+body = must(body, '\tmycall = progdefaults.myCall;\n\tif (progdefaults.ifkp_lowercase)\n\t\tfor (size_t n = 0; n < mycall.length(); n++) mycall[n] = tolower(mycall[n]);\n\tvideoText();', '\tvideoText();')
+# set_freq: Protokollausgabe (LOG_VERBOSE) entfällt
+a = body.index('\tstd::ostringstream it;')
+b = body.index('LOG_VERBOSE("%s", it.str().c_str());') + len('LOG_VERBOSE("%s", it.str().c_str());')
+body = body[:a] + f'\t// {M}: Protokollausgabe entfällt' + body[b:]
+# restart: mycall/show_mode entfallen
+body = must(body, '\tmycall = progdefaults.myCall;\n\tif (progdefaults.ifkp_lowercase)\n\t\tfor (size_t n = 0; n < mycall.length(); n++) mycall[n] = tolower(mycall[n]);\n\n\tmovavg_size', '\tmovavg_size')
+body = must(body, '\n\tshow_mode();\n', '\n')
+# Bild-Anzeige: leer
+body = must(body, '\t\tREQ( ifkp_showRxViewer, pic_str[4]);', f'\t\t;   // {M}: Bildanzeige entfällt')
+body = must(body, '\t\tREQ( ifkp_clear_avatar );', f'\t\t;   // {M}: Avatar-Anzeige entfällt')
+for name in ['ifkp_update_avatar', 'ifkp_updateRxPic']:
+    body = body.replace(f'REQ({name}, byte, pixelnbr', f'(void)(byte, pixelnbr')
+body = body.replace('REQ(ifkp_enableshift);', '')
+# rx_process: Protokoll-Umschalter und Abbruch entfallen
+a = body.index('\tif (enable_audit_log != progdefaults.ifkp_enable_audit_log ||')
+b = body.index('\tif (bkptr < 0) bkptr = 0;')
+body = body[:a] + body[b:]
+a = body.index('\tif (progStatus.ifkp_rx_abort) {')
+b = body.index('\twhile (len) {')
+body = body[:a] + body[b:]
+# send_tone: Testsignalfenster entfällt
+a = body.index('\tif (test_signal_window && test_signal_window->visible() && btnOffsetOn->value())')
+b = body.index('\tphaseincr = 2.0 * M_PI * frequency / samplerate;')
+body = body[:a] + body[b:]
+# process_symbol von Hand: Zeichen an Rückruf, Rufzeichen/Protokolle entfallen
+ps = f'''// {M}: process_symbol ohne Protokolle und Rufzeichenliste (Zeichen gehen an put_rx_char)
+void ifkp::process_symbol(int sym)
+{{
+	int nibble = 0;
+	int curr_ch = -1	;
+
+	symbol = sym;
+
+	nibble = symbol - prev_symbol;
+	if (nibble < -99 || nibble > 99) {{
+		prev_symbol = symbol;
+		return;
+	}}
+	nibble = nibbles[nibble + 99];
+
+	if (nibble >= 0) {{ // process nibble
+		curr_nibble = nibble;
+
+// single-nibble characters
+		if ((prev_nibble < 29) & (curr_nibble < 29)) {{
+			curr_ch = ifkp_varidecode[prev_nibble];
+
+// double-nibble characters
+		}} else if ( (prev_nibble < 29) &&
+					 (curr_nibble > 28) &&
+					 (curr_nibble < 32)) {{
+			curr_ch = ifkp_varidecode[prev_nibble * 32 + curr_nibble];
+		}}
+		if (curr_ch > 0) {{
+			if (ch_sqlch_open || metric >= progStatus.sldrSquelchValue) {{
+				put_rx_char(curr_ch);
+				parse_pic(curr_ch);
+			}}
+		}}
+		prev_nibble = curr_nibble;
+	}}
+
+	prev_symbol = symbol;
+}}
+
+'''
+body = must(body, 'void ifkp::process_tones()', ps + 'void ifkp::process_tones()')
+body += f'''// {M}: init() ohne Protokolle; Trägerfrequenz setzt Digidec
+void ifkp::init()
+{{
+	peak_hits = 4;
+	movavg_size = 3;
+	for (int i = 0; i < IFKP_NUMBINS; i++) binfilt[i]->setLength(movavg_size);
+	rx_init();
+}}
+
+'''
+write('src/mfsk/ifkp_rx.cpp', body)
+
+# ===================================================================== FSQ
+write('src/mfsk/fsq_varicode.inc', read('fsq/fsq_varicode.cxx'))
+write('src/mfsk/crc8.h', read('include/crc8.h'))
+h = read('include/fsq.h')
+for inc in ['"trx.h"', '"modem.h"', '"complex.h"', '"picture.h"', '<FL/Fl_Shared_Image.H>']:
+    h = must(h, f'#include {inc}\n', '')
+h = must(h, '#include "crc8.h"\n', f'#include "crc8.h"\n#include "gfft.h"\n#include "mfsk_compat.h" // {M}: Umgebung statt fldigi-Modem\n')
+h = must(h, 'class fsq : public modem {', f'class fsq : public fam_modem_base {{ // {M}\n\tfriend struct fldigi_mfsk; // {M}: C-Hülle')
+a = h.index('friend void timed_xmt(void *);')
+b = h.index('public:\n\nprotected:')
+h = h[:a] + f'// {M}: friend-Deklarationen der Sendesteuerung entfallen\n\n' + h[b:]
+h = must(h, '\tdouble\t\t\tmetric;\n', f'\t// {M}: metric kommt aus der Basisklasse\n')
+write('src/mfsk/fsq_rx.h', h)
+
+c = read('fsq/fsq.cxx')
+parts = [f'''// ----------------------------------------------------------------------------
+// fsq_rx.cpp  --  FSQ-Empfänger aus fldigi 4.2.13 (src/fsq/fsq.cxx), erzeugt von port_mfsk.py
+//
+// Copyright (C) 2015 Dave Freese, W1HKJ (FSQ: Fast Simple QSO, Con Wassilieff ZL1ACN und Murray Greenman ZL1BPU). GNU GPL v3.
+// {M}: Empfangsfunktionen wörtlich übernommen, außer wie unten vermerkt; die Sendefunktionen (send_*) sind nur für
+// das Testsignal. Die Auswertung gerichteter Befehle (parse_*: Antworten, Weiterleiten, Sounder, Bildübertragung,
+// Heard-Liste), Protokolle und die Sendesteuerung entfallen. Die Zeichen gehen wie im fldigi-Monitor (nicht
+// „gerichtet“) in den Empfangstext. Einstellungen/Anzeigen: mfsk_compat.h.
+// ----------------------------------------------------------------------------
+#include <cstring>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
+#include "fsq_rx.h"
+
+#include "fsq_varicode.inc"
+
+#define SQLFILT_SIZE 64
+
+#define NIT std::string::npos
+#define txcenterfreq  1500.0
+
+int fsq::symlen = 4096; // nominal symbol length; 3 baud
+
+static const char *FSQBOL = " \\n";
+static const char *FSQEOL = "\\n ";
+static const char *FSQEOT = "  \\b  ";
+
+''']
+for sig in ['void fsq::init_nibbles()', 'fsq::fsq(trx_mode md) : modem()', 'fsq::~fsq()', 'void  fsq::tx_init()', 'void  fsq::rx_init()',
+            'void fsq::set_freq(double f)', 'void fsq::adjust_for_speed()', 'void fsq::restart()', 'bool fsq::valid_char(int ch)',
+            'bool fsq::fsq_squelch_open()', 'void fsq::lf_check(int ch)', 'void fsq::process_tones()',
+            'int fsq::rx_process(const double *buf, int len)', 'void fsq::send_tone(int tone)', 'void fsq::send_symbol(int sym)',
+            'void fsq::send_idle()', 'void fsq::send_char(int ch)', 'void fsq::send_string(std::string s)']:
+    parts.append(block(c, sig))
+body = ''.join(parts)
+body = must(body, 'fsq::fsq(trx_mode md) : modem()', f'fsq::fsq(trx_mode md) : fam_modem_base() // {M}: Basisklasse')
+body = must(body, '\tmodem::set_freq(1500); // default Rx/Tx center frequency\n', f'\tfrequency = 1500; // default Rx/Tx center frequency ({M}: ohne modem::set_freq)\n')
+body = must(body, '\tstart_aging();\n\n\tshow_mode();\n\n\trestart();\n\n\ttoggle_logs();\n', f'\t// {M}: Alterung, Anzeige und Protokolle entfallen\n\trestart();\n')
+body = must(body, '\tfsq_tx_image = false;\n\n\tinit_nibbles();', '\tfsq_tx_image = false;\n\n\tinit_nibbles();')
+# Destruktor von Hand
+a = body.index('fsq::~fsq()')
+b = body.index('void  fsq::tx_init()')
+body = body[:a] + f'''fsq::~fsq()
+{{
+	delete fft;
+	delete snfilt;
+	delete sigfilt;
+	delete noisefilt;
+	for (int i = 0; i < NUMBINS; i++)
+		delete binfilt[i];
+	delete picfilt;   // {M}: Fenster, Sounder, Alterung und Protokolle entfallen
+}};
+
+'''.replace('picfilt', 'picfilter') + body[b:]
+body = must(body, '\tmycall = progdefaults.myCall;\n\tif (progdefaults.fsq_lowercase)\n\t\tfor (size_t n = 0; n < mycall.length(); n++) mycall[n] = tolower(mycall[n]);\n\tvideoText();', '\tvideoText();')
+body = must(body, '\tmodem::set_freq(frequency);\n', f'\t// {M}: modem::set_freq entfällt\n')
+body = must(body, '\tshow_mode();\n}', '}')
+body = must(body, '\tmycall = progdefaults.myCall;\n\tif (progdefaults.fsq_lowercase)\n\t\tfor (size_t n = 0; n < mycall.length(); n++) mycall[n] = tolower(mycall[n]);\n\n\tmovavg_size', '\tmovavg_size')
+body = must(body, '\n\tprintit(speed, bandwidth, symlen, SHIFT_SIZE, peak_hits, basetone);\n', '\n')
+body = must(body, 'tx_basetone = ceil((get_txfreq() - bandwidth / 2) * FSQ_SYMLEN / samplerate );', 'tx_basetone = ceil((frequency - bandwidth / 2) * FSQ_SYMLEN / samplerate );')
+# rx_process: Protokolle, Sounder, Abbruch entfallen
+a = body.index('\tif (enable_heard_log != progdefaults.fsq_enable_heard_log ||')
+b = body.index('\tif (bkptr < 0) bkptr = 0;')
+body = body[:a] + body[b:]
+a = body.index('\tif (progStatus.fsq_rx_abort) {')
+b = body.index('\twhile (len) {')
+body = body[:a] + body[b:]
+a = body.index('\t\tif (state == IMAGE) {')
+b = body.index('\t\t} else {\n\t\t\trx_stream[BLOCK_SIZE + bkptr] = *buf;')
+body = body[:a] + f'\t\tif (false) {{   // {M}: Bildempfang entfällt\n\t\t\tlen--;\n\t\t\tbuf++;\n' + body[b:]
+# send_tone: Testsignalfenster entfällt; send_char: Anzeige entfällt; send_string: Bild entfällt
+a = body.index('\tif (test_signal_window && test_signal_window->visible() && btnOffsetOn->value())')
+b = body.index('\tphaseincr = 2.0 * M_PI * freq / samplerate;')
+body = body[:a] + body[b:]
+body = must(body, '\tif (valid_char(ch) && !(send_bot || send_eot))\n\t\tput_echo_char(ch);\n\n\twrite_mon_tx_char(ch);\n', '')
+body = must(body, '\tif ((s == FSQEOT || s == FSQEOL) && fsq_tx_image) send_image();\n', '')
+# process_symbol von Hand
+ps = f'''// {M}: process_symbol ohne Protokolle, Monitor-Anzeige und parse_rx_text; die Zeichen gehen wie im fldigi-Monitor
+// (nicht „gerichtet“) in den Empfangstext
+static void fsq_emit(fam_modem_base *m, int ch)
+{{
+	if (ch == 10 || ch == 163 || ch == 176 || ch == 177 || ch == 215 || ch == 247 || (ch > 31 && ch < 128))
+		m->put_rx_char(ch);
+}}
+
+void fsq::process_symbol(int sym)
+{{
+	int nibble = 0;
+	int curr_ch = -1;
+
+	symbol = sym;
+
+	nibble = symbol - prev_symbol;
+	if (nibble < -99 || nibble > 99) {{
+		prev_symbol = symbol;
+		return;
+	}}
+	nibble = nibbles[nibble + 99];
+
+// -1 is our idle symbol, indicating we already have our symbol
+	if (nibble >= 0) {{ // process nibble
+		curr_nibble = nibble;
+
+// single-nibble characters
+		if ((prev_nibble < 29) & (curr_nibble < 29)) {{
+			curr_ch = wsq_varidecode[prev_nibble];
+
+// double-nibble characters
+		}} else if ( (prev_nibble < 29) &&
+					 (curr_nibble > 28) &&
+					 (curr_nibble < 32)) {{
+			curr_ch = wsq_varidecode[prev_nibble * 32 + curr_nibble];
+		}}
+		if (curr_ch > 0) {{
+			lf_check(curr_ch);
+
+			if (b_bot) {{
+				ch_sqlch_open = true;
+				rx_text.clear();
+			}}
+
+			if (fsq_squelch_open()) {{
+				if (b_bot) fsq_emit(this, 10);
+				if (b_eol) {{
+					noisefilt->reset();
+					noisefilt->run(1);
+					sigfilt->reset();
+					sigfilt->run(1);
+				}}
+				if (b_eot) {{
+					noisefilt->reset();
+					noisefilt->run(1);
+					sigfilt->reset();
+					sigfilt->run(1);
+				}}
+				if (!b_bot && !b_eot) fsq_emit(this, curr_ch);
+			}}
+
+			if (fsq_squelch_open() && (b_eot || b_eol)) {{
+				ch_sqlch_open = false;
+				metric = 0;
+			}}
+		}}
+		prev_nibble = curr_nibble;
+	}}
+
+	prev_symbol = symbol;
+}}
+
+'''
+body = must(body, 'void fsq::process_tones()', ps + 'void fsq::process_tones()')
+body += f'''// {M}: init() ohne modem::init() und Sounder; Trägerfrequenz setzt Digidec
+void fsq::init()
+{{
+	rx_init();
+}}
+
+'''
+write('src/mfsk/fsq_rx.cpp', body)
 print('ok')

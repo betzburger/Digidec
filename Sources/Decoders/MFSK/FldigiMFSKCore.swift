@@ -1,19 +1,38 @@
 import Foundation
 import Fldigi
 
-/// Betriebsarten des MFSK-Moduls: MFSK, DominoEX und Thor (fldigi 4.2.13 `mfsk.cxx`, `dominoex.cxx`, `thor.cxx`)
+/// Betriebsarten des MFSK-Moduls: MFSK, DominoEX, Thor, Throb, IFKP und FSQ (fldigi 4.2.13)
 public enum MFSKMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case mfsk16, mfsk32, mfsk8, mfsk4, mfsk11, mfsk22, mfsk31, mfsk64, mfsk128, mfsk64l, mfsk128l
     case dominoex11, dominoex16, dominoex22, dominoex8, dominoex5, dominoex4, dominoexmicro, dominoex44, dominoex88
     case thor16, thor8, thor11, thor22, thor32, thor25, thor44, thor56, thor100, thor5, thor4, thormicro, thor25x4, thor50x1, thor50x2
+    case throb1, throb2, throb4, throbx1, throbx2, throbx4
+    case ifkp10, ifkp05, ifkp20
+    case fsq45, fsq3, fsq6, fsq2, fsq15
 
     public var id: String { rawValue }
 
-    public enum Family: String, Sendable { case mfsk, dominoex, thor }
+    public enum Family: String, CaseIterable, Sendable {
+        case mfsk, dominoex, thor, throb, ifkp, fsq
+
+        public var title: String {
+            switch self {
+            case .mfsk: return "MFSK"
+            case .dominoex: return "DominoEX"
+            case .thor: return "Thor"
+            case .throb: return "Throb"
+            case .ifkp: return "IFKP"
+            case .fsq: return "FSQ"
+            }
+        }
+    }
 
     public var family: Family {
         if rawValue.hasPrefix("dominoex") { return .dominoex }
         if rawValue.hasPrefix("thor") { return .thor }
+        if rawValue.hasPrefix("throb") { return .throb }
+        if rawValue.hasPrefix("ifkp") { return .ifkp }
+        if rawValue.hasPrefix("fsq") { return .fsq }
         return .mfsk
     }
 
@@ -27,8 +46,16 @@ public enum MFSKMode: String, CaseIterable, Identifiable, Codable, Sendable {
         case .thor:
             let rest = String(rawValue.dropFirst("thor".count))
             return "Thor " + (rest == "micro" ? "Micro" : rest)
+        case .throb:
+            let rest = String(rawValue.dropFirst("throb".count))
+            return rest.hasPrefix("x") ? "ThrobX " + rest.dropFirst() : "Throb " + rest
+        case .ifkp: return "IFKP " + Self.ifkpSpeeds[rawValue]!
+        case .fsq: return "FSQ " + Self.fsqSpeeds[rawValue]!
         }
     }
+
+    private static let ifkpSpeeds = ["ifkp05": "0,5", "ifkp10": "1,0", "ifkp20": "2,0"]
+    private static let fsqSpeeds = ["fsq15": "1,5", "fsq2": "2", "fsq3": "3", "fsq45": "4,5", "fsq6": "6"]
 
     /// Kurzform für Schaltflächen: „16“, „EX11“, „T16“
     public var shortName: String {
@@ -36,6 +63,9 @@ public enum MFSKMode: String, CaseIterable, Identifiable, Codable, Sendable {
         case .mfsk: return String(rawValue.dropFirst("mfsk".count)).uppercased()
         case .dominoex: return "EX" + String(rawValue.dropFirst("dominoex".count)).replacingOccurrences(of: "micro", with: "µ")
         case .thor: return "T" + String(rawValue.dropFirst("thor".count)).replacingOccurrences(of: "micro", with: "µ")
+        case .throb: return String(rawValue.dropFirst("throb".count)).uppercased()
+        case .ifkp: return Self.ifkpSpeeds[rawValue]!
+        case .fsq: return Self.fsqSpeeds[rawValue]!
         }
     }
 
@@ -76,6 +106,20 @@ public enum MFSKMode: String, CaseIterable, Identifiable, Codable, Sendable {
         case .thor25x4: return Int32(FLDIGI_THOR25X4)
         case .thor50x1: return Int32(FLDIGI_THOR50X1)
         case .thor50x2: return Int32(FLDIGI_THOR50X2)
+        case .throb1: return Int32(FLDIGI_THROB1)
+        case .throb2: return Int32(FLDIGI_THROB2)
+        case .throb4: return Int32(FLDIGI_THROB4)
+        case .throbx1: return Int32(FLDIGI_THROBX1)
+        case .throbx2: return Int32(FLDIGI_THROBX2)
+        case .throbx4: return Int32(FLDIGI_THROBX4)
+        case .ifkp05: return Int32(FLDIGI_IFKP05)
+        case .ifkp10: return Int32(FLDIGI_IFKP10)
+        case .ifkp20: return Int32(FLDIGI_IFKP20)
+        case .fsq15: return Int32(FLDIGI_FSQ15)
+        case .fsq2: return Int32(FLDIGI_FSQ2)
+        case .fsq3: return Int32(FLDIGI_FSQ3)
+        case .fsq45: return Int32(FLDIGI_FSQ45)
+        case .fsq6: return Int32(FLDIGI_FSQ6)
         }
     }
 
@@ -111,6 +155,12 @@ public enum MFSKMode: String, CaseIterable, Identifiable, Codable, Sendable {
         case .thor56: return 993
         case .thor100, .thor25x4, .thor50x2: return 1800
         case .thor50x1: return 900
+        case .throb1, .throb2: return 64
+        case .throb4: return 128
+        case .throbx1, .throbx2: return 78
+        case .throbx4: return 156
+        case .ifkp05, .ifkp10, .ifkp20: return 387
+        case .fsq15, .fsq2, .fsq3, .fsq45, .fsq6: return 290
         }
     }
 }

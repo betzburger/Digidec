@@ -34,6 +34,10 @@ inline double clamp(double x, double min, double max)
 {
 	return (x < min) ? min : ((x > max) ? max : x);
 }
+inline double blackman(double x)
+{
+	return (0.42 - 0.50 * cos(2 * M_PI * x) + 0.08 * cos(4 * M_PI * x));
+}
 unsigned char grayencode(unsigned char data);
 unsigned char graydecode(unsigned char data);
 
@@ -63,6 +67,14 @@ struct FamProgdefaults {
 	double DOMINOEX_BW      = 2.0;
 	bool   DOMINOEX_FILTER  = true;
 	bool   DOMINOEX_FEC     = false;
+	bool   rx_lowercase     = false;
+	// FSQ: Mittelungslänge, Geschwindigkeit (Baud), Treffer
+	int    fsq_movavg       = 4;
+	double fsqbaud          = 4.5;
+	int    fsqhits          = 3;
+	// IFKP: Geschwindigkeit 0 = 0,5, 1 = 1,0, 2 = 2,0; Frequenzbindung an 1500 Hz aus (fldigi: an)
+	int    ifkp_baud        = 1;
+	bool   ifkp_freqlock    = false;
 	bool   slowcpu          = false;   // fldigi: true (weniger Pfade); Digidec rechnet mit allen Pfaden
 	std::string secText     = "";
 	// Thor
@@ -107,6 +119,8 @@ public:
 	double samplerate = 8000;
 	double metric     = 0;
 	int    symlen     = 0;
+	double syncpos    = 0.5;
+	double tx_frequency = 1000;
 	int    fragmentsize = 0;
 	trx_mode mode = MODE_MFSK16;
 	int    cap  = 0;
@@ -119,6 +133,7 @@ public:
 	double s2n_metric = 0, s2n_sum = 0, s2n_sum2 = 0, s2n_ncount = 0;
 	bool   mailserver = false, mailclient = false;
 	bool   sig_start = false, sig_stop = false;
+	bool   fsq_tx_image = false;
 	int    quality_ = 0;
 	double outbuf[OUTBUFSIZE];
 
@@ -139,7 +154,8 @@ public:
 	virtual int rx_process(const double *, int) { return 0; }
 	void update_quality(int q) { quality_ = q; }
 	int  get_quality() const { return quality_; }
-	void set_freq(double f) { frequency = f; }
+	void set_bandwidth(double b) { bandwidth = b; }
+	virtual void set_freq(double f) { frequency = f; }
 	void set_freqlock(bool) {}
 	void display_metric(double m) { metric = m; }
 	void put_rx_char(int c) { if (on_char) on_char(on_char_ctx, c); }
@@ -170,6 +186,7 @@ inline void thor_updateRxPic(int, int) {}
 inline void thor_enableshift() {}
 #define LOG_INFO(...)  ((void)0)
 #define LOG_DEBUG(...) ((void)0)
+#define LOG_ERROR(...) ((void)0)
 
 #define progdefaults progdefaults_
 #define progStatus   progStatus_

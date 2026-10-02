@@ -3275,9 +3275,9 @@ do {
     check(parse("digidec://decode?mode=mfsk&preset=thor22&center=1200") == .success(DecodeRequest(module: .mfsk, presetID: "thor22", centerHz: 1200)), "MFSK-Auftrag Thor 22")
     check(parse("digidec://decode?mode=mfsk") == .success(DecodeRequest(module: .mfsk, presetID: "mfsk16")), "MFSK-Standard MFSK16")
     check(Set(DecoderModuleInfo.mfsk.presetIDs) == Set(MFSKMode.allCases.map(\.rawValue)) && DecoderModuleInfo.mfsk.presetIDs.count == MFSKMode.allCases.count, "MFSK: Kennungen = Betriebsarten (\(MFSKMode.allCases.count))")
-    check(MFSKMode.mfsk16.family == .mfsk && MFSKMode.dominoex11.family == .dominoex && MFSKMode.thor25x4.family == .thor, "MFSK: Familien")
-    check(MFSKMode.mfsk16.displayName == "MFSK16" && MFSKMode.dominoex11.displayName == "DominoEX 11" && MFSKMode.thormicro.displayName == "Thor Micro", "MFSK: Namen")
-    check(MFSKMode.mfsk11.sampleRate == 11_025 && MFSKMode.mfsk16.sampleRate == 8_000 && MFSKMode.thor56.sampleRate == 16_000 && MFSKMode.dominoex22.sampleRate == 11_025, "MFSK: Abtastraten")
+    check(MFSKMode.mfsk16.family == .mfsk && MFSKMode.dominoex11.family == .dominoex && MFSKMode.thor25x4.family == .thor && MFSKMode.throbx2.family == .throb && MFSKMode.ifkp20.family == .ifkp && MFSKMode.fsq45.family == .fsq, "MFSK: Familien")
+    check(MFSKMode.mfsk16.displayName == "MFSK16" && MFSKMode.dominoex11.displayName == "DominoEX 11" && MFSKMode.thormicro.displayName == "Thor Micro" && MFSKMode.throbx2.displayName == "ThrobX 2" && MFSKMode.ifkp05.displayName == "IFKP 0,5" && MFSKMode.fsq45.displayName == "FSQ 4,5", "MFSK: Namen")
+    check(MFSKMode.mfsk11.sampleRate == 11_025 && MFSKMode.mfsk16.sampleRate == 8_000 && MFSKMode.thor56.sampleRate == 16_000 && MFSKMode.dominoex22.sampleRate == 11_025 && MFSKMode.ifkp10.sampleRate == 16_000 && MFSKMode.fsq3.sampleRate == 12_000 && MFSKMode.throb2.sampleRate == 8_000, "MFSK: Abtastraten")
     check(RigTuneTarget.psk(band: .free) == nil, "MFSK hat keine feste Frequenz (kein QSY)")
 }
 
@@ -3309,10 +3309,11 @@ do {
         x.withUnsafeBufferPointer { core.process($0) }
         return PSKDecoder.text(from: bytes)
     }
-    // Alle Betriebsarten außer den sehr langsamen (MFSK4, DominoEX Micro, Thor Micro): Rundlauf
-    for mode in MFSKMode.allCases where ![.mfsk4, .dominoexmicro, .thormicro].contains(mode) {
+    // Alle Betriebsarten außer den sehr langsamen (MFSK4, DominoEX Micro, Thor Micro, IFKP 0,5, FSQ 1,5): Rundlauf
+    for mode in MFSKMode.allCases where ![.mfsk4, .dominoexmicro, .thormicro, .ifkp05, .fsq15].contains(mode) {
+        let probe = mode.family == .throb ? "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG 012345" : "The quick brown fox jumps over the lazy dog 012345"
         if let r = run(mode) {
-            check(r.contains("The quick brown fox jumps over the lazy dog 012345"), "\(mode.displayName): Text, got \(r.prefix(100).debugDescription)")
+            check(r.contains(probe), "\(mode.displayName): Text, got \(r.prefix(100).debugDescription)")
         } else { check(false, "\(mode.displayName): Testsignal nicht erzeugt") }
     }
     // Mitte, Umkehrung, Umstellen der Mitte
@@ -3351,10 +3352,13 @@ do {
     check(run(.mfsk32, snr: 6)?.contains("The quick brown fox") == true, "MFSK32 bei 6 dB S/N")
     check(run(.dominoex11, snr: 3)?.contains("quick brown fox") == true, "DominoEX 11 bei 3 dB S/N")
     check(run(.thor16, snr: 0)?.contains("quick brown fox") == true, "Thor 16 bei 0 dB S/N")
+    check(run(.ifkp20, snr: 6)?.contains("quick brown fox") == true, "IFKP 2,0 bei 6 dB S/N")
+    check(run(.fsq6, snr: 6)?.contains("quick brown fox") == true, "FSQ 6 bei 6 dB S/N")
+    check(run(.throb4, snr: 6)?.contains("QUICK BROWN FOX") == true, "Throb 4 bei 6 dB S/N")
     // Squelch: Rauschen ergibt (fast) nichts
     var noise = [Float](repeating: 0, count: 8_000 * 40)
     for i in 0..<noise.count { noise[i] = Float(gauss() * 0.2) }
-    for mode in [MFSKMode.mfsk16, .dominoex16, .thor16] {
+    for mode in [MFSKMode.mfsk16, .dominoex16, .thor16, .throb2, .ifkp10, .fsq3] {
         var bytes: [UInt8] = []
         let rate = Int(mode.sampleRate)
         var n = noise
@@ -3372,7 +3376,7 @@ do {
     let decoder = MFSKDecoder(pipeline: pipeline)
     pipeline.start(inputRate: 48_000)
     let msg = "CQ CQ DE DL1ABC PSE K"
-    for mode in [MFSKMode.mfsk16, .mfsk22, .thor16] {
+    for mode in [MFSKMode.mfsk16, .mfsk22, .thor16, .fsq6, .ifkp20] {
         var o = FldigiMFSKCore.Options(); o.mode = mode
         decoder.configure(options: o, centerHz: 1500)
         decoder.setEnabled(true)

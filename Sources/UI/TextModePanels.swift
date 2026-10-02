@@ -281,6 +281,9 @@ struct MFSKSettingsPanel: View {
             familyRow("MFSK", .mfsk, help: "MFSK: 16 oder 32 Töne, Viterbi-Korrektur; häufig MFSK16 (15,6 Baud) und MFSK32")
             familyRow("DOMINO", .dominoex, help: "DominoEX: IFK+ (Differenzmodulation), unempfindlich gegen Abstimmfehler und Mehrwegeempfang")
             familyRow("THOR", .thor, help: "Thor: wie DominoEX, mit Vorwärtsfehlerkorrektur und Verschachtelung")
+            familyRow("THROB", .throb, help: "Throb: Tonpaare, sehr schmal und langsam (1, 2 oder 4 Zeichen je Sekunde); X = ThrobX mit 55 Zeichen")
+            familyRow("IFKP", .ifkp, help: "IFKP: Incremental Frequency Keying Plus, 33 Töne, Geschwindigkeit 0,5 / 1,0 / 2,0")
+            familyRow("FSQ", .fsq, help: "FSQ (Fast Simple QSO): Gruppenverkehr mit Rufzeichen; Baudrate 1,5 bis 6")
             HStack(spacing: 6) {
                 Button("REV") { settings.options.reverse.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
