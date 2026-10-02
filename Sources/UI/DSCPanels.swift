@@ -107,7 +107,7 @@ struct DSCTable: View {
 
     private func tooltip(_ m: DSCMessage) -> String {
         var s = "Symbole: " + m.symbols.map { $0 < 0 ? "--" : String(format: "%03d", $0) }.joined(separator: " ")
-        s += "\nNF-Mitte \(Int(m.centerHz.rounded())) Hz"
+        s += m.centerHz > 0 ? "\nNF-Mitte \(Int(m.centerHz.rounded())) Hz" : "\nUKW Kanal 70, 1200 Bd"
         if !m.eccOK { s += "\nECC stimmt nicht: Inhalt unsicher" }
         if m.unreadable > 0 { s += "\n\(m.unreadable) Symbole in DX und RX unlesbar" }
         return s
@@ -148,19 +148,28 @@ struct DSCTuningPanel: View {
                 }
                 .help("Letzter Notruf: \(d.summary)")
             }
-            HStack {
-                readout("MITTE", "\(Int(settings.centerHz.rounded())) Hz")
-                Spacer()
-                readout("TÖNE", "\(Int(settings.centerHz - 85)) / \(Int(settings.centerHz + 85)) Hz")
-            }
-            HStack {
-                readout("GEMESSEN", controller.measuredCenter.map { "\(Int($0.rounded())) Hz" } ?? "---")
-                Spacer()
-                if let dial = settings.dialHz {
-                    readout("DIAL", String(format: "%.3f", Double(dial) / 1000).replacingOccurrences(of: ".", with: ",") + " kHz")
+            if settings.channel.isVHF {
+                HStack {
+                    readout("TÖNE", "Y 1300 / B 2100 Hz")
+                    Spacer()
+                    readout("FM", "156,525 MHz")
                 }
+                .help("UKW-DSC Kanal 70: 1200 Bd, Y = 1300 Hz (tief), B = 2100 Hz (hoch); das Funkgerät steht auf FM")
+            } else {
+                HStack {
+                    readout("MITTE", "\(Int(settings.centerHz.rounded())) Hz")
+                    Spacer()
+                    readout("TÖNE", "\(Int(settings.centerHz - 85)) / \(Int(settings.centerHz + 85)) Hz")
+                }
+                HStack {
+                    readout("GEMESSEN", controller.measuredCenter.map { "\(Int($0.rounded())) Hz" } ?? "---")
+                    Spacer()
+                    if let dial = settings.dialHz {
+                        readout("DIAL", String(format: "%.3f", Double(dial) / 1000).replacingOccurrences(of: ".", with: ",") + " kHz")
+                    }
+                }
+                .help("GEMESSEN: Mitte des erkannten Tonpaars im Abstand 170 Hz. DIAL: USB-Dial, damit der Rufträger bei der Mitte liegt")
             }
-            .help("GEMESSEN: Mitte des erkannten Tonpaars im Abstand 170 Hz. DIAL: USB-Dial, damit der Rufträger bei der Mitte liegt")
         }
     }
 
@@ -185,18 +194,22 @@ struct DSCSettingsPanel: View {
                 ForEach(DSCChannel.allCases) { c in
                     Button { settings.channel = c } label: { Text(verbatim: c.label).lineLimit(1).minimumScaleFactor(0.7) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.channel == c))
-                        .help(c.frequencyHz == nil ? "Funkgerät nicht abstimmen" : "DSC \(c.label) kHz (nur mit QSY AUTO wird das Funkgerät abgestimmt)")
+                        .help(c.frequencyHz == nil ? "Funkgerät nicht abstimmen" : (c.isVHF ? "UKW-DSC Kanal 70, 156,525 MHz, FM (nur mit QSY AUTO wird das Funkgerät abgestimmt)" : "DSC \(c.label) kHz (nur mit QSY AUTO wird das Funkgerät abgestimmt)"))
                 }
             }
-            HStack(spacing: 6) {
-                Button("AUTO") { settings.autoCenter.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.autoCenter))
-                    .help("Mitte aus dem Tonpaar (Abstand 170 Hz) nachführen")
-                Button("REV") { settings.reversed.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.reversed))
-                    .help("Seitenband umkehren (bei LSB): tiefer und hoher Ton vertauscht")
+            if !settings.channel.isVHF {
+                HStack(spacing: 6) {
+                    Button("AUTO") { settings.autoCenter.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.autoCenter))
+                        .help("Mitte aus dem Tonpaar (Abstand 170 Hz) nachführen")
+                    Button("REV") { settings.reversed.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.reversed))
+                        .help("Seitenband umkehren (bei LSB): tiefer und hoher Ton vertauscht")
+                }
             }
-            Text(verbatim: "USB, Rufträger bei \(Int(settings.centerHz.rounded())) Hz. Klick in den Wasserfall setzt die Mitte (schaltet AUTO aus).")
+            Text(verbatim: settings.channel.isVHF
+                 ? "UKW Kanal 70: FM, Diskriminator- oder Lautsprecher-Audio, 1200 Bd. Keine Abstimmung nötig."
+                 : "USB, Rufträger bei \(Int(settings.centerHz.rounded())) Hz. Klick in den Wasserfall setzt die Mitte (schaltet AUTO aus).")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }

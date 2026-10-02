@@ -3495,6 +3495,58 @@ do {
     }
 }
 
+// MARK: - UKW-DSC (Kanal 70, 1200 Bd, 1300/2100 Hz)
+do {
+    let info = DSCSignalGenerator.call(format: 120, body: [0, 23, 71, 0, 4, 100, 23, 82, 30, 0, 0, 109, 126, 8, 41, 45, 126, 126, 126], eos: 117)
+    let dist = DSCSignalGenerator.call(format: 112, body: [25, 58, 5, 99, 70, 107, 4, 52, 60, 13, 7, 12, 52, 109])
+    func run(_ audio: [Float], chunk: Int = 1200) -> [DSCCall] {
+        let rx = DSCVHFReceiver()
+        var collector = DSCCallCollector()
+        var pos = 0
+        while pos < audio.count {
+            let n = min(chunk, audio.count - pos)
+            audio[pos..<(pos + n)].withUnsafeBufferPointer { rx.process($0) { collector.add($0, at: Double(pos) / 12000) } }
+            pos += n
+        }
+        return collector.take(now: 0, force: true)
+    }
+    func noisy(_ a: [Float], snr: Double, seed: UInt64) -> [Float] {
+        var s = seed
+        let sigma = 0.5 / 2.0.squareRoot() / pow(10, snr / 20)
+        return a.map { v in
+            var u = 0.0
+            for _ in 0..<4 { s = s &* 6364136223846793005 &+ 1442695040888963407; u += Double(s >> 40) / Double(1 << 24) - 0.5 }
+            return v + Float(u * sigma * 3.0.squareRoot() )
+        }
+    }
+    let a = DSCSignalGenerator.audioVHF(bits: DSCSignalGenerator.bits(info: info, dotBits: 20))
+    let r = run(a)
+    check(r.count == 1 && r[0].symbols == info && r[0].eccOK && r[0].unreadable == 0, "UKW-DSC Rundlauf: Ruf fehlerfrei (\(r.count))")
+    check(run(DSCSignalGenerator.audioVHF(bits: DSCSignalGenerator.bits(info: dist, dotBits: 20))).first?.symbols == dist, "UKW-DSC Rundlauf: Notruf")
+    check(run(a, chunk: 977).first?.symbols == info, "UKW-DSC: Blockgröße unabhängig")
+    check(run(DSCSignalGenerator.audioVHF(bits: DSCSignalGenerator.bits(info: info, dotBits: 20), baudError: 0.005)).first?.symbols == info, "UKW-DSC: Baudrate 0,5 % daneben")
+    check(run(DSCSignalGenerator.audioVHF(bits: DSCSignalGenerator.bits(info: info, dotBits: 20), baudError: -0.005)).first?.symbols == info, "UKW-DSC: Baudrate −0,5 % daneben")
+    for snr in [12.0, 6.0] {
+        let got = run(noisy(a, snr: snr, seed: 5))
+        check(got.first?.symbols == info, "UKW-DSC bei \(Int(snr)) dB S/N")
+    }
+    // zwei Rufe nacheinander, mit Pause
+    do {
+        var bits = DSCSignalGenerator.bits(info: info, dotBits: 20)
+        bits += [UInt8](repeating: 1, count: 12000)         // Träger ohne Daten (Sekunde Pause, hier Y-Ton)
+        bits += DSCSignalGenerator.bits(info: dist, dotBits: 20)
+        let got = run(DSCSignalGenerator.audioVHF(bits: bits), chunk: 1200)
+        check(got.contains { $0.symbols == info } && got.contains { $0.symbols == dist }, "UKW-DSC: zwei Rufe hintereinander (\(got.count))")
+    }
+    // Rauschen: kein Ruf
+    var ns: UInt64 = 77
+    let noise = (0..<(12000 * 20)).map { _ -> Float in ns = ns &* 6364136223846793005 &+ 1442695040888963407; return Float(Double(ns >> 40) / Double(1 << 24) - 0.5) }
+    check(run(noise).isEmpty, "UKW-DSC: Rauschen ergibt keinen Ruf")
+    // Kanal
+    check(DSCChannel.vhf70.frequencyHz == 156_525_000 && DSCChannel.vhf70.isVHF && DSCChannel.vhf70.dial(center: 1700) == 156_525_000, "UKW-DSC: Kanal 70 156,525 MHz")
+    check(RigTuneTarget.dsc(channel: .vhf70, centerHz: 1700)?.mode == "FM" && RigTuneTarget.dsc(channel: .f8414, centerHz: 1700)?.mode == "USB", "UKW-DSC: Funkgerät FM, HF bleibt USB")
+}
+
 // MARK: - DSC über die Pipeline (48 kHz → 8 kHz)
 do {
     let pipeline = AudioPipeline()

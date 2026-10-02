@@ -438,6 +438,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M28 | Funkruf POCSAG und FLEX | ✅ 02.10.2026 (v0.30.0): POCSAG 512/1200/2400 und FLEX 1600/3200 (2 und 4 Pegel) in Swift (`Vendor/Pager/UPSTREAM_PAGER.md`); an den echten multimon-ng-Aufnahmen (POCSAG ×3, P2000-FLEX mit 44 Meldungen samt Gruppenrufen) gleiche Ergebnisse wie multimon-ng, bei Rauschen und wechselstromgekoppeltem Audio besser; Rufnummernliste mit Hervorhebung, Log |
 | M29 | Töne (DTMF, Selektivruf) | ✅ 02.10.2026 (v0.30.0): DTMF, ZVEI 1/2/3, DZVEI, PZVEI, CCIR, EEA, EIA gleichzeitig, Goertzel-Erkennung, Tonfolgenliste, Log |
 | M30 | ACARS | ✅ 02.10.2026 (v0.31.0): AM-Audio, MSK 2400 Bd (`Vendor/Acars/UPSTREAM_ACARS.md`); an der echten acarsdec-Aufnahme alle 7 Meldungen wie dort; Flugzeugliste, OOOI-Berichte, Karte mit Start- und Zielflughäfen (OurAirports, gemeinfrei), Bitfehlerkorrektur über Prüfsumme |
+| M31 | UKW-DSC Kanal 70 | ✅ 02.10.2026 (v0.32.0): Teil des DSC-Moduls (Kanal „K70“, 156,525 MHz, FM): 1200 Bd, Y 1300 Hz / B 2100 Hz; gleiche Zeichen-, Phasing- und ECC-Logik wie MF/HF; AFSK-Demodulator im Rohbit-Betrieb |
 ---
 
 ## 11. Aktueller Stand
@@ -904,8 +905,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Nachweis:** Echte Aufnahme (SDRuno, 88,2 kHz, Mitte 505 Hz, 65 s): alle **5 Rufe** (Testrufe der Küstenfunkstelle 002371000 an 538010255, 477832400, 249855000, 511100954, 636024307) mit ECC OK; die Mitte wird aus Startwerten zwischen 400 und 700 Hz auf 505 Hz nachgeführt. Alle 9 aufgezeichneten Symbolfolgen der Referenz ergeben dieselben Felder und gültigen ECC. Rundlauf Generator → Demodulator: Notruf, Einzelruf, Mitte 1500/1700 Hz, kurzes Punktmuster (20 Bit), REV, ± 15 Hz Versatz, 3 dB S/N, zwei Rufe unmittelbar nacheinander; Rauschen ergibt keinen Ruf; Pipeline 48 kHz → 8 kHz.
   - **Werkzeug:** `decode_file.sh <wav> --dsc --center <Hz> [--noauto] [--rev]`.
   - **Tests:** 1083 Logiktests.
-  - **Grenzen:** nur MF/HF 100 Bd (kein UKW-DSC Kanal 70); Notruf-Quittungen werden nicht in ihre Nutzdaten zerlegt; keine Küstenfunkstellen-Namen/Länder (MID).
-  - **Offen:** Live-Empfang (z. B. 8414,5 kHz: Küstenfunkstellen senden dort regelmäßig Testrufe), Warnton bei Seenot (noch nicht eingebaut; Digidec hat keine Audioausgabe), Notruf-Quittungen auswerten.
+  - **Grenzen:** UKW-DSC Kanal 70 ab 0.32.0; Notruf-Quittungen werden nicht in ihre Nutzdaten zerlegt; keine Küstenfunkstellen-Namen/Länder (MID).
+  - **Offen:** Live-Empfang (z. B. 8414,5 kHz: Küstenfunkstellen senden dort regelmäßig Testrufe), Notruf-Quittungen auswerten.
 - **0.28.0 (01.10.2026): M25 ALE (Automatic Link Establishment, 2G).**
   - **Quellen:** Eigene Swift-Umsetzung nach MIL-STD-188-141A/B Anhang A anhand der MIT-lizenzierten Referenz **openALE** (Vendor/_upstream/openale, lokal); Herkunft, Aufbau, Grenzen: `Vendor/Ale/UPSTREAM_ALE.md`. Kein Fremdcode im Projekt.
   - **Kern (`Sources/Decoders/ALE/ALECore.swift`):** `ALEGolay` ((24,12), 3 Fehler korrigierbar, Mindestgewicht 8 geprüft), `ALECodec` (Wort ↔ 49 Symbole, 2-von-3-Mehrheit mit Zählung einstimmiger Bit, Zeichensätze), `ALEDemodulator` (acht Töne 750 … 2500 Hz, **16 Taktlagen** parallel), `ALEWordCollector`, `ALEGridTracker` (Raster 392 ms gegen Fehlalarme durch verschobene Fenster), `ALEMessageBuilder`/`ALEMessage` (Adressen aus mehreren Wörtern, Klartext, Art), `ALEFrequencyError` (Verstimmung am bekannten Wort messen), `ALESignalGenerator`.
@@ -941,9 +942,14 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Tests:** 1373 Logiktests (+34: CRC-Prüfwert, Rundlauf Demodulator/Generator, Rauschen, Inversion, leise, Reparatur von Ein- und Doppelbitfehlern, OOOI, Flughäfen, Controller, Karte, Filter, Kanäle).
   - **Prüfung der Oberfläche:** Tabellen, Abstimmanzeige und Einstellungen offscreen (`Tools/UIPreview`, `acars_*.png`); die Karte selbst nicht gesehen (der Bildschirm war bei der letzten Prüfung gesperrt).
   - **Grenzen/Offen:** Positionen aus dem Text (z. B. Label H1) werden nicht ausgewertet; Labelnamen nur für die häufigsten; keine Zusammenführung mehrteiliger Meldungen (ETB). Live-Empfang offen: 131,550 oder 131,725 MHz in AM, Rauschsperre offen. UIPreview rendert jetzt auch Funkruf und ACARS.
+- **0.32.0 (02.10.2026): M31 UKW-DSC Kanal 70.**
+  - **Dateien:** `Sources/Decoders/DSC/DSCVHF.swift` (`DSCVHFReceiver`, Testsignal `DSCSignalGenerator.audioVHF`), `AFSKDemodulator` (Baudrate und Töne als Parameter, Rohbit-Ausgang `onRawBit`), `DSCModule.swift` (Kanal `vhf70`, URL `digidec://decode?mode=dsc&preset=70`, zweite 12-kHz-Senke), `RigTuneTarget.dsc` (FM auf 156,525 MHz). `decode_file.sh --dsc --vhf`.
+  - **Aufbau:** ITU-R M.493: UKW-DSC hat dieselben 10-Bit-Zeichen, Phasing, DX/RX-Verschachtelung und ECC wie MF/HF, nur 1200 Bd und die Töne 1300 Hz (Y, Bit 1) / 2100 Hz (B, Bit 0). Je zwei Demodulatoren (flach, mit Vorverzerrung) mit je fünf Entscheidern speisen zehn `DSCFramer`; der `DSCCallCollector` behält den besten Ruf. Kein Warnton (vom Nutzer nicht gewünscht).
+  - **Tests:** Rundlauf Ruf und Notruf, Blockgrößen, Baudrate ±0,5 %, 12 und 6 dB S/N, zwei Rufe hintereinander, Rauschen, Kanal und Funkgerät FM.
+  - **Grenzen/Offen:** nur mit Testsignal geprüft, keine echte Aufnahme von Kanal 70; Live-Empfang offen (156,525 MHz, FM-Audio, Rauschsperre offen).
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
-  - UKW-DSC Kanal 70, weitere fldigi-Modi, SELCAL, JT65/JT9 (WSJT-X).
-  - Warnton bei DSC-Seenot und Audioausgabe; Parallelbetrieb mehrerer Module.
+  - Weitere fldigi-Modi (MFSK, DominoEX, Thor, Throb, IFKP, FSQ, Hell, 8PSK), SELCAL, JT65/JT9 (WSJT-X).
+  - Parallelbetrieb mehrerer Module (kein Warnton, vom Nutzer nicht gewünscht).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

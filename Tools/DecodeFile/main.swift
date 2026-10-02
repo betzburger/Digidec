@@ -27,6 +27,7 @@ func usage() -> Never {
       --mt63 <kennung>      MT63 (fldigi): 500s | 500l | 1000s | 1000l | 2000s | 2000l (S = kurz, L = lang); --center <Mitte-Hz> (Standard 1500)
 
       --dsc                 DSC (ITU-R M.493, 100 Bd / 170 Hz); --center <Mitte-Hz> (Standard 1700), --noauto schaltet die Mittennachführung ab, --rev kehrt um
+                            --vhf: UKW-Kanal 70 (FM-Audio, 1200 Bd, 1300/2100 Hz)
 
       --aprs                APRS/Packet-Radio (AFSK 1200 Bd, AX.25); Ausgabe je Paket als TNC2-Zeile mit Ort. --nofix schaltet die Ein-Bit-Reparatur ab,
                             --slicers <n> (Standard 7), --pre auto|off|on Vorverzerrung für de-emphasiertes Audio (Standard auto: beide Wege), --center <Mitte-Hz> (Standard 1700), --home <Locator> für Entfernungen
@@ -69,6 +70,7 @@ var cwMF = false
 var pskModeID: String?
 var oliviaID: String?
 var dscMode = false
+var dscVHF = false
 var aleMode = false
 var acarsMode = false
 var fileChannel = 0
@@ -112,6 +114,7 @@ while !args.isEmpty {
     case "--psk": pskModeID = value()
     case "--olivia": oliviaID = value()
     case "--dsc": dscMode = true
+    case "--vhf": dscVHF = true
     case "--ale": aleMode = true
     case "--aprs": aprsMode = true
     case "--acars": acarsMode = true
@@ -484,6 +487,39 @@ if aleMode {
 }
 
 // MARK: - DSC
+
+if dscMode && dscVHF {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: DSCVHFReceiver.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    print("DSC · UKW Kanal 70 · 1200 Bd")
+    let rx = DSCVHFReceiver()
+    var collector = DSCCallCollector()
+    var samples = 0
+    var raw = 0
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+            rx.process(chunk) { c in raw += 1; collector.add(c, at: Double(samples) / DSCVHFReceiver.sampleRate) }
+            samples += chunk.count
+        }
+    }
+    var lines = 0
+    for c in collector.take(now: 0, force: true) {
+        let m = DSCMessage.parse(symbols: c.symbols, centerHz: 0, eccOK: c.eccOK)
+        print(DSCController.logLine(m, dial: nil).replacingOccurrences(of: DSCController.utc.string(from: m.receivedAt), with: "          "))
+        lines += 1
+    }
+    let dur = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "%.0f s Audio in %.2f s: %d Rufe (%d Roh-Treffer)", dur, Date().timeIntervalSince(began), lines, raw))
+    exit(0)
+}
 
 if dscMode {
     guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),

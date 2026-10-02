@@ -77,7 +77,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .acars: return ["f131550", "f131725", "f131525", "f130025", "f136900", "free"]   // = ACARSChannel.rawValue
         case .pager: return ["dapnet", "free"]   // = PagerChannel.rawValue
         case .tones: return ["all"]
-        case .dsc: return ["8414", "2187", "4207", "6312", "12577", "16804"]   // = DSCChannel.rawValue (ohne „frei“)
+        case .dsc: return ["8414", "2187", "4207", "6312", "12577", "16804", "70"]   // = DSCChannel.rawValue (ohne „frei“)
         case .mt63: return ["1000s", "1000l", "500s", "500l", "2000s", "2000l"]   // = FldigiMT63Core.Options.presetID
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue

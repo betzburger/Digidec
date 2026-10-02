@@ -5,10 +5,12 @@ import os
 
 // MARK: - Kanäle
 
-/// DSC-Kanäle für Notfälle und Anrufe auf MF/HF (ITU-R M.493). Der Rufträger liegt 1,7 kHz über dem USB-Dial.
+/// DSC-Kanäle für Notfälle und Anrufe auf MF/HF und UKW (ITU-R M.493). Auf MF/HF liegt der Rufträger 1,7 kHz über dem USB-Dial;
+/// UKW-Kanal 70 (156,525 MHz) ist FM mit 1200 Bd (1300/2100 Hz).
 public enum DSCChannel: String, CaseIterable, Identifiable, Codable, Sendable {
     case free = "frei"
     case f2187 = "2187", f4207 = "4207", f6312 = "6312", f8414 = "8414", f12577 = "12577", f16804 = "16804"
+    case vhf70 = "70"
 
     public var id: String { rawValue }
 
@@ -22,18 +24,24 @@ public enum DSCChannel: String, CaseIterable, Identifiable, Codable, Sendable {
         case .f8414: return 8_414_500
         case .f12577: return 12_577_000
         case .f16804: return 16_804_500
+        case .vhf70: return 156_525_000
         }
     }
 
+    /// UKW-DSC (Kanal 70): FM, 1200 Bd
+    public var isVHF: Bool { self == .vhf70 }
+
     public var label: String {
         guard let f = frequencyHz else { return "frei" }
+        if isVHF { return "K70" }
         let khz = f / 1000
         return khz.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", khz) : String(format: "%.1f", khz).replacingOccurrences(of: ".", with: ",")
     }
 
-    /// USB-Dial, damit der Rufträger bei `centerHz` im NF liegt
+    /// USB-Dial, damit der Rufträger bei `centerHz` im NF liegt (UKW: Kanalfrequenz, FM)
     public func dial(center: Double) -> Int64? {
-        frequencyHz.map { Int64(($0 - center).rounded()) }
+        if isVHF { return frequencyHz.map { Int64($0.rounded()) } }
+        return frequencyHz.map { Int64(($0 - center).rounded()) }
     }
 }
 
@@ -62,6 +70,7 @@ public final class DSCSettingsStore: ObservableObject {
 
     /// Von Hand (Klick im Wasserfall): schaltet die Automatik ab
     public func setCenter(_ hz: Double) {
+        if channel.isVHF { return }          // UKW: feste Töne 1300/2100 Hz
         centerHz = min(max(hz, Self.centerRange.lowerBound), Self.centerRange.upperBound).rounded()
         manualCenterRevision += 1
         autoCenter = false
@@ -77,8 +86,10 @@ public final class DSCSettingsStore: ObservableObject {
 }
 
 extension DSCSettingsStore: TuningTarget {
-    public var tones: (mark: Double, space: Double) { (centerHz + DSCDemodulator.shift / 2, centerHz - DSCDemodulator.shift / 2) }
-    public var markerBandwidth: Double { DSCDemodulator.shift + 100 }
+    public var tones: (mark: Double, space: Double) {
+        channel.isVHF ? (DSCVHFReceiver.bHz, DSCVHFReceiver.yHz) : (centerHz + DSCDemodulator.shift / 2, centerHz - DSCDemodulator.shift / 2)
+    }
+    public var markerBandwidth: Double { channel.isVHF ? 500 : DSCDemodulator.shift + 100 }
 }
 
 // MARK: - Decoder
@@ -95,6 +106,8 @@ public final class DSCDecoder: @unchecked Sendable {
 
     private let pipeline: AudioPipeline
     private let demod = DSCDemodulator()
+    private let vhfRx = DSCVHFReceiver()
+    private var vhf = false
     private var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
     private var enabled = false
     private var autoCenter = true
@@ -110,10 +123,16 @@ public final class DSCDecoder: @unchecked Sendable {
     public init(pipeline: AudioPipeline) {
         self.pipeline = pipeline
         pipeline.addSink { [weak self] samples in self?.consume(samples) }
+        pipeline.addSink(rate: DSCVHFReceiver.sampleRate) { [weak self] samples in self?.consumeVHF(samples) }
     }
 
-    public func configure(center: Double, reversed: Bool, auto: Bool) {
+    public func configure(center: Double, reversed: Bool, auto: Bool, vhf: Bool = false) {
         pipeline.perform { [self] in
+            if self.vhf != vhf {
+                self.vhf = vhf
+                vhfRx.reset()
+                framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+            }
             demod.centerHz = center
             demod.reversed = reversed
             autoCenter = auto
@@ -124,7 +143,10 @@ public final class DSCDecoder: @unchecked Sendable {
     public func setEnabled(_ on: Bool) {
         pipeline.perform { [self] in
             enabled = on
-            if !on { framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() } }
+            if !on {
+                framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+                vhfRx.reset()
+            }
         }
     }
 
@@ -135,8 +157,23 @@ public final class DSCDecoder: @unchecked Sendable {
         }
     }
 
+    /// UKW-Kanal 70: 1200 Bd, 12-kHz-Senke
+    private func consumeVHF(_ samples: UnsafeBufferPointer<Float>) {
+        guard enabled, vhf else { return }
+        var found: [DSCCall] = []
+        vhfRx.process(samples) { found.append($0) }
+        let locked = vhfRx.isLocked
+        let level = vhfRx.level
+        lock.withLockUnchecked {
+            for c in found { pending.append((c, 0)) }
+            lockedNow = locked
+            levelNow = level
+            centerNow = 0
+        }
+    }
+
     private func consume(_ samples: UnsafeBufferPointer<Float>) {
-        guard enabled else { return }
+        guard enabled, !vhf else { return }
         var found: [DSCCall] = []
         demod.process(samples) { phase, bit in
             if let c = framers[phase].push(bit) { found.append(c) }
@@ -190,7 +227,7 @@ public final class DSCController: ObservableObject {
     private let settings: DSCSettingsStore
     private var timer: Timer?
     private var cancellables: Set<AnyCancellable> = []
-    private var applied: (Double, Bool, Bool)?
+    private var applied: (Double, Bool, Bool, Bool)?
     private var collector = DSCCallCollector()
     private var seen: [(key: String, date: Date)] = []
 
@@ -227,17 +264,19 @@ public final class DSCController: ObservableObject {
     }
 
     public func markSession() {
-        var h = "DSC · \(settings.channel.label) kHz · Mitte \(Int(settings.centerHz.rounded())) Hz"
-        if settings.reversed { h += " · REV" }
+        var h = settings.channel.isVHF ? "DSC · UKW Kanal 70 · 156,525 MHz · 1200 Bd" : "DSC · \(settings.channel.label) kHz · Mitte \(Int(settings.centerHz.rounded())) Hz"
+        if settings.reversed, !settings.channel.isVHF { h += " · REV" }
         if let rig = rigDescription { h += " · \(rig)" }
         logger.markSession(h)
     }
 
     private func applySettings() {
-        let a = (settings.centerHz, settings.reversed, settings.autoCenter)
+        let a = (settings.centerHz, settings.reversed, settings.autoCenter, settings.channel.isVHF)
         if applied.map({ $0 != a }) ?? true {
+            let bandChanged = applied.map { $0.3 != a.3 } ?? false
             applied = a
-            decoder.configure(center: a.0, reversed: a.1, auto: a.2)
+            decoder.configure(center: a.0, reversed: a.1, auto: a.2, vhf: a.3)
+            if bandChanged { markSession() }
         }
     }
 
@@ -255,7 +294,7 @@ public final class DSCController: ObservableObject {
         locked = out.locked
         level = out.level
         measuredCenter = out.measuredCenter
-        if settings.autoCenter, abs(out.center - settings.centerHz) >= 1 { settings.autoMoved(to: out.center) }
+        if settings.autoCenter, !settings.channel.isVHF, abs(out.center - settings.centerHz) >= 1 { settings.autoMoved(to: out.center) }
         let now = Date()
         for (call, _) in out.calls { collector.add(call, at: now.timeIntervalSince1970) }
         for call in collector.take(now: now.timeIntervalSince1970) {

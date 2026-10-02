@@ -105,6 +105,13 @@ public final class AFSKDemodulator {
     public static let markHz = 1200.0
     public static let spaceHz = 2200.0
 
+    /// Baudrate und Töne dieser Instanz (Standard: Bell 202; UKW-DSC nutzt 1200 Bd mit 1300/2100 Hz)
+    public let baudRate: Double
+    public let markTone: Double
+    public let spaceTone: Double
+    /// Rohbit-Betrieb (z. B. UKW-DSC): statt NRZI und HDLC kommt je Takt und Entscheider ein Bit (Mark = 1)
+    public var onRawBit: ((Int, UInt8) -> Void)?
+
     private struct Slicer {
         var gain: Double
         var pll: Int32 = 0
@@ -137,9 +144,13 @@ public final class AFSKDemodulator {
     /// Hüllkurve des lautesten Tons (für die Pegelanzeige), 0…1 grob
     public private(set) var levelPeak = 0.0
 
-    public init(sampleRate: Double = 12_000, options: Options = Options()) {
+    public init(sampleRate: Double = 12_000, options: Options = Options(),
+                baud: Double = AFSKDemodulator.baud, markHz: Double = AFSKDemodulator.markHz, spaceHz: Double = AFSKDemodulator.spaceHz) {
         self.sampleRate = sampleRate
         self.options = options
+        baudRate = baud
+        markTone = markHz
+        spaceTone = spaceHz
         configure()
     }
 
@@ -161,11 +172,11 @@ public final class AFSKDemodulator {
             gains = (0..<n).map { pow(10, (-9 + 18 * Double($0) / Double(n - 1)) / 20) }
         }
         slicers = gains.map { Slicer(gain: $0) }
-        pllStep = Int32(truncatingIfNeeded: Int64((4_294_967_296.0 * Self.baud / sampleRate).rounded()))
-        markStep = 2 * .pi * (Self.markHz + options.centerOffsetHz) / sampleRate
-        spaceStep = 2 * .pi * (Self.spaceHz + options.centerOffsetHz) / sampleRate
+        pllStep = Int32(truncatingIfNeeded: Int64((4_294_967_296.0 * baudRate / sampleRate).rounded()))
+        markStep = 2 * .pi * (markTone + options.centerOffsetHz) / sampleRate
+        spaceStep = 2 * .pi * (spaceTone + options.centerOffsetHz) / sampleRate
         // Wurzel-Kosinus-Filter (Roll-off 0,2, 2,8 Symbole breit): angepasstes Filter für die Töne
-        let sps = sampleRate / Self.baud
+        let sps = sampleRate / baudRate
         let len = max(5, Int((2.8 * sps).rounded()) | 1)
         let alpha = 0.2
         var t = [Double](repeating: 0, count: len)
@@ -186,8 +197,8 @@ public final class AFSKDemodulator {
         taps = t.map { Float($0 / sum) }
         // Bandpass 1014 … 2386 Hz (Mark − 0,155·Baud … Space + 0,155·Baud), Hamming-gefenstert
         let plen = max(9, Int((8 * sps).rounded()) | 1)
-        let f1 = (Self.markHz + options.centerOffsetHz - 0.155 * Self.baud) / sampleRate
-        let f2 = (Self.spaceHz + options.centerOffsetHz + 0.155 * Self.baud) / sampleRate
+        let f1 = (markTone + options.centerOffsetHz - 0.155 * baudRate) / sampleRate
+        let f2 = (spaceTone + options.centerOffsetHz + 0.155 * baudRate) / sampleRate
         var b = [Double](repeating: 0, count: plen)
         let pmid = Double(plen - 1) / 2
         for i in 0..<plen {
@@ -281,6 +292,10 @@ public final class AFSKDemodulator {
         }
         slicers[i].lastRaw = raw
         guard slicers[i].pll < 0, previous >= 0 else { return }
+        if let onRawBit {
+            onRawBit(i, raw ? 1 : 0)
+            return
+        }
         // Abtastzeitpunkt: NRZI (gleich = 1)
         let bit = raw == slicers[i].previousSymbol ? 1 : 0
         slicers[i].previousSymbol = raw
