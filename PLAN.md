@@ -445,6 +445,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M35 | Hell | ✅ 02.10.2026 (v0.36.0): Feld Hell, Slow Hell, X5, X9, FSK Hell 245/105, Hell 80 aus fldigi; Bildanzeige (Raster) mit PNG-Export |
 | M36 | PSKR und 8PSK | ✅ 02.10.2026 (v0.37.0): im Modul PSK 4 PSKR- und 11 8PSK-Betriebsarten (mit FEC, 16 kHz); Sendeseite von fldigi für das Testsignal |
 | M37 | RTTY: DWD-Frequenzwahl | ✅ 02.10.2026 (v0.38.0): Knöpfe für die DWD-Sendefrequenzen unter den Presets DWD KW und DWD LW; stellt bei QSY AUTO das Funkgerät (USB-Dial = Frequenz − NF-Mitte) |
+| M38 | App-Icon | ✅ 02.10.2026 (v0.39.0) |
+| M39 | RTTY-Karte: SYNOP ohne Kopfzeile, Wertansicht | ✅ 02.10.2026 (v0.40.0): SYNOP-Meldungen werden auch mitten im Block erkannt; Karte zeigt Temperatur, Luftdruck, Wind und Sicht als Zahl an der Station |
 ---
 
 ## 11. Aktueller Stand
@@ -989,6 +991,15 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Dateien:** `Resources/AppIcon-1024.png` (Master 1024x1024 PNG), `Resources/AppIcon.icns` (vollständiger macOS-Iconset 16–1024 px), `Tools/generate_app_icon.py` (Generator-Skript via `iconutil`).
   - **Design & Metapher:** Reduzierter Apple-Stil, passend zur Design-Familie von FT-991A Commander und PCR-1500 Commander. Dunkler, schiefergrauer Squircle mit feiner gebürsteter Metallstruktur, Apple HIG-konformer Geometrie und sanftem Schlagschatten. Im Zentrum die funktionale Metapher der digitalen Decodierung: Eine analoge NF/HF-Sinusschwingung (VFD Cyan) geht nahtlos über in diskrete digitale Rechteck-Impulse / Baud-Bits (VFD Amber und Cyan).
   - **Build-Integration:** `build_app.sh` bettet `AppIcon.icns` in `Digidec.app/Contents/Resources/` ein und registriert es über `CFBundleIconFile` in der `Info.plist`.
+- **0.40.0 (02.10.2026): M39 RTTY-Karte: SYNOP ohne Kopfzeile und Zeilenumbrüche, Wertansicht.**
+  - **Anlass:** In der Aufnahme vom 02.10. 18:37 UTC (DDK2, 4583 kHz) stand echter SYNOP-Text, aber die Karte blieb leer. Zwei Ursachen im fldigi-SYNOP-Decoder: (1) Er springt nur bei einer Kopfzeile `AAXX`/`BBXX`/`OOXX` an; wer mitten im Block einschaltet, bekommt keinen Klartext. (2) Er verwirft bei jedem Zeilenwechsel (CR) die angefangene Meldung; der DWD bricht die Zeilen nach etwa 60 Zeichen (oft vor Abschnitt 333) und setzt die Kopfzeile in eine eigene Zeile: Station, Windeinheit und Zeit gingen verloren.
+  - **Dateien:** `Vendor/Fldigi/src/synop/fldigi_synop.cpp` (CR beendet die Meldung nicht mehr; Ende: „=“, NUL), `Sources/Decoders/RTTY/SynopDecoder.swift` (`SynopHeaderRecovery`), `Sources/Models/ModuleMaps.swift` (`SynopLog.Layer`, Zahlenwerte, Windeinheit), `Sources/Models/Geo.swift` (`MapMarker.valueText/valueLevel`), `Sources/UI/MapPanel.swift` (Messwert-Punkte, `accessory`), `Sources/UI/MapViews.swift` (Ansichtswahl SYMBOL/TEMP/DRUCK/WIND/SICHT).
+  - **Kopfzeile ergänzen:** Beginnt eine Folge mit einer bekannten WMO-Stationsnummer, dann `iR iX h VV` (`0–4`, `1–7`), dann `N dd ff` und eine Gruppe `1sTTT` oder `00fff`, ergänzt Digidec `AAXX TTGG4` (Tag und letzte Dreistundenzeit von jetzt, Knoten) vor der Meldung. Fängt die Folge mit einem Bruchstück an (hier `02181`), wird dieses verworfen und ab dem nächsten Wort neu geprüft. Der Klartext trägt den Hinweis „Note=Header missing“, die Karte nennt ihn im Popup.
+  - **Windeinheit:** fldigi kennt sie nur in der ersten Meldung nach der Kopfzeile; spätere Meldungen desselben Blocks übernehmen die zuletzt gesehene (sonst Knoten) und sind als „angenommen“ markiert.
+  - **Wertansicht:** Temperatur (−20 … +35 °C, blau bis rot), Luftdruck (Meereshöhe, sonst Station; 985 … 1040 hPa), Wind (Knoten, Pfeil in Windrichtung, Farbe nach Beaufort), Sicht (km, rot = schlecht). Stationen ohne den Wert fehlen in der jeweiligen Ansicht.
+  - **Ergebnis an der echten Aufnahme:** 2 Stationen auf der Karte (Leba 12,6 °C, 1031 hPa, Wind 195° 2 kn, Sicht 13 km; Poznan 14,3 °C, 1031 hPa).
+  - **Tests:** 1579 Logiktests (+28): mehrzeilige Meldung mit Kopfzeile, ohne Kopfzeile mit Bruchstück, Rohtext unverändert, gewöhnlicher Text und Fünfergruppen ohne Meldungsform unberührt, Werte, Einheiten, Beaufort, Ansichten, Windpfeil, Popup-Hinweis.
+  - **Beobachtung:** Der MT63-Pipelinetest scheiterte in einem Lauf, während nebenbei gebaut wurde (Echtzeit-Pipeline, CPU-Last); in einem Lauf ohne Last und in allen übrigen besteht er.
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.

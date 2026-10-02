@@ -192,16 +192,30 @@ private struct RTTYMapView: View {
     let presetID: String
     @ObservedObject var home: HomeLocation
     @State private var selection: String?
+    @AppStorage("synopLayer") private var layerRaw = SynopLog.Layer.symbol.rawValue
+
+    private var layer: SynopLog.Layer { SynopLog.Layer(rawValue: layerRaw) ?? .symbol }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { ctx in
             MapPanel(content: content(now: ctx.date), home: home, selection: $selection,
-                     legend: presetID.hasPrefix("dwd") ? "SYNOP und Sender" : "Rufzeichen")
+                     legend: presetID.hasPrefix("dwd") ? "SYNOP und Sender" : "Rufzeichen",
+                     accessory: presetID.hasPrefix("dwd") ? AnyView(layerPicker) : nil)
         }
     }
 
+    private var layerPicker: some View {
+        Picker("", selection: $layerRaw) {
+            ForEach(SynopLog.Layer.allCases) { Text($0.title).tag($0.rawValue) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 270)
+        .help("Was die Karte an den Wetterstationen zeigt: Symbol oder Messwert")
+    }
+
     private func content(now: Date) -> MapContent {
-        var content = controller.textModel.synop.content(home: home.point, now: now, transmitters: sites)
+        var content = controller.textModel.synop.content(home: home.point, now: now, transmitters: sites, layer: layer)
         let calls = HeardMapBuilder.content(controller.textModel.calls.heard, home: home.point, now: now, mode: "RTTY")
         content.markers += calls.markers
         content.lines += calls.lines

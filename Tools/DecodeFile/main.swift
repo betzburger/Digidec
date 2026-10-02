@@ -753,10 +753,12 @@ let duration = Double(file.length) / rate
 guard let src = SampleRateConverter(inputRate: rate, outputRate: FldigiRTTYCore.sampleRate) else { exit(1) }
 var text = ""
 var synopText = ""
+var synopSegments: [TextSegment] = []
 var synop: SynopDecoder?
 if synopOut {
     SynopDecoder.loadStations()
     synop = SynopDecoder { seg in
+        synopSegments.append(seg)
         synopText += seg.decoded ? RTTYController.displayDecoded(seg.text) : RTTYController.displayText(seg.text)
     }
 }
@@ -777,6 +779,16 @@ if synopOut {
     let url = wavURL.deletingPathExtension().appendingPathExtension("synop.txt")
     try? synopText.write(to: url, atomically: true, encoding: .utf8)
     print("SYNOP-Klartext -> \(url.lastPathComponent)")
+    // Was die Karte zeigen würde
+    let log = SynopLog()
+    for seg in synopSegments { log.feed(seg.text, decoded: seg.decoded) }
+    log.flush()
+    let located = log.observations.values.filter { $0.position != nil }.sorted { $0.wmo < $1.wmo }
+    print("Karte: \(located.count) Stationen mit Ort von \(log.observations.count) Meldungen")
+    for o in located {
+        print(String(format: "  %@ %@ · %@%@%@%@", o.wmo, o.name, o.temperature ?? "–", o.pressure.map { " · " + $0 } ?? "",
+                     o.wind.map { " · Wind " + $0 } ?? "", o.headerGuessed ? " · Kopfzeile geraten" : ""))
+    }
 }
 let clean = RTTYController.displayText(text)
 let out = outPath.map { URL(fileURLWithPath: $0) } ?? wavURL.deletingPathExtension().appendingPathExtension("digidec.txt")

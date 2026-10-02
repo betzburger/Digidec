@@ -4379,6 +4379,70 @@ do {
     check(DSCMapBuilder.content([m], home: home, now: now).markers.isEmpty, "DSC ohne Position: kein Punkt")
 }
 
+// MARK: - SYNOP: Zeilenumbrüche, fehlende Kopfzeile, Wertansicht (echter Empfang DDK2, 02.10.2026 18:37 UTC)
+do {
+    SynopDecoder.loadStations()
+    func decode(_ text: String) -> (raw: String, klar: String, segments: [TextSegment]) {
+        var segs: [TextSegment] = []
+        let d = SynopDecoder { segs.append($0) }
+        for scalar in text.unicodeScalars { d.feed(Character(scalar)) }
+        d.flush()
+        return (segs.filter { !$0.decoded }.map(\.text).joined(), segs.filter { $0.decoded }.map(\.text).joined(), segs)
+    }
+    // Mehrzeilige Meldung mit Kopfzeile in eigener Zeile (so sendet der DWD): Station, Wert, Einheit
+    let withHeader = "AAXX 02184\r\n10655 12970 82205 10123 20103 30106 40113 52010\r\n60002 83507 333 10222=\r\nNNNN\r\n"
+    let h = decode(withHeader)
+    check(h.raw == withHeader, "SYNOP: Rohtext unverändert trotz Zeilenumbrüchen, got \(h.raw.debugDescription)")
+    for want in ["WMO Station=10655", "WMO station=Wuerzburg", "Temperature=12.3 °C", "Sea level pressure=1011 hPa", "Wind speed=5 knots", "Maximum 24 hours temperature=22.2 °C"] {
+        check(h.klar.contains(want), "SYNOP mehrzeilig: „\(want)“")
+    }
+    check(!h.klar.contains("Header missing"), "SYNOP mit Kopfzeile: kein Hinweis auf fehlende Kopfzeile")
+    // Dieselbe Meldung ohne Kopfzeile, davor Reste der vorigen Meldung (Empfang mitten im Block)
+    let tail = "X 02181\r\n12120 12963 62002 10126 20118 30306 40311 52011 60002 80008\r\n333 10222 20118 91205 93000=\r\n12330 12980 60000 10143 20087 30204 40312 52007 60002 80008\r\n333 10233 20113 91204 93000=\r\nNNNN\r\nCQ CQ CQ DE DDK2\r\n"
+    let t = decode(tail)
+    check(t.raw.replacingOccurrences(of: "AAXX ", with: "").contains("12120 12963 62002") && t.raw.hasPrefix("X 02181\r\n"), "SYNOP ohne Kopfzeile: Rohtext läuft durch")
+    check(t.klar.contains("Note=Header missing") && t.klar.contains("WMO Station=12120") && t.klar.contains("WMO station=Leba") && t.klar.contains("Temperature=12.6 °C"), "SYNOP ohne Kopfzeile: Station 12120 (Leba) erkannt, nicht das Bruchstück 02181")
+    check(t.klar.contains("WMO Station=12330") && t.klar.contains("Temperature=14.3 °C") && t.klar.contains("Bulletin end"), "SYNOP: zweite Meldung und Blockende")
+    // Gewöhnlicher Text mit Zahlen läuft unverändert durch und löst nichts aus
+    let plain = "CQ CQ DE DDK2 12345 678 FREQUENCIES 4583 KHZ 10100.8 KHZ\r\nRYRYRYRY 02181 12120 ABC\r\n"
+    let p = decode(plain)
+    check(p.raw == plain && !p.klar.contains("Header missing"), "Gewöhnlicher Text mit Zahlen bleibt unberührt (\(p.klar.prefix(40).debugDescription))")
+    // Fünfergruppen, die keine Meldung sind (Stationsnummer vorhanden, Rest passt nicht)
+    let noise = "10655 99999 11111 22222 33333\r\n"
+    let n = decode(noise)
+    check(!n.klar.contains("Header missing"), "Fünfergruppen ohne Meldungsform: keine Kopfzeile ergänzt (\(n.klar.prefix(60).debugDescription))")
+    // Karte: Wertansicht
+    let log = SynopLog()
+    for seg in t.segments { log.feed(seg.text, decoded: seg.decoded) }
+    log.flush()
+    check(log.observations.count == 2, "SYNOP-Log: zwei Stationen (\(log.observations.count))")
+    let leba = log.observations["12120"]
+    check(leba?.headerGuessed == true && leba?.temperatureC == 12.6 && leba?.pressureHPa == 1031 && leba?.windDirectionDeg != nil && leba?.visibilityKm == 13, "SYNOP-Log: Werte von Leba (\(String(describing: leba?.temperatureC)), \(String(describing: leba?.pressureHPa)))")
+    check(log.observations["12330"]?.windUnit == "kn" && log.observations["12330"]?.windUnitAssumed == true, "SYNOP-Log: unbekannte Windeinheit wird von der ersten Meldung übernommen (\(String(describing: log.observations["12330"]?.windUnit)), \(String(describing: log.observations["12330"]?.windSpeedValue)))")
+    let home = GeoPoint(lat: 49.77, lon: 9.95)
+    for layer in SynopLog.Layer.allCases {
+        let c = log.content(home: home, now: Date(), layer: layer)
+        let withPoint = c.markers.filter { $0.id.hasPrefix("synop-") }
+        switch layer {
+        case .symbol: check(withPoint.count == 2 && withPoint.allSatisfy { $0.symbol != nil && $0.valueText == nil }, "Karte Symbolansicht: zwei Symbole")
+        case .temperature: check(withPoint.count == 2 && withPoint.contains { $0.valueText == "12" || $0.valueText == "13" } && withPoint.allSatisfy { $0.valueLevel != nil }, "Karte Temperatur: \(withPoint.map { $0.valueText ?? "-" })")
+        case .pressure: check(withPoint.count == 2 && withPoint.allSatisfy { $0.valueText == "1031" }, "Karte Luftdruck: \(withPoint.map { $0.valueText ?? "-" })")
+        case .wind: check(withPoint.contains { $0.headingDeg != nil && $0.valueText == "2" }, "Karte Wind: Pfeil und Knoten (\(withPoint.map { $0.valueText ?? "-" }))")
+        case .visibility: check(withPoint.contains { $0.valueText == "13" }, "Karte Sicht: \(withPoint.map { $0.valueText ?? "-" })")
+        }
+    }
+    let wind = log.content(home: home, now: Date(), layer: .wind).markers.first { $0.id == "synop-12120" }
+    check(wind?.headingDeg == 15, "Windpfeil zeigt in Windrichtung (Wind aus 195° → Pfeil 15°, ist \(String(describing: wind?.headingDeg)))")
+    check(wind?.details.contains { $0.contains("Kopfzeile fehlte") } == true, "Popup nennt die fehlende Kopfzeile")
+    // Beaufort-Grenzen und Zahlen aus Klartext
+    check(SynopLog.beaufort(0) == 0 && SynopLog.beaufort(3) == 1 && SynopLog.beaufort(8) == 3 && SynopLog.beaufort(30) == 7 && SynopLog.beaufort(64) == 12, "Beaufort aus Knoten")
+    check(SynopObservation.number("-3,4 °C") == -3.4 && SynopObservation.number("1013 hPa") == 1013 && SynopObservation.number("Variable, all directions") == nil, "Zahlen aus Klartext")
+    check(SynopObservation.windUnit("5 m/s") == "ms" && SynopObservation.windUnit("14 km/h") == "kmh" && SynopObservation.windUnit("10 knots (Anemometer)") == "kn" && SynopObservation.windUnit("63 No unit (YYGGi missing)") == nil, "Windeinheiten")
+    check(SynopObservation.km("4 km") == 4 && SynopObservation.km("800 m") == 0.8, "Sicht in km")
+    // Bei der Erkennung zählt die Stationsliste
+    check(SynopHeaderRecovery.isStation("12120") && !SynopHeaderRecovery.isStation("99999") && SynopHeaderRecovery.isSecondGroup("12963") && !SynopHeaderRecovery.isSecondGroup("99514") && SynopHeaderRecovery.isFourthGroup("10126") && !SynopHeaderRecovery.isFourthGroup("62002"), "Erkennung: Stationsnummer, Gruppen")
+}
+
 @MainActor func homeTests() {
     let key = "homeLocator"
     let saved = UserDefaults.standard.string(forKey: key)

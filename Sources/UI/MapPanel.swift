@@ -47,6 +47,8 @@ struct MapPanel: View {
     /// Gemeinsame Auswahl mit der Liste (optional)
     @Binding var selection: String?
     var legend: String? = nil
+    /// Zusätzliche Bedienelemente neben den Schaltern (z. B. Auswahl der Ansicht)
+    var accessory: AnyView? = nil
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var fitted = false
@@ -57,11 +59,12 @@ struct MapPanel: View {
 
     private var appearance: MapAppearance { MapAppearance(rawValue: appearanceRaw) ?? .standard }
 
-    init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil) {
+    init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil, accessory: AnyView? = nil) {
         self.content = content
         self.home = home
         self._selection = selection
         self.legend = legend
+        self.accessory = accessory
     }
 
     var body: some View {
@@ -171,6 +174,7 @@ struct MapPanel: View {
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(RadioTheme.bgDeep.opacity(0.85))
                     .cornerRadius(4)
+                if let accessory { accessory }
                 if let legend {
                     Text(legend)
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -269,13 +273,32 @@ struct MapPanel: View {
 }
 
 /// Punkt auf der Karte: Kreis in Tonfarbe mit Symbol oder Zeichen, Kursstrich
-private struct MarkerBadge: View {
+struct MarkerBadge: View {
     let marker: MapMarker
     let selected: Bool
 
     var body: some View {
-        let color = marker.tone.color
+        let color = marker.valueLevel.map { Self.scale($0) } ?? marker.tone.color
         ZStack {
+            if let text = marker.valueText {
+                // Messwert: Beschriftung auf farbigem Grund, bei Wind mit Pfeil in Windrichtung
+                if let h = marker.headingDeg {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: selected ? 13 : 11, weight: .black))
+                        .foregroundColor(color)
+                        .rotationEffect(.degrees(h))
+                        .offset(y: selected ? -20 : -17)
+                        .shadow(color: .black.opacity(0.6), radius: 1)
+                }
+                Text(text)
+                    .font(.system(size: selected ? 12 : 10, weight: .black, design: .monospaced))
+                    .foregroundColor(.black.opacity(0.85))
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(Capsule().fill(color))
+                    .overlay(Capsule().stroke(selected ? Color.white : Color.black.opacity(0.4), lineWidth: selected ? 2 : 1))
+                    .shadow(color: color.opacity(selected ? 0.8 : 0.35), radius: selected ? 6 : 2)
+            } else {
+            
             if let h = marker.headingDeg {
                 Image(systemName: "location.north.fill")
                     .font(.system(size: 9, weight: .bold))
@@ -293,7 +316,13 @@ private struct MarkerBadge: View {
             } else {
                 Circle().fill(color).frame(width: 6, height: 6)
             }
+            }
         }
-        .shadow(color: color.opacity(selected ? 0.7 : 0.3), radius: selected ? 6 : 2)
+        .shadow(color: marker.valueText == nil ? color.opacity(selected ? 0.7 : 0.3) : .clear, radius: selected ? 6 : 2)
+    }
+
+    /// Farbskala 0 (blau) … 0,5 (grün/gelb) … 1 (rot)
+    private static func scale(_ level: Double) -> Color {
+        Color(hue: 0.66 * (1 - min(max(level, 0), 1)), saturation: 0.75, brightness: 0.98)
     }
 }

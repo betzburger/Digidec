@@ -189,6 +189,58 @@ public struct SynopObservation: Identifiable, Equatable, Sendable {
     public var time: String?
     public var lines: [String]
     public var received: Date
+    /// Die Kopfzeile fehlte: Zeit und Windeinheit sind angenommen
+    public var headerGuessed = false
+    // Zahlenwerte für die Wertansicht der Karte
+    public var temperatureC: Double?
+    public var pressureHPa: Double?
+    public var windDirectionDeg: Double?
+    /// Windgeschwindigkeit wie gemeldet und ihre Einheit („kn“, „ms“, „kmh“); fldigi kennt die Einheit nur in der ersten Meldung
+    /// eines Blocks (Kopfzeile), sonst `nil` (dann gilt die zuletzt gesehene, sonst Knoten)
+    public var windSpeedValue: Double?
+    public var windUnit: String?
+    public var visibilityKm: Double?
+    /// Die Einheit stammt nicht aus der Meldung
+    public var windUnitAssumed = false
+
+    public var windSpeedKn: Double? {
+        guard let v = windSpeedValue else { return nil }
+        switch windUnit ?? "kn" {
+        case "ms": return v * 1.9438
+        case "kmh": return v / 1.852
+        default: return v
+        }
+    }
+
+    /// Erste Zahl eines Klartextwerts („12.6 °C“, „-3,4 °C“, „1013 hPa“); nil, wenn keine
+    static func number(_ s: String?) -> Double? {
+        guard let s else { return nil }
+        let t = s.replacingOccurrences(of: ",", with: ".")
+        var digits = ""
+        for ch in t {
+            if ch.isNumber || ch == "." || (ch == "-" && digits.isEmpty) { digits.append(ch) } else if !digits.isEmpty { break }
+        }
+        return Double(digits)
+    }
+
+    /// Einheit aus „10 knots“, „5 m/s“, „14 km/h“; nil, wenn der Text keine nennt („No unit“)
+    static func windUnit(_ s: String?) -> String? {
+        guard let s else { return nil }
+        let u = s.lowercased()
+        if u.contains("knot") { return "kn" }          // vor „m/s“ prüfen: „Anemometer“ enthält „meter“
+        if u.contains("km/h") { return "kmh" }
+        if u.contains("m/s") { return "ms" }
+        return nil
+    }
+
+    /// Sicht in km aus „4 km“ oder „800 m“
+    static func km(_ s: String?) -> Double? {
+        guard let v = number(s), let s else { return nil }
+        let u = s.lowercased()
+        if u.contains("km") { return v }
+        if u.contains(" m") || u.hasSuffix("m") { return v / 1000 }
+        return v
+    }
 }
 
 /// WMO-Stationsliste (nsd_bbsss.txt aus Resources/Stations): Name und Ort je Stationsnummer
@@ -232,12 +284,18 @@ public enum SynopCatalog {
 public final class SynopLog {
     public private(set) var observations: [String: SynopObservation] = [:]
     private var pending = ""
+    /// Zuletzt gemeldete Windeinheit (fldigi nennt sie nur in der ersten Meldung nach der Kopfzeile)
+    private var lastWindUnit: String?
+    /// Der laufende Block hat keine Kopfzeile bekommen (der Hinweis steht im Klartext), bis „Bulletin end“ kommt
+    private var guessedRun = false
 
     public init() {}
 
     public func clear() {
         observations.removeAll()
         pending = ""
+        lastWindUnit = nil
+        guessedRun = false
     }
 
     /// Klartext vom Decoder (`decoded == true`) sammeln; Rohtext (`false`) schließt den Klartextblock ab
@@ -254,7 +312,16 @@ public final class SynopLog {
         guard !pending.isEmpty else { return }
         let text = pending
         pending = ""
-        for obs in Self.parse(text, at: date) { observations[obs.id] = obs }
+        if text.contains("Note=Header missing") { guessedRun = true }
+        for var obs in Self.parse(text, at: date) {
+            if guessedRun { obs.headerGuessed = true }
+            if let u = obs.windUnit { lastWindUnit = u } else if obs.windSpeedValue != nil {
+                obs.windUnit = lastWindUnit ?? "kn"
+                obs.windUnitAssumed = true
+            }
+            observations[obs.id] = obs
+        }
+        if text.contains("Bulletin end") { guessedRun = false }
         if observations.count > 600, let oldest = observations.values.min(by: { $0.received < $1.received }) {
             observations.removeValue(forKey: oldest.id)
         }
@@ -266,6 +333,7 @@ public final class SynopLog {
         var cur: [String: String] = [:]
         var lines: [String] = []
         var kind = "Land"
+        var guessedHeader = false
         func finish() {
             guard let wmo = cur["WMO Station"] else { cur = [:]; lines = []; return }
             var name = cur["WMO station"] ?? ""
@@ -280,16 +348,25 @@ public final class SynopLog {
             let pressure = cur["Sea level pressure"] ?? cur["Station pressure"]
             var wind: String?
             if let s = cur["Wind speed"] { wind = (cur["Wind direction"].map { $0 + " " } ?? "") + s }
-            out.append(SynopObservation(id: wmo, wmo: wmo, name: name.isEmpty ? "WMO \(wmo)" : name, position: pos, kind: kind,
-                                        temperature: cur["Temperature"], dewpoint: cur["Dewpoint temperature"], pressure: pressure,
-                                        wind: wind, visibility: cur["Visibility"], time: cur["observation time"] ?? cur["Observation time"],
-                                        lines: lines, received: date))
+            var obs = SynopObservation(id: wmo, wmo: wmo, name: name.isEmpty ? "WMO \(wmo)" : name, position: pos, kind: kind,
+                                       temperature: cur["Temperature"], dewpoint: cur["Dewpoint temperature"], pressure: pressure,
+                                       wind: wind, visibility: cur["Visibility"], time: cur["observation time"] ?? cur["Observation time"],
+                                       lines: lines, received: date)
+            obs.headerGuessed = guessedHeader
+            obs.temperatureC = SynopObservation.number(cur["Temperature"])
+            obs.pressureHPa = SynopObservation.number(pressure)
+            obs.windDirectionDeg = SynopObservation.number(cur["Wind direction"])
+            obs.windSpeedValue = SynopObservation.number(cur["Wind speed"])
+            obs.windUnit = SynopObservation.windUnit(cur["Wind speed"])
+            obs.visibilityKm = SynopObservation.km(cur["Visibility"])
+            out.append(obs)
             cur = [:]
             lines = []
         }
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }
+            if line.hasPrefix("Note=Header missing") { guessedHeader = true; lines.append(line); continue }
             if line.hasPrefix("WMO Station=") { finish() }
             if line.contains("Land station observation") { kind = "Land" }
             else if line.contains("Ship") || line.contains("SHIP") { kind = "Schiff" }
@@ -305,9 +382,39 @@ public final class SynopLog {
         return out
     }
 
-    public func content(home: GeoPoint?, now: Date, transmitters: [TransmitterSite] = []) -> MapContent {
+    /// Was die Karte an den SYNOP-Stationen zeigt
+    public enum Layer: String, CaseIterable, Sendable, Identifiable {
+        case symbol, temperature, pressure, wind, visibility
+        public var id: String { rawValue }
+        public var title: String {
+            switch self {
+            case .symbol: return "SYMBOL"
+            case .temperature: return "TEMP"
+            case .pressure: return "DRUCK"
+            case .wind: return "WIND"
+            case .visibility: return "SICHT"
+            }
+        }
+        public var help: String {
+            switch self {
+            case .symbol: return "Symbol je Station (Land, Schiff, Boje); Werte in der Auswahl"
+            case .temperature: return "Lufttemperatur in °C, blau (kalt) bis rot (warm)"
+            case .pressure: return "Luftdruck auf Meereshöhe in hPa (sonst Stationsdruck)"
+            case .wind: return "Windgeschwindigkeit in Knoten mit Pfeil in Windrichtung, Farbe nach Beaufort"
+            case .visibility: return "Sichtweite in km, rot (schlecht) bis grün (gut)"
+            }
+        }
+    }
+
+    /// Zahl mit Komma für die Anzeige
+    private static func fmt(_ v: Double, digits: Int = 0) -> String {
+        String(format: "%.\(digits)f", v).replacingOccurrences(of: ".", with: ",")
+    }
+
+    public func content(home: GeoPoint?, now: Date, transmitters: [TransmitterSite] = [], layer: Layer = .symbol) -> MapContent {
         flush(at: now)
         var markers: [MapMarker] = []
+        var shown = 0
         for o in observations.values.sorted(by: { $0.received > $1.received }) {
             guard let p = o.position, p.isValid else { continue }
             var details: [String] = [Geo.format(p)]
@@ -315,18 +422,58 @@ public final class SynopLog {
             if let t = o.temperature { details.append("Temperatur \(t)") }
             if let t = o.dewpoint { details.append("Taupunkt \(t)") }
             if let t = o.pressure { details.append("Luftdruck \(t)") }
-            if let t = o.wind { details.append("Wind \(t)") }
+            if let kn = o.windSpeedKn, o.windUnitAssumed || o.wind == nil || (o.wind ?? "").contains("No unit") {
+                let dir = o.windDirectionDeg.map { String(format: "%.0f° ", $0) } ?? ""
+                details.append("Wind \(dir)\(Self.fmt(kn)) kn (Einheit angenommen)")
+            } else if let t = o.wind { details.append("Wind \(t)") }
             if let t = o.visibility { details.append("Sicht \(t)") }
             if let t = o.time { details.append("Zeit \(t)") }
+            if o.headerGuessed { details.append("Kopfzeile fehlte: Zeit und Windeinheit (Knoten) angenommen") }
             let sub = "\(o.kind) · WMO \(o.wmo)" + (o.temperature.map { " · \($0)" } ?? "")
-            markers.append(MapMarker(id: "synop-" + o.id, coordinate: p, title: o.name, subtitle: sub, details: details,
-                                     symbol: o.kind == "Schiff" ? "ferry.fill" : o.kind == "Boje" ? "circle.dotted" : "cloud.sun.fill",
-                                     tone: .weather, heardAt: o.received))
+            var marker = MapMarker(id: "synop-" + o.id, coordinate: p, title: o.name, subtitle: sub, details: details,
+                                   symbol: o.kind == "Schiff" ? "ferry.fill" : o.kind == "Boje" ? "circle.dotted" : "cloud.sun.fill",
+                                   tone: .weather, heardAt: o.received)
+            switch layer {
+            case .symbol:
+                break
+            case .temperature:
+                guard let t = o.temperatureC else { continue }
+                marker.symbol = nil
+                marker.valueText = Self.fmt(t, digits: abs(t) < 10 ? 1 : 0)
+                marker.valueLevel = min(max((t + 20) / 55, 0), 1)             // −20 … +35 °C
+            case .pressure:
+                guard let v = o.pressureHPa else { continue }
+                marker.symbol = nil
+                marker.valueText = Self.fmt(v)
+                marker.valueLevel = min(max((v - 985) / 55, 0), 1)            // 985 … 1040 hPa
+            case .wind:
+                guard let kn = o.windSpeedKn else { continue }
+                marker.symbol = nil
+                marker.valueText = Self.fmt(kn)
+                marker.valueLevel = min(max(Self.beaufort(kn) / 12, 0), 1)
+                if let d = o.windDirectionDeg { marker.headingDeg = (d + 180).truncatingRemainder(dividingBy: 360) }   // Pfeil in Windrichtung
+            case .visibility:
+                guard let v = o.visibilityKm else { continue }
+                marker.symbol = nil
+                marker.valueText = v >= 10 ? Self.fmt(v) : Self.fmt(v, digits: 1)
+                marker.valueLevel = 1 - min(max(v / 20, 0), 1)                // 20 km und mehr grün, nah an 0 rot
+            }
+            shown += 1
+            markers.append(marker)
         }
         var c = TransmitterMap.content(transmitters, home: home)
         c.markers += markers
-        c.emptyHint = "Noch keine SYNOP-Meldung mit Ort decodiert"
+        c.emptyHint = observations.isEmpty ? "Noch keine SYNOP-Meldung mit Ort decodiert"
+            : "Keine Station mit diesem Messwert (\(layer.title.capitalized))"
+        _ = shown
         return c
+    }
+
+    /// Beaufort-Grad aus Knoten (Bft 1 = 1–3 kn, 2 = 4–6, 3 = 7–10, … 12 = ab 64)
+    static func beaufort(_ kn: Double) -> Double {
+        let limits: [Double] = [1, 4, 7, 11, 17, 22, 28, 34, 41, 48, 56, 64]
+        for (i, l) in limits.enumerated() where kn < l { return Double(i) }
+        return 12
     }
 }
 

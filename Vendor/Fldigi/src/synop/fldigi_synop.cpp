@@ -46,15 +46,18 @@ extern "C" void fldigi_synop_set_output(fldigi_synop_print_fn fn, void *ctx, int
 
 // Wie fldigi rtty::rx() bei aktivierter Synop-Decodierung:
 //   if (c != 0 && c != '\r') synop->add(c); else { if (synop->enabled()) synop->flush(false); put_rx_char(c); }
+// ABWEICHUNG fldigi (Digidec): Der Zeilenwechsel (CR) beendet die Meldung nicht. fldigi ruft bei jedem CR flush(false), das die
+// angefangene Meldung verwirft; die DWD-Blöcke brechen die Zeilen aber nach etwa 60 Zeichen (oft vor Abschnitt 333) und stellen
+// die Kopfzeile „AAXX“ in eine eigene Zeile: so gingen Stationsnummer, Windeinheit und Zeit verloren. CR gilt hier als Trennzeichen
+// (der Decoder kennt es: `add()` behandelt '\r' wie ' '), das Ende einer Meldung markiert „=“. Nur NUL beendet den Block.
 extern "C" void fldigi_synop_feed(char c)
 {
 	ensure_setup();
 	synop *s = synop::instance();
-	if (c != 0 && c != '\r') {
+	if (c != 0) {
 		s->add(c);
 	} else {
 		if (s->enabled()) s->flush(false);
-		if (c != 0 && g_print) g_print(g_ctx, &c, 1, 0);
 	}
 }
 

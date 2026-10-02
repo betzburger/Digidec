@@ -128,6 +128,22 @@ func run() {
     save(VStack(spacing: 8) { PresetPanel(rtty: rs, schedule: rsched) }.radioCard(title: "Preset"), width: right, name: "rtty_preset_dwd_lw", dir: dir)
     rs.select(presetID: "ham")
 
+    // Kartenpunkte der SYNOP-Wertansicht
+    let badgeSamples: [MapMarker] = [
+        MapMarker(id: "t1", coordinate: GeoPoint(lat: 0, lon: 0), title: "kalt", valueText: "-4,2", valueLevel: 0.3),
+        MapMarker(id: "t2", coordinate: GeoPoint(lat: 0, lon: 0), title: "mild", valueText: "12,6", valueLevel: 0.58),
+        MapMarker(id: "t3", coordinate: GeoPoint(lat: 0, lon: 0), title: "warm", valueText: "28", valueLevel: 0.87),
+        MapMarker(id: "w1", coordinate: GeoPoint(lat: 0, lon: 0), title: "Wind", headingDeg: 15, valueText: "2", valueLevel: 0.1),
+        MapMarker(id: "w2", coordinate: GeoPoint(lat: 0, lon: 0), title: "Wind", headingDeg: 250, valueText: "24", valueLevel: 0.6),
+        MapMarker(id: "w3", coordinate: GeoPoint(lat: 0, lon: 0), title: "Sturm", headingDeg: 140, valueText: "41", valueLevel: 0.95),
+        MapMarker(id: "p1", coordinate: GeoPoint(lat: 0, lon: 0), title: "Druck", valueText: "1031", valueLevel: 0.83),
+        MapMarker(id: "s1", coordinate: GeoPoint(lat: 0, lon: 0), title: "Sicht", valueText: "0,8", valueLevel: 0.96),
+        MapMarker(id: "y1", coordinate: GeoPoint(lat: 0, lon: 0), title: "Symbol", symbol: "cloud.sun.fill", tone: .weather)
+    ]
+    save(HStack(spacing: 14) {
+        ForEach(badgeSamples) { m in MarkerBadge(marker: m, selected: m.id == "t2").frame(width: 56, height: 50) }
+    }.padding(10).background(Color(red: 0.55, green: 0.62, blue: 0.58)).radioCard(title: "Wertansicht"), width: 680, name: "synop_badges", dir: dir)
+
     // Hell
     let hl = HellSettingsStore()
     let hlc = HellController(pipeline: pipeline, settings: hl)

@@ -159,10 +159,14 @@ public struct MapMarker: Identifiable, Equatable, Sendable {
     public var headingDeg: Double?
     /// Radius in km für einen Kreis um den Punkt (Reichweite, Empfangsbereich); 0 = keiner
     public var radiusKm: Double
+    /// Messwert als Beschriftung im Punkt (z. B. „12,6“); mit `valueLevel` als Farbe
+    public var valueText: String?
+    /// Lage des Messwerts im Wertebereich, 0 (niedrig, blau) … 1 (hoch, rot); nil = Tonfarbe
+    public var valueLevel: Double?
 
     public init(id: String, coordinate: GeoPoint, title: String, subtitle: String? = nil, details: [String] = [],
                 symbol: String? = nil, glyph: String? = nil, tone: MapTone = .normal, heardAt: Date? = nil,
-                track: [GeoPoint] = [], headingDeg: Double? = nil, radiusKm: Double = 0) {
+                track: [GeoPoint] = [], headingDeg: Double? = nil, radiusKm: Double = 0, valueText: String? = nil, valueLevel: Double? = nil) {
         self.id = id
         self.coordinate = coordinate
         self.title = title
@@ -175,6 +179,8 @@ public struct MapMarker: Identifiable, Equatable, Sendable {
         self.track = track
         self.headingDeg = headingDeg
         self.radiusKm = radiusKm
+        self.valueText = valueText
+        self.valueLevel = valueLevel
     }
 }
 
