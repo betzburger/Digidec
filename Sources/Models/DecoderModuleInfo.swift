@@ -12,6 +12,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case dsc
     case ale
     case aprs
+    case pager
+    case tones
     case wefax
     case ft8
     case ft4
@@ -33,6 +35,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dsc:    return "DSC"
         case .ale:    return "ALE"
         case .aprs:   return "APRS"
+        case .pager:  return "PAGER"
+        case .tones:  return "TÖNE"
         case .wefax:  return "WEFAX"
         case .ft8:    return "FT8"
         case .ft4:    return "FT4"
@@ -43,9 +47,17 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Hat das Modul eine Kartenanzeige? (Ohne Ortsdaten nicht: Bilder, Funkruf, Tonfolgen, ALE)
+    public var hasMap: Bool {
+        switch self {
+        case .sstv, .ale, .pager, .tones: return false
+        default: return true
+        }
+    }
+
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .dsc, .ale, .aprs, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .dsc, .ale, .aprs, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -60,6 +72,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
                          "contestia-8-500", "contestia-4-250", "contestia-4-500", "contestia-8-250", "contestia-16-500", "contestia-16-1000", "contestia-32-1000", "contestia-64-1000"]   // = FldigiOliviaCore.Options.presetID
         case .ale: return ["ale"]
         case .aprs: return ["eu", "na", "iss", "au", "jp", "free"]   // = APRSChannel.rawValue
+        case .pager: return ["dapnet", "free"]   // = PagerChannel.rawValue
+        case .tones: return ["all"]
         case .dsc: return ["8414", "2187", "4207", "6312", "12577", "16804"]   // = DSCChannel.rawValue (ohne „frei“)
         case .mt63: return ["1000s", "1000l", "500s", "500l", "2000s", "2000l"]   // = FldigiMT63Core.Options.presetID
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue

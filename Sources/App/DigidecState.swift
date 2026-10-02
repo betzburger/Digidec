@@ -44,6 +44,10 @@ public final class DigidecState: ObservableObject {
     public let aleController: ALEController
     public let aprs = APRSSettingsStore()
     public let aprsController: APRSController
+    public let pager = PagerSettingsStore()
+    public let pagerController: PagerController
+    public let tones = TonesSettingsStore()
+    public let tonesController: TonesController
     public let wefax = WefaxSettingsStore()
     public let wefaxController: WefaxController
     public let ft8 = FT8SettingsStore()
@@ -92,6 +96,8 @@ public final class DigidecState: ObservableObject {
         dscController = DSCController(pipeline: audio.pipeline, settings: dsc)
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
         aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
+        pagerController = PagerController(pipeline: audio.pipeline, settings: pager)
+        tonesController = TonesController(pipeline: audio.pipeline, settings: tones)
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
         ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
@@ -131,6 +137,8 @@ public final class DigidecState: ObservableObject {
                 self?.dscController.setActive(module == .dsc)
                 self?.aleController.setActive(module == .ale)
                 self?.aprsController.setActive(module == .aprs)
+                self?.pagerController.setActive(module == .pager)
+                self?.tonesController.setActive(module == .tones)
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
                 self?.ft4Controller.setActive(module == .ft4)
@@ -149,6 +157,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(psk.$band)
         observeForTuning(dsc.$channel)
         observeForTuning(aprs.$channel)
+        observeForTuning(pager.$channel)
         observeForTuning(sstv.$channel)
         observeForTuning(efr.$station)
         observeForTuning(wefax.$station)
@@ -184,6 +193,8 @@ public final class DigidecState: ObservableObject {
             dscController.rigDescription = rig.description
             aleController.rigDescription = rig.description
             aprsController.rigDescription = rig.description
+            pagerController.rigDescription = rig.description
+            tonesController.rigDescription = rig.description
             dcf77Controller.sourceDescription = rig.description
             efrController.sourceDescription = rig.description
             sstvController.sourceDescription = rig.description
@@ -214,7 +225,8 @@ public final class DigidecState: ObservableObject {
         case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
         case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
         case .aprs:   return .aprs(channel: aprs.channel)
-        case .rtty, .cw, .olivia, .mt63, .ale: return nil
+        case .pager:  return .pager(channel: pager.channel)
+        case .rtty, .cw, .olivia, .mt63, .ale, .tones: return nil
         }
     }
 
@@ -284,6 +296,10 @@ public final class DigidecState: ObservableObject {
                 case .aprs:
                     if let preset = request.presetID, let c = APRSChannel(rawValue: preset) { aprs.channel = c }
                     if let center = request.centerHz { aprs.setCenter(center) }
+                case .pager:
+                    if let preset = request.presetID, let c = PagerChannel(rawValue: preset) { pager.channel = c }
+                case .tones:
+                    break
                 case .dsc:
                     if let preset = request.presetID, let c = DSCChannel(rawValue: preset) { dsc.channel = c }
                     if let center = request.centerHz { dsc.setCenter(center) }

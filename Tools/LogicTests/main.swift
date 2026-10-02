@@ -4078,5 +4078,229 @@ do {
 }
 homeTests()
 
+
+// MARK: - Funkruf: BCH, POCSAG, FLEX
+do {
+    // BCH(31,21): Kodieren, bis zu zwei Fehler korrigieren
+    check(PagerBCH.correct(POCSAG.idle)?.errors == 0 && PagerBCH.correct(POCSAG.sync)?.errors == 0, "Leer- und Synchronwort sind gültige Codewörter")
+    var allOK = true, doubleOK = true
+    let data: [UInt32] = [0, 1, 0x1FFFFF, 0x0AAAAA, 0x155555, 0x123456, 0x1ABCDE]
+    for d in data {
+        let w = PagerBCH.encode(d)
+        if PagerBCH.correct(w)?.word != w { allOK = false }
+        for i in 0..<32 {
+            let c = PagerBCH.correct(w ^ (1 << UInt32(i)))
+            if c?.word != w || c?.errors != 1 { allOK = false }
+        }
+        for i in stride(from: 1, to: 32, by: 3) {
+            for j in stride(from: 0, to: i, by: 4) {
+                let c = PagerBCH.correct(w ^ (1 << UInt32(i)) ^ (1 << UInt32(j)))
+                if c?.word != w { doubleOK = false }
+            }
+        }
+    }
+    check(allOK, "BCH: jedes Einzelbit (auch die Parität) wird korrigiert")
+    check(doubleOK, "BCH: Doppelfehler werden korrigiert")
+    // Drei Fehler dürfen nie als das richtige Wort durchgehen
+    var tripleBad = 0
+    for i in 0..<20 {
+        let w = PagerBCH.encode(0x0F0F0F)
+        if let c = PagerBCH.correct(w ^ (1 << UInt32(i)) ^ (1 << UInt32(i + 5)) ^ (1 << UInt32(i + 9))), c.word == w { tripleBad += 1 }
+    }
+    check(tripleBad == 0, "BCH: Dreifachfehler werden nicht als Original ausgegeben")
+}
+
+do {
+    // Echte Codewörter eines Stapels (POCSAG-1200-Beispiel von multimon-ng, 273040 Funktion 3)
+    let real: [UInt32] = [0x10AA5E2E, 0xEAD5AF90, 0x8AC9B659, 0xB46F031E, 0xE0C1858C, 0xF660C063, 0x9B3267AB, 0xADAB57D9,
+                          0xEA2B212A, 0xECD1BC11, 0xC18305C9, 0xE1D98716, 0xB06CC954, 0x98B002E6, 0x7A89C197, 0x7A89C197]
+    var b = POCSAGMessageBuilder()
+    var got: [PagerMessage] = []
+    for (i, w) in real.enumerated() {
+        let f = PagerBCH.correct(w)
+        if let m = b.push(word: f?.word, errors: f?.errors ?? 0, frame: i / 2, rate: 1200, now: Date()) { got.append(m) }
+    }
+    check(got.count == 1 && got[0].address == 273040 && got[0].function == 3, "POCSAG: echter Stapel liefert Rufnummer 273040, Funktion 3")
+    check(got.first?.alpha == "+++TIME=0008300324+++TIME=0008300324", "POCSAG: echter Klartext „\(got.first?.alpha ?? "-")“")
+    check(got.first?.text == got.first?.alpha, "Funktion 3: Klartext wird angezeigt")
+    check(got.first?.alternative?.hasPrefix("Ziffern:") == true, "Andere Lesart als Ziffern im Tooltip")
+}
+
+func pocsagAudio(_ baud: Int, _ msgs: [(Int, Int, String?, String?)], amplitude: Float = 0.4, inverted: Bool = false, baudError: Double = 0) -> [Float] {
+    var bits: [UInt8] = []
+    for (a, f, n, t) in msgs { bits += POCSAGSignalGenerator.bits(address: a, function: f, numeric: n, alpha: t) }
+    return POCSAGSignalGenerator.audio(bits: bits, baud: baud, amplitude: amplitude, inverted: inverted, baudError: baudError)
+        + [Float](repeating: 0, count: 6000)
+}
+func pocsagDecode(_ audio: [Float], rates: Set<Int> = [0, 1, 2]) -> [PagerMessage] {
+    let r = POCSAGReceiver()
+    r.enabled = rates
+    var out: [PagerMessage] = []
+    var i = 0
+    while i < audio.count {
+        let e = min(i + 480, audio.count)
+        audio[i..<e].withUnsafeBufferPointer { r.process($0) { out.append($0) } }
+        i = e
+    }
+    r.flush { out.append($0) }
+    return out
+}
+func highpassAudio(_ s: [Float], _ fc: Double, rate: Double = 24_000) -> [Float] {
+    let a = Float(exp(-2 * .pi * fc / rate)); var y: Float = 0; var xp: Float = 0
+    return s.map { x in y = a * (y + x - xp); xp = x; return y }
+}
+
+do {
+    let msgs: [(Int, Int, String?, String?)] = [(1234567, 3, nil, "Hallo Welt, Test 1"), (2504, 3, nil, "DAPNET DL1ABC Test"), (400000, 0, "0123456789", nil), (999, 3, nil, "Kurz"),
+                                                (7, 3, nil, String(repeating: "Lange Meldung über mehrere Stapel. ", count: 5))]
+    for (i, baud) in POCSAG.rates.enumerated() {
+        let got = pocsagDecode(pocsagAudio(baud, msgs))
+        check(got.count == 5, "POCSAG \(baud): fünf Meldungen (\(got.count))")
+        check(got.map(\.address) == msgs.map { $0.0 }, "POCSAG \(baud): Rufnummern \(got.map(\.address))")
+        check(got.first?.alpha == "Hallo Welt, Test 1" && got.first?.protocolName == "POCSAG \(baud)", "POCSAG \(baud): Text und Name")
+        check(got.count > 2 && got[2].numeric == "0123456789" && got[2].text == "0123456789", "POCSAG \(baud): Ziffernmeldung")
+        check(got.last?.alpha.hasPrefix("Lange Meldung") == true && (got.last?.alpha.count ?? 0) >= 150, "POCSAG \(baud): lange Meldung über mehrere Stapel (\(got.last?.alpha.count ?? 0) Zeichen)")
+        let inv = pocsagDecode(pocsagAudio(baud, msgs, inverted: true))
+        check(inv.count == 5, "POCSAG \(baud): invertierte Polarität (\(inv.count))")
+        let hp = pocsagDecode(highpassAudio(pocsagAudio(baud, msgs), 150))
+        check(hp.count == 5, "POCSAG \(baud): wechselstromgekoppelt 150 Hz (\(hp.count))")
+        let clk = pocsagDecode(pocsagAudio(baud, msgs, baudError: 0.01))
+        check(clk.count == 5, "POCSAG \(baud): Takt +1 % (\(clk.count))")
+        var g = SystemRandomNumberGenerator()
+        let noisy = pocsagAudio(baud, msgs).map { $0 + Float.random(in: -0.35...0.35, using: &g) }
+        let nz = pocsagDecode(noisy)
+        check(nz.count == 5, "POCSAG \(baud): Rauschen (\(nz.count))")
+        _ = i
+    }
+    // Nur eine Baudrate eingeschaltet
+    check(pocsagDecode(pocsagAudio(1200, msgs), rates: [0]).isEmpty, "POCSAG: ausgeschaltete Baudrate liefert nichts")
+    // Stille und Rauschen ergeben nichts
+    check(pocsagDecode([Float](repeating: 0, count: 48_000)).isEmpty, "POCSAG: Stille ergibt keine Meldung")
+    var g = SystemRandomNumberGenerator()
+    check(pocsagDecode((0..<(24_000 * 20)).map { _ in Float.random(in: -0.5...0.5, using: &g) }).isEmpty, "POCSAG: 20 s Rauschen ergeben keine Meldung")
+    // Anzeige: Funktion 0 → Ziffern; unlesbarer Klartext → Ziffern
+    let m0 = PagerMessage(time: Date(), protocolName: "POCSAG 1200", address: 1, function: 0, numeric: "123", alpha: "abc")
+    check(m0.text == "123", "Funktion 0 zeigt Ziffern")
+    let m3 = PagerMessage(time: Date(), protocolName: "POCSAG 1200", address: 1, function: 3, numeric: "123 45", alpha: "\u{1}\u{2}\u{3}\u{4}\u{5}\u{6}")
+    check(m3.text == "123 45", "Unlesbarer Klartext fällt auf Ziffern zurück")
+}
+
+do {
+    // FLEX: Synchronisation, Betriebsarten, Rundlauf
+    check(FLEXReceiver.syncCheck((UInt64(0x870C) << 48) | (UInt64(FLEXReceiver.syncMarker) << 16) | (~UInt64(0x870C) & 0xFFFF)) == 0x870C, "FLEX: Synchronwort 0x870C erkannt")
+    check(FLEXReceiver.syncCheck(0x1234_5678_9ABC_DEF0) == 0, "FLEX: Zufall ist kein Synchronwort")
+    check(FLEXReceiver.mode(for: 0x870C)?.baud == 1600 && FLEXReceiver.mode(for: 0xB068)?.levels == 4 && FLEXReceiver.mode(for: 0x7B18)?.baud == 3200, "FLEX: Betriebsarten")
+    check(FLEXReceiver.mode(for: 0x1111) == nil, "FLEX: unbekanntes Synchronwort")
+    let w = FLEXSignalGenerator.word(0x155AAA)
+    check(FLEXReceiver.fix(w).map { $0 & 0x1FFFFF } == 0x155AAA, "FLEX: Codewort in Bitordnung unten")
+    check(FLEXReceiver.fix(w ^ 0x0000_0104).map { $0 & 0x1FFFFF } == 0x155AAA, "FLEX: zwei Bitfehler korrigiert")
+    let sym = FLEXSignalGenerator.frame(messages: [(1234567, "Hallo FLEX Welt 123"), (2504, "Zweite Meldung")], cycle: 5, frameNumber: 33)
+    for inv in [false, true] {
+        let aud = FLEXSignalGenerator.audio(symbols: sym, inverted: inv)
+        let r = FLEXReceiver(sampleRate: 24_000)
+        var got: [PagerMessage] = []
+        var i = 0
+        while i < aud.count {
+            let e = min(i + 480, aud.count)
+            aud[i..<e].withUnsafeBufferPointer { r.process($0) { got.append($0) } }
+            i = e
+        }
+        check(got.count == 2 && got.map(\.address) == [1234567, 2504], "FLEX 1600: zwei Meldungen\(inv ? " (invertiert)" : "") (\(got.count))")
+        check(got.first?.alpha == "Hallo FLEX Welt 123" && got.last?.alpha == "Zweite Meldung", "FLEX 1600: Text\(inv ? " (invertiert)" : "")")
+        check(got.first?.detail == "05.033 A K" && got.first?.protocolName == "FLEX 1600", "FLEX: Zyklus.Rahmen und Phase im Detail: \(got.first?.detail ?? "-")")
+    }
+    // FLEX mit Rauschen
+    var g = SystemRandomNumberGenerator()
+    let noisyF = FLEXSignalGenerator.audio(symbols: sym).map { $0 + Float.random(in: -0.3...0.3, using: &g) }
+    let rn = FLEXReceiver(sampleRate: 24_000)
+    var gotN: [PagerMessage] = []
+    noisyF.withUnsafeBufferPointer { rn.process($0) { gotN.append($0) } }
+    check(gotN.count == 2, "FLEX 1600: mit Rauschen (\(gotN.count))")
+    let rq = FLEXReceiver(sampleRate: 24_000)
+    var none = 0
+    (0..<(24_000 * 20)).map { _ in Float.random(in: -0.5...0.5, using: &g) }.withUnsafeBufferPointer { rq.process($0) { _ in none += 1 } }
+    check(none == 0, "FLEX: 20 s Rauschen ergeben keine Meldung")
+}
+
+// MARK: - Töne: DTMF und Selektivrufe
+do {
+    func toneRun(_ std: ToneStandard, _ audio: [Float]) -> [String] {
+        let d = ToneDecoder(standard: std)
+        var out: [String] = []
+        var i = 0
+        while i < audio.count {
+            let e = min(i + 160, audio.count)
+            audio[i..<e].withUnsafeBufferPointer { d.process($0) { if $0.isComplete { out.append($0.text) } } }
+            i = e
+        }
+        return out
+    }
+    for std in ToneStandard.allCases where std != .dtmf {
+        let syms = [1, 2, 3, 4, 5, 0, 7, 9]
+        let got = toneRun(std, ToneSignalGenerator.selcall(std, symbols: syms))
+        check(got == ["123450" + "79"], "\(std.name): Folge 12345079 (\(got))")
+    }
+    check(toneRun(.zvei1, ToneSignalGenerator.selcall(.zvei1, symbols: [1, 2, 3, 4, 5, 14, 3, 2, 1])) == ["12345E321"], "ZVEI 1: Wiederholton E")
+    check(toneRun(.dtmf, ToneSignalGenerator.dtmf("123A456B789C*0#D55")) == ["123A456B789C*0#D55"], "DTMF: alle 16 Tasten und Wiederholung")
+    var g = SystemRandomNumberGenerator()
+    let quiet = ToneSignalGenerator.dtmf("0123456789", amplitude: 0.05).map { $0 + Float.random(in: -0.02...0.02, using: &g) }
+    check(toneRun(.dtmf, quiet) == ["0123456789"], "DTMF: leise mit Rauschen")
+    let noise = (0..<80_000).map { _ in Float.random(in: -0.5...0.5, using: &g) } + [Float](repeating: 0, count: 16_000)
+    for std in ToneStandard.allCases { check(toneRun(std, noise).isEmpty, "\(std.name): Rauschen ergibt keine Folge") }
+    // Zwei Folgen nacheinander
+    let two = ToneSignalGenerator.selcall(.ccir, symbols: [1, 2, 3]) + ToneSignalGenerator.selcall(.ccir, symbols: [4, 5, 6])
+    check(toneRun(.ccir, two) == ["123", "456"], "CCIR: zwei Folgen nacheinander")
+    check(ToneStandard.zvei1.frequencies.count == 16 && ToneStandard.dtmf.frequencies.count == 8 && ToneStandard.ccir.toneSeconds == 0.1, "Normtabellen")
+    // Sprache/Musik-ähnliches Signal (Mehrfachtöne) wird nicht als DTMF gelesen
+    let chord = (0..<40_000).map { i -> Float in let t = Double(i) / 8000; return 0.15 * Float(sin(2 * .pi * 440 * t) + sin(2 * .pi * 554 * t) + sin(2 * .pi * 659 * t)) } + [Float](repeating: 0, count: 8000)
+    check(toneRun(.dtmf, chord).isEmpty, "DTMF: Akkord 440/554/659 Hz wird nicht gelesen")
+}
+
+@MainActor func pagerModuleTests() {
+    let pipeline = AudioPipeline()
+    let settings = PagerSettingsStore()
+    let c = PagerController(pipeline: pipeline, settings: settings)
+    c.logEnabled = false
+    let m = PagerMessage(time: Date(timeIntervalSince1970: 1_790_000_000), protocolName: "POCSAG 1200", address: 1234567, function: 3, numeric: "", alpha: "Hallo", corrected: 1, damaged: 0)
+    c.ingest(m)
+    check(c.messages.count == 1 && c.count == 1, "Pager-Controller nimmt Meldungen auf")
+    let line = PagerController.logLine(m)
+    check(line.contains("POCSAG 1200") && line.contains("RIC 1234567 F3") && line.contains("Hallo") && line.contains("1 Bit korrigiert"), "Pager-Logzeile: \(line)")
+    settings.watch = "2504, 1234567"
+    check(settings.watched == [2504, 1234567], "Beobachtete Rufnummern")
+    c.clear()
+    check(c.messages.isEmpty, "Pager: Liste leeren")
+    check(PagerChannel.dapnet.frequencyHz == 439_987_500 && RigTuneTarget.pager(channel: .dapnet) == RigTuneTarget(dialHz: 439_987_500, mode: "FM") && RigTuneTarget.pager(channel: .free) == nil, "Pager-Kanal und Abstimmziel")
+    check(settings.markerStyle != .tones, "Pager: Wasserfall ohne Mark/Space-Marker")
+
+    let ts = TonesSettingsStore()
+    let tc = TonesController(pipeline: pipeline, settings: ts)
+    tc.logEnabled = false
+    let start = Date()
+    tc.ingest(ToneSequence(start: start, standard: .zvei1, text: "123", isComplete: false))
+    tc.ingest(ToneSequence(start: start, standard: .zvei1, text: "12345", isComplete: false))
+    check(tc.sequences.count == 1 && tc.sequences[0].text == "12345" && !tc.sequences[0].isComplete, "Töne: laufende Folge wird fortgeschrieben")
+    tc.ingest(ToneSequence(start: start, standard: .zvei1, text: "12345", isComplete: true))
+    check(tc.sequences.count == 1 && tc.sequences[0].isComplete, "Töne: Folge abgeschlossen")
+    tc.ingest(ToneSequence(start: start.addingTimeInterval(30), standard: .dtmf, text: "55", isComplete: true))
+    check(tc.sequences.count == 2, "Töne: Folge einer anderen Norm zu anderer Zeit ist eine eigene Folge")
+    // Mehrere Normen lesen dieselbe Aussendung: die längere Folge gewinnt
+    tc.clear()
+    let t1 = Date()
+    tc.ingest(ToneSequence(start: t1, standard: .zvei1, text: "12345", isComplete: true))
+    tc.ingest(ToneSequence(start: t1.addingTimeInterval(0.1), standard: .ccir, text: "F36", isComplete: true))
+    check(tc.sequences.count == 1 && tc.sequences[0].standard == .zvei1, "Töne: kürzere Folge einer anderen Norm entfällt (\(tc.sequences.map(\.text)))")
+    tc.ingest(ToneSequence(start: t1.addingTimeInterval(5), standard: .ccir, text: "3141", isComplete: true))
+    check(tc.sequences.count == 2, "Töne: Folgen zu verschiedenen Zeiten bleiben beide")
+    for s in ToneStandard.allCases where ts.standards.contains(s) && s != .dtmf { ts.toggle(s) }
+    ts.toggle(.dtmf)
+    check(!ts.standards.isEmpty, "Töne: mindestens eine Norm bleibt eingeschaltet")
+    check(ts.markerStyle != .tones, "Töne: Wasserfall ohne Marker")
+    for id in ["dapnet", "free"] { if case .success(let r) = parse("digidec://decode?mode=pager&preset=\(id)") { check(r.module == .pager, "URL pager/\(id)") } else { check(false, "URL pager/\(id) abgelehnt") } }
+    if case .success(let r) = parse("digidec://decode?mode=tones") { check(r.module == .tones, "URL tones") } else { check(false, "URL tones abgelehnt") }
+    check(DecoderModuleInfo.pager.isAvailable && DecoderModuleInfo.tones.isAvailable && !DecoderModuleInfo.pager.hasMap, "Module Pager und Töne verfügbar, ohne Karte")
+}
+pagerModuleTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

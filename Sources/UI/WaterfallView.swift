@@ -28,7 +28,7 @@ struct WaterfallView<Tuning: TuningTarget>: View {
                                 .frame(height: spectrumHeight)
                             waterfallImage(range: range)
                         }
-                        SignalMarkers(range: range, center: rtty.centerHz, tones: rtty.tones, bandwidth: rtty.markerBandwidth, hoverHz: hoverHz)
+                        SignalMarkers(range: range, center: rtty.centerHz, tones: rtty.tones, bandwidth: rtty.markerBandwidth, style: rtty.markerStyle, hoverHz: hoverHz)
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { value in
@@ -86,6 +86,13 @@ struct WaterfallView<Tuning: TuningTarget>: View {
 
     private var readout: String {
         let t = rtty.tones
+        switch rtty.markerStyle {
+        case .band(let text), .none(let text):
+            var s = text
+            if let h = hoverHz { s += " · ▸ \(Int(h.rounded())) Hz" }
+            return s
+        case .tones: break
+        }
         var s = "MITTE \(Int(rtty.centerHz)) Hz · M \(Int(t.mark.rounded())) · S \(Int(t.space.rounded()))"
         if let h = hoverHz { s += " · ▸ \(Int(h.rounded())) Hz" }
         return s
@@ -185,6 +192,7 @@ private struct SignalMarkers: View {
     let center: Double
     let tones: (mark: Double, space: Double)
     let bandwidth: Double
+    let style: WaterfallMarkerStyle
     let hoverHz: Double?
 
     var body: some View {
@@ -194,10 +202,12 @@ private struct SignalMarkers: View {
 
             // Belegte Bandbreite
             let bw = bandwidth
-            let band = CGRect(x: x(center - bw / 2), y: 0, width: x(center + bw / 2) - x(center - bw / 2), height: size.height)
-            ctx.fill(Path(band), with: .color(RadioTheme.vfdCyan.opacity(0.07)))
+            if case .none = style {} else {
+                let band = CGRect(x: x(center - bw / 2), y: 0, width: x(center + bw / 2) - x(center - bw / 2), height: size.height)
+                ctx.fill(Path(band), with: .color(RadioTheme.vfdCyan.opacity(0.07)))
+            }
 
-            for (f, label, color) in [(tones.mark, "M", RadioTheme.vfdAmber), (tones.space, "S", RadioTheme.vfdCyan)] {
+            for (f, label, color) in (style == .tones ? [(tones.mark, "M", RadioTheme.vfdAmber), (tones.space, "S", RadioTheme.vfdCyan)] : []) {
                 let px = x(f)
                 guard px >= 0, px <= size.width else { continue }
                 var line = Path()

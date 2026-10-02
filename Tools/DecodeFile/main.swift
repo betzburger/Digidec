@@ -31,6 +31,9 @@ func usage() -> Never {
       --aprs                APRS/Packet-Radio (AFSK 1200 Bd, AX.25); Ausgabe je Paket als TNC2-Zeile mit Ort. --nofix schaltet die Ein-Bit-Reparatur ab,
                             --slicers <n> (Standard 7), --pre auto|off|on Vorverzerrung für de-emphasiertes Audio (Standard auto: beide Wege), --center <Mitte-Hz> (Standard 1700), --home <Locator> für Entfernungen
 
+      --pager               Funkruf (POCSAG 512/1200/2400, FLEX): je Meldung eine Zeile; --rates 512,1200 schränkt die Baudraten ein
+      --tones [normen]      DTMF und Selektivrufe (dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia), Normen durch Komma getrennt (Standard: dtmf,zvei1)
+
       --ale                 ALE (MIL-STD-188-141, 8-FSK 125 Bd); --offset <Hz> Verstimmung der Töne (Standard 0), --minvotes <n> (Standard 36)
 
       --wefax               Wetterfax (fldigi-WEFAX-Empfänger); Bilder als PNG neben die Aufnahme
@@ -65,6 +68,10 @@ var pskModeID: String?
 var oliviaID: String?
 var dscMode = false
 var aleMode = false
+var pagerMode = false
+var pagerRates = POCSAG.rates
+var tonesMode = false
+var tonesList = "dtmf,zvei1"
 var aprsMode = false
 var aprsFix = true
 var aprsSlicers = 7
@@ -103,6 +110,9 @@ while !args.isEmpty {
     case "--dsc": dscMode = true
     case "--ale": aleMode = true
     case "--aprs": aprsMode = true
+    case "--pager": pagerMode = true
+    case "--rates": pagerRates = value().split(separator: ",").compactMap { Int($0) }
+    case "--tones": tonesMode = true; if let v = args.first, !v.hasPrefix("-") { tonesList = v; args.removeFirst() }
     case "--nofix": aprsFix = false
     case "--slicers": aprsSlicers = Int(value()) ?? 7
     case "--pre": aprsPre = value()
@@ -271,6 +281,73 @@ if let pskModeID {
         print(String(format: "Vergleich mit %@: %d Abweichungen auf %d Zeichen (%.2f %%)", comparePath, d, max(a.count, b.count),
                      100 * Double(d) / Double(max(1, max(a.count, b.count)))))
     }
+    exit(0)
+}
+
+// MARK: - Funkruf
+
+if pagerMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: PagerDecoder.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    print("Funkruf · POCSAG \(pagerRates.map(String.init).joined(separator: "/")) · FLEX")
+    let rx = POCSAGReceiver(sampleRate: PagerDecoder.sampleRate)
+    rx.enabled = Set(pagerRates.compactMap { POCSAG.rates.firstIndex(of: $0) })
+    let flexRx = FLEXReceiver(sampleRate: PagerDecoder.sampleRate)
+    var n = 0, samples = 0
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    func show(_ m: PagerMessage) {
+        n += 1
+        print(String(format: "%7.1f s  ", Double(samples) / PagerDecoder.sampleRate) + PagerController.logLine(m))
+    }
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+            rx.process(chunk, emit: show)
+            flexRx.process(chunk, emit: show)
+            samples += chunk.count
+        }
+    }
+    rx.flush(emit: show)
+    let dur = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "%.0f s Audio in %.2f s: %d Meldungen", dur, Date().timeIntervalSince(began), n))
+    exit(0)
+}
+
+// MARK: - Töne
+
+if tonesMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: AudioPipeline.decoderSampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    let standards = tonesList.split(separator: ",").compactMap { ToneStandard(rawValue: String($0)) }
+    print("Töne · " + standards.map(\.name).joined(separator: ", "))
+    let decoders = standards.map { ToneDecoder(standard: $0) }
+    var n = 0, samples = 0
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+            for d in decoders {
+                d.process(chunk) { s in
+                    if s.isComplete { n += 1; print(String(format: "%7.1f s  %@  %@", Double(samples) / AudioPipeline.decoderSampleRate, s.standard.name, s.text)) }
+                }
+            }
+            samples += chunk.count
+        }
+    }
+    let dur = Double(file.length) / file.processingFormat.sampleRate
+    print(String(format: "%.0f s Audio in %.2f s: %d Tonfolgen", dur, Date().timeIntervalSince(began), n))
     exit(0)
 }
 

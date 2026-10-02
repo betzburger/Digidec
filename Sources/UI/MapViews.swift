@@ -22,7 +22,7 @@ struct ModuleMapView: View {
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
             case .efr:    FixedSiteMapView(sites: Transmitters.efr(state.efr.station), home: state.home, hint: "EFR: Rundsteuersender")
-            case .sstv, .ale:
+            case .sstv, .ale, .pager, .tones:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -40,7 +40,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale: return "LISTE"
+        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "LISTE"
         }
     }
 
@@ -49,7 +49,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale: return "list.bullet"
+        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "list.bullet"
         }
     }
 
@@ -60,15 +60,7 @@ extension DecoderModuleInfo {
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63: return "Der empfangene Text"
         case .dcf77: return "Atomuhr, Zeitvergleich und Telegramm"
         case .efr: return "Rundsteuertelegramme"
-        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale: return "Die Liste der empfangenen Stationen und Meldungen"
-        }
-    }
-
-    /// Hat das Modul eine Kartenanzeige?
-    var hasMap: Bool {
-        switch self {
-        case .sstv, .ale: return false
-        default: return true
+        case .aprs, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
     }
 }
