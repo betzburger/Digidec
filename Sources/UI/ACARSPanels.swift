@@ -114,6 +114,10 @@ struct ACARSTable: View {
         t += String(format: "\nPegel %.1f dB", m.levelDB)
         if m.corrected > 0 { t += " · \(m.corrected) Bit korrigiert" }
         if m.continues { t += "\nMeldung wird im nächsten Block fortgesetzt" }
+        if m.isDownlink || m.label == "HX", let p = ACARSPositionParser.parse(label: m.label, text: m.text) {
+            t += "\nPosition " + Geo.format(p.point) + (p.altitudeFt.map { $0 > 0 ? " · \(Int($0)) ft" : " · am Boden" } ?? "")
+                + (p.timeUTC.map { " · \($0) UTC" } ?? "")
+        }
         if let o = ACARSLabels.oooi(label: m.label, text: m.text) {
             var parts: [String] = []
             if let v = o.from { parts.append("von \(v)" + (AirportCatalog.shared.lookup(v).map { " (\($0.city))" } ?? "")) }
@@ -162,8 +166,10 @@ struct ACARSTuningPanel: View {
             HStack {
                 readout("FLUGZEUGE", "\(controller.aircraft.count)")
                 Spacer()
-                if let last = controller.lastDate { readout("LETZTE", ACARSController.utc.string(from: last)) }
+                readout("MIT ORT", "\(controller.aircraft.values.filter { $0.position != nil }.count)")
+                    .help("Flugzeuge, von denen eine Positionsmeldung gelesen wurde (ihr Weg erscheint als Linie auf der Karte)")
             }
+            if let last = controller.lastDate { readout("LETZTE", ACARSController.utc.string(from: last)) }
         }
     }
 
@@ -204,7 +210,7 @@ struct ACARSSettingsPanel: View {
                     .buttonStyle(ModeButtonStyle(isSelected: settings.hideEmpty))
                     .help("Quittungen und Verbindungstests ohne Text ausblenden")
             }
-            Text("AM, mit der Rauschsperre auf Dauerrauschen. Das NF-Audio trägt die Töne 1200 und 2400 Hz. Die Karte zeigt Start- und Zielflughäfen aus den OOOI-Berichten.")
+            Text("AM, mit der Rauschsperre auf Dauerrauschen. Das NF-Audio trägt die Töne 1200 und 2400 Hz. Die Karte zeigt Flugzeuge, deren Meldungen eine Position enthalten (der Weg erscheint als Linie), und Start- und Zielflughäfen aus den OOOI-Berichten.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }

@@ -279,7 +279,11 @@ public final class DigidecState: ObservableObject {
         audioStarted = true
         let start: @MainActor () -> Void = {
             let state = DigidecState.shared
-            // Entwicklungshilfe: DIGIDEC_PLAY_FILE=/Pfad/aufnahme.wav spielt eine Datei statt des Live-Eingangs ab
+            // Entwicklungshilfe: DIGIDEC_MODULE=aprs startet im genannten Modul (nur dieses decodiert), DIGIDEC_PLAY_FILE=/Pfad/aufnahme.wav
+            // spielt eine Datei statt des Live-Eingangs ab
+            if let id = ProcessInfo.processInfo.environment["DIGIDEC_MODULE"], let module = DecoderModuleInfo(rawValue: id) {
+                state.activeModule = module
+            }
             if let path = ProcessInfo.processInfo.environment["DIGIDEC_PLAY_FILE"] {
                 state.audio.openFile(URL(fileURLWithPath: path))
                 state.audio.playFile()

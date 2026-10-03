@@ -52,10 +52,13 @@ struct MapPanel: View {
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var fitted = false
+    @State private var devSelected = false
     @State private var span: Double = 60
     @State private var showHomeEditor = false
     @State private var locatorText = ""
     @AppStorage("mapAppearance") private var appearanceRaw = MapAppearance.standard.rawValue
+    /// Wege (Spuren) der Punkte zeichnen
+    @AppStorage("mapTracks") private var showTracks = true
 
     private var appearance: MapAppearance { MapAppearance(rawValue: appearanceRaw) ?? .standard }
 
@@ -86,9 +89,20 @@ struct MapPanel: View {
         .cornerRadius(6)
         .onAppear { fit(force: true) }
         .onChange(of: content.markers.isEmpty) { _, empty in if !empty && !fitted { fit(force: true) } }
+        .onChange(of: content.markers.reduce(content.markers.count) { $0 &+ $1.track.count }) { _, _ in
+            // Entwicklungshilfe: DIGIDEC_MAP_SELECT=<Punkt-ID> wählt den Punkt, sobald er einen Weg hat (für Schnappschüsse)
+            if !devSelected, let id = ProcessInfo.processInfo.environment["DIGIDEC_MAP_SELECT"], content.markers.contains(where: { $0.id == id && $0.track.count > 1 }) {
+                devSelected = true
+                selection = id
+            }
+        }
         .onChange(of: content.home) { _, _ in if !fitted { fit(force: true) } }
         .onChange(of: selection) { _, id in
-            if let id, let m = content.markers.first(where: { $0.id == id }) {
+            guard let id, let m = content.markers.first(where: { $0.id == id }) else { return }
+            if showTracks, m.track.count > 1, let r = Self.region(of: m.track) {
+                // Der Weg der Station soll ganz zu sehen sein
+                withAnimation { camera = .region(r) }
+            } else {
                 withAnimation { camera = .region(MKCoordinateRegion(center: m.coordinate.cl, span: MKCoordinateSpan(latitudeDelta: min(max(span, 2), 40), longitudeDelta: min(max(span, 2), 40)))) }
             }
         }
@@ -107,11 +121,36 @@ struct MapPanel: View {
                 MapPolyline(coordinates: line.points.map(\.cl), contourStyle: line.geodesic ? .geodesic : .straight)
                     .stroke(line.tone.color.opacity(0.55), lineWidth: 1.2)
             }
-            ForEach(content.markers) { m in
-                if m.track.count > 1 {
-                    MapPolyline(coordinates: m.track.map(\.cl))
-                        .stroke(m.tone.color.opacity(0.7), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            if showTracks {
+                ForEach(content.markers) { m in
+                    if m.track.count > 1 {
+                        let pts = m.track.map(\.cl)
+                        let isSelected = m.id == selection
+                        // dunkle Kontur für den Kontrast auf der Karte, darüber der Weg; die letzten Abschnitte kräftiger (Fahrtrichtung)
+                        MapPolyline(coordinates: pts)
+                            .stroke(Color.black.opacity(0.55), style: StrokeStyle(lineWidth: isSelected ? 7 : 5, lineCap: .round, lineJoin: .round))
+                        MapPolyline(coordinates: pts)
+                            .stroke(m.tone.color.opacity(isSelected ? 0.95 : 0.6), style: StrokeStyle(lineWidth: isSelected ? 4 : 3, lineCap: .round, lineJoin: .round))
+                        if pts.count > 2 {
+                            MapPolyline(coordinates: Array(pts.suffix(4)))
+                                .stroke(m.tone.color, style: StrokeStyle(lineWidth: isSelected ? 4 : 3.5, lineCap: .round, lineJoin: .round))
+                        }
+                    }
                 }
+                // Gewählter Punkt: jede empfangene Position als Markierung, der Anfang des Wegs weiß
+                if let sel = selected, sel.track.count > 1 {
+                    ForEach(Array(sel.track.dropLast().enumerated()), id: \.offset) { i, p in
+                        Annotation("", coordinate: p.cl, anchor: .center) {
+                            Circle()
+                                .fill(i == 0 ? Color.white : sel.tone.color)
+                                .overlay(Circle().stroke(Color.black.opacity(0.7), lineWidth: 1))
+                                .frame(width: i == 0 ? 9 : 6, height: i == 0 ? 9 : 6)
+                                .help(i == 0 ? "Anfang des Wegs" : "Position \(i + 1) von \(sel.track.count)")
+                        }
+                    }
+                }
+            }
+            ForEach(content.markers) { m in
                 if m.radiusKm > 0 {
                     MapCircle(center: m.coordinate.cl, radius: m.radiusKm * 1000)
                         .foregroundStyle(m.tone.color.opacity(0.07))
@@ -168,6 +207,15 @@ struct MapPanel: View {
                 .labelsHidden()
                 .frame(width: 170)
                 .help("Kartendarstellung")
+                if content.markers.contains(where: { $0.track.count > 1 }) {
+                    Button {
+                        showTracks.toggle()
+                    } label: {
+                        Label("SPUR", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: showTracks))
+                    .help("Weg der bewegten Stationen als Linie zeichnen; ein Klick auf einen Punkt zeigt seinen ganzen Weg")
+                }
                 Text(content.markers.count == 1 ? "1 Punkt" : "\(content.markers.count) Punkte")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -258,9 +306,32 @@ struct MapPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
+    /// Ausschnitt um einen Weg (mit Rand)
+    static func region(of track: [GeoPoint]) -> MKCoordinateRegion? {
+        guard let f = track.first else { return nil }
+        var minLat = f.lat, maxLat = f.lat, minLon = f.lon, maxLon = f.lon
+        for p in track {
+            minLat = min(minLat, p.lat); maxLat = max(maxLat, p.lat)
+            minLon = min(minLon, p.lon); maxLon = max(maxLon, p.lon)
+        }
+        return MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2),
+                                  span: MKCoordinateSpan(latitudeDelta: min(max((maxLat - minLat) * 1.8, 0.01), 170),
+                                                         longitudeDelta: min(max((maxLon - minLon) * 1.8, 0.01), 350)))
+    }
+
     /// Ausschnitt auf alle Punkte setzen
     private func fit(force: Bool) {
         guard force else { return }
+        // Entwicklungshilfe: DIGIDEC_MAP_VIEW="Breite,Länge,Spanne" (Grad) legt den Ausschnitt fest, z. B. für Schnappschüsse
+        if let v = ProcessInfo.processInfo.environment["DIGIDEC_MAP_VIEW"] {
+            let n = v.split(separator: ",").compactMap { Double($0) }
+            if n.count == 3 {
+                camera = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: n[0], longitude: n[1]),
+                                                    span: MKCoordinateSpan(latitudeDelta: n[2], longitudeDelta: n[2])))
+                fitted = true
+                return
+            }
+        }
         guard let r = content.region() else {
             if let h = content.home ?? home.point {
                 camera = .region(MKCoordinateRegion(center: h.cl, span: MKCoordinateSpan(latitudeDelta: 8, longitudeDelta: 12)))

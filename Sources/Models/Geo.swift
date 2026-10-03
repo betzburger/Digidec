@@ -225,6 +225,7 @@ public struct MapContent: Equatable, Sendable {
     /// Umschließendes Rechteck aller Punkte samt Standort (Mitte und Spannweite in Grad), nil ohne Punkte
     public func region(includeHome: Bool = true, margin: Double = 1.3) -> (center: GeoPoint, latSpan: Double, lonSpan: Double)? {
         var pts = markers.map(\.coordinate)
+        for m in markers { pts += m.track }
         for l in lines { pts += l.points }
         // Den Standort nur einbeziehen, wenn er den Ausschnitt nicht weit über die Punkte hinaus aufspannt
         // (APRS in Kalifornien, Standort in Franken: dann nur die Punkte zeigen)

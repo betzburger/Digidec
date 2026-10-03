@@ -5093,5 +5093,226 @@ do {
 }
 acarsModuleTests()
 
+// MARK: - ACARS: Positionen aus den Meldungen (Testmeldungen aus der Referenz acars-decoder-typescript, airframes.io, MIT)
+@MainActor func acarsPositionTests() {
+    struct Case {
+        var label: String
+        var text: String
+        var lat: Double?
+        var lon: Double?
+        var alt: Double? = nil
+        var from: String? = nil
+        var to: String? = nil
+        var heading: Double? = nil
+        var time: String? = nil
+    }
+    let cases: [Case] = [
+        // H1 / ARINC 702: Grad und Minuten mit Zehntel
+        Case(label: "H1", text: "POSN43312W123174,EASON,215754,370,EBINY,220601,ELENN,M48,02216,185/TS215754,0921227A40", lat: 43.52, lon: -123.29, alt: 37000, time: "21:57:54"),
+        Case(label: "H1", text: "POSN45209W122550,PEGTY,220309,134,MINNE,220424,HISKU,M6,060013,269,366,355K,292K,730A5B", lat: 45.3483, lon: -122.9167, alt: 13400),
+        Case(label: "H1", text: "POSN43030W122406,IBALL,220516,380,AARON,220816,MOXEE,M47,0047,86/TS220516,092122BF64", lat: 43.05, lon: -122.6767, alt: 38000),
+        Case(label: "H1", text: "POSN33225W079428,SCOOB,232933,340,ENEME,235712,FETAL,M42,003051,15857F6", lat: 33.375, lon: -79.7133, alt: 34000),
+        Case(label: "H1", text: "POSN38531W078000,CSN-01,112309,310,CYN-02,114151,ACK,M40,26067,22479226", lat: 38.885, lon: -78.0, alt: 31000),
+        Case(label: "H1", text: "#M1BPOSN37533W096476,ROKNE,185212,330,DOSOA,190059,BUM,M50,272100,1571541", lat: 37.8883, lon: -96.7933, alt: 33000),
+        Case(label: "H1", text: "F37AMCLL93#M1BPOSN37533W096476,ROKNE,185212,330,DOSOA,190059,BUM,M50,272100,1571541", lat: 37.8883, lon: -96.7933, alt: 33000),
+        Case(label: "H1", text: "/.POS/TS100316,210324/PSS35333W058220,,100316,250,S37131W059150,101916,S39387W060377,M23,27282,241,780,MANUAL,0,813E711", lat: -35.555, lon: -58.3667, alt: 25000),
+        Case(label: "H1", text: "/HDQDLUA.POSN38332W080082,RONZZ,135753,320,LEVII,140454,WISTA,M45,20967,194/GAHDQDLUA/CA/TS135753,1411240721", lat: 38.5533, lon: -80.1367, alt: 32000),
+        Case(label: "H1", text: "/.POS/TS140122,141124N38321W078003,,140122,450,,140122,,M56,24739,127,8306763", lat: 38.535, lon: -78.005, alt: 45000, time: "14:01:22"),
+        Case(label: "4J", text: "POS/ID91459S,BANKR31,/DC03032024,142813/MR64,0/ET31539/PSN39277W077359,142800,240,N39300W077110,031430,N38560W077150,M28,27619,MT370/CG311,160,350/FB732/VR329071", lat: 39.4617, lon: -77.5983, alt: 24000, time: "14:28:00"),
+        Case(label: "2P", text: "M80AMC4086POS/ID50007B,RCH4086,ABB02R70E037/DC10022025,051804/MR103,/ET090738/PSN56012W013273,051804,350,,,,,084081,/CG,,/FB0857/VR0322B89", lat: 56.02, lon: -13.455, alt: 35000),
+        Case(label: "H1", text: "*POS10300950N3954W07759363312045802M5230175", lat: 39.9, lon: -77.9833, alt: 36331, time: "09:50"),
+        Case(label: "H1", text: "M85AQF0073YSSY,KSFO,101621,- 4.9985,-169.9820,35003,290,  35.1, 44100,S05W169,S02W167,1645", lat: -4.9985, lon: -169.982, alt: 35003, from: "YSSY", to: "KSFO", heading: 290, time: "16:21"),
+        Case(label: "H1", text: "M87AQF0073YSSY,KSFO,101702,  0.7144,-166.0643,36000,282,  34.1, 40200,S00W166,N03W162,1739", lat: 0.7144, lon: -166.0643, alt: 36000, heading: 282),
+        Case(label: "H1", text: "M89AQF0073YSSY,KSFO,101819,  7.2016,-158.1146,37001,275,  33.5, 32700,N07W158,N11W153,1900", lat: 7.2016, lon: -158.1146, alt: 37001),
+        Case(label: "H1", text: "(POS-KLM296  -3911N07600W/234212 F250\r\nRMK/FUEL  37.0 M0.69)", lat: 39.1833, lon: -76.0, alt: 25000, time: "23:42:12"),
+        // Label 10, 12
+        Case(label: "10", text: "POS082150, N 3885,W 7841,---,308,26922,  51,22290, 529,  19,-225,6", lat: 38.85, lon: -78.41),
+        Case(label: "10", text: "LDR01,189,C,SWA-2600-016,0,N 38.151,W 76.623,37003, 10.2,KATL,KLGA,KLGA,22/,/,/,0,0,,,,,,,0,0,0,00,,135.1,08.6,143.7,,,", lat: 38.151, lon: -76.623, alt: 37003),
+        Case(label: "10", text: "/N39.182/W077.217/10/0.42/180/055/KIAD/0004/0028/00015/MOWAT/HUSEL/2349/YACKK/2352/", lat: 39.182, lon: -77.217),
+        Case(label: "12", text: "N 42.150,W121.187,39000,161859, 109,.C-GWSO,1742", lat: 42.15, lon: -121.187, alt: 39000, time: "16:18:59"),
+        Case(label: "12", text: "N 28.371,W 80.458,38000,170546, 100,.C-GVWJ,1736", lat: 28.371, lon: -80.458, alt: 38000),
+        Case(label: "12", text: "POSN 390104W 754601,-------,1244,1446,,-  4,23249  12,FOB   73,ETA 1303,KATL,KPHL,", lat: 39.0178, lon: -75.7669),
+        // Label 15, 16
+        Case(label: "15", text: "(2N38448W 77216--- 28 20  7(Z", lat: 38.7467, lon: -77.36),
+        Case(label: "15", text: "(2N40492W 77179248 99380-53(Z", lat: 40.82, lon: -77.2983),
+        Case(label: "15", text: "(2N39269W 77374--- 42---- 5(Z", lat: 39.4483, lon: -77.6233),
+        Case(label: "15", text: "(2N39018W 77284OFF11112418101313--------(Z", lat: 39.03, lon: -77.4733),
+        Case(label: "15", text: "(2N42589W 83520OFF------13280606--------(Z", lat: 42.9817, lon: -83.8667),
+        Case(label: "15", text: "(2N39042W 77308OFF1311240327B1818 015(Z", lat: 39.07, lon: -77.5133),
+        Case(label: "16", text: "(2AAABN39211W 77144KTEBMMTO-/A(Z", lat: 39.3517, lon: -77.2400),
+        Case(label: "16", text: "(2AAAAN37265W 78334-SSI  /O(Z", lat: 37.4417, lon: -78.5567),
+        Case(label: "16", text: "(2AAABN37197W 78404-SLOJOGRONK/O(Z", lat: 37.3283, lon: -78.6733),
+        Case(label: "16", text: "N 44.203,W 86.546,31965,6, 290", lat: 44.203, lon: -86.546, alt: 31965),
+        Case(label: "16", text: "N 28.177/W 96.055", lat: 28.177, lon: -96.055),
+        Case(label: "16", text: "N 44.988,W121.644,35940,6, 170", lat: 44.988, lon: -121.644, alt: 35940),
+        Case(label: "16", text: "POSA1N37358W 77279,GEARS  ,221626,370,BBOBO  ,222053,,-61,139,1174,829", lat: 37.358, lon: -77.279, alt: 37000, time: "22:16:26"),
+        Case(label: "16", text: "POSA1N38843W 78790,RONZZ  ,005159,390,RAMAY  ,010055,,*****,*****, 744,   0", lat: 38.843, lon: -78.79, alt: 39000),
+        Case(label: "16", text: "283806/AUTPOS/LLD N400547 W0774954\r\n/ALT 12932/SAT ****\r\n/WND ******/TAT ****/TAS ****/CRZ ***\r\n/FOB 065120\r\n/DAT 260228/TIM 150742", lat: 40.0964, lon: -77.8317, alt: 12932),
+        Case(label: "16", text: "289142/AUTPOS/LLD N395538 W0753341 \r\n/ALT 35000/SAT -057\r\n/WND 239065/TAT -027/TAS 476/CRZ 836\r\n/FOB 107600\r\n/DAT 260228/TIM 132714", lat: 39.9272, lon: -75.5614, alt: 35000),
+        Case(label: "16", text: "005236,36787,0135,  97,N 38.364 W 75.226", lat: 38.364, lon: -75.226, alt: 36787, time: "00:52:36"),
+        Case(label: "16", text: "110112,36000,1206, 51,N 45.140 E 16.341/SXS7SL", lat: 45.14, lon: 16.341, alt: 36000),
+        Case(label: "16", text: "001415,20274,0047, 3740,N3835.95 W07858.88", lat: 38.5992, lon: -78.9813, alt: 20274),
+        // Label 20, 21, 22, 24, 44, 58
+        Case(label: "20", text: "POSN38160W077075,,211733,360,OTT,212041,,N42,19689,40,544", lat: 38.16, lon: -77.075, alt: 36000),
+        Case(label: "20", text: "POSN38160W077075,,211733,360,OTT", lat: 38.16, lon: -77.075),
+        Case(label: "21", text: "POSN 39.841W 75.790, 220,184218,17222,22051,  34,- 4,204748,KTPA", lat: 39.841, lon: -75.79, alt: 17222, time: "18:42:18"),
+        Case(label: "22", text: "N 370824W 760010,-------,194936,30418, ,      , ,M 42,27335  42, 107,", lat: 37.0824, lon: -76.001, alt: 30418),
+        Case(label: "24", text: "/241710/1021/04WM/34962/N53.13/E001.33/3374/1056/", lat: 53.13, lon: 1.33, alt: 34962),
+        Case(label: "44", text: "POS02,N38171W077507,319,KJFK,KUZA,0926,0245,0327,004.6", lat: 38.285, lon: -77.845, alt: 31900, from: "KJFK", to: "KUZA", time: "02:45"),
+        Case(label: "44", text: "POS02,N38338W121179,GRD,KMHR,KPDX,0807,0003,0112,005.1", lat: 38.5633, lon: -121.2983, alt: 0, from: "KMHR", to: "KPDX"),
+        Case(label: "58", text: "OG0704/06/230942/N39.214/W76.106/22683/N/", lat: 39.214, lon: -76.106, alt: 22683),
+        // Label 80, 83, 2P, 1L, HX, 4T
+        Case(label: "80", text: "3N01 POSRPT 5891/04 KIAH/MMGL .XA-VOI\r\n/POS N29395W095133/ALT +15608/MCH 558/FOB 0100/ETA 0410", lat: 29.395, lon: -95.133, alt: 15608, from: "KIAH", to: "MMGL"),
+        Case(label: "80", text: "3N01 POSRPT 0581/27 KIAD/MSLP .N962AV/04H 11:02\r\n/NWYP CIGAR /HDG 233/MCH 782\r\n/POS N3539.2W07937.2/FL 360/TAS 445/SAT -060\r\n/SWND 110/DWND 306/FOB N009414/ETA 14:26.0 ", lat: 35.6533, lon: -79.62, alt: 36000, from: "KIAD", to: "MSLP", heading: 233),
+        Case(label: "80", text: "/FB 0105/AD KCHS/N3950.1,W07548.3,3P01 POSRPT  0267/20 KBOS/KCHS .N3275J\n/UTC 143605/POS N3950.1 W07548.3/ALT 38007\n/SPD 334/FOB 0105/ETA 1622", lat: 39.835, lon: -75.805, alt: 38007, time: "14:36:05"),
+        Case(label: "80", text: "3C01 POS N39328W077307  ,,143700,               ,      ,               ,P47,124,0069", lat: 39.328, lon: -77.307),
+        Case(label: "83", text: "KLAX,KEWR,220103, 40.53,- 74.47, 3836,212, 140.0, 19700", lat: 40.53, lon: -74.47, alt: 3836, from: "KLAX", to: "KEWR", heading: 140),
+        Case(label: "83", text: "001PR22035539N4038.6W07427.80292500008", lat: 40.6433, lon: -74.4633, alt: 2925),
+        Case(label: "2P", text: "FM3 1217,1312,+ 43.77,- 70.18, 39981, 426, 25", lat: 43.77, lon: -70.18, alt: 39981),
+        Case(label: "2P", text: "M40AEY093CFM3 1216,1454,+057.31,-075.58, 38002, 469, 23", lat: 57.31, lon: -75.58, alt: 38002),
+        Case(label: "2P", text: "FM3 133818,1607,N 45.206,E 17.726,34030, 440,98", lat: 45.206, lon: 17.726, alt: 34030),
+        Case(label: "1L", text: "000000070LOWW,KEWR,0932,1744,N 49.223,E 12.038,0659", lat: 49.223, lon: 12.038, from: "LOWW", to: "KEWR"),
+        Case(label: "1L", text: "000000660N50442E005566,100444359SOG-06 ,,--- 21-,83617441", lat: 50.7367, lon: 5.9433, alt: 35900),
+        Case(label: "1L", text: "+ 39.126/- 77.358/UTC 085208/FOB   8.2/ALT  3997/CAS  239/ETA 0903", lat: 39.126, lon: -77.358, alt: 3997),
+        Case(label: "1L", text: "00018213200/GS 411500/DEP MDPC/DES CYYZ/ETA 0120/GW 479/ALT 39002\r\nCAS 229/SAT - 59.0/FN SWG9040/TFQ 48/DAY 22OCT24/UTC 002714\r\nLON W 78.289/LAT N 39.556/WD  20/WS  13", lat: 39.556, lon: -78.289, alt: 39002, from: "MDPC", to: "CYYZ"),
+        Case(label: "HX", text: "RA FMT LOCATION N4009.6 W07540.8", lat: 40.16, lon: -75.68),
+        Case(label: "4T", text: "AGFSR AC0620/07/08/YYZYHZ/0340Z/453/4435.1N07143.4W/350/ /0063/0035/ /281065/----/ /512/0240/0253/----/----", lat: 44.585, lon: -71.7233, alt: 35000, time: "03:40"),
+        // keine Position
+        Case(label: "H1", text: "POS Bogus message", lat: nil, lon: nil),
+        Case(label: "H1", text: "POS/RFSCOOB.KEMPR.ECG.OHPEA.TOMMZ.OXANA.ZZTOP.OMALA.WILYY.KANUX.GALVN.KASAR.LNHOM.SLUKA.FIPEK.PUYYA.PLING.KOLAO.JETSSF2FC", lat: nil, lon: nil),
+        Case(label: "H1", text: "/.POS Bogus message", lat: nil, lon: nil),
+        Case(label: "10", text: "POS Bogus Message", lat: nil, lon: nil),
+        Case(label: "10", text: "POS082150,---,308,26922,  51, 529,  19,-225,6", lat: nil, lon: nil),
+        Case(label: "16", text: "110122,,1206, 92,N . MMMM.MMM", lat: nil, lon: nil),
+        Case(label: "16", text: "N Bogus message", lat: nil, lon: nil),
+        Case(label: "80", text: "3N01 POSRPT Bogus message", lat: nil, lon: nil),
+        Case(label: "80", text: "3N01 POSRPT 5891/04 KIAH/MMGL .XA-VOI\r\n/ETA 0410", lat: nil, lon: nil),
+        Case(label: "83", text: "83 Bogus message", lat: nil, lon: nil),
+        Case(label: "83", text: "4DH3 ETAT2  0907/22 ENGM/KEWR .LN-RKO\r\n/ETA 1641", lat: nil, lon: nil),
+        Case(label: "H1", text: "FLT PLAN REQUEST EDDF EDDM 1200Z", lat: nil, lon: nil),
+        Case(label: "Q1", text: "EDDF08150822105511200000EHAM", lat: nil, lon: nil),
+        Case(label: "5Z", text: "/BTZWUF.TI2/EDDFEDDM", lat: nil, lon: nil),
+    ]
+    var wrong = 0
+    for c in cases {
+        let r = ACARSPositionParser.parse(label: c.label, text: c.text)
+        let tag = "ACARS-Position [\(c.label)] \(c.text.prefix(40))"
+        if let lat = c.lat, let lon = c.lon {
+            let ok = r.map { abs($0.point.lat - lat) < 0.001 && abs($0.point.lon - lon) < 0.001 } == true
+            check(ok, "\(tag): erwartet \(lat)/\(lon), gelesen \(String(describing: r?.point))")
+            if let a = c.alt { check(r?.altitudeFt == a, "\(tag): Höhe \(a) ft, gelesen \(String(describing: r?.altitudeFt))") }
+            if let f = c.from { check(r?.from == f, "\(tag): Start \(f), gelesen \(String(describing: r?.from))") }
+            if let t = c.to { check(r?.to == t, "\(tag): Ziel \(t), gelesen \(String(describing: r?.to))") }
+            if let h = c.heading { check(r?.headingDeg == h, "\(tag): Kurs \(h), gelesen \(String(describing: r?.headingDeg))") }
+            if let t = c.time { check(r?.timeUTC == t, "\(tag): Zeit \(t), gelesen \(String(describing: r?.timeUTC))") }
+            if !ok { wrong += 1 }
+        } else {
+            check(r == nil, "\(tag): keine Position erwartet, gelesen \(String(describing: r?.point))")
+        }
+    }
+    check(wrong == 0, "ACARS-Positionen: \(wrong) von \(cases.count) falsch")
+    // Rechenhilfen
+    check(ACARSPositionParser.degreesMinutesTenths("43312") == 43 + 31.2 / 60 && ACARSPositionParser.degreesMinutesTenths("38843") == nil, "ACARS: Grad und Minuten, Minuten über 59 ungültig")
+    check(abs((ACARSPositionParser.degreesDecimalMinutes("3539.2") ?? 0) - (35 + 39.2 / 60)) < 1e-9, "ACARS: ddmm.m")
+    check(ACARSPositionParser.parse(label: "H1", text: "POSN00000W000000,AAAAA,123456,300") == nil, "ACARS: Position 0/0 ist ein Platzhalter")
+    check(ACARSPositionParser.parse(label: "H1", text: "POSN99000W000100,AAAAA,123456,300") == nil, "ACARS: Breite über 90° wird verworfen")
+
+    // Flugzeug: Weg, Sprungschutz, Kurs
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    func rep(_ lat: Double, _ lon: Double, alt: Double? = nil) -> ACARSPositionReport {
+        ACARSPositionReport(point: GeoPoint(lat: lat, lon: lon), altitudeFt: alt, format: "test")
+    }
+    var ac = ACARSAircraft(registration: "D-AIXC", flight: "LH1234", firstHeard: t0, lastHeard: t0)
+    check(ac.addPosition(rep(50.0, 8.0, alt: 36000), at: t0), "Flugzeug: erste Position")
+    check(ac.addPosition(rep(50.0, 8.0), at: t0.addingTimeInterval(60)) && ac.track.count == 1, "Flugzeug: gleicher Ort ergibt keinen neuen Wegpunkt")
+    check(ac.addPosition(rep(50.4, 8.6), at: t0.addingTimeInterval(120)) && ac.track.count == 2, "Flugzeug: zweiter Wegpunkt")
+    check(ac.altitudeFt == 36000, "Flugzeug: Höhe bleibt, wenn der Bericht keine nennt")
+    check(ac.headingDeg.map { $0 > 30 && $0 < 60 } == true, "Flugzeug: Kurs aus den letzten Wegpunkten (\(String(describing: ac.headingDeg)))")
+    check(ac.trackKm > 50 && ac.trackKm < 70, "Flugzeug: Länge des Wegs (\(ac.trackKm) km)")
+    // Sprung um 3000 km in zwei Minuten: verworfen, erst der zweite Bericht an derselben Stelle gilt
+    check(!ac.addPosition(rep(30.0, 40.0), at: t0.addingTimeInterval(180)) && ac.track.count == 2 && ac.rejectedPositions == 1, "Flugzeug: unmöglicher Sprung wird verworfen")
+    check(ac.addPosition(rep(30.1, 40.1), at: t0.addingTimeInterval(240)) && ac.track.count == 1 && ac.position == GeoPoint(lat: 30.1, lon: 40.1), "Flugzeug: zweimal dieselbe neue Stelle: Weg beginnt dort neu")
+    // Flug über Stunden: weite Strecken sind erlaubt
+    var far = ACARSAircraft(registration: "N1", firstHeard: t0, lastHeard: t0)
+    far.addPosition(rep(40.0, -70.0), at: t0)
+    check(far.addPosition(rep(50.0, -20.0), at: t0.addingTimeInterval(3 * 3600)), "Flugzeug: 3 700 km in 3 Stunden sind möglich")
+    check(ACARSAircraft(registration: "X", firstHeard: t0, lastHeard: t0).headingDeg == nil, "Flugzeug: ohne Weg kein Kurs")
+    // Meldung gibt den Kurs vor
+    var hd = ACARSAircraft(registration: "H", firstHeard: t0, lastHeard: t0)
+    hd.addPosition(ACARSPositionReport(point: GeoPoint(lat: 10, lon: 10), headingDeg: 123, format: "t"), at: t0)
+    check(hd.headingDeg == 123, "Flugzeug: Kurs aus der Meldung")
+
+    // Controller: Meldungen mit Position ergeben Flugzeug mit Weg, Karte zeigt Flugzeug samt Linie
+    let c = ACARSController(pipeline: AudioPipeline(), settings: ACARSSettingsStore())
+    c.logEnabled = false
+    func msg(_ reg: String, _ flight: String?, _ label: String, _ text: String, down: Bool = true) -> ACARSMessage {
+        ACARSMessage(time: t0, mode: "2", registration: reg, ack: "NAK", label: label, blockID: down ? "3" : "A", isDownlink: down,
+                     messageNumber: down ? "M01A" : nil, flightID: flight, text: text, continues: false, parityErrors: 0, corrected: 0, levelDB: -10)
+    }
+    c.ingest(msg("D-AIXC", "LH1234", "10", "POS082150, N 4980,E  841,---,308,26922"), at: t0)
+    c.ingest(msg("D-AIXC", "LH1234", "H1", "POSN50051E008330,BIBTI,100030,360,KOMIB,100330,ASKIK,M52,27000,100"), at: t0.addingTimeInterval(300))
+    c.ingest(msg("D-AIXC", "LH1234", "H1", "POSN50111E009041,KOMIB,100530,360,ASKIK,100830,ABCDE,M52,27000,100"), at: t0.addingTimeInterval(600))
+    c.ingest(msg("D-ABCD", "LH9", "H1", "POSN50051E008330,BIBTI,100030,360,KOMIB"), at: t0.addingTimeInterval(600))
+    c.ingest(msg("D-ABCD", "LH9", "H1", "POSN50051E008330,BIBTI,100030,360,KOMIB", down: false), at: t0.addingTimeInterval(700))
+    let air = c.aircraft["D-AIXC"]!
+    check(air.track.count == 3 && air.position != nil && air.altitudeFt == 36000, "ACARS-Controller: Weg mit drei Punkten, Höhe 36000 ft (\(air.track.count))")
+    check(c.aircraft["D-ABCD"]?.track.count == 1, "ACARS-Controller: Aufwärtsmeldung liefert keine Position")
+    let now = t0.addingTimeInterval(900)
+    let map = ACARSMapBuilder.content(Array(c.aircraft.values), home: Maidenhead.point("JN49WS"), now: now)
+    let m = map.markers.first { $0.id == "ac-D-AIXC" }
+    check(m != nil && m?.symbol == "airplane" && m?.track.count == 3 && m?.title == "LH1234", "ACARS-Karte: Flugzeug mit Weg aus drei Punkten (\(String(describing: m?.track.count)))")
+    check(m?.headingDeg.map { $0 > 60 && $0 < 110 } == true, "ACARS-Karte: Flugrichtung nach Osten (\(String(describing: m?.headingDeg)))")
+    check(m?.details.contains { $0.contains("FL360") } == true && m?.details.contains { $0.contains("Weg: 3 Positionen") } == true && m?.details.contains { $0.contains("km") } == true,
+          "ACARS-Karte: Höhe, Weg und Entfernung in den Einzelheiten (\(m?.details ?? []))")
+    check(map.markers.first { $0.id == "ac-D-ABCD" }?.track.isEmpty == true, "ACARS-Karte: ein Punkt ergibt keine Linie")
+    let later = ACARSMapBuilder.content(Array(c.aircraft.values), home: nil, now: t0.addingTimeInterval(7 * 3600))
+    check(later.markers.isEmpty, "ACARS-Karte: nach 7 Stunden ohne Meldung kein Flugzeug mehr")
+    let dim = ACARSMapBuilder.content(Array(c.aircraft.values), home: nil, now: t0.addingTimeInterval(600 + 2400))
+    check(dim.markers.first { $0.id == "ac-D-AIXC" }?.tone == .dim, "ACARS-Karte: Flugzeug ohne Meldung seit 40 min abgedunkelt")
+}
+acarsPositionTests()
+
+// MARK: - APRS: Weg bewegter Stationen auf der Karte
+@MainActor func aprsTrackTests() {
+    let controller = APRSController(pipeline: AudioPipeline(), settings: APRSSettingsStore())
+    controller.logEnabled = false
+    func raw(_ info: String, source: String) -> APRSRawFrame {
+        let f = AX25Frame(dest: AX25Address(text: "APRS")!, source: AX25Address(text: source)!, digis: [], info: Array(info.utf8))
+        return APRSRawFrame(bytes: f.encode(), repaired: false, slicers: 1, level: 0.5)
+    }
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    // Ruhende Station mit GPS-Rauschen (Meter): kein Weg
+    for (i, lat) in ["4903.50", "4903.51", "4903.50", "4903.49", "4903.51"].enumerated() {      // ± 0,01′ = ± 18 m
+        controller.ingest(raw("!\(lat)N/07201.75W>Haus", source: "RUHE-1"), at: t0.addingTimeInterval(Double(i) * 60))
+    }
+    // Fahrzeug: alle 60 s etwa 90 m nach Norden
+    for i in 0..<6 {
+        let lat = String(format: "%07.2f", 4903.50 + Double(i) * 0.05)
+        controller.ingest(raw("!\(lat)N/07201.75W>Auto", source: "FAHR-9"), at: t0.addingTimeInterval(Double(i) * 60))
+    }
+    let still = controller.stations.first { $0.id == "RUHE-1" }!
+    check(still.packetCount == 5 && still.track.count == 1 && still.trackTimes.count == 1, "APRS-Weg: GPS-Rauschen einer ruhenden Station ergibt keinen Weg (\(still.track.count) Punkte)")
+    let moving = controller.stations.first { $0.id == "FAHR-9" }!
+    check(moving.track.count == 6 && moving.trackTimes.count == 6, "APRS-Weg: Fahrzeug mit sechs Wegpunkten (\(moving.track.count))")
+    let now = t0.addingTimeInterval(400)
+    let map = APRSMapBuilder.content(stations: controller.stations, home: Maidenhead.point("JN49WS"), maxAge: nil, now: now)
+    check(map.markers.first { $0.id == "RUHE-1" }?.track.isEmpty == true, "APRS-Karte: ruhende Station ohne Linie")
+    let m = map.markers.first { $0.id == "FAHR-9" }
+    check(m?.track.count == 6, "APRS-Karte: Fahrzeug mit Linie aus sechs Punkten")
+    check(m?.details.contains { $0.hasPrefix("Weg: 6 Positionen") } == true && m?.details.firstIndex { $0.hasPrefix("Weg:") }.map { $0 <= 3 } == true, "APRS-Karte: Weglänge in den ersten Einzelheiten (\(m?.details ?? []))")
+    // Nur der gewählte Zeitraum: bei 150 s Alter bleiben die jüngsten Positionen
+    let recent = APRSMapBuilder.movedPath(moving, maxAge: 250, now: now)
+    check(recent.count == 3 && recent.last == moving.position, "APRS-Weg: nur die letzten 250 s (\(recent.count) Punkte)")
+    check(APRSMapBuilder.movedPath(moving, maxAge: 20, now: now).isEmpty, "APRS-Weg: ein einzelner Punkt ergibt keine Linie")
+    // Ungenaue Position (Leerzeichen statt Ziffern) verlängert den Weg nicht, ändert aber den Ort
+    controller.ingest(raw("!4905.  N/07201.  W>Auto", source: "FAHR-9"), at: t0.addingTimeInterval(400))
+    let after = controller.stations.first { $0.id == "FAHR-9" }!
+    check(after.track.count == 6 && after.ambiguity > 0, "APRS-Weg: ungenaue Position kommt nicht in den Weg (\(after.track.count), Ungenauigkeit \(after.ambiguity))")
+    // Karte: Ausschnitt schließt den Weg ein
+    let region = map.region(includeHome: false)
+    check(region != nil && region!.latSpan > 0.0005, "Karte: Ausschnitt umfasst den Weg")
+}
+aprsTrackTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

@@ -116,7 +116,9 @@ public struct APRSStation: Identifiable, Equatable, Sendable {
     public var killed = false
     public var symbol: APRSSymbol?
     public var position: GeoPoint?
+    /// Bisheriger Weg (älteste Position zuerst) und wann jede Position empfangen wurde
     public var track: [GeoPoint] = []
+    public var trackTimes: [Date] = []
     public var firstHeard: Date
     public var lastHeard: Date
     public var positionTime: Date?
@@ -137,6 +139,8 @@ public struct APRSStation: Identifiable, Equatable, Sendable {
     public var rangeKm: Double?
 
     public static let maxTrack = 300
+    /// Kleinster Abstand (km) zur letzten Position des Wegs: darunter ist es GPS-Rauschen einer ruhenden Station
+    public static let minStepKm = 0.025
 
     public init(id: String, call: String, source: String, isObject: Bool, firstHeard: Date) {
         self.id = id
@@ -156,9 +160,16 @@ public struct APRSStation: Identifiable, Equatable, Sendable {
         if let d = p.device { device = d }
         if let s = p.symbol { symbol = s }
         if let pos = p.position, pos.isValid {
-            if position == nil || Geo.distanceKm(position!, pos) > 0.005 {
+            // Weg verlängern, wenn die Station sich bewegt hat. Ungenaue Positionen (Ziffern durch Leerzeichen ersetzt) springen um
+            // Kilometer und kommen nur in den Weg, wenn er noch leer ist.
+            let last = track.last
+            if last == nil || (p.ambiguity == 0 && Geo.distanceKm(last!, pos) > Self.minStepKm) {
                 track.append(pos)
-                if track.count > Self.maxTrack { track.removeFirst(track.count - Self.maxTrack) }
+                trackTimes.append(date)
+                if track.count > Self.maxTrack {
+                    track.removeFirst(track.count - Self.maxTrack)
+                    trackTimes.removeFirst(trackTimes.count - Self.maxTrack)
+                }
             }
             position = pos
             positionTime = date
@@ -247,11 +258,17 @@ public enum APRSMapBuilder {
             let age = now.timeIntervalSince(s.lastHeard)
             if let maxAge, age > maxAge { continue }
             if s.killed && age > 600 { continue }
+            // Weg: nur Positionen im gewählten Zeitraum; eine Linie nur, wenn die Station sich merklich bewegt hat (GPS-Rauschen ausgeblendet)
+            let path = movedPath(s, maxAge: maxAge, now: now)
             var details: [String] = []
             details.append(Geo.format(pos) + (s.ambiguity > 0 ? " (ungenau)" : ""))
             if let h = home {
                 let km = Geo.distanceKm(h, pos), b = Geo.bearing(from: h, to: pos)
                 details.append("\(Geo.formatKm(km)) \(Geo.compass(b)) (\(Int(b.rounded()))°)")
+            }
+            if !path.isEmpty {
+                let km = zip(path, path.dropFirst()).reduce(0) { $0 + Geo.distanceKm($1.0, $1.1) }
+                details.append("Weg: \(path.count) Positionen, \(Geo.formatKm(km))")
             }
             if let c = s.courseDeg, let v = s.speedKnots, v >= 1 {
                 details.append("Kurs \(c)° · \(Int((v * 1.852).rounded())) km/h")
@@ -264,7 +281,7 @@ public enum APRSMapBuilder {
             if let st = s.status { details.append("Status: \(st)") }
             if !s.comment.isEmpty { details.append(s.comment) }
             if let p = s.phg { details.append("PHG: \(p)") }
-            if !s.lastPath.isEmpty { details.append("Weg: " + s.lastPath.joined(separator: ",")) }
+            if !s.lastPath.isEmpty { details.append("Digipeater: " + s.lastPath.joined(separator: ",")) }
             if let d = s.device { details.append("Gerät: \(d)") }
             if s.isObject { details.append("Objekt von \(s.source)") }
             let subtitle = [s.symbol?.name, "vor " + s.ageText(now: now), "\(s.packetCount) Pakete"].compactMap { $0 }.joined(separator: " · ")
@@ -276,11 +293,24 @@ public enum APRSMapBuilder {
             if s.killed || age > 1800 { tone = .dim }
             markers.append(MapMarker(id: s.id, coordinate: pos, title: s.call, subtitle: subtitle, details: details,
                                      symbol: s.symbol?.systemImage ?? "mappin", tone: tone, heardAt: s.lastHeard,
-                                     track: s.track.count > 1 ? s.track : [],
+                                     track: path,
                                      headingDeg: (s.speedKnots ?? 0) >= 1 ? s.courseDeg.map(Double.init) : nil,
                                      radiusKm: s.rangeKm ?? 0))
         }
         return MapContent(markers: markers, home: home, emptyHint: "Noch keine APRS-Position empfangen")
+    }
+
+    /// Der Weg einer Station für die Karte: Positionen der letzten `maxAge` Sekunden (nil = alle), leer, wenn die Station
+    /// sich kaum bewegt hat (weniger als 100 m Wegstrecke: GPS-Rauschen)
+    static func movedPath(_ s: APRSStation, maxAge: TimeInterval?, now: Date) -> [GeoPoint] {
+        var path: [GeoPoint] = []
+        for (i, p) in s.track.enumerated() {
+            if let maxAge, i < s.trackTimes.count, now.timeIntervalSince(s.trackTimes[i]) > maxAge { continue }
+            path.append(p)
+        }
+        if let pos = s.position, let last = path.last, last != pos { path.append(pos) }
+        let km = zip(path, path.dropFirst()).reduce(0) { $0 + Geo.distanceKm($1.0, $1.1) }
+        return path.count > 1 && km >= 0.1 ? path : []
     }
 }
 

@@ -318,6 +318,9 @@ if acarsMode {
             rx.process(chunk) { m in
                 n += 1
                 print(String(format: "%7.2f s  ", Double(samples) / ACARSDecoder.sampleRate) + ACARSController.logLine(m))
+                if m.isDownlink, let p = ACARSPositionParser.parse(label: m.label, text: m.text) {
+                    print("            ↳ Position \(Geo.format(p.point))" + (p.altitudeFt.map { " · \(Int($0)) ft" } ?? "") + (p.timeUTC.map { " · \($0) UTC" } ?? "") + " · Format \(p.format)")
+                }
             }
             samples += chunk.count
         }

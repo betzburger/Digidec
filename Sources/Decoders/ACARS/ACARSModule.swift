@@ -170,6 +170,12 @@ extension ACARSSettingsStore: TuningTarget {
 
 // MARK: - Flugzeuge und Karte
 
+/// Ein Punkt auf dem Weg eines Flugzeugs: Ort aus einem Positionsbericht, mit dem Empfangszeitpunkt
+public struct ACARSTrackPoint: Equatable, Sendable {
+    public var point: GeoPoint
+    public var date: Date
+}
+
 /// Was über ein Flugzeug (Kennzeichen) aus den Meldungen bekannt ist
 public struct ACARSAircraft: Identifiable, Equatable, Sendable {
     public var id: String { registration }
@@ -182,10 +188,97 @@ public struct ACARSAircraft: Identifiable, Equatable, Sendable {
     public var lastHeard: Date
     public var messages = 0
     public var lastText = ""
+    /// Letzter Ort aus einem Positionsbericht (Label 10, 12, 15, 16, 20 … H1) und wann er empfangen wurde
+    public var position: GeoPoint?
+    public var positionDate: Date?
+    public var altitudeFt: Double?
+    /// Uhrzeit der Position laut Meldung (UTC) und das Meldungsformat, für die Anzeige
+    public var positionTime: String?
+    public var positionFormat: String?
+    /// Kurs aus der Meldung (sonst aus dem Weg)
+    public var reportedHeadingDeg: Double?
+    /// Bisheriger Weg (älteste zuerst), endet beim aktuellen Ort
+    public var track: [ACARSTrackPoint] = []
+    /// Positionsberichte, die zu weit vom bisherigen Weg abwichen (Ortsformat falsch gelesen oder Doppelgänger des Kennzeichens)
+    public var rejectedPositions = 0
+    private var suspect: GeoPoint?
+
+    public static let maxTrack = 300
+    /// Größtmögliche Geschwindigkeit zwischen zwei Berichten (km/h) und Zuschlag in km für Ungenauigkeit der Berichte
+    static let maxSpeedKmh = 1500.0
+    static let slackKm = 40.0
+
+    public init(registration: String, flight: String? = nil, from: String? = nil, to: String? = nil, eta: String? = nil,
+                firstHeard: Date, lastHeard: Date) {
+        self.registration = registration
+        self.flight = flight
+        self.from = from
+        self.to = to
+        self.eta = eta
+        self.firstHeard = firstHeard
+        self.lastHeard = lastHeard
+    }
+
+    /// Positionsbericht einarbeiten. Ein Sprung, den kein Flugzeug schafft, wird erst beim zweiten Bericht an derselben neuen Stelle
+    /// geglaubt (dann beginnt der Weg dort neu). Rückgabe: false, wenn der Bericht verworfen wurde.
+    @discardableResult
+    public mutating func addPosition(_ r: ACARSPositionReport, at date: Date) -> Bool {
+        if let last = track.last {
+            let km = Geo.distanceKm(last.point, r.point)
+            let hours = max(0, date.timeIntervalSince(last.date)) / 3600
+            if km > Self.slackKm + Self.maxSpeedKmh * hours {
+                // Zweimal dieselbe neue Stelle (±50 km): der frühere Weg war falsch
+                if let s = suspect, Geo.distanceKm(s, r.point) < 50 {
+                    track.removeAll()
+                    suspect = nil
+                } else {
+                    suspect = r.point
+                    rejectedPositions += 1
+                    return false
+                }
+            }
+        }
+        suspect = nil
+        position = r.point
+        positionDate = date
+        if let a = r.altitudeFt { altitudeFt = a }
+        positionTime = r.timeUTC
+        positionFormat = r.format
+        reportedHeadingDeg = r.headingDeg
+        if let f = r.from, from == nil { from = f }
+        if let t = r.to, to == nil { to = t }
+        // gleicher Ort wie zuletzt: kein neuer Wegpunkt (aber Zeit und Höhe aktualisiert)
+        if let last = track.last, Geo.distanceKm(last.point, r.point) < 0.3 {
+            track[track.count - 1].date = date
+        } else {
+            track.append(ACARSTrackPoint(point: r.point, date: date))
+            if track.count > Self.maxTrack { track.removeFirst(track.count - Self.maxTrack) }
+        }
+        return true
+    }
+
+    /// Flugrichtung: aus der Meldung, sonst aus den letzten beiden Wegpunkten (mindestens 3 km auseinander)
+    public var headingDeg: Double? {
+        if let h = reportedHeadingDeg { return h }
+        guard track.count >= 2 else { return nil }
+        let end = track[track.count - 1].point
+        for p in track.dropLast().reversed() where Geo.distanceKm(p.point, end) >= 3 {
+            return Geo.bearing(from: p.point, to: end)
+        }
+        return nil
+    }
+
+    /// Länge des bisherigen Wegs in km
+    public var trackKm: Double {
+        zip(track, track.dropFirst()).reduce(0) { $0 + Geo.distanceKm($1.0.point, $1.1.point) }
+    }
+
+    public var displayName: String { flight.flatMap { $0.isEmpty ? nil : $0 } ?? registration }
 }
 
 public enum ACARSMapBuilder {
-    /// Flugstrecken: Start- und Zielflughafen mit Großkreislinie, Beschriftung mit Flugnummer und Kennzeichen
+    /// Karte der Flugzeuge: Position (aus Positionsberichten) mit zurückgelegtem Weg als Linie, dazu Start- und Zielflughafen aus den
+    /// OOOI-Berichten mit Großkreislinie, Beschriftung mit Flugnummer und Kennzeichen
     public static func content(_ aircraft: [ACARSAircraft], home: GeoPoint?, now: Date, maxAge: TimeInterval = 6 * 3600) -> MapContent {
         var markers: [MapMarker] = []
         var lines: [MapLine] = []
@@ -193,12 +286,13 @@ public enum ACARSMapBuilder {
         for a in aircraft.sorted(by: { $0.lastHeard > $1.lastHeard }) where now.timeIntervalSince(a.lastHeard) <= maxAge {
             let dep = a.from.flatMap { AirportCatalog.shared.lookup($0) }
             let dest = a.to.flatMap { AirportCatalog.shared.lookup($0) }
-            let title = a.flight.flatMap { $0.isEmpty ? nil : $0 } ?? a.registration
+            let title = a.displayName
             if let d = dep { airports[d.icao, default: (d, [])].1.append("Start: \(title)") }
             if let d = dest { airports[d.icao, default: (d, [])].1.append("Ziel: \(title)") }
             if let d = dep, let z = dest, d.icao != z.icao {
                 lines.append(MapLine(id: "acars-" + a.registration, points: [d.point, z.point], tone: .highlight, geodesic: true))
             }
+            if let marker = aircraftMarker(a, home: home, now: now, maxAge: maxAge) { markers.append(marker) }
         }
         for (icao, entry) in airports.sorted(by: { $0.key < $1.key }) {
             let (ap, uses) = entry
@@ -211,7 +305,38 @@ public enum ACARSMapBuilder {
             markers.append(MapMarker(id: "ap-" + icao, coordinate: ap.point, title: ap.iata.isEmpty ? icao : ap.iata,
                                      subtitle: "\(icao) · \(ap.name)", details: details, symbol: "airplane", tone: .info))
         }
-        return MapContent(markers: markers, lines: lines, home: home, emptyHint: "Noch kein Flughafen aus ACARS-Meldungen (OOOI-Berichte, Labels Q1 bis QD)")
+        return MapContent(markers: markers, lines: lines, home: home,
+                          emptyHint: "Noch keine Flugzeugposition und kein Flughafen aus ACARS-Meldungen (Positionsberichte, OOOI-Berichte Q1 bis QD)")
+    }
+
+    /// Flugzeug an seiner letzten gemeldeten Position, mit dem Weg als Linie (nil ohne Position oder wenn sie älter als `maxAge` ist)
+    static func aircraftMarker(_ a: ACARSAircraft, home: GeoPoint?, now: Date, maxAge: TimeInterval) -> MapMarker? {
+        guard let pos = a.position, let at = a.positionDate, now.timeIntervalSince(at) <= maxAge else { return nil }
+        let age = now.timeIntervalSince(at)
+        var details = [Geo.format(pos)]
+        if let h = home {
+            let km = Geo.distanceKm(h, pos), b = Geo.bearing(from: h, to: pos)
+            details.append("\(Geo.formatKm(km)) \(Geo.compass(b)) (\(Int(b.rounded()))°)")
+        }
+        if let alt = a.altitudeFt {
+            details.append(alt <= 0 ? "Am Boden" : "Höhe \(Int(alt.rounded())) ft (FL\(Int((alt / 100).rounded()))) · \(Int((alt * 0.3048).rounded())) m")
+        }
+        if let h = a.headingDeg { details.append("Kurs \(Int(h.rounded()))°") }
+        let route = [a.from, a.to].compactMap { $0 }
+        if route.count == 2 { details.append("Strecke \(route[0]) → \(route[1])") } else if let f = route.first { details.append("Von/nach \(f)") }
+        if let t = a.positionTime { details.append("Position von \(t) UTC" + (a.positionFormat.map { " (Label-Format \($0))" } ?? "")) }
+        let points = a.track.filter { now.timeIntervalSince($0.date) <= maxAge }.map(\.point)
+        if points.count > 1 {
+            details.append("Weg: \(points.count) Positionen, \(Geo.formatKm(zip(points, points.dropFirst()).reduce(0) { $0 + Geo.distanceKm($1.0, $1.1) }))")
+        }
+        if !a.lastText.isEmpty { details.append(String(a.lastText.replacingOccurrences(of: "\n", with: " ⏎ ").prefix(120))) }
+        let ageText = age < 90 ? "\(Int(age)) s" : age < 5400 ? "\(Int(age / 60)) min" : "\(Int(age / 3600)) h"
+        var sub = a.registration.isEmpty ? "" : a.registration
+        if let alt = a.altitudeFt, alt > 0 { sub += (sub.isEmpty ? "" : " · ") + "FL\(Int((alt / 100).rounded()))" }
+        sub += (sub.isEmpty ? "" : " · ") + "vor \(ageText) · \(a.messages) Meldungen"
+        let tone: MapTone = age > 1800 ? .dim : .normal
+        return MapMarker(id: "ac-" + a.registration, coordinate: pos, title: a.displayName, subtitle: sub, details: details,
+                         symbol: "airplane", tone: tone, heardAt: at, track: points.count > 1 ? points : [], headingDeg: a.headingDeg)
     }
 }
 
@@ -339,6 +464,10 @@ public final class ACARSController: ObservableObject {
                 if let v = o.from { a.from = v }
                 if let v = o.to { a.to = v }
                 if let v = o.eta { a.eta = v }
+            }
+            // Positionsberichte (Flugzeug → Boden; „HX“ meldet den Ort eines nicht zugestellten Funkspruchs)
+            if m.isDownlink || m.label == "HX", let p = ACARSPositionParser.parse(label: m.label, text: m.text) {
+                a.addPosition(p, at: now)
             }
             aircraft[m.registration] = a
         }

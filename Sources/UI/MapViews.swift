@@ -93,7 +93,7 @@ private struct ACARSMapView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: $selection,
-                     legend: "Flughäfen aus OOOI-Berichten")
+                     legend: "Flugzeuge mit Weg · Flughäfen aus OOOI")
         }
     }
 }
