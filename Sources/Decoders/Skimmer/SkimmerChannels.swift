@@ -99,6 +99,9 @@ final class SkimCWChannel {
 
     // Hüllkurve und Pegel
     private var env = 0.0
+    /// Summe und Anzahl der Hüllkurvenwerte im laufenden Zeichen (Mittel für den Schwund, siehe `endMark`)
+    private var plateauSum = 0.0
+    private var plateauCount = 0
     private var markLevel = 0.0
     private var spaceLevel = 0.0
     private var warmup = 0
@@ -165,8 +168,10 @@ final class SkimCWChannel {
             spaceLevel = markLevel
             return
         }
-        // Pegelverfolgung: Zeichenpegel steigt schnell, fällt langsam; Zwischenraumpegel umgekehrt
-        let fast = 1 - exp(-1 / (0.004 * r)), slow = 1 - exp(-1 / (2.0 * r))
+        // Pegelverfolgung: Zeichenpegel steigt schnell, fällt langsam; Zwischenraumpegel umgekehrt.
+        // Der Zeichenpegel fällt in den Pausen mit mindestens 1 s (bei langsamer Telegrafie 12 Punktlängen) und nach jedem Zeichen auf dessen Mittel
+        // (`endMark`): Schwund bis 14 dB in wenigen Sekunden verschiebt die Schwellen rechtzeitig.
+        let fast = 1 - exp(-1 / (0.004 * r)), slow = 1 - exp(-1 / (max(1.0, 12 * dit / r) * r))
         markLevel += (env > markLevel ? fast : slow) * (env - markLevel)
         spaceLevel += (env < spaceLevel ? fast : slow * 0.5) * (env - spaceLevel)
         // Das Rauschen gilt nur, wenn es erkennbar unter dem Zeichenpegel liegt
@@ -182,8 +187,9 @@ final class SkimCWChannel {
             } else {
                 spaceTick()
             }
-        } else if env < thOff || !open {
-            endMark()
+        } else {
+            if run > 2 { plateauSum += env; plateauCount += 1 }
+            if env < thOff || !open { endMark() }
         }
     }
 
@@ -200,6 +206,8 @@ final class SkimCWChannel {
         previousSpace = gap
         isMark = true
         run = 0
+        plateauSum = 0
+        plateauCount = 0
     }
 
     private func endMark() {
@@ -209,6 +217,11 @@ final class SkimCWChannel {
             // zu kurz für ein Element (Störimpuls): als Zwischenraum weiterzählen
             run = previousSpace + len
             return
+        }
+        // Schwund: der Zeichenpegel nähert sich dem mittleren Pegel dieses Zeichens (nach oben genügt der schnelle Anstieg)
+        if plateauCount > 0 {
+            let mean = plateauSum / Double(plateauCount)
+            if mean < markLevel { markLevel += 0.9 * (mean - markLevel) }
         }
         markCount += 1
         marks.append(Double(len))
@@ -315,7 +328,8 @@ final class SkimPSKChannel {
     /// Mittlerer Betrag des Symbolwerts (Basisband, entspricht der halben Trägeramplitude), geglättet
     private(set) var signalLevel = 0.0
     private(set) var frequencyErrorHz = 0.0
-    private let initialFrequency: Double
+    /// Frequenz, um die die Nachführung höchstens ±25 Hz wandern darf (Entdeckung, später die Spur der Engine)
+    private var anchorFrequency: Double
     private(set) var characters = 0
     private(set) var printable = 0
     private(set) var symbols = 0
@@ -332,7 +346,7 @@ final class SkimPSKChannel {
     init(mode: SkimMode, frequencyHz: Double) {
         self.mode = mode
         cell = mode.symbolSamples
-        initialFrequency = frequencyHz
+        anchorFrequency = frequencyHz
         down = SkimDownconverter(frequencyHz: frequencyHz, cutoffHz: mode == .psk63 ? 85 : 48)
         // Fenster über die Zelle: Höchstwert in der Mitte (dort ist der Betrag am größten), Null an den Rändern
         window = (0..<mode.symbolSamples).map { j in
@@ -348,7 +362,15 @@ final class SkimPSKChannel {
         clockDecay = exp(-1 / (8 * Double(mode.symbolSamples)))      // Gedächtnis etwa 8 Symbole
     }
 
-    func setFrequency(_ hz: Double) { down.setFrequency(hz) }
+    /// Frequenz von außen setzen (die Spur der Engine hat sich bewegt): auch die Nachführung wandert von hier aus
+    func setFrequency(_ hz: Double) {
+        down.setFrequency(hz)
+        anchorFrequency = hz
+    }
+
+    /// Die Spur der Engine liegt bei `hz`: die Nachführung darf höchstens 25 Hz davon abweichen (schützt vor dem Wandern zum Nachbarsignal,
+    /// lässt aber Signale mit Drift folgen); der Mischer bleibt unverändert
+    func anchor(to hz: Double) { anchorFrequency = hz }
 
     func process(_ block: UnsafeBufferPointer<Float>) {
         for x in block {
@@ -419,7 +441,7 @@ final class SkimPSKChannel {
         frequencyErrorHz += 0.05 * (errHz - frequencyErrorHz)
         if gateOpen {
             let f = down.frequencyHz + 0.02 * errHz
-            if abs(f - initialFrequency) < 25 { down.setFrequency(f) }
+            if abs(f - anchorFrequency) < 25 { down.setFrequency(f) }
         }
         pushBit(bit)
     }

@@ -56,8 +56,9 @@ enum SkimTestSignal {
     }
 
     /// BPSK31/63 mit Varicode: Vorlauf mit Leerlauf (Nullen = Phasenumkehr), Text, danach Leerlauf. Raised-Cosine-Übergänge.
+    /// `driftHzPerSecond`: der Träger wandert linear (Sender ohne Frequenzstabilität).
     static func bpsk(text: String, mode: SkimMode = .psk31, carrierHz: Double, amplitude: Float = 0.1, idleSymbols: Int = 64, tailSymbols: Int = 48,
-                     leadSeconds: Double = 0, tailSeconds: Double = 0.5) -> [Float] {
+                     leadSeconds: Double = 0, tailSeconds: Double = 0.5, driftHzPerSecond: Double = 0) -> [Float] {
         var bits: [UInt8] = [UInt8](repeating: 0, count: idleSymbols)
         for ch in text.utf8 { bits += SkimTables.varicode(ch) }
         bits += [UInt8](repeating: 0, count: tailSymbols)
@@ -68,12 +69,18 @@ enum SkimTestSignal {
         let n = Int(Double(bits.count) * per)
         var out = [Float](repeating: 0, count: Int(leadSeconds * sampleRate))
         let w = 2 * Double.pi * carrierHz / sampleRate
+        var phase = 0.0
         for i in 0..<n {
             let t = Double(i) / per
             let k = min(Int(t), c.count - 2)
             let u = t - Double(k)
             let b = c[k] * (1 + cos(Double.pi * u)) / 2 + c[k + 1] * (1 - cos(Double.pi * u)) / 2
-            out.append(amplitude * Float(b * sin(w * Double(out.count))))
+            if driftHzPerSecond == 0 {
+                out.append(amplitude * Float(b * sin(w * Double(out.count))))
+            } else {
+                phase += w + 2 * Double.pi * driftHzPerSecond * Double(i) / sampleRate / sampleRate
+                out.append(amplitude * Float(b * sin(phase)))
+            }
         }
         out.append(contentsOf: [Float](repeating: 0, count: Int(tailSeconds * sampleRate)))
         return out

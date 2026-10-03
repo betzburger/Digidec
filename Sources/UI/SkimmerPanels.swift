@@ -8,7 +8,8 @@ struct SkimmerMainPanel: View {
     @ObservedObject var settings: SkimmerSettingsStore
     /// Station im CW- bzw. PSK-Modul öffnen (dort liest der fldigi-Decoder das Signal in Ruhe)
     var openStation: (SkimStation) -> Void
-    @State private var tab = Tab.stations
+    /// Entwicklungshilfe: DIGIDEC_SKIMMER_TAB=spots öffnet die Spot-Liste (für Schnappschüsse)
+    @State private var tab = ProcessInfo.processInfo.environment["DIGIDEC_SKIMMER_TAB"] == "spots" ? Tab.spots : Tab.stations
 
     enum Tab: String, CaseIterable, Identifiable {
         case stations = "SIGNALE", spots = "SPOTS"
@@ -81,20 +82,25 @@ struct SkimmerStationTable: View {
     var body: some View {
         let list = controller.visibleStations
         let now = Date()
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                header
-                if list.isEmpty {
-                    Text(controller.stations.isEmpty
-                         ? "Noch kein Signal gefunden. Der Skimmer braucht einige Sekunden Audio, bis ein Signal über dem Rauschen (Schwelle \(Int(settings.thresholdDB)) dB) sicher gelesen wird."
-                         : "Alle Signale sind ausgeblendet (Mindest-Rauschabstand \(Int(settings.minSNR)) dB\(settings.onlyCalls ? ", nur mit Rufzeichen" : "")).")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(RadioTheme.textMuted)
-                        .padding(.top, 6)
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if list.isEmpty {
+                        Text(controller.stations.isEmpty
+                             ? "Noch kein Signal gefunden. Der Skimmer braucht einige Sekunden Audio, bis ein Signal über dem Rauschen (Schwelle \(Int(settings.thresholdDB)) dB) sicher gelesen wird."
+                             : "Alle Signale sind ausgeblendet (Mindest-Rauschabstand \(Int(settings.minSNR)) dB\(settings.onlyCalls ? ", nur mit Rufzeichen" : "")).")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(RadioTheme.textMuted)
+                            .padding(.top, 3)
+                    }
+                    ForEach(list) { s in row(s, now: now) }
                 }
-                ForEach(list) { s in row(s, now: now) }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 6)
             }
-            .padding(6)
         }
     }
 
@@ -104,7 +110,7 @@ struct SkimmerStationTable: View {
             Text("NF Hz").frame(width: 52, alignment: .trailing)
             Text("HF kHz").frame(width: 76, alignment: .trailing)
             Text("Rufzeichen").frame(width: 92, alignment: .leading)
-            Text("Land").frame(width: 150, alignment: .leading)
+            Text("Land").frame(width: 170, alignment: .leading)
             Text("S/N").frame(width: 34, alignment: .trailing)
             Text(settings.mode == .cw ? "WpM" : "Baud").frame(width: 38, alignment: .trailing)
             Text("vor").frame(width: 40, alignment: .trailing)
@@ -127,7 +133,7 @@ struct SkimmerStationTable: View {
             Text(String(Int(s.audioHz.rounded()))).frame(width: 52, alignment: .trailing)
             Text(rf.map { String(format: "%.1f", $0 / 1000).replacingOccurrences(of: ".", with: ",") } ?? "–").frame(width: 76, alignment: .trailing)
             Text(s.call ?? "…").frame(width: 92, alignment: .leading).fontWeight(s.isCQ ? .bold : .medium)
-            Text(s.dxcc.map { "\($0.flag) \($0.name)" } ?? "").frame(width: 150, alignment: .leading).lineLimit(1)
+            Text(s.dxcc.map { "\($0.flag) \($0.name)" } ?? "").frame(width: 170, alignment: .leading).lineLimit(1)
             Text(String(Int(s.snrDB.rounded()))).frame(width: 34, alignment: .trailing)
             Text(String(Int(s.speed.rounded()))).frame(width: 38, alignment: .trailing)
             Text(ageText(age)).frame(width: 40, alignment: .trailing)
@@ -205,48 +211,56 @@ struct SkimmerSpotTable: View {
     let mode: SkimMode
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 8) {
-                        Text("UTC").frame(width: 56, alignment: .leading)
-                        Text("Frequenz").frame(width: 84, alignment: .trailing)
-                        Text("Rufzeichen").frame(width: 96, alignment: .leading)
-                        Text("Land").frame(width: 130, alignment: .leading)
-                        Text("S/N").frame(width: 34, alignment: .trailing)
-                        Text(mode == .cw ? "WpM" : "Baud").frame(width: 38, alignment: .trailing)
-                        Text("Art").frame(width: 32, alignment: .leading)
-                    }
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(RadioTheme.textDim)
-                    .padding(.bottom, 3)
-                    if spots.isEmpty {
-                        Text("Noch keine Spots. Ein Spot entsteht, sobald ein Rufzeichen nach CQ oder DE gelesen wurde (oder zweimal).")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundColor(RadioTheme.textMuted)
-                    }
-                    ForEach(spots) { s in
-                        HStack(spacing: 8) {
-                            Text(SkimmerController.utc.string(from: s.time)).frame(width: 56, alignment: .leading)
-                            Text(s.rfHz.map { String(format: "%.1f", $0 / 1000).replacingOccurrences(of: ".", with: ",") } ?? "NF \(Int(s.audioHz))")
-                                .frame(width: 84, alignment: .trailing)
-                            Text(s.call).frame(width: 96, alignment: .leading).fontWeight(.bold)
-                            Text(s.dxcc.map { "\($0.flag) \($0.name)" } ?? "").frame(width: 130, alignment: .leading).lineLimit(1)
-                            Text(String(Int(s.snrDB.rounded()))).frame(width: 34, alignment: .trailing)
-                            Text(String(Int(s.speed.rounded()))).frame(width: 38, alignment: .trailing)
-                            Text(s.kind).frame(width: 32, alignment: .leading)
-                        }
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(s.kind == "CQ" ? RadioTheme.vfdGreen : RadioTheme.vfdCyan)
-                        .id(s.id)
-                    }
-                }
-                .padding(6)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("UTC").frame(width: 56, alignment: .leading)
+                Text("Frequenz").frame(width: 84, alignment: .trailing)
+                Text("Rufzeichen").frame(width: 96, alignment: .leading)
+                Text("Land").frame(width: 170, alignment: .leading)
+                Text("S/N").frame(width: 34, alignment: .trailing)
+                Text(mode == .cw ? "WpM" : "Baud").frame(width: 38, alignment: .trailing)
+                Text("Art").frame(width: 32, alignment: .leading)
             }
-            .onChange(of: spots.last?.id) { _, id in
-                if let id { proxy.scrollTo(id, anchor: .bottom) }
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .foregroundColor(RadioTheme.textDim)
+            .padding(.horizontal, 6)
+            .padding(.top, 6)
+            .padding(.bottom, 3)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        if spots.isEmpty {
+                            Text("Noch keine Spots. Ein Spot entsteht, sobald ein Rufzeichen nach CQ oder DE gelesen wurde (oder zweimal).")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundColor(RadioTheme.textMuted)
+                        }
+                        ForEach(spots) { s in
+                            row(s).id(s.id)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 6)
+                }
+                .onChange(of: spots.last?.id) { _, id in
+                    if let id { proxy.scrollTo(id, anchor: .bottom) }
+                }
             }
         }
+    }
+
+    private func row(_ s: SkimSpot) -> some View {
+        HStack(spacing: 8) {
+            Text(SkimmerController.utc.string(from: s.time)).frame(width: 56, alignment: .leading)
+            Text(s.rfHz.map { String(format: "%.1f", $0 / 1000).replacingOccurrences(of: ".", with: ",") } ?? "NF \(Int(s.audioHz))")
+                .frame(width: 84, alignment: .trailing)
+            Text(s.call).frame(width: 96, alignment: .leading).fontWeight(.bold)
+            Text(s.dxcc.map { "\($0.flag) \($0.name)" } ?? "").frame(width: 170, alignment: .leading).lineLimit(1)
+            Text(String(Int(s.snrDB.rounded()))).frame(width: 34, alignment: .trailing)
+            Text(String(Int(s.speed.rounded()))).frame(width: 38, alignment: .trailing)
+            Text(s.kind).frame(width: 32, alignment: .leading)
+        }
+        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .foregroundColor(s.kind == "CQ" ? RadioTheme.vfdGreen : RadioTheme.vfdCyan)
     }
 }
 

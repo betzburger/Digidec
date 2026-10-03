@@ -32,18 +32,23 @@ Auswertungen in Folge (0,5 s) machen aus ihr eine **Spur**; Spuren folgen der Fr
 
 **Kanal.** Je Spur ein Mischer auf die Spurfrequenz und ein Tiefpass; das Basisband (500 Abtastwerte/s, Grenzfrequenz CW 60 … 130 Hz je nach Tempo, BPSK31 48 Hz, BPSK63 85 Hz)
 läuft in einen Decoder:
-- **CW:** Hüllkurve (Glättung ¼ Punkt) → Zeichen- und Zwischenraumpegel (schnell hinauf, langsam hinab) → Hysterese (55 % / 40 % der Spanne, Öffnung mindestens 2,2:1)
+- **CW:** Hüllkurve (Glättung ¼ Punkt) → Zeichen- und Zwischenraumpegel (schnell hinauf; in Pausen hinab mit mindestens 1 s, bei langsamer Telegrafie 12 Punktlängen; nach jedem Zeichen zu 90 % auf dessen mittleren Pegel: Schwund bis 14 dB in wenigen Sekunden verschiebt die Schwellen rechtzeitig) → Hysterese (55 % / 40 % der Spanne, Öffnung mindestens 2,2:1)
   → Elemente. Punktlänge aus den letzten 24 Marken (getrennt am größten Längensprung, Verhältnis 3:1 herausgerechnet, 5 … 60 WpM), Zeichenende nach 2, Wortende nach 5 Punktlängen
   Pause → Morsetabelle; unbekannte Muster als „*“.
 - **BPSK:** Takt aus der Taktkomponente des Betragsquadrats (Oerder-Meyr, Gedächtnis 8 Symbole, Korrektur höchstens ein Abtastwert je Symbol),
   Symbolwert aus einer Zelle mit sin²-Fenster, differentielle Entscheidung (Phasenumkehr = 0), Varicode (zwei Nullen = Zeichenende), Frequenznachführung aus dem Phasenfehler (±25 Hz).
+  Die Nachführung darf höchstens ±25 Hz von der Spur der Engine abweichen (Schutz vor dem Wandern zum Nachbarn; Signale mit Drift folgen, weil die Spur selbst folgt).
   Ausgabeschalter (Träger erkannt) aus der schnellen Güte der Entscheidungen mit Hysterese (öffnet über 0,86 nach 24 Symbolen, schließt unter 0,72); ein unmodulierter Träger
   (kaum Nullen) liefert nichts.
 
 **Aufnahme in die Liste.** Eine Spur ist zunächst nur Kandidat. In die Liste kommt sie erst, wenn der Kanal Text liest: CW mindestens 10 Marken, ≥ 70 % bekannte Muster,
-8 … 45 WpM, 6 Zeichen, Rauschabstand ≥ 4 dB und Text, der nicht nach Rauschen aussieht (`looksLikeText`: nicht überwiegend E, T, I, S, H, wenige „*“, mindestens 4 verschiedene Zeichen);
+6 … 48 WpM, 6 Zeichen, Rauschabstand ≥ 4 dB und Text, der nicht nach Rauschen aussieht (`looksLikeText`: nicht überwiegend E, T, I, S, H, wenige „*“, mindestens 4 verschiedene Zeichen);
 BPSK Träger erkannt, 8 lesbare Zeichen, ≥ 60 % lesbar, ≥ 3 dB. Dauerträger, Brummen und Rauschen werden nach 15 s (CW) bzw. 14 s (PSK) verworfen und für 90 s an dieser Frequenz nicht neu angelegt.
 Vor der Aufnahme gelesener Text wird nachgeliefert (die ersten Zeichen gehen nicht verloren). Ein Kanal, der nur noch Unsinn liest, fällt nach 20 s (CW) bzw. 30 s (PSK) aus der Liste.
+
+**Seitenbänder.** Ein starkes Signal hat Seitenbänder (Tastklicks bei schnellem CW, Verzerrung bei PSK), die der Spektrumsuche als eigene Träger erscheinen und denselben Text lesen.
+Ein Kanal, der neben einem **stärkeren** aktiven Signal liegt (CW 160 Hz, BPSK31 80 Hz, BPSK63 140 Hz) und dessen letzte 24 Zeichen (ohne Zwischenräume) mit höchstens einem Sechstel Fehlern
+im Text des stärkeren vorkommen (Sellers-Abstand), kommt nicht in die Liste (bzw. fällt heraus) und wird 90 s gesperrt; solange er noch keine 14 Zeichen gelesen hat, wartet die Aufnahme.
 
 **Rauschabstand.** In 500 Hz Bandbreite, wie bei CW Skimmer und im Reverse Beacon Network: Pegel des Kanals (halbe Trägeramplitude A/2) gegen das Rauschen des Spektrums am Ort:
 `SNR = 20·lg(Pegel) − 10·lg 64 − P_Rauschen[dB je Bin]`. Gemessen wird bei CW nur bei gedrückter Taste, bei PSK nur bei erkanntem Träger; in Pausen bleibt der letzte Wert stehen.
@@ -68,6 +73,9 @@ Stück des Empfangstexts) aus. `… file <aufnahme.wav> <modus> [--from s] [--to
   **BPSK31** und **BPSK63** 6 Signale von 12 bis 25 dB: alle gefunden, Frequenz auf ±1 Hz, Zeichenfehlerrate 0 %.
   Nur Rauschen (60 s), ungetasteter Träger (40 s), jede Betriebsart: **kein** Signal in der Liste.
   Rechenaufwand: 40 s Audio mit 9 Kanälen in 0,1 s (etwa 0,3 % eines Kerns).
+  **Schwund** (CW 22 dB, Einbrüche bis 14 dB im Takt von 3, 4 und 8 s, 14 … 25 WpM): jede Sendung gelesen (4 von 4, 4 von 4, 5 von 5; vor der Pegelverfolgung nach Zeichen: 0 von 4 bis 0 von 5).
+  **Weitere Fälle:** CW 4 … 14 dB und 8 … 45 WpM (ein Signal, ein Kanal; bei 45 WpM entstand vorher ein zweiter Kanal im Seitenband), BPSK31/63 ab 5 dB, Träger mit Drift bis 0,8 Hz/s (BPSK31) bzw. 0,5 Hz/s
+  (BPSK63) verfolgt. **Falschmeldungen:** Rauschen mit zwei Dauerträgern und Knacksern, je Betriebsart und Schwelle (6 und 8 dB) 12 × 120 s: keine.
 - **Echte Aufnahme PSK31** (14,071 MHz, Twente, 58 s; freesound.org Nr. 242994, nur lokal): 3 bis 4 der etwa 8 Träger werden gelesen („599“, „MARCUS FROM MUNICH“, „de OH8MXJ“, „de EK2AN pse k“), mit
   Fehlern wie bei fldigi; die schwachen Träger bleiben Kandidaten.
 - **Echte Aufnahme CW** (40 m, viele Stationen, 140 s; freesound.org Nr. 204968, nur lokal): schwach, flatternd, dichtes Band. fldigi liest auf denselben Tönen ebenfalls nur Bruchstücke;

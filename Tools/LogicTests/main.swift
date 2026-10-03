@@ -5576,6 +5576,45 @@ func skimMix(_ mode: SkimMode, _ spec: [(hz: Double, snr: Double, wpm: Double, c
         check(r.channels.filter { $0.state == .active }.count == 5, "Skimmer \(mode.name): genau fünf aktive Signale (\(r.channels.filter { $0.state == .active }.count))")
     }
 
+    // Schwund (QSB): bis 14 dB tiefe Einbrüche im Takt von 4 und 8 s; jede Sendung wird gelesen
+    func repeated(_ one: [Float], seconds: Double) -> [Float] {
+        var x = one
+        while Double(x.count) < seconds * 8000 { x += one }
+        return x
+    }
+    let noise22 = SkimTestSignal.noiseSigma(snr500: 0, amplitude: 0.08)
+    for (depth, period, wpm) in [(0.8, 4.0, 20.0), (0.8, 8.0, 20.0), (0.7, 3.0, 25.0)] {
+        let one = SkimTestSignal.cw(text: "CQ CQ DE DL1ABC DL1ABC K", wpm: wpm, toneHz: 900, amplitude: 0.08 * Float(pow(10, 22.0 / 20)), leadSeconds: 0, tailSeconds: 1.0)
+        let faded = SkimTestSignal.fading(repeated(one, seconds: 70), depth: depth, period: period)
+        let r = skimRun(.cw, SkimTestSignal.mix([faded], noise: noise22, seconds: 70))
+        let text = r.channels.first { $0.state == .active && abs($0.frequencyHz - 900) < 8 }.flatMap { r.text[$0.id] } ?? ""
+        let sent = Int(70 / (Double(one.count) / 8000))
+        let read = text.components(separatedBy: " DE DL1ABC DL1ABC K").count - 1
+        check(read >= sent - 1, "Skimmer CW: Schwund \(depth) im Takt von \(Int(period)) s, \(Int(wpm)) WpM: \(read) von \(sent) Sendungen gelesen")
+    }
+    // Langsame und schnelle Telegrafie: ein Signal, ein Kanal (kein Seitenband als zweites Signal)
+    for (wpm, snr) in [(8.0, 14.0), (45.0, 20.0)] {
+        let one = SkimTestSignal.cw(text: "CQ CQ DE DL1ABC DL1ABC K", wpm: wpm, toneHz: 900, amplitude: 0.08 * Float(pow(10, snr / 20)), leadSeconds: 0, tailSeconds: 1.0)
+        let r = skimRun(.cw, SkimTestSignal.mix([repeated(one, seconds: 70)], noise: noise22, seconds: 70, seed: 5))
+        let active = r.channels.filter { $0.state == .active }
+        check(active.count == 1 && abs(active[0].frequencyHz - 900) < 5 && (r.text[active[0].id] ?? "").contains(" DL1ABC "),
+              "Skimmer CW: \(Int(wpm)) WpM genau ein Signal bei 900 Hz (\(active.map { Int($0.frequencyHz) }))")
+        check(abs((active.first?.speed ?? 0) - wpm) < 0.1 * wpm, "Skimmer CW: Tempo \(Int(wpm)) WpM gemessen \(String(format: "%.1f", active.first?.speed ?? 0))")
+    }
+    // BPSK mit wanderndem Träger (0,5 Hz/s, 22 Hz in 45 s): die Nachführung folgt
+    for mode in [SkimMode.psk31, .psk63] {
+        let long = String(repeating: "CQ CQ DE DL1ABC DL1ABC K ", count: 20)         // länger als die 45 s
+        let drifting = SkimTestSignal.bpsk(text: long, mode: mode, carrierHz: 1000, amplitude: 0.08 * Float(pow(10, 18.0 / 20)), driftHzPerSecond: 0.5)
+        let r = skimRun(mode, SkimTestSignal.mix([drifting], noise: noise22, seconds: 45))
+        let ch = r.channels.first { $0.state == .active }
+        check(ch != nil && abs((ch?.frequencyHz ?? 0) - 1022) < 4 && (r.text[ch?.id ?? 0] ?? "").contains(" DL1ABC "),
+              "Skimmer \(mode.name): Träger mit Drift 0,5 Hz/s gelesen und verfolgt (\(String(format: "%.1f", ch?.frequencyHz ?? 0)) Hz statt etwa 1022 Hz)")
+    }
+    // Seitenband eines starken Signals ist kein eigenes Signal: Text vergleichen
+    check(SkimmerEngine.approxContains(SkimmerEngine.compact("cq cq de dl1abc dl1abc k"), needle: SkimmerEngine.compact("DE DL1ABC DL1ABC"), maxErrors: 0), "Skimmer: Text im Text gefunden (Zwischenräume und Schreibweise egal)")
+    check(SkimmerEngine.approxContains(SkimmerEngine.compact("CQ CQ DE DL1ABC DL1ABC K"), needle: SkimmerEngine.compact("DE DL1A8C DL1ABC"), maxErrors: 2), "Skimmer: Text mit einem Fehler gefunden")
+    check(!SkimmerEngine.approxContains(SkimmerEngine.compact("CQ CQ DE DL1ABC DL1ABC K"), needle: SkimmerEngine.compact("TEST OK2XYZ OK2XYZ 599"), maxErrors: 4), "Skimmer: anderer Text nicht gefunden")
+
     // Nur Rauschen, Dauerträger und fremde Betriebsart: keine Signale in der Liste
     let noise = SkimTestSignal.mix([], noise: 0.08, seconds: 60, seed: 3)
     let carrier = (0..<(40 * 8000)).map { Float(0.05 * sin(2 * Double.pi * 1000 * Double($0) / 8000)) }

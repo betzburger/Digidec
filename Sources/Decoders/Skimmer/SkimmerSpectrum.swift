@@ -50,6 +50,15 @@ public enum SkimMode: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
+    /// Seitenbänder (Tastklicks, Verzerrung) eines starken Signals liegen bis zu so viel Hz neben ihm und lesen denselben Text
+    var twinRadiusHz: Double {
+        switch self {
+        case .cw: return 160
+        case .psk31: return 80
+        case .psk63: return 140
+        }
+    }
+
     /// Ein Kanal lebt noch so lange ohne Spitze (Sekunden)
     var deathSeconds: Double {
         switch self {

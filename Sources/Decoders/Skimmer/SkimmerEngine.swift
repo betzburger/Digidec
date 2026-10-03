@@ -176,7 +176,9 @@ public final class SkimmerEngine: @unchecked Sendable {
             if let snr { st.snrDB += 0.2 * (snr - st.snrDB) }
             if let c = st.cw, abs(t.frequencyHz - c.frequencyHz) > 2.5 { c.setFrequency(t.frequencyHz) }
             // PSK führt seine Frequenz selbst nach (Phasenfehler); nur bei großer Abweichung zur Spur folgen
-            if let c = st.psk, abs(t.frequencyHz - c.frequencyHz) > 14 { c.setFrequency(t.frequencyHz) }
+            if let c = st.psk {
+                if abs(t.frequencyHz - c.frequencyHz) > 14 { c.setFrequency(t.frequencyHz) } else { c.anchor(to: t.frequencyHz) }
+            }
         }
     }
 
@@ -224,7 +226,8 @@ public final class SkimmerEngine: @unchecked Sendable {
 
     private func review() {
         var closed: [Int] = []
-        for st in states.values {
+        // stärkste zuerst: Seitenbänder sehen dann ihren Träger schon in der Liste
+        for st in states.values.sorted(by: { $0.snrDB > $1.snrDB }) {
             let age = time - st.born
             switch mode {
             case .cw:
@@ -234,10 +237,16 @@ public final class SkimmerEngine: @unchecked Sendable {
                     // Dauerträger oder Rauschen: keine Tastung nach 15 s, oder 30 s ohne verständliche Zeichen
                     if age > 15 && c.markCount < 4 { closed.append(st.id); reject(st); continue }
                     if age > 30 && c.plausibility < 0.35 && c.knownPatterns + c.unknownPatterns >= 6 { closed.append(st.id); reject(st); continue }
-                    if c.markCount >= 10 && c.plausibility >= 0.7 && c.wpm >= 8 && c.wpm <= 45 && c.characters >= 6
+                    if c.markCount >= 10 && c.plausibility >= 0.7 && c.wpm >= 6 && c.wpm <= 48 && c.characters >= 6
                         && st.snrDB >= 4 && Self.looksLikeText(st.recent, mode: mode) {
-                        activate(st)
+                        switch twin(of: st) {
+                        case .none: activate(st)
+                        case .undecided: break
+                        case .twin: closed.append(st.id); reject(st); continue
+                        }
                     }
+                } else if twin(of: st) == .twin {
+                    closed.append(st.id); reject(st); continue
                 } else if !Self.looksLikeText(st.recent, mode: mode) || c.wpm > 50 || c.wpm < 6 {
                     // ein aktiver Kanal, der nur noch Unsinn liest (Signal weg, Rauschen, Störer): aus der Liste nehmen
                     if st.gibberishSince == nil { st.gibberishSince = time }
@@ -251,8 +260,14 @@ public final class SkimmerEngine: @unchecked Sendable {
                     if age > 14 && !c.carrierDetected { closed.append(st.id); reject(st); continue }
                     if age > 40 && c.characters < 3 { closed.append(st.id); reject(st); continue }
                     if c.carrierDetected && c.printable >= 8 && c.plausibility >= 0.6 && st.snrDB >= 3 && Self.looksLikeText(st.recent, mode: mode) {
-                        activate(st)
+                        switch twin(of: st) {
+                        case .none: activate(st)
+                        case .undecided: break
+                        case .twin: closed.append(st.id); reject(st); continue
+                        }
                     }
+                } else if twin(of: st) == .twin {
+                    closed.append(st.id); reject(st); continue
                 } else if !Self.looksLikeText(st.recent, mode: mode) {
                     if st.gibberishSince == nil { st.gibberishSince = time }
                     if time - (st.gibberishSince ?? time) > 30 { closed.append(st.id); reject(st); continue }
@@ -286,6 +301,44 @@ public final class SkimmerEngine: @unchecked Sendable {
             let letters = chars.filter { $0.isLetter || $0.isNumber }.count
             return Double(ok) / Double(chars.count) > 0.88 && letters >= 6
         }
+    }
+
+    private enum TwinCheck { case none, undecided, twin }
+
+    private func frequency(of st: State) -> Double { st.cw?.frequencyHz ?? st.psk?.frequencyHz ?? 0 }
+
+    /// Ist `st` ein Seitenband oder Verzerrungsprodukt eines stärkeren Signals nebenan? Das erkennt man am Text: Es liest dasselbe wie sein Träger.
+    /// `undecided`: ein stärkeres Signal ist in der Nähe, aber es gibt noch nicht genug Text für ein Urteil.
+    private func twin(of st: State) -> TwinCheck {
+        let hz = frequency(of: st)
+        var undecided = false
+        for other in states.values where other.id != st.id && other.active && other.snrDB > st.snrDB && abs(frequency(of: other) - hz) <= mode.twinRadiusHz {
+            let mine = Self.compact(st.recent)
+            if mine.count < 14 { undecided = true; continue }
+            let needle = Array(mine.suffix(24))
+            if Self.approxContains(Self.compact(other.recent), needle: needle, maxErrors: max(2, needle.count / 6)) { return .twin }
+        }
+        return undecided ? .undecided : .none
+    }
+
+    /// Text ohne Zwischenräume in Großbuchstaben (Wortabstände und Zeilenwechsel unterscheiden sich zwischen Träger und Seitenband)
+    static func compact(_ text: String) -> [Character] {
+        text.uppercased().filter { !$0.isWhitespace }.map { $0 }
+    }
+
+    /// Kommt `needle` mit höchstens `maxErrors` Fehlern (Ersetzen, Einfügen, Weglassen) irgendwo in `haystack` vor? (Sellers)
+    static func approxContains(_ haystack: [Character], needle: [Character], maxErrors: Int) -> Bool {
+        guard !needle.isEmpty, !haystack.isEmpty else { return false }
+        var previous = [Int](repeating: 0, count: haystack.count + 1)       // Zeile 0: freier Anfang im Heuhaufen
+        var current = previous
+        for i in 1...needle.count {
+            current[0] = i
+            for j in 1...haystack.count {
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (needle[i - 1] == haystack[j - 1] ? 0 : 1))
+            }
+            swap(&previous, &current)
+        }
+        return (previous.min() ?? needle.count) <= maxErrors
     }
 
     private func reject(_ st: State) {
