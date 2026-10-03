@@ -16,6 +16,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case ale
     case aprs
     case acars
+    case sonde
     case pager
     case tones
     case wefax
@@ -43,6 +44,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .ale:    return "ALE"
         case .aprs:   return "APRS"
         case .acars:  return "ACARS"
+        case .sonde:  return "SONDE"
         case .pager:  return "PAGER"
         case .tones:  return "TÖNE"
         case .wefax:  return "WEFAX"
@@ -65,7 +67,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .acars, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .acars, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -83,6 +85,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .ale: return ["ale"]
         case .aprs: return ["eu", "na", "iss", "au", "jp", "free"]   // = APRSChannel.rawValue
         case .acars: return ["f131550", "f131725", "f131525", "f130025", "f136900", "free"]   // = ACARSChannel.rawValue
+        case .sonde: return ["rs41"]
         case .pager: return ["dapnet", "free"]   // = PagerChannel.rawValue
         case .tones: return ["all"]
         case .dsc: return ["8414", "2187", "4207", "6312", "12577", "16804", "70"]   // = DSCChannel.rawValue (ohne „frei“)

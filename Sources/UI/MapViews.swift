@@ -9,6 +9,7 @@ struct ModuleMapView: View {
             switch state.activeModule {
             case .aprs:   APRSMapView(controller: state.aprsController, settings: state.aprs, home: state.home)
             case .acars:  ACARSMapView(controller: state.acarsController, home: state.home)
+            case .sonde:  SondeMapView(controller: state.sondeController, home: state.home)
             case .ft8:    FT8MapView(controller: state.ft8Controller, home: state.home)
             case .ft4:    FT4MapView(controller: state.ft4Controller, home: state.home)
             case .wspr:   WSPRMapView(controller: state.wsprController, settings: state.wspr, home: state.home)
@@ -43,7 +44,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .acars, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -52,7 +53,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .acars, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -65,6 +66,7 @@ extension DecoderModuleInfo {
         case .dcf77: return "Atomuhr, Zeitvergleich und Telegramm"
         case .efr: return "Rundsteuertelegramme"
         case .skimmer: return "Alle gehörten Signale mit Rufzeichen, Rauschabstand und Spots"
+        case .sonde: return "Die empfangenen Radiosonden mit Höhe, Steigen, Messwerten und Entfernung"
         case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
     }
@@ -96,6 +98,21 @@ private struct ACARSMapView: View {
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: $selection,
                      legend: "Flugzeuge mit Weg · Flughäfen aus OOOI")
+        }
+    }
+}
+
+// MARK: - Sonden
+
+private struct SondeMapView: View {
+    @ObservedObject var controller: SondeController
+    @ObservedObject var home: HomeLocation
+    @State private var selection: String?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 2)) { ctx in
+            MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: $selection,
+                     legend: "Sonden mit Weg · Landeprognose grob")
         }
     }
 }

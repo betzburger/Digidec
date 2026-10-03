@@ -33,6 +33,8 @@ func usage() -> Never {
       --aprs                APRS/Packet-Radio (AFSK 1200 Bd, AX.25); Ausgabe je Paket als TNC2-Zeile mit Ort. --nofix schaltet die Ein-Bit-Reparatur ab,
                             --slicers <n> (Standard 7), --pre auto|off|on Vorverzerrung für de-emphasiertes Audio (Standard auto: beide Wege), --center <Mitte-Hz> (Standard 1700), --home <Locator> für Entfernungen
 
+      --sonde               Radiosonde RS41 (FM-Diskriminator-Audio, 4800 Bd): je Rahmen eine Zeile mit Position, Höhe, Messwerten; am Ende Zähler
+
       --pager               Funkruf (POCSAG 512/1200/2400, FLEX): je Meldung eine Zeile; --rates 512,1200 schränkt die Baudraten ein
       --tones [normen]      DTMF und Selektivrufe (dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia, selcal), Normen durch Komma getrennt (Standard: dtmf,zvei1)
 
@@ -77,6 +79,7 @@ var aleMode = false
 var acarsMode = false
 var fileChannel = 0
 var pagerMode = false
+var sondeMode = false
 var pagerRates = POCSAG.rates
 var tonesMode = false
 var tonesList = "dtmf,zvei1"
@@ -123,6 +126,7 @@ while !args.isEmpty {
     case "--acars": acarsMode = true
     case "--channel": fileChannel = Int(value()) ?? 0
     case "--pager": pagerMode = true
+    case "--sonde": sondeMode = true
     case "--rates": pagerRates = value().split(separator: ",").compactMap { Int($0) }
     case "--tones": tonesMode = true; if let v = args.first, !v.hasPrefix("-") { tonesList = v; args.removeFirst() }
     case "--nofix": aprsFix = false
@@ -327,6 +331,34 @@ if acarsMode {
     }
     let dur = Double(file.length) / file.processingFormat.sampleRate
     print(String(format: "%.1f s Audio in %.2f s: %d Meldungen", dur, Date().timeIntervalSince(began), n))
+    exit(0)
+}
+
+// MARK: - Radiosonde
+
+if sondeMode {
+    guard let file = try? AVAudioFile(forReading: wavURL, commonFormat: .pcmFormatFloat32, interleaved: false),
+          let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: SondeDecoder.sampleRate) else {
+        print("Datei nicht lesbar: \(wavPath)")
+        exit(1)
+    }
+    print("Radiosonde · RS41 4800 Bd")
+    let rx = RS41Receiver(sampleRate: SondeDecoder.sampleRate)
+    var samples = 0
+    rx.onTelemetry = { t in print(String(format: "%7.1f s  ", Double(samples) / SondeDecoder.sampleRate) + SondeController.logLine(t) + (t.correctedBytes < 0 ? "  [nur Teile gültig]" : "")) }
+    let began = Date()
+    let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
+    while true {
+        buf.frameLength = 0
+        try? file.read(into: buf, frameCount: 48_000)
+        guard buf.frameLength > 0 else { break }
+        src.process(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength))) { chunk in
+            rx.process(chunk)
+            samples += chunk.count
+        }
+    }
+    let dur = Double(file.length) / file.processingFormat.sampleRate, st = rx.stats
+    print(String(format: "%.0f s Audio in %.2f s: %d Rahmen, %d Teile, %d verloren, %d Bytes korrigiert", dur, Date().timeIntervalSince(began), st.frames, st.partial, st.failed, st.corrected))
     exit(0)
 }
 

@@ -48,6 +48,11 @@ public struct RigTuneTarget: Equatable, Sendable {
         return dial.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
     }
 
+    /// Radiosonde: FM auf der Sondenfrequenz (kHz) mit dem gewählten ZF-Filter (15 oder 50 kHz)
+    public static func sonde(frequencyKHz: Int, filterKHz: Int) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64(frequencyKHz) * 1000, mode: "FM", passbandHz: filterKHz * 1000)
+    }
+
     /// APRS-Kanal: FM auf der Region-Frequenz (frei = nichts)
     public static func aprs(channel: APRSChannel) -> RigTuneTarget? {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }

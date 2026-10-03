@@ -1,6 +1,9 @@
 // make_signal: erzeugt Testsignale (WAV, 16 Bit mono) aus Skriptdateien.
 //
 //   acars <skript> <aus.wav>   Zeilen: <Sekunde>|<Kennzeichen>|<Flug>|<Label>|<Text>   (\n im Text = Zeilenumbruch, # = Kommentar)
+//   sonde - <aus.wav>          RS41-Flug als FM-Diskriminator-Audio (48 kHz), ein Telegramm je Sekunde. Optionen:
+//                              --serial N1234567 --lat 49.79 --lon 9.95 --alt 180 --climb 5 --burst 28000 --wind 2,8 --seconds 600
+//                              --start <s> (Beginn im Flug) --freq 403500 (kHz) --temp 15 (Bodentemperatur °C) --offset <Spannung> --ppm <Taktabweichung>
 //   Optionen: --noise <Amplitude>   Rauschen dazu (Standard 0)
 import Foundation
 
@@ -26,7 +29,7 @@ var args = Array(CommandLine.arguments.dropFirst())
 var noise: Float = 0
 if let i = args.firstIndex(of: "--noise"), i + 1 < args.count { noise = Float(args[i + 1]) ?? 0; args.removeSubrange(i...(i + 1)) }
 guard args.count >= 3, args[0] != "--help" else {
-    print("Aufruf: make_signal.sh acars <skript.txt> <aus.wav> [--noise <Amplitude>]")
+    print("Aufruf: make_signal.sh acars <skript.txt> <aus.wav> [--noise <Amplitude>]\n        make_signal.sh sonde - <aus.wav> [--serial …] [--lat …] [--lon …] [--alt …] [--climb …] [--burst …] [--seconds …] (siehe Kopf von main.swift)")
     exit(args.first == "--help" ? 0 : 2)
 }
 
@@ -51,6 +54,43 @@ case "acars":
     if noise > 0 { for i in out.indices { out[i] += noise * Float.random(in: -1...1) } }
     try writeWAV(out, rate: rate, to: args[2])
     print("\(blockNo) Meldungen, \(String(format: "%.1f", Double(out.count) / Double(rate))) s → \(args[2])")
+case "sonde":
+    func opt(_ name: String, _ fallback: String) -> String {
+        if let i = args.firstIndex(of: name), i + 1 < args.count { return args[i + 1] }
+        return fallback
+    }
+    let serial = opt("--serial", "T2610001")
+    let lat = Double(opt("--lat", "49.79")) ?? 49.79, lon = Double(opt("--lon", "9.95")) ?? 9.95, alt = Double(opt("--alt", "180")) ?? 180
+    let climb = Double(opt("--climb", "5")) ?? 5, burst = Double(opt("--burst", "28000")) ?? 28_000
+    let w = opt("--wind", "2,8").split(separator: ",").compactMap { Double($0) }
+    let seconds = Int(opt("--seconds", "600")) ?? 600, start = Int(opt("--start", "0")) ?? 0
+    let freq = Int(opt("--freq", "403500")) ?? 403_500
+    let groundTemp = Double(opt("--temp", "15")) ?? 15
+    let offset = Float(opt("--offset", "0")) ?? 0, ppm = Double(opt("--ppm", "0")) ?? 0
+    let cal = RS41SignalGenerator.Calibration(frequencyKHz: freq, model: "RS41-SG")
+    var frames: [[UInt8]] = []
+    var last = (lat: lat, lon: lon, alt: alt)
+    for k in 0..<seconds {
+        var p = RS41SignalGenerator.Parameters()
+        p.serial = serial
+        p.frame = 200 + start + k
+        let st = RS41SignalGenerator.flightState(t: Double(start + k), launch: (lat, lon, alt), climb: climb, burst: burst, wind: (w.first ?? 2, w.last ?? 8))
+        last = (st.lat, st.lon, st.alt)
+        p.latitude = st.lat; p.longitude = st.lon; p.altitude = st.alt
+        p.vNorth = st.vN; p.vEast = st.vE; p.vUp = st.vU
+        p.gpsWeek = 2380; p.gpsMillis = 300_000_000 + 1000 * (start + k)
+        // Standardatmosphäre: −6,5 K je km bis 11 km, danach −56,5 °C
+        let h = st.alt - alt
+        let t = h < 11_000 ? groundTemp - 0.0065 * h : groundTemp - 71.5
+        p.meas = Array((cal.measurement(temperature: t) + [Double](repeating: 0, count: 9)).prefix(12))
+        p.calibrationIndex = (start + k) % 51
+        p.calibrationBytes = cal.chunk((start + k) % 51)
+        frames.append(RS41SignalGenerator.frame(p))
+    }
+    var out = RS41SignalGenerator.audio(frames: frames, offset: offset, clockError: ppm * 1e-6)
+    if noise > 0 { for i in out.indices { out[i] += noise * Float.random(in: -1...1) } }
+    try writeWAV(out, rate: 48_000, to: args[2])
+    print("\(frames.count) Telegramme, \(String(format: "%.0f", Double(out.count) / 48_000)) s, letzte Höhe \(Int(last.alt)) m bei \(String(format: "%.4f %.4f", last.lat, last.lon)) → \(args[2])")
 default:
     print("Unbekannte Art: \(args[0])")
     exit(2)

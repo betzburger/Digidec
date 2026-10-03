@@ -5770,5 +5770,298 @@ do {
     pipeline.stop()
 }
 
+
+// MARK: - Radiosonden RS41: Reed-Solomon, Rahmen, Empfänger (synthetisch und an einem echten Rahmen)
+
+/// Echter, fehlerkorrigierter Rahmen einer RS41-SG (N3920808, Boden bei Adelaide, 10.02.2019 05:16:20 UTC, Rahmen 112; Aufnahme aus dem Projekt radiosonde_auto_rx)
+let rs41RealFrame: [UInt8] = {
+    let h = Array("8635f44093df1a60c3b6131c1a574338f8c39381a157718c2d859929baa0e11a4f2899fef5f8cecd7f75be65ae153951fd7ffd5d681b36ed0f792870004e333932303830381f00000000001f0000260003320942339abac28ed24e42c37b1b42f86f51aa247a2a80d3024b05023cee028e5708fe4b074a56084ac0024c05023cee0200000000000000000000000000000022d47c1ef807f0e2210115cb1bf010cc0a801d870fecff00ff00ff00ff00ff00ff007b6a7d59e2473801ff55049f01b8bf0084ef360cd373ffa555620cec91000e000000570200dab7ad16575601d6696a1172cf0000000000000000000000000000000000000000000000000000000000000000000000000000000000000081957b15117380e82d22a614b1c377ea2c00bfff2b00061117715876110000000000000000000000000000000000ecc7")
+    return stride(from: 0, to: h.count, by: 2).map { UInt8(String(h[$0...($0 + 1)]), radix: 16)! }
+}()
+
+/// Einpoliger Tiefpass / Hochpass / De-Emphase auf Audio (Nachbildung der NF-Kette eines Funkgeräts)
+func sondeFilter(_ x: [Float], kind: String, fc: Double, rate: Double = 48_000) -> [Float] {
+    var y = [Float](repeating: 0, count: x.count)
+    let a = Float(exp(-2 * Double.pi * fc / rate))
+    var s: Float = 0
+    switch kind {
+    case "lp": for i in x.indices { s = (1 - a) * x[i] + a * s; y[i] = s }
+    case "hp": for i in x.indices { s = (1 - a) * x[i] + a * s; y[i] = x[i] - s }
+    default: y = x
+    }
+    return y
+}
+
+func sondeFlightAudio(frames count: Int = 20, rate: Double = 48_000, amplitude: Float = 0.25, offset: Float = 0, clockError: Double = 0, start: Int = 0)
+    -> (audio: [Float], frames: [[UInt8]], truth: [(lat: Double, lon: Double, alt: Double)]) {
+    let cal = RS41SignalGenerator.Calibration(frequencyKHz: 403_500, model: "RS41-SG")
+    var frames: [[UInt8]] = [], truth: [(Double, Double, Double)] = []
+    for k in 0..<count {
+        var p = RS41SignalGenerator.Parameters()
+        p.serial = "T2610001"
+        p.frame = 100 + start + k
+        let st = RS41SignalGenerator.flightState(t: Double(start + k), launch: (49.79, 9.95, 180), climb: 5)
+        p.latitude = st.lat; p.longitude = st.lon; p.altitude = st.alt; p.vNorth = st.vN; p.vEast = st.vE; p.vUp = st.vU
+        p.gpsWeek = 2380; p.gpsMillis = 300_000_000 + 1000 * (start + k)
+        p.meas = Array((cal.measurement(temperature: 12.34 - 0.0065 * (st.alt - 180)) + [Double](repeating: 0, count: 9)).prefix(12))
+        p.calibrationIndex = (start + k) % 51
+        p.calibrationBytes = cal.chunk((start + k) % 51)
+        frames.append(RS41SignalGenerator.frame(p))
+        truth.append((st.lat, st.lon, st.alt))
+    }
+    return (RS41SignalGenerator.audio(frames: frames, sampleRate: rate, amplitude: amplitude, offset: offset, clockError: clockError), frames, truth)
+}
+
+@MainActor func sondeDecode(_ audio: [Float], rate: Double = 48_000) -> (frames: [RS41Telemetry], stats: RS41Stats) {
+    let rx = RS41Receiver(sampleRate: rate)
+    var got: [RS41Telemetry] = []
+    rx.onTelemetry = { got.append($0) }
+    audio.withUnsafeBufferPointer { buf in
+        var i = 0
+        while i < buf.count { let m = min(480, buf.count - i); rx.process(UnsafeBufferPointer(rebasing: buf[i..<(i + m)])); i += m }
+    }
+    return (got, rx.stats)
+}
+
+@MainActor func sondeTests() {
+    // --- Reed-Solomon: Rundlauf mit 0 … 12 Fehlern an beliebigen Stellen (Nutz- und Prüfbytes)
+    var rng = SkimRNG(seed: 99)
+    var rsOK = true, rsFixed = true
+    for errors in [0, 1, 2, 5, 9, 12] {
+        let message = (0..<132).map { _ in UInt8(truncatingIfNeeded: rng.next()) }
+        var cw = RS41ReedSolomon.encode(message: message) + message
+        let clean = cw
+        var used = Set<Int>()
+        while used.count < errors { used.insert(Int(rng.next() % UInt64(cw.count))) }
+        for p in used { cw[p] ^= UInt8(1 + rng.next() % 255) }
+        let n = RS41ReedSolomon.decode(&cw)
+        if n != errors { rsOK = false }
+        if cw != clean { rsFixed = false }
+    }
+    check(rsOK && rsFixed, "RS41-Reed-Solomon: 0 … 12 Fehler gezählt (\(rsOK)) und behoben (\(rsFixed))")
+    var tooMany = RS41ReedSolomon.encode(message: [UInt8](repeating: 0x55, count: 132)) + [UInt8](repeating: 0x55, count: 132)
+    for p in stride(from: 3, to: 100, by: 4) { tooMany[p] ^= 0xA5 }
+    let beyond = RS41ReedSolomon.decode(&tooMany)
+    check(beyond == nil || beyond! > 0, "RS41-Reed-Solomon: 25 Fehler werden nicht als fehlerfrei durchgewinkt")
+
+    // --- Echter Rahmen: Prüfsummen der Blöcke, Seriennummer, Position, Messwerte
+    check(rs41RealFrame.count == 320, "RS41 echter Rahmen: 320 Bytes")
+    let blocks = RS41FrameParser.blocks(rs41RealFrame)
+    check(blocks.map(\.type) == [0x79, 0x7A, 0x7C, 0x7D, 0x7B, 0x76] && blocks.allSatisfy(\.valid), "RS41 echter Rahmen: sechs Blöcke mit gültiger CRC (\(blocks.map { String($0.type, radix: 16) }))")
+    var cal = RS41Calibration()
+    if let t = RS41FrameParser.parse(rs41RealFrame, calibration: &cal, previousSerial: nil) {
+        check(t.serial == "N3920808" && t.frame == 112, "RS41 echter Rahmen: Seriennummer \(t.serial), Rahmen \(t.frame)")
+        check(abs((t.latitude ?? 0) + 34.72077) < 1e-4 && abs((t.longitude ?? 0) - 138.69278) < 1e-4 && abs((t.altitude ?? 0) - 87.38) < 0.05,
+              "RS41 echter Rahmen: Position \(t.latitude ?? 0) \(t.longitude ?? 0) \(t.altitude ?? 0)")
+        let utc = ISO8601DateFormatter().string(from: t.time ?? Date(timeIntervalSince1970: 0))
+        check(utc == "2019-02-10T05:16:20Z", "RS41 echter Rahmen: Zeit (UTC) \(utc)")
+        check(abs((t.speed ?? 9) - 0.2) < 0.06 && abs((t.climb ?? 9) + 0.9) < 0.06 && t.satellites == 6 && abs((t.battery ?? 0) - 3.1) < 0.01, "RS41 echter Rahmen: Geschwindigkeit, Steigen, Satelliten, Batterie")
+    } else { check(false, "RS41 echter Rahmen nicht lesbar") }
+    // beschädigte Blöcke werden verworfen, nicht falsch gelesen
+    var damaged = rs41RealFrame
+    damaged[0x114] ^= 0x10                                      // Positionsblock
+    var cal2 = RS41Calibration()
+    let t2 = RS41FrameParser.parse(damaged, calibration: &cal2, previousSerial: nil)
+    check(t2?.serial == "N3920808" && t2?.hasPosition == false, "RS41: Block mit falscher CRC liefert keine Position")
+
+    // --- Fehlerkorrektur auf dem echten Rahmen: verwürfelt, Bytefehler, wieder entwürfelt
+    var broken = rs41RealFrame
+    for p in [10, 40, 60, 100, 150, 200, 250, 300] { broken[p] ^= 0x3C }
+    check(RS41Receiver.correct(&broken, length: 320) == 8 && broken == rs41RealFrame, "RS41: acht Bytefehler im echten Rahmen behoben")
+
+    // --- Ganze Kette mit synthetischem Flug (48 kHz): Position auf 1e-6° genau, Temperatur, Frequenz, Typ
+    let ideal = sondeFlightAudio(frames: 60)
+    let a = sondeDecode(ideal.audio)
+    check(a.frames.count == 60 && a.stats.frames == 60 && a.stats.failed == 0, "RS41 Kette: 60 von 60 Rahmen (\(a.frames.count), verloren \(a.stats.failed))")
+    var worst = 0.0
+    for (g, t) in zip(a.frames, ideal.truth) { worst = max(worst, abs((g.latitude ?? 99) - t.lat), abs((g.longitude ?? 99) - t.lon), abs((g.altitude ?? 9e9) - t.alt) / 1e5) }
+    check(worst < 1e-5, "RS41 Kette: größte Abweichung der Position \(worst)")
+    if let g = a.frames.last {
+        check(g.serial == "T2610001" && g.frame == 159 && g.frequencyKHz == 403_500 && g.model == "RS41-SG", "RS41 Kette: Seriennummer, Rahmen, Frequenz, Typ (\(g.serial) \(g.frame) \(g.frequencyKHz ?? 0) \(g.model ?? "-"))")
+        let expectedT = 12.34 - 0.0065 * ((ideal.truth.last?.alt ?? 0) - 180)
+        check(abs((g.temperature ?? -99) - expectedT) < 0.05, "RS41 Kette: Temperatur \(g.temperature ?? -99) statt \(expectedT)")
+        check(abs((g.climb ?? 0) - 5) < 0.05 && g.satellites == 9 && abs((g.battery ?? 0) - 2.9) < 0.01, "RS41 Kette: Steigen, Satelliten, Batterie")
+    }
+    check(a.frames.prefix(3).allSatisfy { $0.temperature == nil } && a.frames.dropFirst(10).allSatisfy { $0.temperature != nil }, "RS41 Kette: Temperatur erst, wenn die Kalibrierblöcke 3 bis 6 da sind")
+
+    // --- Funkkette: jede Verzerrung für sich; mindestens 18 von 20 Rahmen müssen ankommen
+    func ratio(_ audio: [Float], rate: Double = 48_000) -> Int { sondeDecode(audio, rate: rate).frames.count }
+    let base = sondeFlightAudio(frames: 20)
+    check(ratio(sondeFlightAudio(frames: 20, offset: 0.12).audio) >= 18, "RS41 Funkkette: Frequenzablage (Gleichanteil)")
+    check(ratio(sondeFlightAudio(frames: 20, offset: -0.1).audio) >= 18, "RS41 Funkkette: Frequenzablage negativ")
+    check(ratio(sondeFlightAudio(frames: 20, clockError: 3e-4).audio) >= 18, "RS41 Funkkette: Bitrate +300 ppm")
+    check(ratio(sondeFlightAudio(frames: 20, clockError: -3e-4).audio) >= 18, "RS41 Funkkette: Bitrate −300 ppm")
+    check(ratio(base.audio.map { -$0 }) >= 18, "RS41 Funkkette: umgekehrte Polarität")
+    check(ratio(sondeFilter(base.audio, kind: "hp", fc: 300)) >= 18, "RS41 Funkkette: Kopplungs-Hochpass 300 Hz")
+    check(ratio(sondeFilter(base.audio, kind: "lp", fc: 2100)) >= 18, "RS41 Funkkette: De-Emphase 75 µs (Eckfrequenz 2,1 kHz)")
+    check(ratio(sondeFilter(base.audio, kind: "lp", fc: 1060)) >= 18, "RS41 Funkkette: De-Emphase 150 µs")
+    check(ratio(sondeFilter(sondeFilter(sondeFilter(base.audio, kind: "hp", fc: 300), kind: "lp", fc: 3000), kind: "lp", fc: 3000)) >= 18, "RS41 Funkkette: Sprachband 300 … 3000 Hz")
+    var noisy = base.audio
+    var nr = SkimRNG(seed: 5)
+    for i in noisy.indices { noisy[i] += 0.07 * Float(nr.gauss()) }
+    check(ratio(noisy) >= 18, "RS41 Funkkette: Rauschen (Rauschspannung 0,07 bei Signal ±0,25)")
+    let low = sondeFlightAudio(frames: 20, rate: 24_000)
+    check(ratio(low.audio, rate: 24_000) >= 18, "RS41 Funkkette: Abtastrate 24 kHz")
+    let high = sondeFlightAudio(frames: 20, rate: 96_000)
+    check(ratio(high.audio, rate: 96_000) >= 18, "RS41 Funkkette: Abtastrate 96 kHz")
+
+    // --- Nichts als Rauschen oder Träger: keine Rahmen, kein Absturz
+    var onlyNoise = [Float](repeating: 0, count: 48_000 * 20)
+    for i in onlyNoise.indices { onlyNoise[i] = 0.15 * Float(nr.gauss()) }
+    let nn = sondeDecode(onlyNoise)
+    check(nn.frames.isEmpty && nn.stats.frames == 0, "RS41: Rauschen ergibt keinen Rahmen (\(nn.frames.count))")
+    check(sondeDecode([Float](repeating: 0.2, count: 48_000 * 5)).frames.isEmpty, "RS41: Gleichspannung ergibt keinen Rahmen")
+
+    // --- Teilauswertung: Rahmen mit zu vielen Bytefehlern in den Prüfbytes, aber gültigen Blöcken
+    let cleanFrame = ideal.frames[0]
+    var partial = cleanFrame
+    for i in 8..<56 { partial[i] ^= 0xFF }                       // alle Prüfbytes zerstören: Fehlerkorrektur scheitert
+    let partialAudio = RS41SignalGenerator.audio(frames: [partial, partial, partial])
+    let pr = sondeDecode(partialAudio)
+    check(pr.stats.frames == 0 && pr.stats.partial >= 2 && pr.frames.first?.hasPosition == true, "RS41: Teilauswertung bei zerstörter Fehlerkorrektur (\(pr.stats.partial) Teile)")
+
+    // --- Rahmenzähler des Empfängers bei zweimaligem Aufruf von reset
+    let rx = RS41Receiver()
+    rx.reset()
+    check(rx.stats == RS41Stats(), "RS41: Zähler nach reset leer")
+}
+sondeTests()
+
+// MARK: - Sondenmodul: Flug, Phase, Landeprognose, Karte, Einstellungen, Abstimmung, Pipeline
+@MainActor func sondeModuleTests() {
+    check(DecoderModuleInfo.sonde.displayName == "SONDE" && DecoderModuleInfo.sonde.isAvailable && DecoderModuleInfo.sonde.hasMap && DecoderModuleInfo.sonde.presetIDs == ["rs41"], "Sonde: Modul verfügbar mit Karte")
+    check(parse("digidec://decode?mode=sonde") == .success(DecodeRequest(module: .sonde, presetID: "rs41")), "Sonde: URL mode=sonde")
+    check(RigTuneTarget.sonde(frequencyKHz: 403_500, filterKHz: 15) == RigTuneTarget(dialHz: 403_500_000, mode: "FM", passbandHz: 15_000), "QSY: Sonde 403,500 MHz FM 15 kHz")
+    check(RigTuneTarget.sonde(frequencyKHz: 400_150, filterKHz: 50).passbandHz == 50_000 && RigTuneTarget.sonde(frequencyKHz: 400_150, filterKHz: 50).label == "400,150 MHz FM", "QSY: Sonde mit 50-kHz-Filter")
+    // Frequenz aus Text
+    check(SondeSettingsStore.parse("403,5") == 403_500 && SondeSettingsStore.parse("403.500") == 403_500 && SondeSettingsStore.parse("403500") == 403_500 && SondeSettingsStore.parse("405,85 MHz") == 405_850, "Sonde: Frequenz aus Text (MHz und kHz)")
+    check(SondeSettingsStore.parse("430,0") == nil && SondeSettingsStore.parse("399,9") == nil && SondeSettingsStore.parse("abc") == nil && SondeSettingsStore.text(403_500) == "403,500 MHz", "Sonde: Frequenz außerhalb des Sondenbandes abgelehnt")
+
+    // Flug: Aufstieg, Platzen, Sinkflug, Landung
+    let launch = (lat: 49.79, lon: 9.95, alt: 180.0)
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    func telemetry(_ k: Int, climb: Double = 5, burst: Double = 8000) -> RS41Telemetry {
+        let st = RS41SignalGenerator.flightState(t: Double(k), launch: launch, climb: climb, burst: burst, wind: (2, 8))
+        var t = RS41Telemetry(serial: "T2610001", frame: 100 + k)
+        t.latitude = st.lat; t.longitude = st.lon; t.altitude = st.alt
+        t.speed = (st.vN * st.vN + st.vE * st.vE).squareRoot(); t.heading = atan2(st.vE, st.vN) * 180 / .pi; t.climb = st.vU
+        t.temperature = 10 - 0.0065 * (st.alt - 180); t.satellites = 9; t.battery = 2.9
+        t.time = t0.addingTimeInterval(Double(k))
+        return t
+    }
+    var flight = SondeFlight(first: telemetry(0), at: t0)
+    flight.ingest(telemetry(0), at: t0)
+    check(flight.phase(now: t0) == .ground && flight.frames == 1 && flight.launchAltitude == 180, "Sonde: am Boden vor dem Start")
+    for k in 1...120 { flight.ingest(telemetry(k), at: t0.addingTimeInterval(Double(k))) }
+    check(flight.phase(now: t0.addingTimeInterval(120)) == .ascent && flight.frames == 121 && flight.track.count == 121, "Sonde: Aufstieg mit 121 Wegpunkten")
+    check(!flight.ingest(telemetry(120), at: t0.addingTimeInterval(120.5)) && flight.frames == 121, "Sonde: derselbe Rahmen zählt nicht doppelt")
+    let burstSecond = Int((8000 - 180) / 5)
+    for k in 121...(burstSecond + 80) { flight.ingest(telemetry(k), at: t0.addingTimeInterval(Double(k))) }
+    let nowFlight = t0.addingTimeInterval(Double(burstSecond + 80))
+    check(flight.hasBurst && flight.phase(now: nowFlight) == .descent && flight.maxAltitude > 7_900, "Sonde: Ballon geplatzt, Sinkflug (höchste \(Int(flight.maxAltitude)) m)")
+    if let land = SondeLanding.predict(flight, now: nowFlight), let p = flight.point {
+        let km = Geo.distanceKm(p, land.point)
+        check(land.seconds > 300 && land.seconds < 3000 && km > 0.5 && km < 40, "Sonde: Landeprognose in \(Int(land.seconds)) s, \(String(format: "%.1f", km)) km weiter")
+        // die Prognose liegt in Windrichtung (nach Osten)
+        check(land.point.lon > p.lon, "Sonde: Landestelle liegt in Windrichtung")
+    } else { check(false, "Sonde: keine Landeprognose im Sinkflug") }
+    check(SondeLanding.predict(flight, now: nowFlight.addingTimeInterval(400)) == nil, "Sonde: keine Prognose ohne frische Daten")
+    // gelandet: Sinkflug, Signal weg in geringer Höhe
+    var low = flight
+    for k in (burstSecond + 81)...(burstSecond + 1400) { low.ingest(telemetry(k), at: t0.addingTimeInterval(Double(k))) }
+    check(low.latest.altitude.map { $0 < 400 } == true, "Sonde: im Sinkflug unten angekommen (\(Int(low.latest.altitude ?? -1)) m)")
+    check(low.phase(now: low.lastHeard.addingTimeInterval(200)) == .landed, "Sonde: nach Signalverlust in geringer Höhe gelandet")
+    // Elevation
+    check(abs(SondeMapBuilder.elevation(from: GeoPoint(lat: 49.79, lon: 9.95), to: GeoPoint(lat: 49.79, lon: 9.95), altitude: 5000, homeAltitude: 200) - 90) < 0.1, "Sonde: Elevation senkrecht darüber 90°")
+    let el = SondeMapBuilder.elevation(from: GeoPoint(lat: 49.79, lon: 9.95), to: GeoPoint(lat: 50.79, lon: 9.95), altitude: 20_000, homeAltitude: 200)
+    check(el > 9 && el < 10.5, "Sonde: Elevation in 111 km Entfernung und 20 km Höhe etwa \(String(format: "%.1f", el))°")
+
+    // Controller und Karte
+    let settings = SondeSettingsStore()
+    let c = SondeController(pipeline: AudioPipeline(), settings: settings)
+    c.logEnabled = false
+    for k in 0...60 { c.ingest(telemetry(k), at: t0.addingTimeInterval(Double(k))) }
+    var other = telemetry(30); other.serial = "T2610002"; other.frame = 5; other.latitude = (other.latitude ?? 0) + 0.3
+    c.ingest(other, at: t0.addingTimeInterval(61))
+    check(c.flights.count == 2 && c.flights[0].serial == "T2610002" && c.selection == "T2610001", "Sonde-Liste: zwei Sonden, jüngste zuerst, erste ausgewählt")
+    check(c.flights.first { $0.serial == "T2610001" }?.frames == 61, "Sonde-Liste: 61 Rahmen der ersten Sonde")
+    let map = c.mapContent(home: Maidenhead.point("JN49WS"), now: t0.addingTimeInterval(62))
+    let m1 = map.markers.first { $0.id == "sonde-T2610001" }
+    check(map.markers.count == 2 && m1?.symbol == "balloon.fill" && (m1?.track.count ?? 0) > 50, "Sonde-Karte: zwei Ballons, Weg mit \(m1?.track.count ?? 0) Punkten")
+    check(m1?.details.contains { $0.hasPrefix("Höhe ") } == true && m1?.details.contains { $0.contains("km") } == true && m1?.details.contains { $0.hasPrefix("Elevation") } == true, "Sonde-Karte: Höhe, Entfernung und Elevation in den Einzelheiten (\(m1?.details ?? []))")
+    check(map.lines.contains { $0.id.hasPrefix("sonde-home-") }, "Sonde-Karte: Linie vom Standort zur Sonde")
+    // Sinkflug mit Landemarke
+    let cd = SondeController(pipeline: AudioPipeline(), settings: settings)
+    cd.logEnabled = false
+    for k in 0...(burstSecond + 80) { cd.ingest(telemetry(k), at: t0.addingTimeInterval(Double(k))) }
+    let mapD = cd.mapContent(home: nil, now: t0.addingTimeInterval(Double(burstSecond + 81)))
+    check(mapD.markers.contains { $0.id == "sonde-land-T2610001" && $0.symbol == "flag.checkered" } && mapD.lines.contains { $0.id == "sonde-fall-T2610001" }, "Sonde-Karte: Landemarke und Fallinie im Sinkflug")
+    check(cd.flights[0].track.count > 1500 / 5 && SondeMapBuilder.content(cd.flights, home: nil, now: t0, selection: nil).markers[0].track.count <= 801, "Sonde-Karte: Weg auf höchstens 800 Punkte ausgedünnt")
+    // Aufräumen
+    c.clear()
+    check(c.flights.isEmpty && c.selection == nil && c.stats == RS41Stats(), "Sonde: Liste leeren")
+    // Logzeile
+    var lt = telemetry(10)
+    lt.humidity = 45
+    let line = SondeController.logLine(lt)
+    let parts = line.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+    check(parts.count == 15 && parts[1] == "T2610001" && parts[2] == "110" && parts[0].hasSuffix("Z") && parts[10] == "45" && parts[12] == "9", "Sonde: Logzeile mit 15 Feldern (\(line))")
+
+    // Diagnose
+    check(SondeDiagnosis.assess(inputDB: -120, stats: RS41Stats()).title == "KEIN AUDIO", "Sonde-Diagnose: kein Audio")
+    check(SondeDiagnosis.assess(inputDB: -30, stats: RS41Stats()).title == "SUCHE SONDE", "Sonde-Diagnose: Suche")
+    var st = RS41Stats(); st.headers = 30
+    check(SondeDiagnosis.assess(inputDB: -30, stats: st).title == "SIGNAL, ABER NICHTS LESBAR", "Sonde-Diagnose: Kopf ohne Rahmen")
+    st.partial = 5
+    check(SondeDiagnosis.assess(inputDB: -30, stats: st).title == "NUR TEILE LESBAR", "Sonde-Diagnose: nur Teile")
+    st.frames = 20; st.failed = 2
+    check(SondeDiagnosis.assess(inputDB: -30, stats: st) == SondeDiagnosis.Result(severity: .ok, title: "EMPFANG GUT", advice: ""), "Sonde-Diagnose: Empfang gut")
+    st.failed = 40
+    check(SondeDiagnosis.assess(inputDB: -30, stats: st).title == "VIELE FEHLER", "Sonde-Diagnose: viele Fehler")
+
+    // Über die Pipeline (48 kHz und 96 kHz Eingang)
+    for inputRate in [48_000.0, 96_000.0] {
+        let pipeline = AudioPipeline()
+        let decoder = SondeDecoder(pipeline: pipeline)
+        decoder.setEnabled(true)
+        pipeline.start(inputRate: inputRate)
+        let f = sondeFlightAudio(frames: 6, rate: inputRate)
+        Thread.sleep(forTimeInterval: 0.05)
+        var got: [RS41Telemetry] = []
+        var i = 0
+        f.audio.withUnsafeBufferPointer { buf in
+            while i < buf.count {
+                let n = min(Int(inputRate / 10), buf.count - i)
+                pipeline.ring.write(buf.baseAddress! + i, count: n)
+                i += n
+                Thread.sleep(forTimeInterval: 0.004)
+                got += decoder.takeOutput().telemetry
+            }
+        }
+        Thread.sleep(forTimeInterval: 0.6)
+        let out = decoder.takeOutput()
+        got += out.telemetry
+        check(got.count >= 5 && got.first?.serial == "T2610001", "Sonde über die Pipeline mit \(Int(inputRate / 1000)) kHz Eingang: \(got.count) von 6 Rahmen")
+        check(out.inputDB > -40 && out.inputDB < 0 && out.stats.frames >= 5, "Sonde über die Pipeline: Pegel \(Int(out.inputDB)) dBFS")
+        decoder.setEnabled(false)
+        pipeline.stop()
+    }
+
+    // Echte Aufnahme (nur wenn lokal vorhanden): 120 s einer RS41-SG am Boden, in FM-Audio umgesetzt aus dem Beispiel des Projekts radiosonde_auto_rx
+    let realPath = "Vendor/_upstream/sonde/rs41_fm48.wav"
+    if let data = FileManager.default.contents(atPath: realPath), data.count > 1_000_000 {
+        var samples: [Float] = []
+        let bytes = [UInt8](data)
+        var i = 44
+        while i + 1 < bytes.count { samples.append(Float(Int16(bitPattern: UInt16(bytes[i]) | UInt16(bytes[i + 1]) << 8)) / 32768); i += 2 }
+        let r = sondeDecode(samples)
+        check(r.frames.count >= 117 && r.stats.failed == 0, "RS41 echte Aufnahme: \(r.frames.count) Rahmen (Referenz 118), verloren \(r.stats.failed)")
+        if let g = r.frames.last(where: { $0.frame == 229 }) {
+            check(abs((g.temperature ?? 0) - 26.2) < 0.06 && abs((g.humidity ?? 0) - 40) < 1.5 && abs((g.altitude ?? 0) - 68.98) < 0.02 && g.model == "RS41-SG", "RS41 echte Aufnahme: Rahmen 229 T \(g.temperature ?? 0) rF \(g.humidity ?? 0) Höhe \(g.altitude ?? 0) \(g.model ?? "-")")
+        } else { check(false, "RS41 echte Aufnahme: Rahmen 229 fehlt") }
+    }
+}
+sondeModuleTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)
