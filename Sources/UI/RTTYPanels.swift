@@ -119,7 +119,18 @@ struct TuningPanel: View {
                 readout("AFC", settings.options.afc == .off ? "aus"
                         : controller.status.map { String(format: "%+.1f Hz", $0.freqError) } ?? "–")
                 Spacer()
-                readout("MITTE", "\(Int(settings.centerHz.rounded())) Hz")
+                Button {
+                    settings.resetCenter()
+                } label: {
+                    HStack(spacing: 3) {
+                        readout("MITTE", "\(Int(settings.centerHz.rounded())) Hz")
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 7.5))
+                            .foregroundColor(RadioTheme.textDim)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("NF-Mittenfrequenz (Klick setzt auf Standard 1.000 Hz zurück)")
             }
         }
     }

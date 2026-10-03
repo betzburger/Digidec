@@ -4567,6 +4567,89 @@ do {
     check(log.report.isEmpty, "SeaLog geleert")
 }
 
+// MARK: - DWD Seewetter 5-Tage-Punktvorhersagen (FQEN75-79) mit SST und RTTY-Mittenfrequenz
+do {
+    let pointText = """
+    WN.O.IRELAND (54.0N  13.9W) SST: 14 C
+    SU  4. 00Z: SW     5-6   6-7  2.5 M //
+    SU  4. 12Z: SW     4-5        2.5 M //#.
+    MO  5. 00Z: SW     5-6     7  2.5 M //
+    MO  5. 12Z: W-NW     3        2.5 M //
+    TU  6. 00Z: NW       4        2.5 M //
+    TU  6. 12Z: W-NW   4-5         2  M //
+    WE  7. 00Z: W-NW     5        2.5 M //
+    WE  7. 12Z: NW    I  5   6-7   3  M //
+    TH  8. 00Z: W      3-4        2.5 M //
+    TH  8. 12Z: SW     5-6   6-7  2.5 M //
+    ISLE.O.MAN-S (53.5N   5.3W) SST: 16 C
+    SU  4.800Z: S-SW   3-4        0.5 M //
+    SU  4. 12Z: S-SW  I4-5         1  M //
+    MO  5. 00Z: S-SW   4-5         1 8M //
+    MO  5. 12Z: SW     3-4         1  M //
+    TU  6. 00Z: SW-W     3        1.5 M //
+    U  6. 12Z: N      4-5         78=. //
+    WE  7. 00Z: NW-N     4         1  M //
+    WE  7. 12Z: NW       5         1  M //
+    TH  8. 00Z: NW-N   5-6   6-7  1.5 M //
+    TH  8. 12Z: NW       3        0.5 M //
+    SW.O.IRELAND (51.0N  13.0W) SST: 16 C
+    SU  4. 00Z: SW     3-4       8 2  M //
+    SU  4. 12Z: SW     4-5         2  M //
+    MO  5. 00Z: SW       4         2  M //
+    MO  5. 12Z: SW       3        1.5 M //
+    TU  6. 00Z: SW-W     3        1.5 M //
+    TU  6. 12Z: N        5         2  M //
+    WE  7. 00Z:8NW-N   4-5         2  M //
+    WE  7. 12Z: NW-N   4-5        2.5 M //
+    TH  8. 00Z: NW       3        2.5 M //
+    TH  8. 12Z: SW-W     5         2  M //
+    """
+    let report = SeaBulletinParser.parse(pointText)
+    check(report.points.count == 3, "Punktvorhersage: 3 Stationen erkannt (\(report.points.count))")
+
+    let wn = report.points.first { $0.name == "WN.O.IRELAND" }
+    check(wn?.coordinate.lat == 54.0 && wn?.coordinate.lon == -13.9, "WN.O.IRELAND: Koordinaten 54.0 N 13.9 W")
+    check(wn?.sstC == 14.0, "WN.O.IRELAND: SST 14 °C")
+    check(wn?.periods.count == 10, "WN.O.IRELAND: 10 Vorhersageperioden (\(wn?.periods.count ?? 0))")
+    check(wn?.periods.first?.windText.hasPrefix("SW 5-6") == true && wn?.periods.first?.gustsText == "6-7" && wn?.periods.first?.waveM == 2.5, "WN.O.IRELAND: Wind SW 5-6, Böen 6-7, Seegang 2.5 m")
+
+    let man = report.points.first { $0.name == "ISLE.O.MAN-S" }
+    check(man?.coordinate.lat == 53.5 && man?.coordinate.lon == -5.3 && man?.sstC == 16.0, "ISLE.O.MAN-S: 53.5 N 5.3 W, SST 16 °C")
+
+    let sw = report.points.first { $0.name == "SW.O.IRELAND" }
+    check(sw?.coordinate.lat == 51.0 && sw?.coordinate.lon == -13.0 && sw?.sstC == 16.0, "SW.O.IRELAND: 51.0 N 13.0 W, SST 16 °C")
+
+    let log = SeaLog()
+    log.feed(pointText, decoded: false)
+    let home = GeoPoint(lat: 49.77, lon: 9.95)
+
+    // TEMP-Ansicht
+    let tempMarkers = log.pointMarkers(home: home, layer: .temperature)
+    check(tempMarkers.count == 3, "Punktvorhersage auf Karte TEMP: 3 Marker (\(tempMarkers.count))")
+    let t1 = tempMarkers.first { $0.title == "WN.O.IRELAND" }
+    check(t1?.valueText == "14" && t1?.symbol == nil, "WN.O.IRELAND auf TEMP: Wert 14 (\(t1?.valueText ?? "-"))")
+    check(t1?.details.contains { $0.contains("Wassertemperatur (SST): 14 °C") } == true, "Popup enthält Wassertemperatur (SST)")
+    check(t1?.details.contains { $0.contains("Seegang 2,5 m") } == true, "Popup enthält Seegang")
+
+    // WIND-Ansicht
+    let windMarkers = log.pointMarkers(home: home, layer: .wind)
+    check(windMarkers.count == 3, "Punktvorhersage auf Karte WIND: 3 Marker (\(windMarkers.count))")
+    let w1 = windMarkers.first { $0.title == "WN.O.IRELAND" }
+    check(w1?.headingDeg != nil, "WN.O.IRELAND auf WIND: Windpfeil gesetzt")
+
+    // SEE-Ansicht
+    let seaContent = log.content(home: home, now: Date())
+    check(seaContent.markers.contains { $0.id == "point-WN.O.IRELAND" }, "SEE-Ansicht enthält Punktvorhersagen")
+
+    // RTTY Center Reset & Clamp
+    let rttyStore = RTTYSettingsStore()
+    check(rttyStore.centerHz == 1000.0, "RTTYSettingsStore Standard-Mitte 1.000 Hz (\(rttyStore.centerHz))")
+    rttyStore.setCenter(1500)
+    check(rttyStore.centerHz == 1500.0, "setCenter auf 1.500 Hz")
+    rttyStore.resetCenter()
+    check(rttyStore.centerHz == 1000.0, "resetCenter setzt auf 1.000 Hz zurück")
+}
+
 // MARK: - Schiffs- und Bojenmeldungen mit Weg, Positionen in Warnnachrichten
 do {
     SynopDecoder.loadStations()

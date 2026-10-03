@@ -230,6 +230,61 @@ public struct SeaWarning: Equatable, Sendable {
     public var text: String
 }
 
+/// Eine Vorhersageperiode einer DWD-Punktvorhersage (z. B. "SU  4. 00Z")
+public struct SeaPointPeriod: Equatable, Sendable {
+    public var timeText: String
+    public var windText: String
+    public var gustsText: String?
+    public var waveM: Double?
+    public var windFromDeg: Double?
+    public var maxBeaufort: Int?
+
+    public init(timeText: String, windText: String, gustsText: String? = nil, waveM: Double? = nil, windFromDeg: Double? = nil, maxBeaufort: Int? = nil) {
+        self.timeText = timeText
+        self.windText = windText
+        self.gustsText = gustsText
+        self.waveM = waveM
+        self.windFromDeg = windFromDeg
+        self.maxBeaufort = maxBeaufort
+    }
+}
+
+/// 5-Tage-Punktvorhersage für Seegebiete/Küstenstationen (FQEN75–79) mit Wassertemperatur (SST)
+public struct SeaPointForecast: Identifiable, Equatable, Sendable {
+    public var id: String { "point-" + name }
+    public var name: String
+    public var coordinate: GeoPoint
+    public var sstC: Double?
+    public var periods: [SeaPointPeriod]
+
+    public init(name: String, coordinate: GeoPoint, sstC: Double? = nil, periods: [SeaPointPeriod] = []) {
+        self.name = name
+        self.coordinate = coordinate
+        self.sstC = sstC
+        self.periods = periods
+    }
+
+    /// Windrichtung (Grad, aus der der Wind weht)
+    public static func windDeg(from dir: String) -> Double? {
+        let d = dir.uppercased().trimmingCharacters(in: .whitespaces)
+        let mapping: [String: Double] = [
+            "N": 0, "N-NE": 22.5, "NNE": 22.5, "NE": 45, "E-NE": 67.5, "ENE": 67.5,
+            "E": 90, "E-SE": 112.5, "ESE": 112.5, "SE": 135, "S-SE": 157.5, "SSE": 157.5,
+            "S": 180, "S-SW": 202.5, "SSW": 202.5, "SW": 225, "W-SW": 247.5, "WSW": 247.5,
+            "W": 270, "W-NW": 292.5, "WNW": 292.5, "NW": 315, "NW-N": 337.5, "NNW": 337.5,
+            "SW-W": 236, "NW-W": 304, "SW-S": 214, "SE-S": 146, "SE-E": 124, "NE-E": 56,
+            "NE-N": 34, "N-NW": 349
+        ]
+        return mapping[d]
+    }
+
+    /// Höchste Windstärke (Beaufort) aus dem Text
+    public static func beaufort(from speed: String) -> Int? {
+        let nums = speed.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.filter { (1...12).contains($0) }
+        return nums.max()
+    }
+}
+
 /// Was aus dem Text der Seewetterberichte und Sturmwarnungen gelesen wurde
 public struct SeaReport: Equatable, Sendable {
     public var issued: String?
@@ -240,7 +295,9 @@ public struct SeaReport: Equatable, Sendable {
     public var warnings: [SeaWarning] = []
     /// Positionen aus Nautischen Warnnachrichten und anderem Text („54-12N 007-30E“)
     public var positions: [NauticalPosition] = []
-    public var isEmpty: Bool { forecasts.isEmpty && systems.isEmpty && fronts.isEmpty && warnings.isEmpty && positions.isEmpty }
+    /// 5-Tage-Punktvorhersagen für Seegebiete/Küstenstationen mit SST (FQEN75–79)
+    public var points: [SeaPointForecast] = []
+    public var isEmpty: Bool { forecasts.isEmpty && systems.isEmpty && fronts.isEmpty && warnings.isEmpty && positions.isEmpty && points.isEmpty }
 
     /// Tage in der Reihenfolge ihres Auftretens
     public var days: [String] {
@@ -273,6 +330,30 @@ public enum SeaBulletinParser {
         var warningLines: [String] = []
         var inWarnings = false
 
+        // 5-Tage-Punktvorhersagen mit SST (z. B. „WN.O.IRELAND (54.0N  13.9W) SST: 14 C“)
+        let pointHeaderRE = try? NSRegularExpression(
+            pattern: #"^([A-Z0-9.\-]+(?:\s+[A-Z0-9.\-]+)*)\s*\(\s*(\d{1,2}(?:[.,]\d+)?)\s*([NS])\s+(\d{1,3}(?:[.,]\d+)?)\s*([EW])\s*\)\s*SST:?\s*(-?\d+(?:[.,]\d+)?)\s*C"#,
+            options: [.caseInsensitive]
+        )
+        let periodLineRE = try? NSRegularExpression(
+            pattern: #"^(?:([A-Z]{1,2})\s+)?(\d{1,2})[.:\s\d]*?(\d{2})Z:\s*(.*)$"#,
+            options: [.caseInsensitive]
+        )
+        let dirRE = try? NSRegularExpression(
+            pattern: #"\b(N-NE|N-NW|S-SW|S-SE|W-NW|W-SW|E-NE|E-SE|NW-N|NE-N|SW-S|SE-S|SW-W|NW-W|SE-E|NE-E|NNE|NNW|SSE|SSW|ENE|ESE|WNW|WSW|N|NE|E|SE|S|SW|W|NW|VAR)\b"#,
+            options: [.caseInsensitive]
+        )
+        let waveRE = try? NSRegularExpression(pattern: #"(\d+(?:[.,]\d+)?)\s*M\b"#, options: [.caseInsensitive])
+        let speedRE = try? NSRegularExpression(pattern: #"\b(\d{1,2}(?:-\d{1,2})?)\b"#)
+        var currentPoint: SeaPointForecast?
+
+        func finishPoint() {
+            if let p = currentPoint {
+                report.points.removeAll { $0.name == p.name }
+                report.points.append(p)
+            }
+            currentPoint = nil
+        }
         func finishForecast() {
             if let a = area, !day.isEmpty, !values.isEmpty {
                 report.forecasts.removeAll { $0.areaID == a.id && $0.day == day }
@@ -297,11 +378,65 @@ public enum SeaBulletinParser {
             i += 1
             let low = line.lowercased()
             if low.isEmpty { continue }
+
+            // Punktvorhersage-Kopf: z. B. „WN.O.IRELAND (54.0N  13.9W) SST: 14 C“
+            if let phRE = pointHeaderRE,
+               let m = phRE.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) {
+                finishForecast()
+                finishWarning()
+                finishPoint()
+                inSynopsis = false
+                func g(_ idx: Int) -> String { Range(m.range(at: idx), in: line).map { String(line[$0]) } ?? "" }
+                let name = g(1).trimmingCharacters(in: .whitespaces)
+                var lat = Double(g(2).replacingOccurrences(of: ",", with: ".")) ?? 0
+                if g(3).uppercased() == "S" { lat = -lat }
+                var lon = Double(g(4).replacingOccurrences(of: ",", with: ".")) ?? 0
+                if g(5).uppercased() == "W" { lon = -lon }
+                let sst = Double(g(6).replacingOccurrences(of: ",", with: "."))
+                currentPoint = SeaPointForecast(name: name, coordinate: GeoPoint(lat: lat, lon: lon), sstC: sst, periods: [])
+                continue
+            }
+            if currentPoint != nil, let plRE = periodLineRE,
+               let m = plRE.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) {
+                func g(_ idx: Int) -> String { Range(m.range(at: idx), in: line).map { String(line[$0]) } ?? "" }
+                let day = g(1).trimmingCharacters(in: .whitespaces)
+                let dateNum = g(2)
+                let hour = g(3)
+                let rest = g(4)
+                var dir = ""
+                var wave: Double?
+                let rns = rest as NSString
+                let rrng = NSRange(location: 0, length: rns.length)
+                if let dRE = dirRE, let dm = dRE.firstMatch(in: rest, range: rrng), let dr = Range(dm.range, in: rest) {
+                    dir = String(rest[dr]).uppercased()
+                }
+                if let wRE = waveRE, let wm = wRE.firstMatch(in: rest, range: rrng), let wr = Range(wm.range(at: 1), in: rest) {
+                    wave = Double(rest[wr].replacingOccurrences(of: ",", with: "."))
+                }
+                var cut = rest
+                if let sl = cut.range(of: "//") { cut = String(cut[..<sl.lowerBound]) }
+                if let wRE = waveRE, let wm = wRE.firstMatch(in: cut, range: NSRange(location: 0, length: (cut as NSString).length)) {
+                    cut = (cut as NSString).substring(to: wm.range.location)
+                }
+                if !dir.isEmpty, let dr = cut.range(of: dir, options: .caseInsensitive) {
+                    cut = String(cut[dr.upperBound...])
+                }
+                let speeds = speedRE?.matches(in: cut, range: NSRange(location: 0, length: (cut as NSString).length)).map {
+                    (cut as NSString).substring(with: $0.range(at: 1))
+                } ?? []
+                let speed = speeds.first ?? ""
+                let gusts = speeds.count > 1 ? speeds[1] : nil
+                let timeStr = (day.isEmpty ? "" : day + " ") + "\(dateNum). \(hour)Z"
+                let windFrom = SeaPointForecast.windDeg(from: dir)
+                let bft = SeaPointForecast.beaufort(from: speed)
+                currentPoint?.periods.append(SeaPointPeriod(timeText: timeStr, windText: (dir.isEmpty ? "" : dir + " ") + speed, gustsText: gusts, waveM: wave, windFromDeg: windFrom, maxBeaufort: bft))
+                continue
+            }
             // Ausgabezeit „02.10.2026, 1700 UTC:“
             if let r = low.range(of: #"\d{2}\.\d{2}\.\d{4},?\s*\d{2,4}\s*(utc|z)"#, options: .regularExpression) {
                 report.issued = String(line[r])
             }
-            if low.hasPrefix("strong wind, gale and storm warnings") { inWarnings = true; inSynopsis = false; finishForecast(); continue }
+            if low.hasPrefix("strong wind, gale and storm warnings") { inWarnings = true; inSynopsis = false; finishForecast(); finishPoint(); continue }
             if inWarnings {
                 if low.hasPrefix("coastal area warnings") || low.hasPrefix("starkwind") { finishWarning(); inWarnings = false; continue }
                 if low.hasSuffix(":"), let a = SeaArea.match(String(low.dropLast())) {
@@ -314,6 +449,7 @@ public enum SeaBulletinParser {
             }
             if low.hasPrefix("general synoptic situation") || low.hasPrefix("wetterlage") {
                 finishForecast()
+                finishPoint()
                 inSynopsis = true
                 synopsis = []                       // der zuletzt gesendete Bericht zählt
                 let rest = line.drop(while: { $0 != ":" }).dropFirst().trimmingCharacters(in: .whitespaces)
@@ -325,6 +461,7 @@ public enum SeaBulletinParser {
                 let words = low.split(whereSeparator: { !$0.isLetter }).map(String.init)
                 if let d = words.first(where: { dayNames.contains($0) }) {
                     finishForecast()
+                    finishPoint()
                     inSynopsis = false
                     day = d
                     area = nil
@@ -344,6 +481,7 @@ public enum SeaBulletinParser {
             // Gebietsüberschrift: „German Bight:“
             if low.hasSuffix(":"), let a = SeaArea.match(String(low.dropLast())) {
                 finishForecast()
+                finishPoint()
                 inSynopsis = false
                 area = a
                 continue
@@ -359,6 +497,7 @@ public enum SeaBulletinParser {
         }
         finishForecast()
         finishWarning()
+        finishPoint()
         report.synopsis = synopsis.joined(separator: " ").replacingOccurrences(of: "  ", with: " ").trimmingCharacters(in: .whitespaces)
         (report.systems, report.fronts) = SynopsisParser.parse(report.synopsis)
         report.positions = NauticalPositions.extract(cleanedText)
@@ -647,11 +786,94 @@ public final class SeaLog {
                                          symbol: "chevron.forward.2", tone: tone))
             }
         }
+        // 5-Tage-Punktvorhersagen (Offshore) mit Wassertemperatur (SST)
+        markers += pointMarkers(home: home, layer: .sea)
+
         var c = TransmitterMap.content(transmitters, home: home)
         c.markers += markers
         c.lines += lines
         c.emptyHint = "Noch kein Seewetterbericht (FQEN70/71) und keine Sturmwarnung empfangen"
         return c
+    }
+
+    private static func fmt(_ v: Double, digits: Int = 0) -> String {
+        String(format: "%.\(digits)f", v).replacingOccurrences(of: ".", with: ",")
+    }
+
+    private static func formatPeriodTime(_ s: String) -> String {
+        var t = s
+        let days: [(String, String)] = [
+            ("SU", "So"), ("MO", "Mo"), ("TU", "Di"), ("WE", "Mi"), ("TH", "Do"), ("FR", "Fr"), ("SA", "Sa")
+        ]
+        for (en, de) in days {
+            if t.hasPrefix(en + " ") {
+                t = de + t.dropFirst(en.count)
+                break
+            }
+        }
+        return t
+    }
+
+    /// Karten-Marker für die Punktvorhersagen (SST, Wind, Symbol)
+    public func pointMarkers(home: GeoPoint?, layer: SynopLog.Layer) -> [MapMarker] {
+        var markers: [MapMarker] = []
+        for p in report.points {
+            guard p.coordinate.isValid else { continue }
+            var details: [String] = [Geo.format(p.coordinate)]
+            if let h = home {
+                details.append(Geo.formatKm(Geo.distanceKm(h, p.coordinate)) + " " + Geo.compass(Geo.bearing(from: h, to: p.coordinate)))
+            }
+            if let sst = p.sstC {
+                details.append("Wassertemperatur (SST): \(Self.fmt(sst, digits: sst == sst.rounded() ? 0 : 1)) °C")
+            }
+            for per in p.periods {
+                var line = "\(Self.formatPeriodTime(per.timeText)): "
+                if !per.windText.isEmpty {
+                    line += "Wind \(per.windText) Bft"
+                    if let g = per.gustsText { line += " (Böen \(g))" }
+                }
+                if let w = per.waveM {
+                    line += (line.hasSuffix(": ") ? "" : ", ") + "Seegang \(Self.fmt(w, digits: 1)) m"
+                }
+                details.append(line)
+            }
+            details.append("Quelle: DWD Seewetter-Punktvorhersage")
+
+            let sstStr = p.sstC.map { " · SST \(Self.fmt($0, digits: 0)) °C" } ?? ""
+            var m = MapMarker(id: "point-" + p.name, coordinate: p.coordinate, title: p.name,
+                              subtitle: "Punktvorhersage" + sstStr, details: details,
+                              symbol: "water.waves", tone: .weather)
+
+            switch layer {
+            case .symbol:
+                m.symbol = "water.waves"
+            case .temperature:
+                guard let sst = p.sstC else { continue }
+                m.symbol = nil
+                m.valueText = Self.fmt(sst, digits: abs(sst) < 10 && sst != sst.rounded() ? 1 : 0)
+                m.valueLevel = min(max((sst + 20) / 55, 0), 1)
+                m.subtitle = "Wassertemperatur \(Self.fmt(sst, digits: 0)) °C (SST)"
+            case .wind:
+                if let first = p.periods.first(where: { $0.maxBeaufort != nil || $0.windFromDeg != nil }) {
+                    m.symbol = nil
+                    m.valueText = first.windText
+                    if let b = first.maxBeaufort { m.valueLevel = min(max(Double(b) / 10, 0), 1) }
+                    if let deg = first.windFromDeg {
+                        m.headingDeg = (deg + 180).truncatingRemainder(dividingBy: 360)
+                    }
+                    m.subtitle = "Wind \(first.windText) Bft"
+                } else {
+                    continue
+                }
+            case .pressure, .visibility:
+                continue
+            case .sea:
+                m.symbol = "water.waves"
+                m.valueText = p.sstC.map { Self.fmt($0, digits: 0) + "°" }
+            }
+            markers.append(m)
+        }
+        return markers
     }
 
     static func frontName(_ k: WeatherFront.Kind) -> String {

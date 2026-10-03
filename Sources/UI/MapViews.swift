@@ -218,10 +218,15 @@ private struct RTTYMapView: View {
         var content = layer == .sea
             ? controller.textModel.sea.content(home: home.point, now: now, transmitters: sites)
             : controller.textModel.synop.content(home: home.point, now: now, transmitters: sites, layer: layer)
+        if layer != .sea {
+            content.markers += controller.textModel.sea.pointMarkers(home: home.point, layer: layer)
+        }
         let calls = HeardMapBuilder.content(controller.textModel.calls.heard, home: home.point, now: now, mode: "RTTY")
         content.markers += calls.markers
         content.lines += calls.lines
-        if layer != .sea { content.emptyHint = "Noch keine SYNOP-Meldung oder kein Rufzeichen mit Ort empfangen" }
+        if layer != .sea && content.markers.isEmpty {
+            content.emptyHint = "Noch keine SYNOP-Meldung, Punktvorhersage oder kein Rufzeichen mit Ort empfangen"
+        }
         return content
     }
 

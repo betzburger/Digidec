@@ -25,7 +25,33 @@ struct InputPanelView: View {
             }
 
             if audio.sourceKind == .live {
-                DevicePicker(audio: audio)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text("AUDIOQUELLE / GERÄT")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .tracking(0.8)
+                        Spacer()
+                        if audio.activeInput?.radio != nil {
+                            Text("AUTO-SYNC")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundColor(RadioTheme.vfdGreen)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(RadioTheme.vfdGreen.opacity(0.12))
+                                .cornerRadius(3)
+                        } else if audio.activeInput != nil {
+                            Text("MANUELL")
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundColor(RadioTheme.vfdCyan)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(RadioTheme.vfdCyan.opacity(0.12))
+                                .cornerRadius(3)
+                        }
+                    }
+                    DevicePicker(audio: audio)
+                }
             } else {
                 FileControls(audio: audio, chooseFile: chooseFile)
             }
@@ -58,6 +84,7 @@ struct InputPanelView: View {
 
 private struct DevicePicker: View {
     @ObservedObject var audio: AudioInputManager
+    @State private var isHovered = false
 
     var body: some View {
         Menu {
@@ -73,7 +100,7 @@ private struct DevicePicker: View {
                     }
                 }
             }
-            Section("Weitere Eingänge") {
+            Section("Weitere Eingänge (USB-Soundkarten, Mikrofone, Virtuelle Kabel)") {
                 ForEach(audio.otherDevices) { device in
                     Button {
                         audio.select(device: device)
@@ -86,26 +113,62 @@ private struct DevicePicker: View {
             Divider()
             Button("Liste aktualisieren") { audio.refreshDevices() }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(iconColor)
+                    .frame(width: 14)
+
                 Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(textColor)
                     .lineLimit(1)
-                Spacer()
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 4)
+
+                // Deutlicher Dropdown-Knopf auf der rechten Seite
+                HStack(spacing: 2) {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(isHovered ? RadioTheme.vfdCyan : RadioTheme.textMuted)
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .background(RadioTheme.bgDeep)
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isHovered ? RadioTheme.vfdCyan.opacity(0.7) : RadioTheme.borderSubtle, lineWidth: 1)
+                )
             }
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .foregroundColor(audio.activeInput == nil ? RadioTheme.ledYellow : RadioTheme.vfdCyan)
-            .padding(.horizontal, 8)
+            .padding(.leading, 8)
+            .padding(.trailing, 4)
             .padding(.vertical, 5)
-            .background(RadioTheme.bgDeep)
-            .cornerRadius(5)
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(RadioTheme.borderSubtle, lineWidth: 1))
+            .background(
+                LinearGradient(
+                    colors: isHovered
+                        ? [RadioTheme.bgCard, RadioTheme.bgPanel]
+                        : [RadioTheme.bgPanel, RadioTheme.bgDeep],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(
+                        isHovered ? RadioTheme.vfdCyan.opacity(0.8) : RadioTheme.borderSubtle,
+                        lineWidth: isHovered ? 1.5 : 1
+                    )
+            )
+            .shadow(color: isHovered ? RadioTheme.vfdCyan.opacity(0.2) : .clear, radius: 3)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .onHover { isHovered = $0 }
         .onAppear { audio.refreshDevices() }
-        .help("Eingang – Funkgeräte werden unabhängig vom USB-Port an ihrem eingebauten Hub erkannt")
+        .help("Hier klicken, um die Audioquelle zu wählen (Funkgerät, USB-Soundkarte, Mikrofon, virtuelles Kabel)")
     }
 
     private var title: String {
@@ -118,6 +181,16 @@ private struct DevicePicker: View {
         if audio.activeInput?.radio != nil { return "antenna.radiowaves.left.and.right" }
         if case .radio = audio.selection { return "antenna.radiowaves.left.and.right" }
         return audio.activeInput?.device.isVirtualCable == true ? "cable.connector" : "mic"
+    }
+
+    private var textColor: Color {
+        if audio.activeInput == nil { return RadioTheme.ledYellow }
+        return audio.activeInput?.radio != nil ? RadioTheme.vfdCyan : RadioTheme.textBright
+    }
+
+    private var iconColor: Color {
+        if audio.activeInput == nil { return RadioTheme.ledYellow }
+        return audio.activeInput?.radio != nil ? RadioTheme.vfdCyan : RadioTheme.vfdAmber
     }
 }
 

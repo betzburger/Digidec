@@ -48,7 +48,9 @@ public final class RTTYSettingsStore: ObservableObject {
         options = d.data(forKey: Keys.options).flatMap { try? JSONDecoder().decode(RTTYDecodeOptions.self, from: $0) }
             ?? RTTYDecodeOptions()
         let c = d.double(forKey: Keys.center)
-        centerHz = Self.centerRange.contains(c) ? c : Self.defaultCenter
+        // Werte über 2.200 Hz oder unter 300 Hz stammen von extremem AFC-Drift / Klickfehler
+        // und würden das Signal an den Rand von 2,4/2,7-kHz-SSB-Filtern drücken → Standard 1.000 Hz
+        centerHz = (Self.centerRange.contains(c) && (300...2200).contains(c)) ? c : Self.defaultCenter
         sidebandMode = d.string(forKey: Keys.sideband).flatMap(SidebandMode.init(rawValue:)) ?? .auto
         dwdFrequencyHz = (d.dictionary(forKey: Keys.dwdFrequency) as? [String: Double]) ?? [:]
         d.removeObject(forKey: "rttyReverseByPreset")
@@ -99,6 +101,16 @@ public final class RTTYSettingsStore: ObservableObject {
     public func select(presetID id: String) {
         guard RTTYPreset.preset(id: id) != nil else { return }
         presetID = id
+        if !Self.centerRange.contains(centerHz) || centerHz > 1800 {
+            centerHz = Self.defaultCenter
+        }
+        save()
+    }
+
+    /// Setzt die Audio-Mittenfrequenz auf den optimalen Standardwert (1.000 Hz) zurück
+    public func resetCenter() {
+        centerHz = Self.defaultCenter
+        manualCenterRevision += 1
         save()
     }
 
@@ -146,11 +158,11 @@ public final class RTTYSettingsStore: ObservableObject {
     }
 
     /// Mitte aus der AFC des Decoders: nicht gerundet, kein Rücksetzen des Decoders.
+    /// Live-AFC-Drift wird nicht in UserDefaults gespeichert, um die VFO-Abstimmfrequenz stabil zu halten.
     public func followAFC(_ hz: Double) {
         let c = clampCenter(hz)
         guard abs(c - centerHz) >= 0.05 else { return }
         centerHz = c
-        UserDefaults.standard.set(centerHz, forKey: Keys.center)
     }
 
     private func clampCenter(_ hz: Double) -> Double {

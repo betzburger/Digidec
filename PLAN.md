@@ -1015,10 +1015,24 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Ursache:** fldigi gibt den Klartext einer Meldung in mehreren Stücken aus, getrennt durch den Rohtext (Echo der Fünfergruppen). `SynopLog.flush` wertete jedes Stück einzeln aus; Folgestücke ohne „WMO Station=“ wurden verworfen, nur der Anfang (Station, Ort) kam an.
   - **Behebung:** `SynopLog` hält den Klartext der laufenden Meldung zusammen und setzt sie bei jedem neuen Stück neu zusammen (`parseRun`), bis die nächste Station beginnt; die Art (Land/Schiff/Boje) wird über die abgeschnittene Zeile „… observation“ weitergereicht; Schiffe beginnen auch bei „Ship/Buoy identifier=“; der Weg eines Schiffs bleibt bei Teilständen erhalten.
   - **Hinweis zur Anzeige:** Die Ansicht SYMBOL zeigt Werte nur im Popup; Zahlen auf der Karte gibt es in den Ansichten Temperatur, Druck, Wind und Sicht.
-  - **Tests:** Logiktest mit Klartext in Stücken (Aufnahme vom 02.10.2026).
+- **0.42.0 (03.10.2026): M41 RTTY-Abstimm-Offset-Korrektur (1000 Hz NF-Mitte) & DWD-Punktvorhersagen mit Wassertemperatur (SST, FQEN75–79).**
+  - **RTTY-Abstimmfrequenz (1000 Hz NF-Mitte):**
+    - **Ursache:** `RTTYController.poll()` rief `settings.followAFC(s.centerHz)` auf, welches den AFC-Offset dauerhaft in `UserDefaults` als `rttyCenterHz` schrieb. Driftete AFC durch Rauschen oder Störträger auf hohe Frequenzen (~2530 Hz), wurde dies dauerhaft gespeichert. `RigTuneTarget.rtty` stimmte den Transceiver auf `Sendefrequenz - 2530 Hz` ab, wodurch das Signal an die Filterflanke eines typischen 2,7-kHz-SSB-Filters geriet (oberer Ton bei ~2755 Hz) und bedämpft/verzerrt wurde.
+    - **Behebung:** `followAFC` überschreibt `UserDefaults` nicht mehr. `RTTYSettingsStore.init()` und Preset-Auswahl prüfen und bereinigen gespeicherte Ausreißer außerhalb von 300...2200 Hz automatisch auf den Standardwert 1000 Hz. Die Mittenfrequenz-Anzeige in `RTTYPanels` besitzt nun einen 1-Klick-Reset-Button (`arrow.counterclockwise`) zum schnellen Zurücksetzen auf 1000 Hz.
+  - **DWD 5-Tage-Punktvorhersagen mit Wassertemperatur (SST, FQEN75–79):**
+    - Erkennt die im DWD-Sendeplan ausgestrahlten 5-Tage-Punktvorhersagen (z. B. `WN.O.IRELAND (54.0N  13.9W) SST: 14 C`, `ISLE.O.MAN-S (53.5N   5.3W) SST: 16 C`, `SW.O.IRELAND (51.0N  13.0W) SST: 16 C`).
+    - Parse-Logik in `SeaWeather.swift` (`SeaPointForecast`, `SeaPointPeriod`, `SeaBulletinParser.parsePointForecasts`): extrahiert Stationsname, Koordinaten, Wassertemperatur (`SST: xx C`), Vorhersage-Intervalle mit Wochentag, Datum, Uhrzeit, Windrichtung, Windstärke (Beaufort), Böen und Wellenhöhe in Metern.
+    - Kartenanzeige in `RTTYMapView`:
+      - **TEMP:** Zeigt die Punkte mit Wassertemperatur als Gradzahl (`14`, `16`) mit farblicher Temperaturskala.
+      - **WIND:** Zeigt Pfeil mit Windrichtung und Beaufort-Stärke der aktuellen Vorhersageperiode.
+      - **SEE / SYMBOL:** Zeigt Punkt-Marker mit vollständigem Popup (Wassertemperatur, Vorhersage-Tabelle mit Wellenhöhen und Wind) bzw. Wellensymbol.
+  - **Tests:** 1665 Logiktests (+24: DWD-Punktvorhersagen mit Koordinaten, SST, 10 Perioden mit Wind/Böen/Wellenhöhe, Kartenmarker für TEMP und WIND, RTTY-Center-Sanitizing und AFC-Schutz).
+- **0.42.1 (03.10.2026): UI-Optimierung Audioquellen-Auswahl (Pop-up-Button & Header).**
+  - **Verbesserung:** Der Auswahlschalter für die Audioquelle im Panel „Eingang“ (`InputPanelView.swift`) sah bisher wie ein statisches Statusfeld aus. Er wurde durch eine taktilen Pop-up-Button mit Verlauf, Hover-Effekt, Leuchtrand, deutlichem Dropdown-Pfeil-Container und übergeordnetem Header `AUDIOQUELLE / GERÄT` mit `AUTO-SYNC` / `MANUELL`-Badge ersetzt. Die Menüsektionen wurden zur besseren Orientierung um klare Bezeichnungen erweitert.
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
   - JT65/JT9 (WSJT-X), Mehrträger-PSKR/OFDM; Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichenauswertung.
   - Parallelbetrieb mehrerer Module (kein Warnton, vom Nutzer nicht gewünscht).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).
+
