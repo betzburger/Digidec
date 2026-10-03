@@ -50,7 +50,7 @@ swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     $S/Models/TextModeController.swift $S/Decoders/PSK/FldigiPSKCore.swift $S/Decoders/PSK/PSKModule.swift \
     $S/Decoders/ALE/ALECore.swift $S/Decoders/ALE/ALEModule.swift \
     $S/Decoders/ACARS/ACARSCore.swift $S/Decoders/ACARS/ACARSPosition.swift $S/Decoders/ACARS/ACARSModule.swift \
-    $S/Decoders/Pager/POCSAGCore.swift $S/Decoders/Pager/FLEXCore.swift $S/Decoders/Pager/ToneCore.swift $S/Decoders/Pager/PagerModule.swift $S/Decoders/Pager/TonesModule.swift \
+    $S/Decoders/Pager/POCSAGCore.swift $S/Decoders/Pager/PagerChannelModel.swift $S/Decoders/Pager/FLEXCore.swift $S/Decoders/Pager/ToneCore.swift $S/Decoders/Pager/PagerModule.swift $S/Decoders/Pager/TonesModule.swift \
     $S/Decoders/APRS/APRSPacket.swift $S/Decoders/APRS/AFSKModem.swift $S/Decoders/APRS/APRSModule.swift $S/Models/Geo.swift $S/Models/ModuleMaps.swift $S/Models/SeaWeather.swift \
     $S/Decoders/DSC/DSCCore.swift $S/Decoders/DSC/DSCVHF.swift $S/Decoders/DSC/DSCModule.swift \
     $S/Decoders/Olivia/FldigiOliviaCore.swift $S/Decoders/Olivia/OliviaModule.swift \

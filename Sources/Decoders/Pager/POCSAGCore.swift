@@ -218,9 +218,33 @@ struct POCSAGMessageBuilder {
     }
 }
 
+/// Zähler für die Diagnose: was hat der Empfänger auf einer Baudrate gesehen (seit dem Start)?
+public struct POCSAGStats: Equatable, Sendable {
+    /// Vorspann (mindestens 32 Wechsel 1010… in Folge)
+    public var preambles = 0
+    /// Synchronwörter, mit denen ein Empfang begann (nicht jeder Stapel)
+    public var syncs = 0
+    /// Stapel mit mindestens 10 gültigen Codewörtern von 16 / alle anderen
+    public var batchesGood = 0
+    public var batchesBad = 0
+    public var wordsGood = 0
+    public var wordsBad = 0
+    public var messages = 0
+    /// Das Synchronwort wurde invertiert gelesen
+    public var inverted = false
+    public var lastPreamble: Date?
+    public var lastSync: Date?
+    public var lastMessage: Date?
+
+    public init() {}
+}
+
 /// Holt aus einem Bitstrom Synchronwort, Stapel und Meldungen (eine Baudrate, beide Polaritäten)
 struct POCSAGFramer {
     let rate: Int
+    private(set) var stats = POCSAGStats()
+    private var lastBit = -1
+    private var alternations = 0
     private var shift: UInt32 = 0
     private var inverted = false
     private var synced = false
@@ -243,11 +267,21 @@ struct POCSAGFramer {
         shift = (shift << 1) | UInt32(bit)
         if holdOff > 0 { holdOff -= 1 }
         if !synced {
+            // Vorspann: lange Folge wechselnder Bits (nur außerhalb eines Empfangs zählen)
+            if rawBit != lastBit { alternations += 1 } else { alternations = 0 }
+            if alternations == 32 { stats.preambles += 1; stats.lastPreamble = now }
+        }
+        lastBit = rawBit
+        if !synced {
             // Synchronwort in beiden Polaritäten, bis zu zwei Bitfehler
             let d = (shift ^ POCSAG.sync).nonzeroBitCount
             let di = (shift ^ ~POCSAG.sync).nonzeroBitCount
             if d <= 2 || di <= 2 {
                 if di < d { inverted.toggle(); shift = ~shift }
+                stats.syncs += 1
+                stats.lastSync = now
+                stats.inverted = inverted
+                alternations = 0
                 synced = true
                 wordBits = 0
                 word = 0
@@ -268,7 +302,7 @@ struct POCSAGFramer {
             } else {
                 // Kein Synchronwort: Übertragung zu Ende (Stille liest sich sonst als Nullwörter)
                 if let m = builder.flush(rate: rate) { queued.append(m) }
-                for m in queued { emit(m) }
+                for m in queued { stats.messages += 1; stats.lastMessage = now; emit(m) }
                 queued.removeAll()
                 synced = false
                 shift = 0
@@ -279,6 +313,7 @@ struct POCSAGFramer {
         // Konstante Wörter (Stille oder Rauschen am Pegelrand) sind keine Daten, obwohl 0 ein gültiges Codewort ist
         let fixed = (word == 0 || word == 0xFFFF_FFFF) ? nil : PagerBCH.correct(word)
         if fixed != nil { validWords += 1 }
+        if fixed != nil { stats.wordsGood += 1 } else { stats.wordsBad += 1 }
         // Adresswörter mit zwei korrigierten Bits sind zu unsicher (falsche Rufnummern aus Rauschen)
         var usable = fixed
         if let f = fixed, f.errors >= 2, f.word & 0x8000_0000 == 0, f.word != POCSAG.idle { usable = nil }
@@ -288,9 +323,11 @@ struct POCSAGFramer {
             wordIndex = 0
             // Stapelprüfung: bei Rauschen sind rund ein Viertel aller Zufallswörter „korrigierbar“; ein echter Stapel hat fast alle
             if validWords >= 10 {
-                for m in queued { emit(m) }
+                stats.batchesGood += 1
+                for m in queued { stats.messages += 1; stats.lastMessage = now; emit(m) }
                 queued.removeAll()
             } else {
+                stats.batchesBad += 1
                 queued.removeAll()
                 builder = POCSAGMessageBuilder()
                 synced = false
@@ -307,9 +344,13 @@ struct POCSAGFramer {
         return out
     }
 
+    mutating func resetStats() { stats = POCSAGStats() }
+
     mutating func reset() {
         shift = 0
         synced = false
+        alternations = 0
+        lastBit = -1
         inverted = false
         wordBits = 0
         wordIndex = 0
@@ -420,6 +461,13 @@ public final class POCSAGReceiver {
 
     /// Welche Baudraten sind eingeschaltet (Index in `POCSAG.rates`)
     public var enabled: Set<Int> = [0, 1, 2]
+
+    /// Zähler je Baudrate (512, 1200, 2400) für die Diagnose
+    public var stats: [POCSAGStats] { framers.map(\.stats) }
+
+    public func resetStats() {
+        for i in framers.indices { framers[i].resetStats() }
+    }
 
     public var level: Double { Double(slicers.map(\.level).max() ?? 0) }
 

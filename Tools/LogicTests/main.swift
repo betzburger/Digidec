@@ -4956,6 +4956,124 @@ do {
 }
 pagerModuleTests()
 
+// MARK: - Funkruf unter nachgebildeten Funkbedingungen (FM-Kanal bis NF-Kette), Diagnose
+@MainActor func pagerChannelTests() {
+    /// Wie in der App: Quelle (48 kHz) → Wandlung auf 24 kHz → POCSAG-Empfänger
+    func receive(_ audio: [Float], baud: Int) -> (messages: [PagerMessage], stats: POCSAGStats) {
+        var conv: [Float] = []
+        let c = SampleRateConverter(inputRate: pagerChannelRate, outputRate: 24_000)!
+        var i = 0
+        while i < audio.count {
+            let e = min(i + 960, audio.count)
+            audio[i..<e].withUnsafeBufferPointer { c.process($0) { conv += Array($0) } }
+            i = e
+        }
+        let r = POCSAGReceiver(sampleRate: 24_000)
+        r.enabled = [POCSAG.rates.firstIndex(of: baud)!]
+        var out: [PagerMessage] = []
+        i = 0
+        while i < conv.count {
+            let e = min(i + 480, conv.count)
+            conv[i..<e].withUnsafeBufferPointer { r.process($0) { out.append($0) } }
+            i = e
+        }
+        r.flush { out.append($0) }
+        return (out, r.stats[POCSAG.rates.firstIndex(of: baud)!])
+    }
+    func run(_ baud: Int, _ ch: PagerRadioChannel, seed: UInt64 = 4242, count: Int = 3, invert: Bool = false) -> (ok: Int, total: Int, stats: POCSAGStats) {
+        var rng = PagerRNG(seed: seed)
+        var ok = 0, total = 0
+        var stats = POCSAGStats()
+        for _ in 0..<count {
+            let msgs = [pagerRandomMessage(&rng), pagerRandomMessage(&rng), pagerRandomMessage(&rng, numeric: true)]
+            var audio = pagerFMAudio(bits: pagerTransmissionBits(msgs), baud: baud, channel: ch, lead: Int(0.6 * pagerChannelRate), tail: Int(0.4 * pagerChannelRate), rng: &rng)
+            if invert { audio = audio.map { -$0 } }
+            let r = receive(audio, baud: baud)
+            total += msgs.count
+            for m in msgs where r.messages.contains(where: { $0.address == m.ric && $0.text == m.text }) { ok += 1 }
+            stats.preambles += r.stats.preambles; stats.syncs += r.stats.syncs
+            stats.batchesGood += r.stats.batchesGood; stats.batchesBad += r.stats.batchesBad
+            stats.messages += r.stats.messages; stats.inverted = stats.inverted || r.stats.inverted
+        }
+        return (ok, total, stats)
+    }
+    // Die Bedingungen, die der Empfänger ohne Verluste bewältigen soll (Messung: Tools/PagerBench)
+    let cases: [(String, Int, PagerRadioChannel)] = [
+        ("1200 Bd, 14 dB", 1200, PagerRadioChannel(name: "", snrDB: 14)),
+        ("512 Bd, 14 dB", 512, PagerRadioChannel(name: "", snrDB: 14)),
+        ("2400 Bd, 14 dB", 2400, PagerRadioChannel(name: "", snrDB: 14)),
+        ("1200 Bd, Ablage +1,5 kHz", 1200, PagerRadioChannel(name: "", snrDB: 20, offsetHz: 1500)),
+        ("1200 Bd, Entzerrung 300 Hz", 1200, PagerRadioChannel(name: "", snrDB: 20, audio: .deemph300)),
+        ("1200 Bd, Kopplung 150 Hz", 1200, PagerRadioChannel(name: "", snrDB: 20, audio: .ac150)),
+        ("1200 Bd, Kopplung 300 Hz", 1200, PagerRadioChannel(name: "", snrDB: 20, audio: .ac300)),
+        ("512 Bd, Entzerrung und Kopplung 300 Hz", 512, PagerRadioChannel(name: "", snrDB: 20, audio: .deemph300ac300)),
+        ("1200 Bd, Rauschsperre mit 20 s Stille davor", 1200, PagerRadioChannel(name: "", snrDB: 20, squelch: true, leadSeconds: 20)),
+        ("1200 Bd, Drift 1,5 kHz", 1200, PagerRadioChannel(name: "", snrDB: 20, driftHz: 1500)),
+        ("1200 Bd, leise", 1200, PagerRadioChannel(name: "", snrDB: 20, level: 0.02)),
+    ]
+    for (name, baud, ch) in cases {
+        let r = run(baud, ch)
+        check(r.ok == r.total, "Funkruf FM-Kanal \(name): \(r.ok) von \(r.total) Meldungen")
+        check(r.stats.preambles >= 3 && r.stats.syncs >= 3 && r.stats.batchesGood >= 3 && r.stats.batchesBad == 0, "Funkruf FM-Kanal \(name): Zähler Vorspann \(r.stats.preambles), Sync \(r.stats.syncs), Stapel \(r.stats.batchesGood)/\(r.stats.batchesBad)")
+    }
+    // Sprachband (Bandpass 300 bis 3000 Hz): 1200 Bd mit höchstens einem Verlust bei 20 dB
+    let vb = run(1200, PagerRadioChannel(name: "", snrDB: 20, audio: .voiceBand), count: 4)
+    check(vb.ok >= vb.total - 1, "Funkruf FM-Kanal Sprachband 20 dB: \(vb.ok) von \(vb.total)")
+    // Polarität: POCSAG sendet die 1 auf der tieferen Frequenz, der Diskriminator liefert dafür negatives Audio; der Empfänger liest dieses Audio
+    // deshalb „invers“ und dreht selbst. Umgekehrtes Audio (anderer Demodulator, Seitenband) liest er direkt; beides vollständig, die Zähler zeigen es.
+    let norm = run(1200, PagerRadioChannel(name: "", snrDB: 14))
+    let inv = run(1200, PagerRadioChannel(name: "", snrDB: 14), invert: true)
+    check(norm.ok == norm.total && norm.stats.inverted, "Funkruf FM-Kanal normales Audio: \(norm.ok) von \(norm.total), Synchronwort invers erkannt")
+    check(inv.ok == inv.total && !inv.stats.inverted, "Funkruf FM-Kanal umgekehrtes Audio: \(inv.ok) von \(inv.total), Synchronwort direkt erkannt")
+    // Bei 6 dB ist der Empfang unsicher, aber es erscheint nichts Falsches in großer Zahl und der Empfänger fängt sich wieder
+    let weak = run(1200, PagerRadioChannel(name: "", snrDB: 6), count: 4)
+    check(weak.ok >= weak.total / 3, "Funkruf FM-Kanal 6 dB: \(weak.ok) von \(weak.total)")
+    // Nur Rauschen: weder Vorspann noch Meldung
+    var rng = PagerRNG(seed: 9)
+    let noise = (0..<Int(10 * pagerChannelRate)).map { _ in Float(0.2 * rng.gauss()) }
+    let nr = receive(noise, baud: 1200)
+    check(nr.messages.isEmpty && nr.stats.syncs == 0 && nr.stats.batchesGood == 0, "Funkruf: Rauschen ergibt keine Meldung (\(nr.messages.count)) und keinen Stapel")
+
+    // Diagnose: Beurteilung aus Zählern
+    func st(_ f: (inout POCSAGStats) -> Void) -> [POCSAGStats] { var s = POCSAGStats(); f(&s); return [POCSAGStats(), s, POCSAGStats()] }
+    let all: Set<Int> = [0, 1, 2]
+    let d0 = PagerDiagnosis.assess(inputDB: -120, stats: st { _ in }, enabled: all)
+    check(d0.severity == .problem && d0.title == "KEIN AUDIO", "Diagnose: Stille am Eingang → kein Audio (\(d0.title))")
+    let d1 = PagerDiagnosis.assess(inputDB: -35, stats: st { _ in }, enabled: all)
+    check(d1.severity == .waiting && d1.title == "WARTEN AUF FUNKRUF", "Diagnose: Audio ohne Funkruf → warten (\(d1.title))")
+    let d2 = PagerDiagnosis.assess(inputDB: -30, stats: st { $0.preambles = 2 }, enabled: all)
+    check(d2.severity == .problem && d2.title == "VORSPANN OHNE SYNCHRONWORT", "Diagnose: Vorspann ohne Synchronwort (\(d2.title))")
+    let d3 = PagerDiagnosis.assess(inputDB: -30, stats: st { $0.preambles = 2; $0.syncs = 2; $0.batchesBad = 3 }, enabled: all)
+    check(d3.severity == .problem && d3.title == "SYNCHRON, ABER FEHLERHAFT", "Diagnose: nur schlechte Stapel (\(d3.title))")
+    let d4 = PagerDiagnosis.assess(inputDB: -30, stats: st { $0.syncs = 4; $0.batchesGood = 1; $0.batchesBad = 3 }, enabled: all)
+    check(d4.severity == .problem && d4.title == "VIELE FEHLER", "Diagnose: mehr schlechte als gute Stapel (\(d4.title))")
+    let d5 = PagerDiagnosis.assess(inputDB: -30, stats: st { $0.syncs = 4; $0.batchesGood = 4 }, enabled: all)
+    check(d5.severity == .ok && !d5.advice.isEmpty, "Diagnose: gute Stapel ohne Meldung (\(d5.title))")
+    let d6 = PagerDiagnosis.assess(inputDB: -30, stats: st { $0.syncs = 4; $0.batchesGood = 4; $0.messages = 3 }, enabled: all)
+    check(d6.severity == .ok && d6.advice.isEmpty, "Diagnose: Empfang gut")
+    let d7 = PagerDiagnosis.assess(inputDB: -30, stats: st { $0.syncs = 4; $0.batchesGood = 4; $0.messages = 3 }, enabled: [0])
+    check(d7.severity == .waiting, "Diagnose: abgeschaltete Baudraten zählen nicht (\(d7.title))")
+    let d8 = PagerDiagnosis.assess(inputDB: -90, stats: st { $0.preambles = 1; $0.syncs = 1; $0.batchesGood = 1 }, enabled: all)
+    check(d8.severity == .ok, "Diagnose: Pegelmessung ist nachrangig, wenn Stapel gelesen wurden (\(d8.title))")
+
+    // Aufnahme und Controller
+    let ctrl = PagerController(pipeline: AudioPipeline(), settings: PagerSettingsStore())
+    ctrl.logEnabled = false
+    check(!ctrl.isRecording && ctrl.diagnosis.title == "KEIN AUDIO", "Pager-Controller: ohne Audio keine Aufnahme, Diagnose „kein Audio“")
+    let name = InputRecorder.fileName(date: Date(timeIntervalSince1970: 1_790_000_000), frequencyHz: 439_987_500, mode: "FM", preset: "DAPNET", prefix: "PAGER")
+    check(name.hasPrefix("PAGER_") && name.hasSuffix("_439987500Hz_FM_DAPNET.wav"), "Aufnahme-Dateiname Funkruf: \(name)")
+    check(InputRecorder.fileName(frequencyHz: nil, mode: nil, preset: "ham").hasPrefix("RTTY_"), "Aufnahme-Dateiname: RTTY bleibt Standard")
+
+    // Deutsche Umlaute (7-Bit-Zeichensatz DIN 66003 wie AlphaPoc): { | } ~ immer, [ \ ] nur im Wortzusammenhang
+    check(PagerText.germanUmlauts("Pr}fung H{user Gr|~e") == "Prüfung Häuser Größe", "Umlaute klein: \(PagerText.germanUmlauts("Pr}fung H{user Gr|~e"))")
+    check(PagerText.germanUmlauts("[rzte \\bung M]NCHEN") == "Ärzte Übung MÜNCHEN".replacingOccurrences(of: "Übung", with: "Öbung"), "Umlaute groß: \(PagerText.germanUmlauts("[rzte \\bung M]NCHEN"))")
+    check(PagerText.germanUmlauts("[ALARM] Test \\NA ]") == "[ALARM] Test \\NA ]", "Klammern und Rückstrich im Alarmtext bleiben: \(PagerText.germanUmlauts("[ALARM] Test \\NA ]"))")
+    check(PagerText.germanUmlauts("Hallo Welt 123") == "Hallo Welt 123" && PagerText.germanUmlauts("") == "", "Umlaute: gewöhnlicher Text bleibt")
+    let us = PagerSettingsStore()
+    check(us.umlauts, "Umlaute: standardmäßig an")
+}
+pagerChannelTests()
+
 // MARK: - RTTY: DWD-Frequenzwahl und Abstimmziel
 @MainActor func rttyFrequencyTests() {
     let s = RTTYSettingsStore()

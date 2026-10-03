@@ -40,3 +40,40 @@
   Gleichstromversatz, Tiefpass und 30-Hz-Kopplung unverändert vollständig.
 - **Synthetisch** (27 Dateien je Baudrate: sauber, invertiert, 30/150 Hz Kopplung, Rauschen, Takt ±1 %): fast überall alle 4 Meldungen; multimon-ng
   liefert dort auf demselben Material oft weniger oder dazu falsche Rufe.
+
+## Prüfung des POCSAG-Empfangs unter Funkbedingungen (0.44.0)
+
+Anlass: Auf dem Funkgerät kam nichts an; war der Empfänger schuld? Die Antwort liefert `Tools/PagerBench` (`pager_bench.sh [--baud 512|1200|2400] [--mm <multimon-ng>] [--only <Muster>] [--session <wav>]`).
+Das Werkzeug erzeugt Aussendungen mit drei Meldungen (zwei Klartext, eine Ziffernfolge) und schickt sie durch eine Nachbildung des Funkwegs
+(`Sources/Decoders/Pager/PagerChannelModel.swift`): FM-Modulator mit 4,5 kHz Hub → Rauschen und Zwischenfrequenzfilter (12 kHz) → Diskriminator →
+NF-Kette des Empfängers (Entzerrung 75 µs oder 530 µs, Kopplungs-Hochpass, Sprachband 300–3000 Hz, Rauschsperre, Knackser) → Abtastratenwandler wie in Digidec → Empfänger.
+Gezählt wird, wie viele gesendete Meldungen mit richtiger Rufnummer **und** richtigem Text ankamen (20 Aussendungen = 60 Meldungen je Zeile; Zufallsfolge fest).
+
+| Bedingung (1200 Bd) | Digidec | multimon-ng |
+|---|---|---|
+| sauber, 20 dB, 14 dB, 10 dB Rauschabstand (in 12 kHz) | 100 % | 98–100 % |
+| 8 dB / 7 dB / 6 dB / 5 dB | 100 / 95 / 70 / 45 % | 85 / 60 / 20 / 5 % |
+| Ablage der Abstimmung +1,5 kHz / −2 kHz | 100 % | 100 / 95 % |
+| Entzerrung 300 Hz (6 dB je Oktave, wie Amateur-FM) | 100 % | 98 % |
+| NF wechselstromgekoppelt: 30 / 150 / 300 Hz | 100 % | 98 / 23 / **0** % |
+| Entzerrung 300 Hz + Kopplung 300 Hz | 100 % | 37 % |
+| Sprachband 300–3000 Hz, 20 / 12 / 10 dB | 98 / 90 / 87 % | **0** % |
+| Rauschsperre zu (20 s Stille davor) | 100 % | 100 % |
+| Drift 1,5 kHz in der Aussendung | 100 % | 100 % |
+| Knackser 8/s, Sprachband, 14 dB | 72 % | 0 % |
+
+Bei 512 Bd (100 % bis 5 dB, 98 % im Sprachband bei 12 dB) und 2400 Bd (100 % bis 8 dB; im Sprachband nur mit Entzerrung, dort 98 %) ähnlich. Ergebnis:
+
+- Der Empfänger liest Funkruf auch aus Audio, das schlecht aufbereitet ist (Lautsprecher-NF: Entzerrung, Hochpass, Sprachband), wo multimon-ng nichts mehr liest.
+  Seine Grenze ist die Physik: unter etwa 7 dB Rauschabstand im Zwischenfrequenzfilter (Diskriminator-Knackser) und bei 2400 Bd im Sprachband.
+- Fehler im Empfänger wurden dabei nicht gefunden. Ein Funkgerät, bei dem „nichts“ ankommt, hat sein Problem davor: Rauschsperre zu, falscher Kanal (L/R) oder Eingang,
+  Betriebsart (FM schmal oder AM statt FM), Frequenz, zu schwaches Signal, oder zur Zeit sendet niemand. Dafür gibt es seit 0.44.0 die **Diagnose** im Panel: Pegel am Eingang und Zähler
+  (Vorspann, Synchronwörter, Stapel gut/schlecht, gültige Codewörter), daraus „KEIN AUDIO“, „WARTEN AUF FUNKRUF“, „VORSPANN OHNE SYNCHRONWORT“, „SYNCHRON, ABER FEHLERHAFT“, „VIELE FEHLER“ oder „EMPFANG GUT“ mit Hinweis.
+- Die Logiktests enthalten elf dieser Funkbedingungen (alle drei Baudraten) und die Beurteilung der Diagnose; `REC` im Funkruf-Panel nimmt den Eingang als WAV auf
+  (`~/Documents/Digidec/Recordings/PAGER_…wav`), damit sich ein misslungener Empfang später mit `decode_file.sh <wav> --pager` untersuchen lässt.
+
+**Polarität:** POCSAG sendet die 1 auf der tieferen Frequenz. Ein Diskriminator liefert dafür negatives Audio; der Empfänger liest es „invers“ und dreht selbst
+(Anzeige „Sync … (invers)“). Umgekehrtes Audio liest er direkt.
+
+**Anzeige:** Knopf `ÄÖÜ` (Standard an) setzt `{ | } ~` in ä ö ü ß um (7-Bit-Zeichensatz DIN 66003 wie bei AlphaPoc, DAPNET-Meldungen mit Umlauten); `[ \ ]` als Ä Ö Ü nur im Wortzusammenhang.
+Skyper-Meldungen (Zeichen um eins verschoben) werden nicht umgesetzt.

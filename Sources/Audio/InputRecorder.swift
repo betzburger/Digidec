@@ -72,13 +72,13 @@ public final class InputRecorder: @unchecked Sendable {
         }
     }
 
-    /// „RTTY_2026-09-30_1937Z_4584700Hz_LSB_DWD-KW.wav“
-    public static func fileName(date: Date = Date(), frequencyHz: Int?, mode: String?, preset: String) -> String {
+    /// „RTTY_2026-09-30_1937Z_4584700Hz_LSB_DWD-KW.wav“ (Präfix = Modul)
+    public static func fileName(date: Date = Date(), frequencyHz: Int?, mode: String?, preset: String, prefix: String = "RTTY") -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd_HHmmss'Z'"
         f.timeZone = TimeZone(identifier: "UTC")
         f.locale = Locale(identifier: "en_US_POSIX")
-        var name = "RTTY_\(f.string(from: date))"
+        var name = "\(prefix)_\(f.string(from: date))"
         if let frequencyHz { name += "_\(frequencyHz)Hz" }
         if let mode { name += "_\(mode)" }
         name += "_\(preset.uppercased())"

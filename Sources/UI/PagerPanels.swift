@@ -16,6 +16,16 @@ struct PagerMessagePanel: View {
                     .lineLimit(1)
                 Spacer()
                 Button {
+                    controller.toggleRecording()
+                } label: {
+                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche, später mit decode_file.sh --pager nachdecodierbar. "
+                      + "Ordner: ~/Documents/Digidec/Recordings")
+                Button {
                     controller.logEnabled.toggle()
                 } label: {
                     Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
@@ -23,21 +33,22 @@ struct PagerMessagePanel: View {
                 .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
                 .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
                 Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                    NSWorkspace.shared.activateFileViewerSelecting([target])
                 } label: {
                     Image(systemName: "folder")
                 }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
+                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
                 Button {
                     controller.clear()
                 } label: {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
+                .help("Liste und Zähler der Diagnose leeren (Log bleibt)")
             }
-            PagerTable(messages: controller.messages, watched: settings.watched)
+            PagerTable(messages: controller.messages, watched: settings.watched, umlauts: settings.umlauts)
                 .background(RadioTheme.bgDeep)
                 .cornerRadius(6)
         }
@@ -46,11 +57,17 @@ struct PagerMessagePanel: View {
     private var summary: String {
         controller.messages.isEmpty ? "Warten auf Funkruf (\(settings.channel.label) MHz, FM)" : "\(controller.messages.count) Meldungen"
     }
+
+    private static func duration(_ t: TimeInterval) -> String {
+        let s = Int(t)
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
 }
 
 struct PagerTable: View {
     let messages: [PagerMessage]
     var watched: Set<Int> = []
+    var umlauts = false
     var scrolls = true
 
     var body: some View {
@@ -94,13 +111,18 @@ struct PagerTable: View {
             Text(m.protocolName).frame(width: 84, alignment: .leading)
             Text(String(m.address)).frame(width: 78, alignment: .trailing)
             Text("\(m.function)").frame(width: 14, alignment: .center)
-            Text(m.text.isEmpty ? "(nur Ruf)" : m.text.replacingOccurrences(of: "\n", with: " ⏎ "))
+            Text(m.text.isEmpty ? "(nur Ruf)" : shown(m).replacingOccurrences(of: "\n", with: " ⏎ "))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(3)
         }
         .font(.system(size: 11, weight: watched.contains(m.address) ? .bold : .medium, design: .monospaced))
         .foregroundColor(color)
         .help(tooltip(m))
+    }
+
+    /// Klartext, auf Wunsch mit deutschen Umlauten (nur bei Funktion 3 = Klartext)
+    private func shown(_ m: PagerMessage) -> String {
+        umlauts && m.text == m.alpha ? PagerText.germanUmlauts(m.text) : m.text
     }
 
     private func tooltip(_ m: PagerMessage) -> String {
@@ -150,6 +172,42 @@ struct PagerTuningPanel: View {
                 readout("FREQUENZ", settings.channel.frequencyHz.map { String(format: "%.4f", $0 / 1_000_000).replacingOccurrences(of: ".", with: ",") + " MHz" } ?? "frei")
                 Spacer()
                 readout("MELDUNGEN", "\(controller.count)")
+            }
+            diagnosisView
+        }
+    }
+
+    /// Was der Empfänger gesehen hat und was daraus folgt: kein Audio, kein Funkruf, verzerrt, schwach oder gut
+    private var diagnosisView: some View {
+        let d = controller.diagnosis
+        let color: Color = d.severity == .ok ? RadioTheme.vfdGreen : d.severity == .waiting ? RadioTheme.vfdAmber : RadioTheme.ledRed
+        return VStack(alignment: .leading, spacing: 4) {
+            Divider().background(RadioTheme.borderSubtle)
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Text(d.title)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(color)
+                Spacer()
+                Text(controller.inputDB <= -119 ? "kein Audio" : String(format: "%.0f dBFS", controller.inputDB))
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(controller.inputDB < PagerDiagnosis.silenceDB ? RadioTheme.ledRed : RadioTheme.textMuted)
+                    .help("Effektivpegel des Audios am Eingang des Funkruf-Decoders (Vollaussteuerung = 0 dBFS). Brauchbar sind etwa −40 … −10 dBFS.")
+            }
+            if !d.advice.isEmpty {
+                Text(d.advice)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(Array(POCSAG.rates.enumerated()).filter { settings.rates.contains($0.element) }, id: \.offset) { i, rate in
+                let st = controller.stats.indices.contains(i) ? controller.stats[i] : POCSAGStats()
+                if st.preambles + st.syncs + st.batchesGood + st.batchesBad > 0 {
+                    Text("\(rate) Bd · Vorspann \(st.preambles) · Sync \(st.syncs)\(st.inverted ? " (invers)" : "") · Stapel \(st.batchesGood) gut / \(st.batchesBad) schlecht · Wörter \(st.wordsGood)/\(st.wordsGood + st.wordsBad)")
+                        .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                        .foregroundColor(RadioTheme.textDim)
+                        .help("Vorspann: Folge wechselnder Bits vor jeder Aussendung. Sync: Synchronwort gefunden. Stapel: 16 Codewörter, „gut“ ab 10 gültigen. Wörter: gültige Codewörter von allen gelesenen (BCH-Prüfung).")
+                }
             }
         }
     }
@@ -212,6 +270,9 @@ struct PagerSettingsPanel: View {
                 Button("FLEX") { settings.flex.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.flex))
                     .help("FLEX (1600/3200 Baud) lesen")
+                Button("ÄÖÜ") { settings.umlauts.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.umlauts))
+                    .help("Deutsche Umlaute anzeigen: Funkrufempfänger belegen { | } ~ mit ä ö ü ß und [ \\ ] mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003). Aus: der Text wird so gezeigt, wie er gesendet wurde.")
             }
             HStack(spacing: 6) {
                 Text("RUFNUMMERN")
