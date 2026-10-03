@@ -20,6 +20,7 @@ struct ModuleMapView: View {
             case .olivia: TextCallMapView(model: state.oliviaController.textModel, mode: "Olivia", home: state.home)
             case .mt63:   TextCallMapView(model: state.mt63Controller.textModel, mode: "MT63", home: state.home)
             case .mfsk:   TextCallMapView(model: state.mfskController.textModel, mode: state.mfsk.options.mode.family.title, home: state.home)
+            case .skimmer: SkimmerMapView(controller: state.skimmerController, settings: state.skimmer, home: state.home)
             case .wefax:  FixedSiteMapView(sites: Transmitters.dwd("wefax", frequency: "\(state.wefax.station.label) kHz"), home: state.home,
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
@@ -42,7 +43,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "LISTE"
+        case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -51,7 +52,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "list.bullet"
+        case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -63,6 +64,7 @@ extension DecoderModuleInfo {
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "Der empfangene Text"
         case .dcf77: return "Atomuhr, Zeitvergleich und Telegramm"
         case .efr: return "Rundsteuertelegramme"
+        case .skimmer: return "Alle gehörten Signale mit Rufzeichen, Rauschabstand und Spots"
         case .aprs, .acars, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
     }
@@ -235,6 +237,21 @@ private struct RTTYMapView: View {
         case "dwd-kw": return Transmitters.dwd("rtty", frequency: "DDK2 4583 kHz · DDH7 7646 kHz · DDK9 10100,8 kHz · DDH9 11039 kHz · DDH8 14467,3 kHz")
         case "dwd-lw": return Transmitters.dwd("rtty", frequency: "DDH47 147,3 kHz")
         default: return []
+        }
+    }
+}
+
+private struct SkimmerMapView: View {
+    @ObservedObject var controller: SkimmerController
+    @ObservedObject var settings: SkimmerSettingsStore
+    @ObservedObject var home: HomeLocation
+    @State private var selection: String?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { ctx in
+            MapPanel(content: HeardMapBuilder.content(controller.heard, home: home.point, now: ctx.date, mode: settings.mode.name,
+                                                      emptyHint: "Noch kein Rufzeichen gehört (nach CQ oder DE, oder mehrfach)"),
+                     home: home, selection: $selection, legend: "gehörte Rufzeichen (Gebiet, nicht genauer Ort)")
         }
     }
 }

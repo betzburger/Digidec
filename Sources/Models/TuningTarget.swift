@@ -8,6 +8,25 @@ public enum WaterfallMarkerStyle: Equatable, Sendable {
     case band(String)
     /// Keine Markierung (Tonfolgen: überall im Spektrum)
     case none(String)
+    /// Viele Signale zugleich (Skimmer): je Signal eine Linie mit Beschriftung
+    case channels([WaterfallChannelMark])
+}
+
+/// Ein vom Skimmer gefundenes Signal im Wasserfall
+public struct WaterfallChannelMark: Equatable, Sendable {
+    public var frequency: Double
+    /// Rufzeichen oder leer
+    public var label: String
+    public var selected: Bool
+    /// Kürzlich aktiv (sonst abgedunkelt)
+    public var active: Bool
+
+    public init(frequency: Double, label: String, selected: Bool = false, active: Bool = true) {
+        self.frequency = frequency
+        self.label = label
+        self.selected = selected
+        self.active = active
+    }
 }
 
 /// Was der Wasserfall vom aktiven Decoder-Modul braucht: Mitte, Töne, Bandbreite und Abstimmen per Klick.

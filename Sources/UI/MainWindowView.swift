@@ -38,6 +38,8 @@ public struct MainWindowView: View {
                                 TonesListPanel(controller: state.tonesController, settings: state.tones)
                             } else if state.activeModule == .psk {
                                 PSKReceivePanel(controller: state.pskController)
+                            } else if state.activeModule == .skimmer {
+                                SkimmerMainPanel(controller: state.skimmerController, settings: state.skimmer, openStation: { state.openSkimmerStation($0) })
                             } else if state.activeModule == .wefax {
                                 WefaxImagePanel(controller: state.wefaxController, schedule: state.wefaxSchedule, auto: state.autoRecorder, openSchedule: { state.scheduleSheet = .wefax })
                             } else if state.activeModule == .ft8 {
@@ -94,6 +96,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.tones, audio: state.audio)
                             } else if state.activeModule == .psk {
                                 WaterfallView(model: state.waterfall, rtty: state.psk, audio: state.audio)
+                            } else if state.activeModule == .skimmer {
+                                WaterfallView(model: state.waterfall, rtty: state.skimmer, audio: state.audio)
                             } else if state.activeModule == .wefax {
                                 WaterfallView(model: state.waterfall, rtty: state.wefax, audio: state.audio)
                             } else if state.activeModule == .ft8 {
@@ -132,7 +136,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -204,6 +208,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             PSKSettingsPanel(settings: state.psk)
                                 .radioCard(title: "PSK")
+                        } else if state.activeModule == .skimmer {
+                            SkimmerTuningPanel(controller: state.skimmerController, settings: state.skimmer)
+                                .radioCard(title: "Abstimmanzeige")
+                            SkimmerSettingsPanel(settings: state.skimmer)
+                                .radioCard(title: "SKIMMER")
                         } else if state.activeModule == .wefax {
                             WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.autoRecorder)
                                 .radioCard(title: "Abstimmanzeige")
@@ -265,7 +274,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -626,6 +635,8 @@ private struct StatusBar: View {
     @ObservedObject var cw: CWSettingsStore
     @ObservedObject var wefax: WefaxSettingsStore
     @ObservedObject var psk: PSKSettingsStore
+    @ObservedObject var skimmer: SkimmerSettingsStore
+    @ObservedObject var skimmerController: SkimmerController
     @ObservedObject var olivia: OliviaSettingsStore
     @ObservedObject var mt63: MT63SettingsStore
     @ObservedObject var mfsk: MFSKSettingsStore
@@ -696,6 +707,7 @@ private struct StatusBar: View {
         case .navtex: return navtexCurrent
         case .cw: return cwCurrent
         case .psk: return pskCurrent
+        case .skimmer: return skimmerCurrent
         case .olivia: return "\(olivia.options.familyName.uppercased()) · \(olivia.options.label) · Mitte \(Int(olivia.centerHz.rounded())) Hz" + (olivia.options.reverse ? " · REV" : "") + (olivia.options.squelchOn ? " · SQL \(Int(olivia.options.squelch))" : " · SQL aus")
         case .acars: return "ACARS · \(acars.channel.label) MHz AM · MSK 2400 Bd" + (acars.hideEmpty ? " · ohne leere" : "") + (acars.showUplink ? "" : " · nur Abwärts")
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")
@@ -731,6 +743,16 @@ private struct StatusBar: View {
         s += " · \(Int(ft4.core.minHz))–\(Int(ft4.core.maxHz)) Hz"
         s += " · \(ft4.locator)"
         if !ft4.myCall.isEmpty { s += " · \(ft4.myCall)" }
+        return s
+    }
+
+    /// „SKIMMER · CW · Dial 14,020 MHz · Schwelle 8 dB · 7 Signale · 3 mit Rufzeichen“
+    private var skimmerCurrent: String {
+        var s = "SKIMMER · \(skimmer.mode.name)"
+        if let d = skimmer.dialHz { s += String(format: " · Dial %.3f MHz", Double(d) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
+        s += " · Schwelle \(Int(skimmer.thresholdDB)) dB"
+        let live = skimmerController.stations.filter(\.isLive)
+        s += " · \(live.count) Signale · \(live.filter { $0.call != nil }.count) mit Rufzeichen"
         return s
     }
 

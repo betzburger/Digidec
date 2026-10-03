@@ -34,6 +34,8 @@ public final class DigidecState: ObservableObject {
     public let cwController: CWController
     public let psk = PSKSettingsStore()
     public let pskController: PSKController
+    public let skimmer = SkimmerSettingsStore()
+    public let skimmerController: SkimmerController
     public let olivia = OliviaSettingsStore()
     public let oliviaController: OliviaController
     public let mt63 = MT63SettingsStore()
@@ -97,6 +99,7 @@ public final class DigidecState: ObservableObject {
         navtexController = NavtexController(pipeline: audio.pipeline, settings: navtex)
         cwController = CWController(pipeline: audio.pipeline, settings: cw)
         pskController = PSKController(pipeline: audio.pipeline, settings: psk)
+        skimmerController = SkimmerController(pipeline: audio.pipeline, settings: skimmer)
         oliviaController = OliviaController(pipeline: audio.pipeline, settings: olivia)
         mt63Controller = MT63Controller(pipeline: audio.pipeline, settings: mt63)
         mfskController = MFSKController(pipeline: audio.pipeline, settings: mfsk)
@@ -141,6 +144,7 @@ public final class DigidecState: ObservableObject {
                 self?.navtexController.setActive(module == .navtex)
                 self?.cwController.setActive(module == .cw)
                 self?.pskController.setActive(module == .psk)
+                self?.skimmerController.setActive(module == .skimmer)
                 self?.oliviaController.setActive(module == .olivia)
                 self?.mt63Controller.setActive(module == .mt63)
                 self?.mfskController.setActive(module == .mfsk)
@@ -167,6 +171,9 @@ public final class DigidecState: ObservableObject {
         observeForTuning(ft4.$band)
         observeForTuning(wspr.$band)
         observeForTuning(psk.$band)
+        observeForTuning(skimmer.$cwBand)
+        observeForTuning(skimmer.$pskBand)
+        observeForTuning(skimmer.$mode)
         observeForTuning(dsc.$channel)
         observeForTuning(aprs.$channel)
         observeForTuning(acars.$channel)
@@ -190,6 +197,8 @@ public final class DigidecState: ObservableObject {
             rtty.rigIsLSB = state.isLSB
             navtex.rigIsLSB = state.isLSB
             wefax.rigIsLSB = state.isLSB
+            skimmer.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
+            skimmer.rigIsLSB = state.isLSB
             ft8.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             ft4.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             wspr.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
@@ -203,6 +212,7 @@ public final class DigidecState: ObservableObject {
             rttyController.rigDescription = rig.description
             cwController.rigDescription = rig.description
             pskController.rigDescription = rig.description
+            skimmerController.rigDescription = rig.description
             oliviaController.rigDescription = rig.description
             mt63Controller.rigDescription = rig.description
             mfskController.rigDescription = rig.description
@@ -235,6 +245,7 @@ public final class DigidecState: ObservableObject {
         case .ft4:    return .ft4(band: ft4.band)
         case .wspr:   return .wspr(band: wspr.band)
         case .psk:    return .psk(band: psk.band)
+        case .skimmer: return .skimmer(mode: skimmer.mode, cwBand: skimmer.cwBand, pskBand: skimmer.pskBand)
         case .sstv:   return .sstv(channel: sstv.channel)
         case .efr:    return .efr(station: efr.station, centerHz: efr.centerHz)
         case .dcf77:  return .dcf77(centerHz: dcf77.centerHz)
@@ -348,6 +359,8 @@ public final class DigidecState: ObservableObject {
                 case .psk:
                     if let preset = request.presetID, let m = PSKMode(rawValue: preset) { psk.options.mode = m }
                     if let center = request.centerHz { psk.setCenter(center) }
+                case .skimmer:
+                    if let preset = request.presetID, let m = SkimMode(rawValue: preset) { skimmer.mode = m }
                 case .ft8:
                     if let preset = request.presetID, let b = FT8Band(rawValue: preset) { ft8.band = b }
                 case .ft4:
@@ -404,6 +417,22 @@ public final class DigidecState: ObservableObject {
     public func select(module: DecoderModuleInfo) {
         guard module.isAvailable else { return }
         activeModule = module
+    }
+
+    /// Station des Skimmers im CW- bzw. PSK-Modul öffnen: Modul wechseln und den Ton auf das Signal stellen
+    /// (dort liest der fldigi-Empfänger mit AFC und allen Einstellungen)
+    public func openSkimmerStation(_ station: SkimStation) {
+        switch station.mode {
+        case .cw:
+            cw.setCenter(station.audioHz)
+            select(module: .cw)
+        case .psk31, .psk63:
+            var o = psk.options
+            o.mode = station.mode == .psk63 ? .bpsk63 : .bpsk31
+            psk.options = o
+            psk.setCenter(station.audioHz)
+            select(module: .psk)
+        }
     }
 
     public func cleanup() {

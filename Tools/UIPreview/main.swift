@@ -208,6 +208,24 @@ func run() {
         PagerSettingsPanel(settings: pg).radioCard(title: "PAGER")
     }, width: right, name: "pager_rechts", dir: dir)
 
+    // Skimmer (die Signalliste hat eine ScrollView und die Betriebsarten-Wahl einen Picker: beides zeigt ImageRenderer nicht, dafür DIGIDEC_SNAPSHOT der App nutzen)
+    let sk = SkimmerSettingsStore()
+    sk.mode = .cw; sk.cwBand = .m20; sk.rigDialHz = nil
+    let skc = SkimmerController(pipeline: pipeline, settings: sk)
+    skc.logEnabled = false
+    let sknow = Date(timeIntervalSince1970: 1_790_000_000)
+    let skInfo: [(id: Int, hz: Double, snr: Double, wpm: Double, text: String)] = [
+        (1, 520, 27, 18, "CQ CQ DE DL1ABC DL1ABC K"), (2, 700, 18, 24, "CQ DE OK2XYZ OK2XYZ PSE K"), (3, 905, 8, 14, "DE F5NZB F5NZB K"),
+        (4, 1130, 22, 30, "CQ CQ DE SP9KJ SP9KJ K"), (5, 1380, 6, 20, "T E I T S"), (6, 1625, 20, 16, "G4WXY DE I2LMN 599 TU"),
+    ]
+    let skChannels = skInfo.map { SkimChannelInfo(id: $0.id, mode: .cw, frequencyHz: $0.hz, snrDB: $0.snr, speed: $0.wpm, state: .active, born: 0, lastActive: 100, quality: 1, characters: 20) }
+    skc.ingest(texts: skInfo.map { (id: $0.id, text: $0.text) }, activated: skInfo.map(\.id), closed: [], channels: skChannels, engineTime: 100, now: sknow)
+    skc.selection = 2
+    save(VStack(spacing: 10) {
+        SkimmerTuningPanel(controller: skc, settings: sk).radioCard(title: "Abstimmanzeige")
+        SkimmerSettingsPanel(settings: sk).radioCard(title: "SKIMMER")
+    }, width: right, name: "skimmer_rechts", dir: dir)
+
     // WEFAX-Sendeplan (Fenster)
     schedState.wefaxSchedule.selected = ["1636", "1800", "0430"]
     schedState.wefaxSchedule.autoEnabled = true

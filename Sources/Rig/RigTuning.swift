@@ -42,6 +42,12 @@ public struct RigTuneTarget: Equatable, Sendable {
         band.dialHz.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
     }
 
+    /// Skimmer: Dial des gewählten Bandes in USB (CW: Anfang des CW-Bereichs, PSK: PSK31-Anruffrequenz; frei = nichts)
+    public static func skimmer(mode: SkimMode, cwBand: SkimBand, pskBand: PSKBand) -> RigTuneTarget? {
+        let dial = mode == .cw ? cwBand.dialHz : pskBand.dialHz
+        return dial.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
+    }
+
     /// APRS-Kanal: FM auf der Region-Frequenz (frei = nichts)
     public static func aprs(channel: APRSChannel) -> RigTuneTarget? {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }

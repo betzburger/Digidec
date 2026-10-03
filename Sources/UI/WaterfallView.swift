@@ -91,6 +91,10 @@ struct WaterfallView<Tuning: TuningTarget>: View {
             var s = text
             if let h = hoverHz { s += " · ▸ \(Int(h.rounded())) Hz" }
             return s
+        case .channels(let marks):
+            var s = marks.isEmpty ? "SKIMMER · noch kein Signal gefunden" : "SKIMMER · \(marks.count) Signal" + (marks.count == 1 ? "" : "e")
+            if let h = hoverHz { s += " · ▸ \(Int(h.rounded())) Hz" }
+            return s
         case .tones: break
         }
         var s = "MITTE \(Int(rtty.centerHz)) Hz · M \(Int(t.mark.rounded())) · S \(Int(t.space.rounded()))"
@@ -205,6 +209,21 @@ private struct SignalMarkers: View {
             if case .none = style {} else {
                 let band = CGRect(x: x(center - bw / 2), y: 0, width: x(center + bw / 2) - x(center - bw / 2), height: size.height)
                 ctx.fill(Path(band), with: .color(RadioTheme.vfdCyan.opacity(0.07)))
+            }
+            // Skimmer: jedes gefundene Signal mit Linie und Rufzeichen
+            if case .channels(let marks) = style {
+                for (i, m) in marks.enumerated() {
+                    let px = x(m.frequency)
+                    guard px >= 0, px <= size.width else { continue }
+                    let color: Color = m.selected ? RadioTheme.vfdAmber : m.active ? RadioTheme.vfdGreen : RadioTheme.textMuted
+                    var line = Path()
+                    line.move(to: CGPoint(x: px, y: 12))
+                    line.addLine(to: CGPoint(x: px, y: size.height))
+                    ctx.stroke(line, with: .color(color.opacity(m.selected ? 0.95 : 0.7)), style: StrokeStyle(lineWidth: m.selected ? 1.6 : 1, dash: m.selected ? [] : [3, 3]))
+                    let text = m.label.isEmpty ? "\(Int(m.frequency.rounded()))" : m.label
+                    ctx.draw(Text(text).font(.system(size: 8.5, weight: .black, design: .monospaced)).foregroundColor(color),
+                             at: CGPoint(x: min(max(px, 22), size.width - 22), y: 6 + CGFloat(i % 2) * 9), anchor: .center)
+                }
             }
 
             for (f, label, color) in (style == .tones ? [(tones.mark, "M", RadioTheme.vfdAmber), (tones.space, "S", RadioTheme.vfdCyan)] : []) {

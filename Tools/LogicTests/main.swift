@@ -5432,5 +5432,304 @@ acarsPositionTests()
 }
 aprsTrackTests()
 
+// MARK: - Skimmer: Tabellen, Betriebsarten, URL, Abstimmung, Einstellungen
+@MainActor func skimmerBasicsTests() {
+    // Morsetabelle: eindeutig, vollständig für Buchstaben und Ziffern
+    let morse = SkimTables.morse
+    check(Set(morse.values).count == morse.count, "Skimmer: Morsetabelle ohne doppelte Zeichen")
+    check(Set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".map(String.init)).isSubset(of: Set(morse.values)), "Skimmer: alle Buchstaben und Ziffern im Morsealphabet")
+    check(morse["-.-."] == "C" && morse["--.-"] == "Q" && morse["-.-"] == "K" && morse["-.."] == "D" && morse["."] == "E", "Skimmer: C, Q, K, D, E")
+    // Varicode: 256 verschiedene Zeichen, nie „00“ im Zeichen, Rundlauf
+    check(SkimTables.varicodeBits.count == 256 && SkimTables.varicodeDecode.count == 256, "Skimmer: Varicode mit 256 verschiedenen Zeichen")
+    check(SkimTables.varicodeBits.allSatisfy { !$0.contains("00") && $0.hasPrefix("1") && $0.hasSuffix("1") }, "Skimmer: Varicode ohne „00“ im Zeichen")
+    var roundTrip = true
+    for ch in Array("CQ DE DL1ABC k\r".utf8) {
+        var v: UInt16 = 0
+        let bits = SkimTables.varicode(ch)
+        for b in bits.dropLast(2) { v = (v << 1) | UInt16(b) }
+        if SkimTables.varicodeDecode[v] != ch || bits.suffix(2) != [0, 0] { roundTrip = false }
+    }
+    check(roundTrip, "Skimmer: Varicode-Rundlauf")
+    // Betriebsarten
+    check(SkimMode.allCases == [.cw, .psk31, .psk63] && SkimMode.psk31.baud == 31.25 && SkimMode.psk63.baud == 62.5, "Skimmer: Betriebsarten und Schrittgeschwindigkeit")
+    check(SkimMode.psk31.symbolSamples == 16 && SkimMode.psk63.symbolSamples == 8, "Skimmer: Abtastwerte je Symbol bei 500 Hz")
+    check(DecoderModuleInfo.skimmer.displayName == "SKIMMER" && DecoderModuleInfo.skimmer.isAvailable && DecoderModuleInfo.skimmer.hasMap, "Skimmer: Modul verfügbar mit Karte")
+    check(DecoderModuleInfo.skimmer.presetIDs == SkimMode.allCases.map(\.rawValue), "Skimmer: Voreinstellungen = Betriebsarten")
+    // URL-Schema
+    check(parse("digidec://decode?mode=skimmer") == .success(DecodeRequest(module: .skimmer, presetID: "cw")), "Skimmer: URL ohne Preset = CW")
+    check(parse("digidec://decode?mode=skimmer&preset=psk63") == .success(DecodeRequest(module: .skimmer, presetID: "psk63")), "Skimmer: URL mit Preset psk63")
+    if case .failure(.unknownPreset("olivia-8-500", .skimmer)) = parse("digidec://decode?mode=skimmer&preset=olivia-8-500") {} else { check(false, "Skimmer: fremdes Preset abgelehnt") }
+    // Funkgerät abstimmen: Dial des Bandes in USB
+    check(RigTuneTarget.skimmer(mode: .cw, cwBand: .m20, pskBand: .m40) == RigTuneTarget(dialHz: 14_020_000, mode: "USB"), "QSY: Skimmer CW 20 m = 14,020 MHz USB")
+    check(RigTuneTarget.skimmer(mode: .psk31, cwBand: .m20, pskBand: .m40) == RigTuneTarget(dialHz: 7_040_000, mode: "USB"), "QSY: Skimmer PSK 40 m = 7,040 MHz USB")
+    check(RigTuneTarget.skimmer(mode: .psk63, cwBand: .m20, pskBand: .m40) == RigTuneTarget(dialHz: 7_040_000, mode: "USB"), "QSY: Skimmer PSK63 wie PSK31")
+    check(RigTuneTarget.skimmer(mode: .cw, cwBand: .free, pskBand: .m40) == nil && RigTuneTarget.skimmer(mode: .psk31, cwBand: .m20, pskBand: .free) == nil, "QSY: Skimmer frei = kein Ziel")
+    let dials = SkimBand.allCases.compactMap(\.dialHz)
+    check(dials == dials.sorted() && dials.count == SkimBand.allCases.count - 1 && SkimBand.free.dialHz == nil, "Skimmer: Bänder aufsteigend, „frei“ ohne Dial")
+    // Einstellungen: Dial vom Funkgerät hat Vorrang vor dem Band
+    let st = SkimmerSettingsStore()
+    st.mode = .cw; st.cwBand = .free; st.pskBand = .free; st.rigDialHz = nil
+    check(st.dialHz == nil, "Skimmer: ohne Band und Funkgerät keine HF-Frequenz")
+    st.cwBand = .m20
+    check(st.bandDialHz == 14_020_000 && st.dialHz == 14_020_000, "Skimmer: Dial aus dem Band")
+    st.rigDialHz = 14_025_300
+    check(st.dialHz == 14_025_300 && st.bandDialHz == 14_020_000, "Skimmer: Dial vom Funkgerät hat Vorrang")
+    st.mode = .psk31; st.pskBand = .m40; st.rigDialHz = nil
+    check(st.bandDialHz == 7_040_000, "Skimmer: PSK-Band")
+    // Klick im Wasserfall
+    let rev = st.focusRevision
+    st.setCenter(1234.4)
+    check(st.centerHz == 1234 && st.focusRevision == rev + 1, "Skimmer: Klick setzt die NF-Frequenz")
+    st.setCenter(10)
+    check(st.centerHz == 150, "Skimmer: NF-Frequenz nach unten begrenzt")
+    st.setCenter(9000)
+    check(st.centerHz == 3500, "Skimmer: NF-Frequenz nach oben begrenzt")
+    st.marks = [WaterfallChannelMark(frequency: 700, label: "DL1ABC", selected: true)]
+    if case .channels(let m) = st.markerStyle { check(m.count == 1 && m[0].label == "DL1ABC" && m[0].selected && m[0].active, "Skimmer: Markierungen für den Wasserfall") } else { check(false, "Skimmer: Markierungsart") }
+    st.mode = .cw
+    check(st.markerBandwidth == 100 && SkimmerSettingsStore().thresholdDB >= 4, "Skimmer: Breite der Markierung, Schwelle im Bereich")
+    // HF-Frequenz einer Station: USB Dial + NF, LSB Dial − NF
+    let s = SkimStation(id: 1, mode: .cw, audioHz: 700, snrDB: 20, speed: 20, firstHeard: Date(), lastHeard: Date())
+    check(s.rfHz(dialHz: 14_020_000, lsb: false) == 14_020_700 && s.rfHz(dialHz: 14_020_000, lsb: true) == 14_019_300 && s.rfHz(dialHz: nil, lsb: false) == nil, "Skimmer: HF-Frequenz aus Dial und NF")
+}
+skimmerBasicsTests()
+
+// MARK: - Skimmer-Engine: mehrere Signale gleichzeitig (synthetisch, mit Rauschen)
+
+/// Audio in Blöcken durch die Engine schicken; liefert die Kanäle, den je Kanal gelesenen Text und die Meldungen
+func skimRun(_ mode: SkimMode, _ audio: [Float], threshold: Double = 8)
+    -> (channels: [SkimChannelInfo], text: [Int: String], activated: [Int], closed: [Int]) {
+    let e = SkimmerEngine(mode: mode)
+    e.config.thresholdDB = threshold
+    var text: [Int: String] = [:]
+    var activated: [Int] = [], closed: [Int] = []
+    e.onText = { id, s, _ in text[id, default: ""] += s }
+    e.onActivated = { activated.append($0) }
+    e.onClosed = { closed.append($0) }
+    var i = 0
+    audio.withUnsafeBufferPointer { buf in
+        while i < buf.count {
+            let n = min(400, buf.count - i)
+            e.process(UnsafeBufferPointer(rebasing: buf[i..<(i + n)]))
+            i += n
+        }
+    }
+    return (e.channels(), text, activated, closed)
+}
+
+/// „CQ CQ DE <call> <call> K“ je Signal, wiederholt bis zum Ende; Rauschen so, dass `snr` in 500 Hz herauskommt
+func skimMix(_ mode: SkimMode, _ spec: [(hz: Double, snr: Double, wpm: Double, call: String, start: Double)], seconds: Double, seed: UInt64 = 7) -> [Float] {
+    let amplitude: Float = 0.08
+    let sigma = SkimTestSignal.noiseSigma(snr500: 0, amplitude: amplitude)
+    var parts: [[Float]] = []
+    for s in spec {
+        let amp = amplitude * Float(pow(10, s.snr / 20))
+        let text = "CQ CQ DE \(s.call) \(s.call) K"
+        let single = mode == .cw
+            ? SkimTestSignal.cw(text: text, wpm: s.wpm, toneHz: s.hz, amplitude: amp, leadSeconds: 0, tailSeconds: 0.2)
+            : SkimTestSignal.bpsk(text: text, mode: mode, carrierHz: s.hz, amplitude: amp)
+        var x = single
+        while Double(x.count) < (seconds - s.start) * 8000 { x += [Float](repeating: 0, count: Int(1.5 * 8000)) + single }
+        parts.append(SkimTestSignal.delayed(x, seconds: s.start))
+    }
+    return SkimTestSignal.mix(parts, noise: sigma, seconds: seconds, seed: seed)
+}
+
+@MainActor func skimmerEngineTests() {
+    // CW: vier Signale mit 14 … 30 WpM und 12 … 25 dB
+    let cwSpec: [(hz: Double, snr: Double, wpm: Double, call: String, start: Double)] = [
+        (600, 25, 18, "DL1ABC", 0), (950, 15, 24, "OK2XYZ", 2), (1400, 12, 14, "F5NZB", 4), (2000, 20, 30, "SP9KJ", 6),
+    ]
+    let cw = skimRun(.cw, skimMix(.cw, cwSpec, seconds: 45))
+    for s in cwSpec {
+        let ch = cw.channels.filter { abs($0.frequencyHz - s.hz) < 8 }.min { abs($0.frequencyHz - s.hz) < abs($1.frequencyHz - s.hz) }
+        check(ch?.state == .active, "Skimmer CW: \(s.call) bei \(Int(s.hz)) Hz als Signal gefunden")
+        guard let ch else { continue }
+        let t = cw.text[ch.id] ?? ""
+        check(t.contains(" " + s.call + " "), "Skimmer CW: \(s.call) gelesen, got \(t.suffix(70).debugDescription)")
+        check(abs(ch.speed - s.wpm) < 1.5, "Skimmer CW: \(s.call) Geschwindigkeit \(String(format: "%.1f", ch.speed)) WpM statt \(Int(s.wpm))")
+        if s.snr >= 15 { check(abs(ch.snrDB - s.snr) < 4, "Skimmer CW: \(s.call) Rauschabstand \(String(format: "%.1f", ch.snrDB)) dB statt \(Int(s.snr)) dB") }
+    }
+    check(cw.channels.filter { $0.state == .active }.count == 4, "Skimmer CW: genau vier aktive Signale (\(cw.channels.filter { $0.state == .active }.count))")
+    check(Set(cw.activated).count == cw.activated.count, "Skimmer CW: jeder Kanal höchstens einmal gemeldet")
+    // Auswertung der Rufzeichen mit dem Rufzeichenspeicher
+    let log = CallsignLog()
+    for ch in cw.channels where ch.state == .active { log.feed(cw.text[ch.id] ?? "") }
+    check(Set(log.heard.map(\.call)) == Set(cwSpec.map(\.call)), "Skimmer CW: Rufzeichenspeicher findet alle vier (\(log.heard.map(\.call).sorted()))")
+
+    // BPSK31: fünf Signale, zwei davon nur 100 Hz auseinander
+    let pskSpec: [(hz: Double, snr: Double, wpm: Double, call: String, start: Double)] = [
+        (500, 25, 0, "DL1ABC", 0), (680, 18, 0, "OK2XYZ", 1), (780, 15, 0, "F5NZB", 2), (1500, 12, 0, "SP9KJ", 3), (1880, 20, 0, "HB9TST", 4),
+    ]
+    for mode in [SkimMode.psk31, .psk63] {
+        let r = skimRun(mode, skimMix(mode, pskSpec, seconds: 45))
+        for s in pskSpec {
+            let ch = r.channels.filter { abs($0.frequencyHz - s.hz) < 8 }.min { abs($0.frequencyHz - s.hz) < abs($1.frequencyHz - s.hz) }
+            check(ch?.state == .active, "Skimmer \(mode.name): \(s.call) bei \(Int(s.hz)) Hz als Signal gefunden")
+            guard let ch else { continue }
+            let t = r.text[ch.id] ?? ""
+            check(t.contains(" " + s.call + " "), "Skimmer \(mode.name): \(s.call) gelesen, got \(t.suffix(70).debugDescription)")
+            check(abs(ch.frequencyHz - s.hz) < 3, "Skimmer \(mode.name): \(s.call) Frequenz \(String(format: "%.1f", ch.frequencyHz)) Hz")
+            check(ch.speed == mode.baud, "Skimmer \(mode.name): Schrittgeschwindigkeit")
+            if s.snr >= 15 { check(abs(ch.snrDB - s.snr) < 5, "Skimmer \(mode.name): \(s.call) Rauschabstand \(String(format: "%.1f", ch.snrDB)) dB statt \(Int(s.snr)) dB") }
+        }
+        check(r.channels.filter { $0.state == .active }.count == 5, "Skimmer \(mode.name): genau fünf aktive Signale (\(r.channels.filter { $0.state == .active }.count))")
+    }
+
+    // Nur Rauschen, Dauerträger und fremde Betriebsart: keine Signale in der Liste
+    let noise = SkimTestSignal.mix([], noise: 0.08, seconds: 60, seed: 3)
+    let carrier = (0..<(40 * 8000)).map { Float(0.05 * sin(2 * Double.pi * 1000 * Double($0) / 8000)) }
+    let carrierMix = SkimTestSignal.mix([carrier], noise: SkimTestSignal.noiseSigma(snr500: 25, amplitude: 0.05), seconds: 40, seed: 5)
+    for mode in SkimMode.allCases {
+        let a = skimRun(mode, noise)
+        check(a.activated.isEmpty && a.channels.allSatisfy { $0.state != .active }, "Skimmer \(mode.name): reines Rauschen ergibt kein Signal (\(a.activated.count) gemeldet)")
+        let b = skimRun(mode, carrierMix)
+        check(b.activated.isEmpty, "Skimmer \(mode.name): ungetasteter Träger ergibt kein Signal (\(b.activated.count) gemeldet)")
+    }
+    // Wegfallende Signale: nach dem Ende des Signals meldet die Engine das Ende des Kanals
+    let ends = SkimTestSignal.mix([SkimTestSignal.cw(text: "CQ CQ DE DL1ABC DL1ABC K", wpm: 22, toneHz: 800, amplitude: 0.1, leadSeconds: 0, tailSeconds: 0)], noise: 0.005, seconds: 70)
+    let gone = skimRun(.cw, ends)
+    check(gone.activated.count == 1 && gone.closed.contains(gone.activated[0]) && gone.channels.isEmpty, "Skimmer CW: Kanal fällt nach dem Ende des Signals weg (\(gone.activated.count) aktiv, \(gone.closed.count) beendet, \(gone.channels.count) offen)")
+    // reset meldet das Ende aller Kanäle
+    let e = SkimmerEngine(mode: .cw)
+    var closedIDs: [Int] = []
+    e.onClosed = { closedIDs.append($0) }
+    let seg = skimMix(.cw, cwSpec, seconds: 12)
+    seg.withUnsafeBufferPointer { e.process($0) }
+    let open = e.channels().count
+    e.reset()
+    check(open > 0 && closedIDs.count == open && e.channels().isEmpty && e.time == 0, "Skimmer: reset beendet alle Kanäle (\(open) offen, \(closedIDs.count) beendet)")
+    // Rauschabstand-Umrechnung: Pegel 0,001 (Basisband) bei Rauschen 1e-6 je Bin
+    check(abs(SkimmerEngine.snr500(level: 0.001, noiseBinDB: -60) - (-60 - 18.06 + 60)) < 0.1, "Skimmer: Rauschabstand aus Pegel und Rauschen je Bin")
+    // Plausibilität des Textes: Morsetext gegen Rauschen
+    check(SkimmerEngine.looksLikeText("CQ CQ DE DL1ABC DL1ABC K", mode: .cw) && !SkimmerEngine.looksLikeText("EEETISHETEISE*HETISE*ET", mode: .cw), "Skimmer CW: Text von Rauschen unterscheiden")
+    check(SkimmerEngine.looksLikeText("CQ CQ DE DL1ABC PSE K", mode: .psk31) && !SkimmerEngine.looksLikeText("\u{1}\u{2}~~\u{7f}\u{3}\u{4}~~\u{1}\u{2}~~\u{7f}", mode: .psk31), "Skimmer PSK: Text von Rauschen unterscheiden")
+}
+skimmerEngineTests()
+
+// MARK: - Skimmer-Controller: Stationen, Rufzeichen, Spots, Filter, Karte
+@MainActor func skimmerControllerTests() {
+    let settings = SkimmerSettingsStore()
+    settings.mode = .cw; settings.cwBand = .m20; settings.pskBand = .free
+    settings.minSNR = 3; settings.onlyCalls = false; settings.holdMinutes = 10; settings.rigDialHz = nil; settings.rigIsLSB = nil
+    let c = SkimmerController(pipeline: AudioPipeline(), settings: settings)
+    c.logEnabled = false
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    /// Kanäle der Engine zur Engine-Zeit `at` (alle gerade aktiv)
+    func chans(_ ids: [Int], at engine: Double) -> [SkimChannelInfo] {
+        let table: [Int: (hz: Double, snr: Double, wpm: Double)] = [1: (700, 20, 20), 2: (1200, 2, 20), 3: (1500, 14, 25)]
+        return ids.map { id in
+            SkimChannelInfo(id: id, mode: .cw, frequencyHz: table[id]!.hz, snrDB: table[id]!.snr, speed: table[id]!.wpm, state: .active,
+                            born: 0, lastActive: engine, quality: 1, characters: 20)
+        }
+    }
+    func ingest(_ texts: [(Int, String)], activated: [Int] = [], closed: [Int] = [], ids: [Int], at seconds: Double) {
+        c.ingest(texts: texts.map { (id: $0.0, text: $0.1) }, activated: activated, closed: closed, channels: chans(ids, at: seconds), engineTime: seconds, now: t0.addingTimeInterval(seconds))
+    }
+    // Zwei Signale: eines ruft CQ mit Rufzeichen (Text in Stücken), eines schwach ohne Rufzeichen
+    ingest([(1, "CQ CQ DE DL1"), (2, "TEST 5")], activated: [1, 2], ids: [1, 2], at: 10)
+    ingest([(1, "ABC DL1ABC K ")], ids: [1, 2], at: 11)
+    let s1 = c.stations.first { $0.id == 1 }
+    check(c.stations.count == 2 && c.stations.map(\.audioHz) == [700, 1200], "Skimmer-Liste: zwei Stationen nach Frequenz sortiert")
+    check(s1?.call == "DL1ABC" && s1?.isCQ == true && s1?.dxcc?.primaryPrefix == "DL", "Skimmer-Liste: DL1ABC, ruft CQ, Deutschland (\(String(describing: s1?.call)))")
+    check(s1?.text.hasSuffix("DL1ABC K ") == true && s1?.characters == 12 + 13, "Skimmer-Liste: Text in Stücken zusammengesetzt (\(s1?.text.debugDescription ?? "-"))")
+    check(c.stations.first { $0.id == 2 }?.call == nil, "Skimmer-Liste: Signal ohne Rufzeichen")
+    check(c.spots.count == 1 && c.spots[0].call == "DL1ABC" && c.spots[0].kind == "CQ" && c.spots[0].mode == .cw, "Skimmer-Spots: ein Spot nach CQ DE DL1ABC (\(c.spots.count))")
+    check(c.visibleStations.map(\.id) == [1], "Skimmer-Filter: Signal unter dem Mindest-Rauschabstand ausgeblendet")
+    settings.minSNR = 0
+    check(c.visibleStations.map(\.id) == [1, 2], "Skimmer-Filter: Mindest-Rauschabstand 0 dB zeigt beide")
+    settings.onlyCalls = true
+    check(c.visibleStations.map(\.id) == [1], "Skimmer-Filter: nur mit Rufzeichen")
+    settings.onlyCalls = false
+    check(settings.marks.count == 2 && settings.marks.first?.label == "DL1ABC" && settings.marks.first?.active == true, "Skimmer: Markierungen im Wasserfall (\(settings.marks))")
+    // Dieselbe Station nach 2 Minuten: kein neuer Spot; nach 11 Minuten: neuer Spot
+    ingest([(1, "CQ DE DL1ABC ")], ids: [1, 2], at: 120)
+    check(c.spots.count == 1, "Skimmer-Spots: dieselbe Station nach 2 min nicht noch einmal (\(c.spots.count))")
+    ingest([(1, "CQ DE DL1ABC ")], ids: [1, 2], at: 660)
+    check(c.spots.count == 2, "Skimmer-Spots: nach 11 min wieder (\(c.spots.count))")
+    // Zweite Station ohne CQ: „DE“ davor genügt, Spot mit Art DE
+    ingest([(3, "OK2XYZ DE OK2XYZ ")], activated: [3], ids: [1, 2, 3], at: 670)
+    let s3 = c.stations.first { $0.id == 3 }
+    check(s3?.call == "OK2XYZ" && s3?.isCQ == false && s3?.dxcc?.primaryPrefix == "OK", "Skimmer-Liste: OK2XYZ nach DE (\(String(describing: s3?.call)))")
+    check(c.spots.last?.call == "OK2XYZ" && c.spots.last?.kind == "DE", "Skimmer-Spots: Art DE für Station ohne CQ")
+    // HF-Frequenz: aus dem Band, mit Funkgerät aus dessen Dial
+    check(c.spots.last?.rfHz == 14_021_500, "Skimmer-Spots: HF-Frequenz aus Band und NF (\(String(describing: c.spots.last?.rfHz)))")
+    settings.rigDialHz = 14_025_000; settings.rigIsLSB = false
+    check(c.heard.first { $0.call == "DL1ABC" }?.rfHz == 14_025_700, "Skimmer: HF-Frequenz folgt dem Dial des Funkgeräts (\(String(describing: c.heard.first { $0.call == "DL1ABC" }?.rfHz)))")
+    // Karte: gehörte Stationen mit Gebiet
+    let map = HeardMapBuilder.content(c.heard, home: Maidenhead.point("JN49WS"), now: t0.addingTimeInterval(680), mode: "CW")
+    check(map.markers.count == 2 && map.markers.contains { $0.title == "DL1ABC" } && map.markers.contains { $0.title == "OK2XYZ" }, "Skimmer-Karte: zwei Stationen (\(map.markers.map(\.title)))")
+    // Auswahl der nächsten Station (Klick im Wasserfall)
+    c.selectNearest(to: 750)
+    check(c.selection == 1, "Skimmer: Klick bei 750 Hz wählt die Station bei 700 Hz")
+    c.selectNearest(to: 2800)
+    check(c.selection == 1, "Skimmer: Klick weit weg ändert die Auswahl nicht")
+    c.selectNearest(to: 1480)
+    check(c.selection == 3, "Skimmer: Klick bei 1480 Hz wählt die Station bei 1500 Hz")
+    // Signal fällt weg: bleibt abgedunkelt in der Liste, nach der Haltezeit verschwindet es
+    ingest([], closed: [2], ids: [1, 3], at: 760)
+    check(c.stations.first { $0.id == 2 }?.isLive == false && c.stations.count == 3, "Skimmer-Liste: beendetes Signal bleibt zunächst in der Liste")
+    check(settings.marks.count == 2 && !settings.marks.contains { $0.frequency == 1200 }, "Skimmer: beendetes Signal nicht mehr im Wasserfall")
+    ingest([], ids: [1, 3], at: 1400)
+    check(c.stations.map(\.id) == [1, 3], "Skimmer-Liste: beendetes Signal nach der Haltezeit entfernt (\(c.stations.map(\.id)))")
+    // Spot-Zeile wie im Reverse Beacon Network
+    let line = SkimmerController.logLine(SkimSpot(time: Date(timeIntervalSince1970: 1_790_000_000 + 5 * 3600 + 24 * 60 + 31), call: "DL1ABC", audioHz: 700, rfHz: 14_020_700, snrDB: 24.4, speed: 18.2, mode: .cw, kind: "CQ", dxcc: nil))
+    check(line.hasPrefix("14020.7  DL1ABC  CW  18 WPM  24 dB  CQ  ") && line.hasSuffix("Z"), "Skimmer: Spot-Zeile \(line)")
+    let line2 = SkimmerController.logLine(SkimSpot(time: t0, call: "OK2XYZ", audioHz: 1500, rfHz: nil, snrDB: 10, speed: 31.25, mode: .psk31, kind: "DE", dxcc: nil))
+    check(line2.hasPrefix("NF 1500 Hz  OK2XYZ  BPSK31  31 BD  10 dB  DE  "), "Skimmer: Spot-Zeile ohne Dial \(line2)")
+    // Aufräumen
+    c.clear()
+    check(c.stations.isEmpty && c.spots.isEmpty && c.selection == nil, "Skimmer: Listen leeren")
+    c.setActive(false)
+}
+skimmerControllerTests()
+
+// MARK: - Skimmer über die Pipeline (48 kHz → 8 kHz)
+do {
+    let pipeline = AudioPipeline()
+    let decoder = SkimmerDecoder(pipeline: pipeline)
+    decoder.configure(mode: .cw, thresholdDB: 8)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    let signals = [
+        SkimTestSignal.cw(text: "CQ CQ DE DL1ABC DL1ABC K", wpm: 24, toneHz: 800, amplitude: 0.1, leadSeconds: 0.5, tailSeconds: 1.5),
+        SkimTestSignal.delayed(SkimTestSignal.cw(text: "CQ CQ DE OK2XYZ OK2XYZ K", wpm: 20, toneHz: 1500, amplitude: 0.06, leadSeconds: 0, tailSeconds: 1.5), seconds: 1.0),
+    ]
+    var audio8 = SkimTestSignal.mix(signals.map { s in s + s + s }, noise: 0.004, seconds: 40, seed: 11)
+    audio8 += [Float](repeating: 0, count: 4000)
+    var audio48 = [Float](repeating: 0, count: audio8.count * 6)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 6, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio8[k] * (1 - f) + (k + 1 < audio8.count ? audio8[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var text: [Int: String] = [:]
+    var lastOut = decoder.takeOutput()
+    var i = 0
+    while i < audio48.count {
+        let n = min(4_800, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        Thread.sleep(forTimeInterval: 0.004)
+        let o = decoder.takeOutput()
+        for t in o.texts { text[t.id, default: ""] += t.text }
+        lastOut = o
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    let o = decoder.takeOutput()
+    for t in o.texts { text[t.id, default: ""] += t.text }
+    let ch = o.channels.isEmpty ? lastOut.channels : o.channels
+    let a = ch.first { abs($0.frequencyHz - 800) < 8 }, b = ch.first { abs($0.frequencyHz - 1500) < 8 }
+    check(a?.state == .active && b?.state == .active, "Skimmer über die Pipeline: beide Signale gefunden (\(ch.map { "\(Int($0.frequencyHz)) Hz \($0.state.rawValue)" }))")
+    check(a.flatMap { text[$0.id] }?.contains("DL1ABC") == true && b.flatMap { text[$0.id] }?.contains("OK2XYZ") == true, "Skimmer über die Pipeline: Rufzeichen gelesen (\(text.values.map { String($0.suffix(30)) }))")
+    check(o.inputDB > -60 && o.inputDB < 0 && o.time > 30 && o.trackCount >= 2, "Skimmer über die Pipeline: Pegel \(Int(o.inputDB)) dBFS, Zeit \(Int(o.time)) s, Spuren \(o.trackCount)")
+    // Abgeschaltet: nichts mehr
+    decoder.setEnabled(false)
+    Thread.sleep(forTimeInterval: 0.1)
+    let off = decoder.takeOutput()
+    check(off.channels.isEmpty && off.trackCount == 0, "Skimmer: abgeschaltet liefert keine Kanäle")
+    pipeline.stop()
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)
