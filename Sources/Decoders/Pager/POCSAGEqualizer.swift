@@ -113,11 +113,15 @@ enum POCSAGEqualizer {
         return lo
     }
 
-    /// Bitmitten aus den Nulldurchgängen: Der Takt läuft frei mit der Sollbitlänge, jede Kreuzung nahe der erwarteten Flanke zieht ihn nach.
-    /// Der Vorspann (`preambleRun` Abstände von etwa einer Bitlänge in Folge) fasst den Takt neu und zieht 160 Bits schnell nach; danach
-    /// ruhig, weil Pulsform und Datenmuster die Kreuzungen verschieben. So findet der Takt jede Aussendung selbst, mit beliebiger Taktlage,
-    /// auch wenn der Abschnitt viel früher beginnt. `origin` = erster Abtastindex, ab dem gesucht wird.
-    static func bitCentres(_ pf: [Double], spb: Double, origin: Double) -> [Double] {
+    /// Regelschleife des Takts: Phase und Frequenz (die Frequenz wird um höchstens 3 % von der Sollbitlänge abweichen)
+    static let clockPhaseGain = 0.015
+    static let clockFrequencyGain = 0.0003
+
+    /// Bitmitten aus den Nulldurchgängen: Der Takt läuft mit der Bitlänge, jede Kreuzung nahe der erwarteten Flanke zieht Phase und
+    /// Bitlänge nach (Schleife zweiter Ordnung: ein Takt, der um 1 % abweicht, bleibt nicht zurück). Der Vorspann (`preambleRun` Abstände
+    /// von etwa einer Bitlänge in Folge) fasst den Takt neu und zieht 160 Bits schnell nach. So findet der Takt jede Aussendung selbst,
+    /// mit beliebiger Taktlage, auch wenn der Abschnitt viel früher beginnt. `origin` = erster Abtastindex, ab dem gesucht wird.
+    static func bitCentres(_ pf: [Double], spb nominal: Double, origin: Double) -> [Double] {
         guard pf.count > 2 else { return [] }
         var zc: [Double] = []
         for i in 1..<pf.count where (pf[i] > 0) != (pf[i - 1] > 0) {
@@ -129,10 +133,11 @@ enum POCSAGEqualizer {
         var run = 0
         for i in 0..<(zc.count - 1) {
             let d = zc[i + 1] - zc[i]
-            if d > 0.75 * spb && d < 1.25 * spb { run += 1 } else { run = 0 }
+            if d > 0.75 * nominal && d < 1.25 * nominal { run += 1 } else { run = 0 }
             if run == preambleRun { snaps.append(zc[i + 1]) }
         }
         guard var cur = snaps.first else { return [] }
+        var spb = nominal
         var out: [Double] = []
         var count = 0
         var next = 1
@@ -143,9 +148,16 @@ enum POCSAGEqualizer {
                 let snapIndex = lowerBound(zc, snaps[next - 1] - 0.5 * spb)
                 if snapIndex < zc.count { cur = zc[snapIndex]; count = 0 }
             }
-            let gain = count < 160 ? 0.15 : 0.01
             let k = lowerBound(zc, cur - 0.35 * spb)
-            if k < zc.count && abs(zc[k] - cur) < 0.35 * spb { cur += gain * (zc[k] - cur) }
+            if k < zc.count && abs(zc[k] - cur) < 0.35 * spb {
+                let e = zc[k] - cur
+                if count < 160 {
+                    cur += 0.15 * e
+                } else {
+                    cur += clockPhaseGain * e
+                    spb = min(max(spb + clockFrequencyGain * e, 0.97 * nominal), 1.03 * nominal)
+                }
+            }
             out.append(cur + 0.5 * spb)
             cur += spb
             count += 1
@@ -458,7 +470,8 @@ final class POCSAGRescue {
     /// Abschnitt entzerren und die Meldungen vormerken
     private func evaluate() {
         pending.removeAll()
-        guard let r = POCSAGEqualizer.equalize(seg, sampleRate: sampleRate, baud: baud) else { return }
+        // Ohne einen einzigen sicher gelesenen Stapel wäre jede Meldung ein Zufallstreffer
+        guard let r = POCSAGEqualizer.equalize(seg, sampleRate: sampleRate, baud: baud), r.goodBatches > 0 else { return }
         var framer = POCSAGFramer(rate: rate)
         for i in 0..<r.bits.count {
             let when = segStart.addingTimeInterval(r.times[i] / sampleRate)
