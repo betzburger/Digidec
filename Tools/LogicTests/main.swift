@@ -4834,11 +4834,11 @@ do {
     let msgs: [(Int, Int, String?, String?)] = [(1234567, 3, nil, "Hallo Welt, Test 1"), (2504, 3, nil, "DAPNET DL1ABC Test"), (400000, 0, "0123456789", nil)]
     for (i, baud) in POCSAG.rates.enumerated() {
         let clean = pocsagAudio(baud, msgs)
-        let direct = POCSAGEqualizer.equalize(clean, sampleRate: 24_000, baud: Double(baud), starts: [0])
+        let direct = POCSAGEqualizer.equalize(clean, sampleRate: 24_000, baud: Double(baud), origin: 0)
         check((direct?.goodBatches ?? 0) >= 3, "Entzerrer \(baud): sauberes Signal, Stapel \(direct?.goodBatches ?? 0)")
         var g = SystemRandomNumberGenerator()
         let noisy = pocsagAudio(baud, msgs, inverted: true).map { $0 + Float.random(in: -0.2...0.2, using: &g) }
-        let nz = POCSAGEqualizer.equalize(noisy, sampleRate: 24_000, baud: Double(baud), starts: [0])
+        let nz = POCSAGEqualizer.equalize(noisy, sampleRate: 24_000, baud: Double(baud), origin: 0)
         check((nz?.goodBatches ?? 0) >= 3, "Entzerrer \(baud): invertiert mit Rauschen, Stapel \(nz?.goodBatches ?? 0)")
 
         // Verbogenes Audio wie an der echten DAPNET-Aufnahme: zwei Hochpässe (290 Hz), Tiefpass (1,5 kHz), Rauschen vor und nach der Aussendung

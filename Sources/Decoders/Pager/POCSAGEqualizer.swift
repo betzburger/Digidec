@@ -101,33 +101,51 @@ enum POCSAGEqualizer {
 
     // MARK: Takt
 
-    /// Bitmitten aus den Nulldurchgängen: Takt läuft frei mit der Sollbitlänge, jede Kreuzung nahe der erwarteten Flanke zieht ihn nach.
-    /// Nach jedem erwarteten Vorspann (`starts`, aufsteigend; der erste beginnt den Abschnitt) 160 Bits schnell, danach ruhig,
-    /// weil Pulsform und Datenmuster die Kreuzungen verschieben. Eine neue Aussendung kommt mit beliebiger Taktlage: dort springt der Takt
-    /// auf die nächste Kreuzung.
-    static func bitCentres(_ pf: [Double], spb: Double, starts: [Double]) -> [Double] {
-        guard pf.count > 2, let origin = starts.first else { return [] }
+    /// Vorspann: so viele Abstände in Folge von etwa einer Bitlänge zwischen den Nulldurchgängen
+    static let preambleRun = 24
+
+    static func lowerBound(_ a: [Double], _ v: Double) -> Int {
+        var lo = 0, hi = a.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if a[mid] < v { lo = mid + 1 } else { hi = mid }
+        }
+        return lo
+    }
+
+    /// Bitmitten aus den Nulldurchgängen: Der Takt läuft frei mit der Sollbitlänge, jede Kreuzung nahe der erwarteten Flanke zieht ihn nach.
+    /// Der Vorspann (`preambleRun` Abstände von etwa einer Bitlänge in Folge) fasst den Takt neu und zieht 160 Bits schnell nach; danach
+    /// ruhig, weil Pulsform und Datenmuster die Kreuzungen verschieben. So findet der Takt jede Aussendung selbst, mit beliebiger Taktlage,
+    /// auch wenn der Abschnitt viel früher beginnt. `origin` = erster Abtastindex, ab dem gesucht wird.
+    static func bitCentres(_ pf: [Double], spb: Double, origin: Double) -> [Double] {
+        guard pf.count > 2 else { return [] }
         var zc: [Double] = []
         for i in 1..<pf.count where (pf[i] > 0) != (pf[i - 1] > 0) {
             let t = Double(i - 1) + pf[i - 1] / (pf[i - 1] - pf[i])
             if t >= origin { zc.append(t) }
         }
-        guard let first = zc.first else { return [] }
-        var cur = first
+        guard zc.count > preambleRun else { return [] }
+        var snaps: [Double] = []
+        var run = 0
+        for i in 0..<(zc.count - 1) {
+            let d = zc[i + 1] - zc[i]
+            if d > 0.75 * spb && d < 1.25 * spb { run += 1 } else { run = 0 }
+            if run == preambleRun { snaps.append(zc[i + 1]) }
+        }
+        guard var cur = snaps.first else { return [] }
         var out: [Double] = []
         var count = 0
-        var j = 0
         var next = 1
         let end = Double(pf.count) - 2
         while cur + spb < end {
-            if next < starts.count && cur >= starts[next] {
-                while next < starts.count && cur >= starts[next] { next += 1 }
-                while j < zc.count && zc[j] < cur { j += 1 }
-                if j < zc.count { cur = zc[j]; count = 0 }
+            if next < snaps.count && cur >= snaps[next] - 0.5 * spb {
+                while next < snaps.count && cur >= snaps[next] - 0.5 * spb { next += 1 }
+                let snapIndex = lowerBound(zc, snaps[next - 1] - 0.5 * spb)
+                if snapIndex < zc.count { cur = zc[snapIndex]; count = 0 }
             }
             let gain = count < 160 ? 0.15 : 0.01
-            while j < zc.count && zc[j] < cur - 0.35 * spb { j += 1 }
-            if j < zc.count && abs(zc[j] - cur) < 0.35 * spb { cur += gain * (zc[j] - cur) }
+            let k = lowerBound(zc, cur - 0.35 * spb)
+            if k < zc.count && abs(zc[k] - cur) < 0.35 * spb { cur += gain * (zc[k] - cur) }
             out.append(cur + 0.5 * spb)
             cur += spb
             count += 1
@@ -277,17 +295,17 @@ enum POCSAGEqualizer {
 
     // MARK: Hauptverfahren
 
-    /// Entzerrt einen Abschnitt Audio, der mit dem Vorspann beginnt (`starts` = Abtastindizes, ab denen ein Vorspann zu erwarten ist, aufsteigend).
+    /// Entzerrt einen Abschnitt Audio mit mindestens einem Vorspann (der Takt findet ihn selbst; `origin` = erster Abtastindex).
     /// Liefert den Versuch mit den meisten gültigen Stapeln; nil, wenn kein Takt gefunden wurde.
-    static func equalize(_ samples: [Float], sampleRate: Double, baud: Double, starts preambles: [Double]) -> Outcome? {
-        guard samples.count > Int(sampleRate * 0.5), !preambles.isEmpty else { return nil }
+    static func equalize(_ samples: [Float], sampleRate: Double, baud: Double, origin: Double = 0) -> Outcome? {
+        guard samples.count > Int(sampleRate * 0.5) else { return nil }
         let spb = sampleRate / baud
         let scale = baud / 1200
         let raw = samples.map { Double($0) }
         var best: Outcome?
         for s in starts {
             let pf = prefilter(raw, sampleRate: sampleRate, scale: scale, boost: s.boost, corner: s.corner, highpass: s.highpass)
-            let centres = bitCentres(pf, spb: spb, starts: preambles)
+            let centres = bitCentres(pf, spb: spb, origin: origin)
             guard centres.count >= 200 else { continue }
             let n = centres.count
             var rough = [UInt8](repeating: 0, count: n)
@@ -333,15 +351,12 @@ final class POCSAGRescue {
     let rate: Int
     let sampleRate: Double
     private let baud: Double
-    private let spb: Double
     private let preRoll: Int
     private let maxLength: Int
     private var tail: [Float] = []
     private var seg: [Float] = []
     private var active = false
     private var segStart = Date()
-    /// Abtastindizes, ab denen ein Vorspann zu erwarten ist (der erste beginnt den Abschnitt)
-    private var preambleStarts: [Double] = []
     private var nextPass = 0
     private var lastGood = 0
     private var lastPreambles = 0
@@ -356,7 +371,6 @@ final class POCSAGRescue {
         self.rate = rate
         self.sampleRate = sampleRate
         baud = Double(rate)
-        spb = sampleRate / Double(rate)
         preRoll = Int(sampleRate)
         maxLength = Int(20 * sampleRate)
     }
@@ -392,23 +406,18 @@ final class POCSAGRescue {
             seg.append(contentsOf: block)
         } else {
             tail.append(contentsOf: block)
-            if tail.count > preRoll { tail.removeFirst(tail.count - preRoll) }
+            // Vorlauf: mindestens eine Sekunde und der ganze letzte Block (große Blöcke melden den Vorspann spät)
+            let keep = max(preRoll, block.count + preRoll / 5)
+            if tail.count > keep { tail.removeFirst(tail.count - keep) }
             if stats.preambles > lastPreambles {
                 active = true
                 seg = tail
                 segStart = now.addingTimeInterval(-Double(seg.count) / sampleRate)
-                // Der Vorspann liegt vor dem Zeitpunkt, an dem 32 Wechsel gezählt waren: großzügig davor beginnen
-                preambleStarts = [max(0, Double(seg.count) - 100 * spb)]
                 nextPass = seg.count + Int(2.5 * sampleRate)
                 lastGood = 0
                 pending.removeAll()
                 keys.removeAll()
             }
-        }
-        // Weiterer Vorspann im selben Abschnitt: neue Aussendung mit anderer Taktlage
-        if active, stats.preambles > lastPreambles, seg.count > Int(100 * spb) {
-            let at = Double(seg.count) - 100 * spb
-            if let last = preambleStarts.last, at > last + 150 * spb { preambleStarts.append(at) }
         }
         lastPreambles = stats.preambles
         guard active, seg.count >= nextPass else { return }
@@ -449,7 +458,7 @@ final class POCSAGRescue {
     /// Abschnitt entzerren und die Meldungen vormerken
     private func evaluate() {
         pending.removeAll()
-        guard let r = POCSAGEqualizer.equalize(seg, sampleRate: sampleRate, baud: baud, starts: preambleStarts) else { return }
+        guard let r = POCSAGEqualizer.equalize(seg, sampleRate: sampleRate, baud: baud) else { return }
         var framer = POCSAGFramer(rate: rate)
         for i in 0..<r.bits.count {
             let when = segStart.addingTimeInterval(r.times[i] / sampleRate)
@@ -463,7 +472,7 @@ final class POCSAGRescue {
         evaluate()
         let length = seg.count
         let quietFor = Double(length - lastGood) / sampleRate
-        let waited = (Double(length) - (preambleStarts.first ?? 0)) / sampleRate
+        let waited = Double(length) / sampleRate
         let capped = length > maxLength
         if (lastGood > 0 && quietFor > 3) || (lastGood == 0 && waited > 7) || capped {
             release(dropLast: capped, emit: emit)
