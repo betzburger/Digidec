@@ -1090,6 +1090,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Zuordnung** (`DecoderModuleInfo.band`, je Modul genau eine Rubrik nach Haupteinsatz): VHF/UHF = ACARS, APRS, PAGER, SONDE, TÖNE; alles andere HF. Grenzfälle: SSTV (auch ISS 145,8 MHz), FT4/WSPR (auch UKW-Bänder) und DSC (auch Kanal 70) liegen in HF.
   - Reihenfolge der Enum-Fälle unverändert (Entstehungsreihenfolge); die Leiste sortiert über `DecoderModuleInfo.Band.modules`.
   - **Tests:** Logiktests ergänzt (jedes Modul genau einmal, A–Z, Inhalt VHF/UHF, erstes/letztes HF-Modul). Nicht gebaut und nicht ausgeführt (Sitzung ohne Swift-Toolchain): am Mac `./build_app.sh` und Logiktests laufen lassen.
+- **0.47.1 (04.10.2026): Modul-Leiste: Farbbalken nur so hoch wie die Buttons.** Der Balken war ein frei stehendes Shape und dehnte sich auf die ganze Fensterhöhe (große leere Fläche). Er hängt jetzt als `.background` an der Rubrikzeile und hat damit genau die Höhe der Buttons. Nicht gebaut (keine Swift-Toolchain in der Sitzung).
 - **Nächste Schritte:**
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - Sonden live: PCR-1500, FM, 15-kHz-Filter (50 kHz geht auch), Frequenz einer Sonde in der Nähe (Starts etwa 23 und 11 UTC); bei Misserfolg REC drücken und die WAV bereithalten. Danach Suchlauf über 400 … 406 MHz, M10/M20 und DFM.

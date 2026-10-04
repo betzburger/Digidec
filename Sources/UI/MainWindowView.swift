@@ -533,10 +533,6 @@ private struct ModuleBar: View {
     private func bandRow(_ band: DecoderModuleInfo.Band) -> some View {
         let color = Self.color(of: band)
         return HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(color)
-                .frame(width: 3)
-                .shadow(color: color.opacity(0.5), radius: 3)
             Text(band.title)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(color)
@@ -556,6 +552,14 @@ private struct ModuleBar: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, 11)
+        // Als Hintergrund hat die Leiste genau die Höhe der Buttons (ein frei stehendes Shape dehnt sich auf die ganze Fensterhöhe)
+        .background(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(color)
+                .frame(width: 3)
+                .shadow(color: color.opacity(0.5), radius: 3)
         }
     }
 
