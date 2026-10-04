@@ -32,6 +32,8 @@ public struct MainWindowView: View {
                                 APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
                             } else if state.activeModule == .acars {
                                 ACARSMessagePanel(controller: state.acarsController, settings: state.acars)
+                            } else if state.activeModule == .hfdl {
+                                HFDLMessagePanel(controller: state.hfdlController, settings: state.hfdl)
                             } else if state.activeModule == .sonde {
                                 SondeMainPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan, scanner: state.sondeScanner)
                             } else if state.activeModule == .pager {
@@ -92,6 +94,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
                             } else if state.activeModule == .acars {
                                 WaterfallView(model: state.waterfall, rtty: state.acars, audio: state.audio)
+                            } else if state.activeModule == .hfdl {
+                                WaterfallView(model: state.waterfall, rtty: state.hfdl, audio: state.audio)
                             } else if state.activeModule == .sonde {
                                 WaterfallView(model: state.waterfall, rtty: state.sonde, audio: state.audio)
                             } else if state.activeModule == .pager {
@@ -140,7 +144,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -177,6 +181,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             ACARSSettingsPanel(settings: state.acars)
                                 .radioCard(title: "ACARS")
+                        } else if state.activeModule == .hfdl {
+                            HFDLTuningPanel(controller: state.hfdlController, settings: state.hfdl)
+                                .radioCard(title: "Abstimmanzeige")
+                            HFDLSettingsPanel(controller: state.hfdlController, settings: state.hfdl)
+                                .radioCard(title: "HFDL")
                         } else if state.activeModule == .sonde {
                             SondeTuningPanel(controller: state.sondeController, settings: state.sonde)
                                 .radioCard(title: "Abstimmanzeige")
@@ -283,7 +292,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -727,6 +736,7 @@ private struct StatusBar: View {
     @ObservedObject var ale: ALESettingsStore
     @ObservedObject var aprs: APRSSettingsStore
     @ObservedObject var acars: ACARSSettingsStore
+    @ObservedObject var hfdl: HFDLSettingsStore
     @ObservedObject var sonde: SondeSettingsStore
     @ObservedObject var sondeController: SondeController
     @ObservedObject var pager: PagerSettingsStore
@@ -794,6 +804,7 @@ private struct StatusBar: View {
         case .skimmer: return skimmerCurrent
         case .olivia: return "\(olivia.options.familyName.uppercased()) · \(olivia.options.label) · Mitte \(Int(olivia.centerHz.rounded())) Hz" + (olivia.options.reverse ? " · REV" : "") + (olivia.options.squelchOn ? " · SQL \(Int(olivia.options.squelch))" : " · SQL aus")
         case .acars: return "ACARS · \(acars.channel.label) MHz AM · MSK 2400 Bd" + (acars.hideEmpty ? " · ohne leere" : "") + (acars.showUplink ? "" : " · nur Abwärts")
+        case .hfdl: return "HFDL · \(HFDLChannels.label(hfdl.frequencyKHz)) kHz USB · PSK 1800 Bd · Träger 1440 Hz" + (hfdl.showUplink ? "" : " · nur Abwärts") + (hfdl.onlyContent ? " · nur Inhalt" : "")
         case .sonde: return sondeCurrent
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")
         case .tones: return "TÖNE · " + ToneStandard.allCases.filter(tones.standards.contains).map(\.name).joined(separator: ", ")

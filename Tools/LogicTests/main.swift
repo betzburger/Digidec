@@ -6353,5 +6353,226 @@ sondeScanTests()
 }
 sondeLaunchTests()
 
+// MARK: - HFDL (High Frequency Data Link)
+
+/// 26 echte Rahmen aus der Aufnahme „skip.land 2024-11-05 21:18 UTC, 21931 kHz“ (sigidwiki, Riverhead), von Digidec decodiert und
+/// vom Referenzdecoder dumphfdl 1.7.0 inhaltlich bestätigt (Squitter, Anmeldungen, Frequenzdaten, ACARS)
+let hfdlRealFrames: [[UInt8]] = [
+        "10845D19DE010000000000000000000000000000000000000000F01F000000B70100BDD11C000000FE00FEFEFEFEFEFEFEFEFEFE003450000082A10030780000B0F40000",
+        "0184FF13097A7F9F954D3EE0000000C157000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "0704FF000100388949BF55878FFFD54156413234346F352049CBDC95841500700300828100F03B00830B00F004008F03007009008B1400D001008604004004006FFA0000",
+        "07045C0002002C40071DFFFF0132AE4543ADCEC45215D3C13102D3B032C149C2B0313234B04CD6323131383432D3C82F830C8B7FC63C0000000000000000000000004200",
+        "10845E1900000000F01F000000B70100BDD11C00000000000000000000000000000000000000F01FFE258EFE9DB5FEFED2FEFEFE003450000085060060480400CD8C0000",
+        "0704E00003002044BE1DFFFF0132AECE373234C1D61551B03202D3B531C1C1D6343832B083A21C7F5BEF0000000000000000000000000000000000000000000000003500",
+        "070499000100206B4F1DFFFF0132AECEB5B338C1D61551B03802D3B634C1C7D5B037343283CBE07F5BEF0000000000000000000000000000000000000000000000003700",
+        "0704FF0001003889494F924A66FFD5525A4F323437E1EA71E4E2E295840500F00700830200E0060082000070F1008F0000F00F00900000F00700860400F007009218B900",
+        "0704B5000300317AEC0DFFD154414D333833CAF22EBBDCE99502CB840100000A00520D00000000084C00000205630003000000070000000727480A000000000000003300",
+        "0704FF0004003834704F924AB6FFD5525A4F31333468BF81CCF4EA95840500F00700820000B0F000830200E006008F0800F00F00900000F00700860400D007007F2D3100",
+        "0704FF0003003831FC4F0576ACFFD54658303034313E350FC0DBEB95840500F00300820000F0F100830200E006008F0200F00F00900000F00700890000F03A7CBBC73000",
+        "0704D20004003110F10DFFD155414C3736316BF182E0CBEC9512D5840100000000820260000000022100000000290000000000020000000127AF35000000000000003700",
+        "10845F1900000000000000000000000000000000F01F00C015E09119FF51128E01009D511BFFF11FFE0000FEFEFEFEFEFEFEFEFE0034500000870600805800001C750000",
+        "0704FF0004003834704F2CAE18FFD54942453031320158406BD1F095840500D00100830200E000008F0000F000009001005004008604005004008D0000500000FF853000",
+        "0704FF0004003834704F2000E1FFD54554483530385991E112D9F195840500F00100820000F03300830200A006008F0000E00F00900000F00700860400F00500CAAD4800",
+        "F184FF1309FF1609FF1609FF1509FF1509FF16095C1315E0151586739F55878FE1000000DC719F924A66E20000003C9A9F924AB6E3000000B0799F0576ACE400000091D49F9C2304E5000000C55E9F2CAE18E600000052D80DFFFF0132AE4543ADCEC45231DF7FDA8303027FC98F0DFFFF0132AECE373234C1D632DF7FC483C2727FC98F0000000000000000000000000000000000000000000000000000",
+        "0704DE0001002CF9741DFFFF0132AE4343ADC2C24615D3C1B302D33734C14CC1B03731B0B045C8323131B6B3B5D3C82F8334267FC63C0000000000000000000000004E00",
+        "0704FF00020038EDA6BF2083D8FFD54B514138383617F1BF441AF895840D00D00200830B00F0030082A00030FE00864400500400880000F00F008D0500700000D62F0000",
+        "0704AF000400209F991DFFFF0132AECE34B031C1D61551B03102D3B9B3C1C1D6B032B33183E8C07F5BEF0000000000000000000000000000000000000000000000004100",
+        "0704E100010020B8001DFFFF0132AECE38B0B0C1D61551B0B602D332B3C1C1D6B0323434831D5A7F5BEF0000000000000000000000000000000000000000000000000000",
+        "1084601900C015E09119FF51128E01009D511BFFF11FD2F11FFFF11F00000000E01DFFF11A000000FE0000FE4344FEFE54585E740034500000890400A0880100B84C0000",
+        "0704E200030020CCA81DFFFF0132AE43D3AD54D3461551B03802D3B632C1D334B032343783C6937F5BEF000000000000000000000000000000000000000000000000B900",
+        "5184FF1609FF1609991515DE1315AF1615E21315F8DE9F2000E1E7000000D1029F2083D8E8000000423C0DFFFF0132AECEB5B338C1D638DF7FC8833ADF7FC98F0DFFFF0132AE4343ADC2C246B3DF7F43835F947FC98F0DFFFF0132AECE34B031C1D631DF7F4383EF127FC98F0DFFFF0132AE43D3AD54D34638DF7F4A836D597FC98F00000000000000000000000000000000000000000000000000000000",
+        "0704430003003144480DFFD1434D3034393866461060C70796923684010000030040160000000015D3000000081E01060000030F0000020E277787000000000000003400",
+        "0704440003003198780DFFD14C503234383234AB00ABC6059612AF84010000000074000000000016D2000000081B01080001010F0001010F2724ED00000000000000B900",
+        "0704E20003002B1F161DFFFF0132AE43D3AD54D34615D3C1B902D3B6B3C1D334B0323437B045C8323132B03137C8D383D61B7F656900000000000000000000000000B900"
+    ].map { hex in stride(from: 0, to: hex.count, by: 2).map { UInt8(hex[hex.index(hex.startIndex, offsetBy: $0)..<hex.index(hex.startIndex, offsetBy: $0 + 2)], radix: 16)! } }
+
+func hfdlRawFrame(_ bytes: [UInt8], rate: Int = 300) -> HFDLRawFrame {
+    HFDLRawFrame(bytes: bytes, bitRate: rate, doubleSlot: bytes.count > 100, freqErrorHz: 0, snrDB: 10, startSample: 0, attempt: 1)
+}
+
+func hfdlDecode(_ audio: [Float], chunk: Int = 1200) -> [HFDLRawFrame] {
+    let rx = HFDLReceiver()
+    var out: [HFDLRawFrame] = []
+    var i = 0
+    while i < audio.count {
+        let e = min(i + chunk, audio.count)
+        audio[i..<e].withUnsafeBufferPointer { rx.process($0) { out.append($0) } }
+        i = e
+    }
+    return out
+}
+
+@MainActor func hfdlTests() {
+    // Konstanten und Tabellen
+    check(HFDLPHY.aBits.count == 127 && HFDLPHY.m1Base.count == 127 && HFDLPHY.tSeq.count == 15, "HFDL: Länge der Folgen A, M1, T")
+    check(HFDLPHY.modes.map(\.bitRate) == [300, 600, 1200, 1800, 300, 600, 1200, 1800], "HFDL: Datenraten der acht Betriebsarten \(HFDLPHY.modes.map(\.bitRate))")
+    check(HFDLPHY.modes[0].totalSymbols == 3771 && HFDLPHY.modes[4].totalSymbols == 8091 && HFDLPHY.preambleLen == 531, "HFDL: Rahmenlängen in Symbolen")
+    check(Set((0..<8).map { HFDLPHY.m1Bits($0) }).count == 8, "HFDL: acht verschiedene M1-Folgen")
+    let scr = HFDLPHY.scramblerBits(count: 240)
+    check(Array(scr[0..<120]) == Array(scr[120..<240]) && scr[0..<120].contains(1) && scr[0..<120].contains(0), "HFDL: Entwürfelfolge wiederholt sich alle 120 Symbole")
+    // Prüfsumme CRC-16 (X-25): Prüfwert „123456789“ = 0x906E
+    check(HFDLCRC.crc([UInt8]("123456789".utf8)[...]) == 0x906E, "HFDL: CRC-16/X-25 Prüfwert 0x906E: \(String(HFDLCRC.crc([UInt8]("123456789".utf8)[...]), radix: 16))")
+    // Faltungscode und Verschachtelung: Rundlauf, auch mit Bitfehlern
+    do {
+        var g = HFDLSignalGenerator.SplitMix64(seed: 5)
+        let n = 540
+        var bits = (0..<n).map { _ in UInt8(g.next() & 1) }
+        for i in (n - 6)..<n { bits[i] = 0 }
+        let coded = HFDLSignalGenerator.convolve(bits)
+        let soft = coded.map { UInt8($0 == 1 ? 255 : 0) }
+        check(HFDLViterbi.decode(soft: soft, bitCount: n) == bits, "HFDL: Viterbi ohne Fehler")
+        var noisy = soft
+        for i in stride(from: 11, to: noisy.count - 40, by: 37) { noisy[i] = 255 - noisy[i] }
+        check(HFDLViterbi.decode(soft: noisy, bitCount: n) == bits, "HFDL: Viterbi korrigiert einzelne Bitfehler")
+        for (cols, shift) in [(54, 17), (126, 23), (108, 17)] {
+            let x = (0..<(40 * cols)).map { _ in UInt8(g.next() & 0xFF) }
+            let y = HFDLSignalGenerator.interleave(x, columns: cols, pushShift: shift)
+            check(HFDLInterleaver.deinterleave(y, columns: cols, pushShift: shift) == x && y != x, "HFDL: Verschachteln und Entschachteln (Spalten \(cols))")
+        }
+    }
+    // Weiche Bits: BPSK-Vorzeichen, QPSK/8PSK Gray (Punkte bei Winkel j·2π/M)
+    check(HFDLReceiver.softBits(Cx(1, 0), bits: 1) == [0] && HFDLReceiver.softBits(Cx(-1, 0), bits: 1) == [255], "HFDL: weiche Bits BPSK (+1 = Bit 0)")
+    for bps in [2, 3] {
+        let m = 1 << bps
+        var ok = true
+        for j in 0..<m {
+            let p = Cx.polar(Double(j) * 2 * Double.pi / Double(m))
+            let sb = HFDLReceiver.softBits(p, bits: bps).map { $0 > 127 ? 1 : 0 }
+            let sym = sb.reduce(0) { ($0 << 1) | $1 }
+            if sym != (j ^ (j >> 1)) { ok = false }
+        }
+        check(ok, "HFDL: Gray-Zuordnung \(m)-PSK")
+    }
+
+    // Echte Rahmen: Prüfsummen und Inhalt (Gegenprobe dumphfdl)
+    check(hfdlRealFrames.count == 26 && hfdlRealFrames.allSatisfy { HFDLCRC.headerOK($0) }, "HFDL: alle 26 echten Rahmen haben einen gültigen Kopf")
+    check(hfdlRealFrames.allSatisfy { f in let s = HFDLCRC.score(f); return s.good == s.total }, "HFDL: alle LPDU der echten Rahmen haben gültige Prüfsummen")
+    var broken = hfdlRealFrames[0]
+    broken[10] ^= 0x01
+    check(!HFDLCRC.headerOK(broken), "HFDL: ein Bitfehler im Squitter wird erkannt")
+    var cache = HFDLAircraftCache()
+    var pstats = HFDLParseStats()
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    var events: [HFDLEvent] = []
+    for f in hfdlRealFrames { events += HFDLProtocol.parse(hfdlRawFrame(f), freqKHz: 21931, time: t0, cache: &cache, stats: &pstats) }
+    check(pstats.frames == 26 && pstats.badHeader == 0 && pstats.badLPDU == 0, "HFDL: Protokoll ohne Fehler \(pstats)")
+    check(Set(events.map(\.id)).count == events.count, "HFDL: jedes Ereignis hat eine eigene Kennung (\(Set(events.map(\.id)).count) von \(events.count))")
+    check(events.count == 38, "HFDL: 38 Ereignisse aus den 26 Rahmen (Referenz fand 36 aus 24 Rahmen): \(events.count)")
+    let spdus = events.filter { $0.kind == .squitter }
+    check(spdus.count == 4, "HFDL: vier Squitter (\(spdus.count))")
+    if let s = spdus.first, let q = s.squitter {
+        check(s.station == 4 && q.frameIndex == 2397 && q.tableVersion == 52 && s.uplink, "HFDL: Squitter von Riverhead, TDMA-Rahmen 2397, Tabelle 52")
+        check(q.stations.map(\.id) == [4, 2, 3], "HFDL: Squitter nennt Riverhead, Molokai, Reykjavik: \(q.stations.map(\.id))")
+        check(q.stations[0].frequenciesKHz == [21931, 13276] && q.stations[1].frequenciesKHz == [21937, 11348, 10027] && q.stations[2].frequenciesKHz == [17985, 15025, 11184], "HFDL: Frequenzen in Benutzung wie im Referenzdecoder")
+        check(q.stations.allSatisfy(\.utcSync), "HFDL: UTC-Sync der drei Stationen")
+    } else { check(false, "HFDL: erster Squitter fehlt") }
+    let confirms = events.filter { $0.kind == .logonConfirm }
+    check(confirms.first?.icao == 0xA9B27C && confirms.first?.aircraftID == 224, "HFDL: Anmeldebestätigung A9B27C bekommt Nummer 224")
+    check(Set(confirms.compactMap(\.icaoHex)).isSuperset(of: ["A9B27C", "AAE1F1", "495266", "49526D", "A06E35", "39C420", "347518", "040087", "04C11B"]), "HFDL: ICAO-Adressen der Bestätigungen")
+    let dls = events.first { $0.kind == .logonRequest }
+    check(dls?.icaoHex == "AAE1F1" && dls?.flightID == "AVA244" && dls?.positionTime == "21:18:48", "HFDL: Anmeldung (DLS) mit Frequenzdaten AVA244 um 21:18:48")
+    check(dls?.position.map { abs($0.lat - 4.696) < 0.001 && abs($0.lon + 74.130) < 0.001 } == true, "HFDL: Ort aus den Frequenzdaten 4,696° N 74,130° W")
+    let flights = Set(events.compactMap(\.flightID))
+    check(flights.isSuperset(of: ["AVA244", "RZO247", "RZO134", "UAL761", "ETH508", "KQA886", "CM0498", "LP2482", "IB0124", "AV4820", "GU0742", "LA0710", "AV0231", "AV0244", "S40247"]), "HFDL: Flugnummern \(flights.sorted())")
+    let acars = events.compactMap(\.acars)
+    check(acars.count == 14 && Set(acars.map(\.registration)).isSuperset(of: ["EC-NDR", "N724AV", "N538AV", "CC-BBF", "N401AV", "N800AV", "CS-TSF"]), "HFDL: ACARS-Meldungen mit Kennzeichen (\(acars.count))")
+    let sa = events.first { $0.acars?.label == "SA" && $0.registration == "EC-NDR" }
+    check(sa?.lines.contains { $0.contains("VHF-ACARS verloren um 21:18:42") && $0.contains("Satcom (Standard), HF") } == true, "HFDL: Medienhinweis (SA): VHF verloren, verfügbar Satcom und HF")
+    check(events.filter { $0.acars?.label == "_d" }.count == 6 && events.contains { $0.acars?.label == "Q0" && $0.registration == "N724AV" && $0.icaoHex == "A9B27C" }, "HFDL: Quittungen (_d) und Verbindungstest Q0 mit ICAO-Zuordnung über den Cache")
+    check(events.contains { $0.uplink && $0.kind == .data } && events.contains { !$0.uplink && $0.kind == .data }, "HFDL: Aufwärts- und Abwärtsdaten")
+    let perf = events.filter { $0.title.contains("Leistungsdaten") }
+    check(perf.count >= 4 && perf.allSatisfy { $0.position != nil && $0.flightID != nil && $0.lines.contains { $0.contains("MPDU empfangen") } }, "HFDL: Leistungsdaten mit Ort und Zählern (\(perf.count))")
+    let doubleMPDU = HFDLProtocol.parse(hfdlRawFrame(hfdlRealFrames[15], rate: 300), freqKHz: 21931, time: t0, cache: &cache, stats: &pstats)
+    check(doubleMPDU.count == 8 && doubleMPDU.allSatisfy(\.uplink), "HFDL: Doppel-Slot-Aufwärts-MPDU mit 8 LPDU für 8 Flugzeuge (\(doubleMPDU.count))")
+    check(HFDLProtocol.mediaAdvisory("0LV211842SH/")?.contains("21:18:42") == true && HFDLProtocol.mediaAdvisory("hallo") == nil, "HFDL: Medienhinweis Text")
+    check(HFDLProtocol.coordinate(0x7FFFF) > 179.9 && HFDLProtocol.coordinate(0x80000) < -179.9 && abs(HFDLProtocol.coordinate(0)) < 1e-9, "HFDL: 20-Bit-Koordinate mit Vorzeichen")
+    check(HFDLProtocol.icao(ArraySlice([0x80, 0x00, 0x01] as [UInt8])) == 0x010080, "HFDL: ICAO-Adresse mit bitumgekehrten Bytes")
+
+    // Bodenstationen
+    check(HFDLStations.all.count == 16 && HFDLStations.tableVersion == 52, "HFDL: 16 Bodenstationen, Tabelle 52")
+    check(HFDLStations.frequency(station: 4, index: 0) == 21931 && HFDLStations.stations(on: 21931).map(\.id) == [4, 10], "HFDL: Frequenz 21931 gehört Riverhead und Muan")
+    check(HFDLStations.frequencies(station: 4, mask: 0b101) == [21931, 13276] && HFDLStations.frequency(station: 99, index: 0) == nil, "HFDL: Frequenzen aus Bitmaske")
+    check(HFDLChannels.kHz(presetID: "f8942") == 8942 && HFDLChannels.kHz(presetID: "f1234") == nil && HFDLChannels.kHz(presetID: "x") == nil, "HFDL: Kanal-Preset")
+    check(HFDLChannels.allPresetIDs.first == "f8942" && Set(HFDLChannels.allPresetIDs).count == HFDLChannels.allPresetIDs.count && HFDLChannels.allPresetIDs.count == HFDLStations.channels.count, "HFDL: Preset-Liste ohne Doppelte")
+    check(HFDLBand.of(kHz: 21931) == .b21 && HFDLBand.of(kHz: 8942) == .b8 && HFDLBand.of(kHz: 2998) == .b2 && HFDLChannels.usedBands.count >= 8, "HFDL: Bänder")
+    check(RigTuneTarget.hfdl(frequencyKHz: 21931) == RigTuneTarget(dialHz: 21_931_000, mode: "USB"), "HFDL: Abstimmziel USB, Dial = Kanalfrequenz")
+    if case .success(let r) = parse("digidec://decode?mode=hfdl&preset=f8942") { check(r.module == .hfdl && r.presetID == "f8942", "URL hfdl") } else { check(false, "URL hfdl abgelehnt") }
+    check(DecoderModuleInfo.hfdl.isAvailable && DecoderModuleInfo.hfdl.hasMap && DecoderModuleInfo.hfdl.band == .hf, "Modul HFDL verfügbar, mit Karte, im HF-Bereich")
+
+    // Rahmen aus dem Testsender durch Empfänger und Protokoll (alle 8 Betriebsarten, auch mit Frequenzversatz und Rauschen)
+    let payload = HFDLSignalGenerator.downlinkMPDU(station: 4, aircraft: 77, lpdus: [
+        HFDLSignalGenerator.frequencyDataLPDU(flight: "DLH400", lat: 50.03, lon: 8.57, seconds: 45296),
+        HFDLSignalGenerator.frequencyDataLPDU(flight: "BAW117", lat: -33.9, lon: 151.2, seconds: 3600)])
+    for mode in 0..<8 {
+        let sym = HFDLSignalGenerator.frameSymbols(payload: payload, mode: mode)
+        let freqErr = mode % 2 == 0 ? 12.0 : -17.0
+        let audio = HFDLSignalGenerator.audio(symbols: sym, freqError: freqErr, noise: 0.05, seed: UInt64(mode + 1))
+        let got = hfdlDecode(audio)
+        check(got.count == 1 && got.first.map { Array($0.bytes.prefix(payload.count)) == payload } == true, "HFDL: Betriebsart \(mode) (\(HFDLPHY.modes[mode].bitRate) bit/s) Nutzlast fehlerfrei, Rahmen \(got.count)")
+        if let f = got.first {
+            check(f.bitRate == HFDLPHY.modes[mode].bitRate && f.doubleSlot == HFDLPHY.modes[mode].double, "HFDL: Betriebsart \(mode) erkannt (\(f.bitRate), \(f.doubleSlot))")
+            check(abs(f.freqErrorHz - freqErr) < 3, "HFDL: Frequenzversatz \(freqErr) Hz geschätzt \(String(format: "%.1f", f.freqErrorHz))")
+            let ev = HFDLProtocol.parse(f, freqKHz: 8942, time: t0, cache: &cache, stats: &pstats)
+            check(ev.map(\.flightID) == ["DLH400", "BAW117"] && ev[0].position.map { abs($0.lat - 50.03) < 0.001 && abs($0.lon - 8.57) < 0.001 } == true
+                  && ev[1].position.map { abs($0.lat + 33.9) < 0.001 && abs($0.lon - 151.2) < 0.001 } == true && ev[0].positionTime == "12:34:56", "HFDL: Betriebsart \(mode) Protokoll: Flugnummern, Orte, Uhrzeit")
+        }
+    }
+    // Schwaches Signal, zwei Rahmen kurz hintereinander, Pause, kein Rahmen im Rauschen
+    do {
+        let sym0 = HFDLSignalGenerator.frameSymbols(payload: payload, mode: 0)
+        let weak = HFDLSignalGenerator.audio(symbols: sym0, freqError: 5, noise: 0.45, seed: 3)
+        check(hfdlDecode(weak).count == 1, "HFDL: schwaches Signal (300 bit/s, Rauschen 0,45) wird decodiert")
+        let sq = HFDLSignalGenerator.squitter(station: 7, frameIndex: 321)
+        let a = HFDLSignalGenerator.audio(symbols: HFDLSignalGenerator.frameSymbols(payload: sq, mode: 0), leadSeconds: 0.3, tailSeconds: 0.2)
+        let b = HFDLSignalGenerator.audio(symbols: HFDLSignalGenerator.frameSymbols(payload: payload, mode: 1), leadSeconds: 0.2, tailSeconds: 0.5)
+        let both = hfdlDecode(a + b)
+        check(both.count == 2 && both[0].bytes.count == 68 && Array(both[1].bytes.prefix(payload.count)) == payload, "HFDL: zwei Rahmen hintereinander (\(both.count))")
+        if let s = both.first {
+            var c2 = HFDLAircraftCache(), st2 = HFDLParseStats()
+            let ev = HFDLProtocol.parse(s, freqKHz: 8942, time: t0, cache: &c2, stats: &st2)
+            check(ev.first?.kind == .squitter && ev.first?.station == 7 && ev.first?.squitter?.frameIndex == 321, "HFDL: Squitter aus dem Testsender gelesen")
+        }
+        var g = HFDLSignalGenerator.SplitMix64(seed: 99)
+        let noise = (0..<(12_000 * 40)).map { _ in Float(0.3 * g.gaussian()) }
+        check(hfdlDecode(noise).isEmpty, "HFDL: 40 s Rauschen ergeben keinen Rahmen")
+        check(hfdlDecode(HFDLSignalGenerator.audio(symbols: sym0).map { -$0 }).count <= 1, "HFDL: invertiertes Audio (LSB) bleibt ohne Absturz")
+    }
+
+    // Flugzeugtabelle, Karte und Logzeile im Controller
+    let c = HFDLController(pipeline: AudioPipeline(), settings: HFDLSettingsStore())
+    c.logEnabled = false
+    for f in hfdlRealFrames { c.ingest(frame: hfdlRawFrame(f), at: t0, freqKHz: 21931) }
+    check(c.frameCount == 26 && c.events.count == 38, "HFDL-Controller: Rahmen und Ereignisse (\(c.frameCount), \(c.events.count))")
+    check(c.aircraft["A9B27C"]?.registration == "N724AV" && c.aircraft["A9B27C"]?.flight == "AV4820", "HFDL: Flugzeug A9B27C = N724AV, Flug AV4820 (aus Anmeldung und ACARS)")
+    check(c.aircraft["AAE1F1"]?.flight == "AVA244" || c.aircraft["AAE1F1"]?.flight == "AV0244", "HFDL: Flugzeug AAE1F1 mit Flugnummer")
+    check(c.aircraft.values.filter { $0.position != nil }.count >= 8, "HFDL: Flugzeuge mit Ort (\(c.aircraft.values.filter { $0.position != nil }.count))")
+    check(c.stations[4]?.frequenciesInUseKHz == [21931, 13276] && c.stations[2]?.frequenciesInUseKHz == [21937, 11348, 10027] && c.stations[4]?.count == 4, "HFDL: Bodenstationen aus den Squittern")
+    let map = c.mapContent(home: Maidenhead.point("JN49WS"), now: t0.addingTimeInterval(60))
+    check(map.markers.filter { $0.id.hasPrefix("gs-") }.count == 16 && map.markers.filter { $0.id.hasPrefix("ac-") }.count >= 8 && !map.lines.isEmpty, "HFDL-Karte: 16 Bodenstationen, Flugzeuge mit Verbindungslinie")
+    check(c.mapContent(home: nil, now: t0.addingTimeInterval(5 * 3600)).markers.allSatisfy { $0.id.hasPrefix("gs-") }, "HFDL-Karte: alte Flugzeuge entfallen")
+    if let e = c.events.first(where: { $0.acars?.label == "SA" }) {
+        let line = HFDLController.logLine(e)
+        check(line.contains("21931") && line.contains("300S") && line.contains("↓") && line.contains("Riverhead") && line.contains("EC-NDR") && line.contains("Label SA"), "HFDL-Logzeile: \(line)")
+    }
+    // Filter
+    let s = HFDLSettingsStore()
+    s.showSquitters = false; s.showUplink = true; s.onlyContent = false
+    let c2 = HFDLController(pipeline: AudioPipeline(), settings: s)
+    c2.logEnabled = false
+    for f in hfdlRealFrames { c2.ingest(frame: hfdlRawFrame(f), at: t0, freqKHz: 21931) }
+    check(c2.visible.count == c2.events.count - 4, "HFDL: Squitter ausgeblendet")
+    s.showUplink = false
+    check(c2.visible.allSatisfy { !$0.uplink }, "HFDL: nur Abwärts")
+    s.onlyContent = true
+    check(c2.visible.allSatisfy { ($0.acars.map { !$0.isEmpty } ?? false) || $0.position != nil }, "HFDL: nur Inhalt")
+    // Sprung des Flugzeugs wird nicht geglaubt
+    var ac = HFDLAircraft(id: "X", firstHeard: t0, lastHeard: t0)
+    check(ac.addPosition(GeoPoint(lat: 50, lon: 8), time: nil, at: t0) && !ac.addPosition(GeoPoint(lat: -30, lon: 150), time: nil, at: t0.addingTimeInterval(60)), "HFDL: Ortssprung wird verworfen")
+    check(ac.addPosition(GeoPoint(lat: -30.1, lon: 150), time: nil, at: t0.addingTimeInterval(120)) && ac.track.count == 1, "HFDL: zweiter Bericht an der neuen Stelle gilt, Weg beginnt neu")
+    s.frequencyKHz = 13276
+    check(s.stationsOnChannel.count >= 3 && s.centerHz == 1440, "HFDL: Stationen auf 13276 kHz, NF-Mitte 1440 Hz")
+}
+hfdlTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

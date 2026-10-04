@@ -17,6 +17,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case ale
     case aprs
     case acars
+    case hfdl
     case sonde
     case pager
     case tones
@@ -45,6 +46,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .ale:    return "ALE"
         case .aprs:   return "APRS"
         case .acars:  return "ACARS"
+        case .hfdl:   return "HFDL"
         case .sonde:  return "SONDE"
         case .pager:  return "PAGER"
         case .tones:  return "TÖNE"
@@ -90,7 +92,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     public var band: Band {
         switch self {
         case .acars, .aprs, .pager, .sonde, .tones: return .vhfUhf
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
 
@@ -104,7 +106,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .acars, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .acars, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -122,6 +124,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .ale: return ["ale"]
         case .aprs: return ["eu", "na", "iss", "au", "jp", "free"]   // = APRSChannel.rawValue
         case .acars: return ["f131550", "f131725", "f131525", "f130025", "f136900", "free"]   // = ACARSChannel.rawValue
+        case .hfdl: return HFDLChannels.allPresetIDs   // = HFDLChannels.presetID(kHz), Standard 8942 kHz
         case .sonde: return ["rs41"]
         case .pager: return ["dapnet", "free"]   // = PagerChannel.rawValue
         case .tones: return ["all"]
