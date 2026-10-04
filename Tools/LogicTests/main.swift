@@ -3648,7 +3648,7 @@ do {
         }
         let demod = DSCDemodulator(centerHz: center)
         demod.reversed = reversedRx
-        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
         var collector = DSCCallCollector()
         var t = 0
         var pos = 0
@@ -3682,7 +3682,7 @@ do {
     for i in 0..<noiseOnly.count { ns = ns &* 6364136223846793005 &+ 1442695040888963407; noiseOnly[i] = Float(Double(ns >> 40) / Double(1 << 24) - 0.5) }
     do {
         let demod = DSCDemodulator(centerHz: 1700)
-        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
         var calls = 0
         noiseOnly.withUnsafeBufferPointer { demod.process($0) { p, b in if framers[p].push(b) != nil { calls += 1 } } }
         check(calls == 0, "DSC: Rauschen ergibt keinen Ruf")
@@ -3693,7 +3693,7 @@ do {
         bits += DSCSignalGenerator.bits(info: distInfo, dotBits: 20)
         let audio = DSCSignalGenerator.audio(bits: bits)
         let demod = DSCDemodulator(centerHz: 1700)
-        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
         var collector = DSCCallCollector()
         var t = 0
         var pos = 0
@@ -3744,7 +3744,7 @@ do {
         if let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
            let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: DSCDemodulator.sampleRate) {
             let demod = DSCDemodulator(centerHz: 505)
-            var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+            let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
             var collector = DSCCallCollector()
             var t = 0
             let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!

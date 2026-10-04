@@ -569,7 +569,7 @@ if dscMode {
     print("DSC · Mitte \(Int(start)) Hz" + (dscAuto ? " (Nachführung)" : "") + (pskReverse ? " · REV" : ""))
     let demod = DSCDemodulator(centerHz: start)
     demod.reversed = pskReverse
-    var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+    let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
     var calls: [(Double, DSCCall)] = []
     let seconds = 0.0
     var samples = 0
