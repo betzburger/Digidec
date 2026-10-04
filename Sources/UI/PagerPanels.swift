@@ -263,25 +263,41 @@ struct PagerSettingsPanel: View {
                     .help(c.note + (c.frequencyHz == nil ? "" : " (nur mit QSY AUTO wird das Funkgerät in FM abgestimmt)"))
                 }
             }
+            // Zwei Reihen: oben, was gelesen wird, darunter, wie der Text angezeigt wird (alle Knöpfe einzeilig, sonst brechen „1.200“ und „SKYPER“ um)
             HStack(spacing: 6) {
                 Text("POCSAG")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
+                    .frame(width: 56, alignment: .leading)
                 ForEach(POCSAG.rates, id: \.self) { r in
                     Button("\(r)") {
                         if settings.rates.contains(r) { if settings.rates.count > 1 { settings.rates.remove(r) } } else { settings.rates.insert(r) }
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.rates.contains(r)))
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("POCSAG mit \(r) Baud lesen")
                 }
                 Button("FLEX") { settings.flex.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.flex))
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("FLEX (1600/3200 Baud) lesen")
+            }
+            HStack(spacing: 6) {
+                Text("ANZEIGE")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                    .frame(width: 56, alignment: .leading)
                 Button("SKYPER") { settings.skyper.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.skyper))
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("Skyper-Meldungen lesbar machen: Das Skyper-Netz sendet jedes Zeichen um 1 nach oben verschoben (Leerzeichen als !) und vor dem Text Rubrik und Nummer. Das ist keine Verschlüsselung. Aus: der Text wird so gezeigt, wie er gesendet wurde (im Tooltip steht immer die Rohfassung).")
                 Button("ÄÖÜ") { settings.umlauts.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.umlauts))
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("Deutsche Umlaute anzeigen: Funkrufempfänger belegen { | } ~ mit ä ö ü ß und [ \\ ] mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003). Aus: der Text wird so gezeigt, wie er gesendet wurde.")
             }
             HStack(spacing: 6) {
