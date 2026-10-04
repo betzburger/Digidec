@@ -117,6 +117,16 @@ do {
     for m in DecoderModuleInfo.allCases where m.isAvailable {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
     }
+
+    // Modul-Leiste: jedes Modul in genau einer Rubrik, darin A–Z
+    let bars = DecoderModuleInfo.Band.allCases.flatMap(\.modules)
+    check(Set(bars).count == bars.count && Set(bars) == Set(DecoderModuleInfo.allCases), "Modul-Leiste: jedes Modul genau einmal")
+    for band in DecoderModuleInfo.Band.allCases {
+        let names = band.modules.map(\.displayName)
+        check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
+    }
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "APRS", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
 
@@ -3638,7 +3648,7 @@ do {
         }
         let demod = DSCDemodulator(centerHz: center)
         demod.reversed = reversedRx
-        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
         var collector = DSCCallCollector()
         var t = 0
         var pos = 0
@@ -3672,7 +3682,7 @@ do {
     for i in 0..<noiseOnly.count { ns = ns &* 6364136223846793005 &+ 1442695040888963407; noiseOnly[i] = Float(Double(ns >> 40) / Double(1 << 24) - 0.5) }
     do {
         let demod = DSCDemodulator(centerHz: 1700)
-        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
         var calls = 0
         noiseOnly.withUnsafeBufferPointer { demod.process($0) { p, b in if framers[p].push(b) != nil { calls += 1 } } }
         check(calls == 0, "DSC: Rauschen ergibt keinen Ruf")
@@ -3683,7 +3693,7 @@ do {
         bits += DSCSignalGenerator.bits(info: distInfo, dotBits: 20)
         let audio = DSCSignalGenerator.audio(bits: bits)
         let demod = DSCDemodulator(centerHz: 1700)
-        var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+        let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
         var collector = DSCCallCollector()
         var t = 0
         var pos = 0
@@ -3734,7 +3744,7 @@ do {
         if let file = try? AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false),
            let src = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: DSCDemodulator.sampleRate) {
             let demod = DSCDemodulator(centerHz: 505)
-            var framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
+            let framers = (0..<DSCDemodulator.phases).map { _ in DSCFramer() }
             var collector = DSCCallCollector()
             var t = 0
             let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
@@ -4778,6 +4788,10 @@ func highpassAudio(_ s: [Float], _ fc: Double, rate: Double = 24_000) -> [Float]
     let a = Float(exp(-2 * .pi * fc / rate)); var y: Float = 0; var xp: Float = 0
     return s.map { x in y = a * (y + x - xp); xp = x; return y }
 }
+func lowpassAudio(_ s: [Float], _ fc: Double, rate: Double = 24_000) -> [Float] {
+    let k = Float(1 - exp(-2 * .pi * fc / rate)); var y: Float = 0
+    return s.map { x in y += k * (x - y); return y }
+}
 
 do {
     let msgs: [(Int, Int, String?, String?)] = [(1234567, 3, nil, "Hallo Welt, Test 1"), (2504, 3, nil, "DAPNET DL1ABC Test"), (400000, 0, "0123456789", nil), (999, 3, nil, "Kurz"),
@@ -4812,6 +4826,86 @@ do {
     check(m0.text == "123", "Funktion 0 zeigt Ziffern")
     let m3 = PagerMessage(time: Date(), protocolName: "POCSAG 1200", address: 1, function: 3, numeric: "123 45", alpha: "\u{1}\u{2}\u{3}\u{4}\u{5}\u{6}")
     check(m3.text == "123 45", "Unlesbarer Klartext fällt auf Ziffern zurück")
+}
+
+do {
+    // Entzerrer: Prüfung der Codewörter
+    check(POCSAGEqualizer.isValid(PagerBCH.encode(0x0F0F0F)) && POCSAGEqualizer.isValid(POCSAG.idle) && POCSAGEqualizer.isValid(POCSAG.sync), "Entzerrer: Codewörter, Leer- und Synchronwort gelten")
+    check(!POCSAGEqualizer.isValid(PagerBCH.encode(0x0F0F0F) ^ 0x10) && !POCSAGEqualizer.isValid(PagerBCH.encode(0x0F0F0F) ^ 1), "Entzerrer: ein Bitfehler (auch Parität) gilt nicht ohne Korrektur")
+    let perfect = POCSAGSignalGenerator.bits(address: 1234567, function: 3, alpha: "Hallo")
+    let an = POCSAGEqualizer.analyze(perfect, minValid: 5)
+    let anInv = POCSAGEqualizer.analyze(perfect.map { $0 ^ 1 }, minValid: 5)
+    check(an.goodBatches == 2 && an.bestWords == 16 && anInv.goodBatches == 2, "Entzerrer: zwei Stapel erkannt, auch invertiert (\(an.goodBatches)/\(anInv.goodBatches))")
+    check(an.lastEnd == 576 + 2 * 544 && !an.mask[0] && an.mask[576] && an.mask[576 + 32 + 31], "Entzerrer: Ende des letzten Stapels und Maske der sicheren Bits")
+    let zeros = POCSAGEqualizer.analyze([UInt8](repeating: 0, count: 2000), minValid: 5)
+    check(zeros.goodBatches == 0 && zeros.maskCount == 0, "Entzerrer: Nullen sind kein Stapel")
+
+    // Sauberes Testsignal und Rauschen: der Entzerrer liest es ebenfalls, in jeder Polarität
+    let msgs: [(Int, Int, String?, String?)] = [(1234567, 3, nil, "Hallo Welt, Test 1"), (2504, 3, nil, "DAPNET DL1ABC Test"), (400000, 0, "0123456789", nil)]
+    for (i, baud) in POCSAG.rates.enumerated() {
+        let clean = pocsagAudio(baud, msgs)
+        let direct = POCSAGEqualizer.equalize(clean, sampleRate: 24_000, baud: Double(baud), origin: 0)
+        check((direct?.goodBatches ?? 0) >= 2, "Entzerrer \(baud): sauberes Signal, Stapel \(direct?.goodBatches ?? 0)")
+        var g = SystemRandomNumberGenerator()
+        let noisy = pocsagAudio(baud, msgs, inverted: true).map { $0 + Float.random(in: -0.2...0.2, using: &g) }
+        let nz = POCSAGEqualizer.equalize(noisy, sampleRate: 24_000, baud: Double(baud), origin: 0)
+        check((nz?.goodBatches ?? 0) >= 2, "Entzerrer \(baud): invertiert mit Rauschen, Stapel \(nz?.goodBatches ?? 0)")
+
+        // Verbogenes Audio wie an der echten DAPNET-Aufnahme: zwei Hochpässe (290 Hz), Tiefpass (1,5 kHz), Rauschen vor und nach der Aussendung
+        // Bei 2400 Bd bleibt der Entzerrer unsicher (Aussendungen unter 1 s liefern zu wenig Lernstoff): dort nur die Prüfungen oben
+        if baud == 2400 { continue }
+        let r = Double(baud) / 1200
+        var bent = lowpassAudio(highpassAudio(highpassAudio(clean, 290 * r), 290 * r), 1500 * r)
+        bent = bent.map { $0 + Float.random(in: -0.05...0.05, using: &g) }
+        var audio: [Float] = (0..<24_000).map { _ in Float.random(in: -0.15...0.15, using: &g) }
+        audio += bent
+        audio += (0..<48_000).map { _ in Float.random(in: -0.15...0.15, using: &g) }
+        let got = pocsagDecode(audio, rates: [i])
+        // Der Entzerrer liest die Mitte der Meldungen sicher; das letzte Wort vor der Auffüllung (lange Nullfolge ohne Gleichanteil) geht
+        // manchmal verloren. Geprüft werden deshalb die ersten Zeichen, und es müssen mindestens zwei von drei Meldungen stimmen.
+        let hallo = got.contains { $0.address == 1234567 && $0.alpha.hasPrefix("Hallo We") }
+        let dapnet = got.contains { $0.address == 2504 && $0.alpha.hasPrefix("DAPNET D") }
+        let digits = got.contains { $0.address == 400000 && $0.numeric.hasPrefix("01234") }
+        let hits = [hallo, dapnet, digits].filter { $0 }.count
+        let shown = got.map { String($0.address) + ":" + $0.text }.joined(separator: " | ")
+        check(hits >= 2, "Entzerrer \(baud): verbogenes Audio (Hochpass 290 Hz, Tiefpass) liefert \(hits) von 3 Meldungen (\(shown))")
+        check(got.count <= 8, "Entzerrer \(baud): keine Meldungsflut (\(got.count))")
+    }
+    // Eine einwandfreie Aussendung liest der einfache Zweig; der Entzerrer liefert nichts dazu
+    let plain = pocsagDecode(pocsagAudio(1200, msgs), rates: [1])
+    check(plain.count == 3 && plain.allSatisfy { $0.detail == nil }, "Entzerrer: einwandfreies Signal ohne Doppelte und ohne Entzerrer (\(plain.count))")
+    // Rauschen allein löst nichts aus
+    var gen = SystemRandomNumberGenerator()
+    check(pocsagDecode((0..<(24_000 * 15)).map { _ in Float.random(in: -0.3...0.3, using: &gen) }, rates: [1]).isEmpty, "Entzerrer: 15 s Rauschen ergeben keine Meldung")
+    // Diagnose
+    var st = POCSAGStats(); st.preambles = 3; st.equalized = 2
+    check(PagerDiagnosis.assess(inputDB: -20, stats: [POCSAGStats(), st, POCSAGStats()], enabled: [1]).title == "EMPFANG ENTZERRT", "Diagnose: entzerrter Empfang wird genannt")
+
+    // Echte DAPNET-Aufnahme mit verbogenem Audio (TestData/Pager/README.md): der einfache Zweig findet kein Synchronwort
+    let pagerWav = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("TestData/Pager/dapnet_verbogen_48k.wav")
+    if let file = try? AVAudioFile(forReading: pagerWav, commonFormat: .pcmFormatFloat32, interleaved: false),
+       let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+       (try? file.read(into: buf)) != nil, let ch = buf.floatChannelData?[0],
+       let conv = SampleRateConverter(inputRate: file.processingFormat.sampleRate, outputRate: 24_000) {
+        var audio: [Float] = []
+        var pos = 0
+        let total = Int(buf.frameLength)
+        while pos < total {
+            let n = min(960, total - pos)
+            conv.process(UnsafeBufferPointer(start: ch + pos, count: n)) { audio += Array($0) }
+            pos += n
+        }
+        let got = pocsagDecode(audio, rates: [1])
+        func alpha(_ ric: Int) -> String { got.first { $0.address == ric }?.alpha ?? "" }
+        check(file.processingFormat.sampleRate == 48_000, "Entzerrer echt: Testdatei hat 48 kHz")
+        check(alpha(1005).hasPrefix("432314.0 DK2OY"), "Entzerrer echt: Rufnummer 1005 „\(alpha(1005))“")
+        check(alpha(1004).hasPrefix("3634.0 ON3RUM"), "Entzerrer echt: Rufnummer 1004 „\(alpha(1004))“")
+        check(alpha(2000).hasPrefix("#ZEIT=063504"), "Entzerrer echt: Rufnummer 2000 „\(alpha(2000))“")
+        check(got.filter { $0.detail == "entzerrt" }.count >= 4, "Entzerrer echt: mindestens vier Meldungen vom Entzerrer (\(got.map(\.address)))")
+    } else {
+        check(false, "Entzerrer echt: TestData/Pager/dapnet_verbogen_48k.wav nicht lesbar")
+    }
 }
 
 do {
@@ -5071,6 +5165,18 @@ pagerModuleTests()
     check(PagerText.germanUmlauts("Hallo Welt 123") == "Hallo Welt 123" && PagerText.germanUmlauts("") == "", "Umlaute: gewöhnlicher Text bleibt")
     let us = PagerSettingsStore()
     check(us.umlauts, "Umlaute: standardmäßig an")
+
+    // Skyper: Zeichen um 1 nach oben verschoben, Leerzeichen als „!“, Kopf aus Rubrik und Nummer (echte DAPNET-Meldungen, RIC 4520)
+    let sk1 = PagerText.skyper(")$25195/1!QE1CBS!!!!!!ef!QE3XM!bu!2168{")
+    check(sk1?.text == "14084.0 PD0BAR      de PD2WL at 1057z" && sk1?.rubric == 9 && sk1?.number == 3, "Skyper: DX-Spot (\(sk1?.text ?? "nil"), Rubrik \(sk1?.rubric ?? -1), Nr. \(sk1?.number ?? -1))")
+    let sk2 = PagerText.skyper("p!Ebufocbtjt;!Efvutdifs!Xfuufsejfotu-!Nfmevohfo!hflvfs{u")
+    check(sk2?.text == "Datenbasis: Deutscher Wetterdienst, Meldungen gekuerzt" && sk2?.rubric == 80 && sk2?.number == 0, "Skyper: Meldungstext mit Doppelpunkt und Komma (\(sk2?.text ?? "nil"))")
+    check(PagerText.skyper("%$81141/9!H5KOU0C!!!!!ef!H1BQJ!bu!1:17{")?.text == "70030.8 G4JNT/B     de G0API at 0906z", "Skyper: Rufzeichen mit Schrägstrich")
+    // Gewöhnlicher Klartext bleibt unberührt
+    for plain in ["7150.0 EA4IFI       de EA3INX at 1100z", "Hallo Welt, Test 1", "ALARM!", "FEUER! FEUER! Halle 3", "Ziffern 0123456789", "", "Hilfe!"] {
+        check(PagerText.skyper(plain) == nil, "Skyper: „\(plain)“ bleibt, wie gesendet")
+    }
+    check(us.skyper, "Skyper: standardmäßig an")
 }
 pagerChannelTests()
 

@@ -49,6 +49,8 @@ public final class PagerSettingsStore: ObservableObject {
     @Published public var watch: String { didSet { UserDefaults.standard.set(watch, forKey: "pagerWatch") } }
     /// Deutsche Umlaute anzeigen: Funkrufempfänger (z. B. AlphaPoc) belegen `{ | } ~` mit ä ö ü ß, `[ \ ]` mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003)
     @Published public var umlauts: Bool { didSet { UserDefaults.standard.set(umlauts, forKey: "pagerUmlauts") } }
+    /// Skyper-Meldungen lesbar machen: jedes Zeichen ist um 1 nach oben verschoben (Leerzeichen = `!`), davor stehen Rubrik und Nummer
+    @Published public var skyper: Bool { didSet { UserDefaults.standard.set(skyper, forKey: "pagerSkyper") } }
 
     public init() {
         let d = UserDefaults.standard
@@ -58,6 +60,7 @@ public final class PagerSettingsStore: ObservableObject {
         flex = d.object(forKey: "pagerFlex") as? Bool ?? true
         watch = d.string(forKey: "pagerWatch") ?? ""
         umlauts = d.object(forKey: "pagerUmlauts") as? Bool ?? true
+        skyper = d.object(forKey: "pagerSkyper") as? Bool ?? true
     }
 
     /// Hervorgehobene Rufnummern als Zahlen
@@ -167,6 +170,39 @@ public final class PagerDecoder: @unchecked Sendable {
 // MARK: - Anzeige des Klartexts
 
 public enum PagerText {
+    /// Skyper-Meldung (Telekom-Funkruf, im DAPNET weiter üblich) im Klartext
+    public struct SkyperText: Equatable, Sendable {
+        /// Lesbarer Text ohne Kopf
+        public var text: String
+        /// Rubrik (aus dem ersten Zeichen) und laufende Nummer (aus dem zweiten)
+        public var rubric: Int
+        public var number: Int
+    }
+
+    /// Skyper sendet Klartext mit Kopf aus zwei Zeichen (Rubrik, Nummer) und jedes Zeichen um 1 nach oben verschoben: Leerzeichen kommt als `!`,
+    /// „Astheim“ als „Btuifjn“, „z“ (UTC) als `{`. Erkannt wird nur, was sicher so aussieht: mindestens zwei `!`, kein einziges Leerzeichen,
+    /// mindestens acht Zeichen, und nach dem Zurückschieben fast nur druckbare Zeichen. Anderer Text (auch mit Ausrufezeichen) bleibt, wie er ist.
+    public static func skyper(_ raw: String) -> SkyperText? {
+        let u = Array(raw.unicodeScalars)
+        guard u.count >= 8 else { return nil }
+        let bangs = u.filter { $0 == "!" }.count
+        guard bangs >= 2, !u.contains(" ") else { return nil }
+        guard u[0].value > 0x20, u[0].value < 0x7F, u[1].value >= 0x21, u[1].value < 0x7F else { return nil }
+        var out = String.UnicodeScalarView()
+        var printable = 0
+        for c in u.dropFirst(2) {
+            if c.value >= 0x21 && c.value < 0x7F, let shifted = Unicode.Scalar(c.value - 1) {
+                out.append(shifted)
+                if shifted.value >= 0x20 && shifted.value < 0x7F { printable += 1 }
+            } else {
+                out.append(c)
+            }
+        }
+        let body = u.count - 2
+        guard body > 0, Double(printable) >= 0.85 * Double(body) else { return nil }
+        return SkyperText(text: String(out), rubric: Int(u[0].value) - 0x20, number: Int(u[1].value) - 0x21)
+    }
+
     /// 7-Bit-Zeichensatz DIN 66003 (deutsche Belegung, wie AlphaPoc): `{ | } ~` = ä ö ü ß; `[ \ ]` = Ä Ö Ü, aber nur, wenn ein Kleinbuchstabe folgt
     /// („[rzte“) oder ein Großbuchstabe davor und danach steht („M]NCHEN“) – sonst sind es wirkliche Klammern („[ALARM]“).
     public static func germanUmlauts(_ text: String) -> String {
@@ -212,6 +248,7 @@ public enum PagerDiagnosis {
         let good = active.reduce(0) { $0 + $1.batchesGood }
         let bad = active.reduce(0) { $0 + $1.batchesBad }
         let messages = active.reduce(0) { $0 + $1.messages }
+        let equalized = active.reduce(0) { $0 + $1.equalized }
         if inputDB < silenceDB && preambles == 0 && syncs == 0 {
             return Result(severity: .problem, title: "KEIN AUDIO",
                           advice: "Am Eingang liegt kein Signal an. Rauschsperre des Funkgeräts offen? Richtiger Kanal (L, R oder L+R) und Eingang gewählt?")
@@ -219,6 +256,10 @@ public enum PagerDiagnosis {
         if preambles == 0 && syncs == 0 {
             return Result(severity: .waiting, title: "WARTEN AUF FUNKRUF",
                           advice: "Audio kommt an, aber noch kein Funkrufsignal. DAPNET sendet nur zeitweise: weiter warten. Sonst Frequenz, Betriebsart FM (nicht schmal) und Diskriminator-Audio ohne Rauschsperre prüfen.")
+        }
+        if equalized > 0 && equalized * 2 >= messages {
+            return Result(severity: .ok, title: "EMPFANG ENTZERRT",
+                          advice: "Das Audio ist verbogen (Hochpass oder Bandpass im Audioweg): Digidec entzerrt es und liest die Meldungen nachträglich, einige Sekunden nach der Aussendung. Besser wäre Diskriminator-Audio ohne Hochpass.")
         }
         if syncs == 0 {
             return Result(severity: .problem, title: "VORSPANN OHNE SYNCHRONWORT",

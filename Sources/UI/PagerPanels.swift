@@ -48,7 +48,7 @@ struct PagerMessagePanel: View {
                 .buttonStyle(ModeButtonStyle(isSelected: false))
                 .help("Liste und Zähler der Diagnose leeren (Log bleibt)")
             }
-            PagerTable(messages: controller.messages, watched: settings.watched, umlauts: settings.umlauts)
+            PagerTable(messages: controller.messages, watched: settings.watched, umlauts: settings.umlauts, skyper: settings.skyper)
                 .background(RadioTheme.bgDeep)
                 .cornerRadius(6)
         }
@@ -68,6 +68,7 @@ struct PagerTable: View {
     let messages: [PagerMessage]
     var watched: Set<Int> = []
     var umlauts = false
+    var skyper = false
     var scrolls = true
 
     var body: some View {
@@ -120,14 +121,20 @@ struct PagerTable: View {
         .help(tooltip(m))
     }
 
-    /// Klartext, auf Wunsch mit deutschen Umlauten (nur bei Funktion 3 = Klartext)
+    /// Klartext, auf Wunsch als Skyper entschlüsselt und mit deutschen Umlauten (nur bei Klartext, nicht bei Ziffern)
     private func shown(_ m: PagerMessage) -> String {
-        umlauts && m.text == m.alpha ? PagerText.germanUmlauts(m.text) : m.text
+        guard m.text == m.alpha else { return m.text }
+        var t = m.text
+        if skyper, let s = PagerText.skyper(t) { t = s.text }
+        return umlauts ? PagerText.germanUmlauts(t) : t
     }
 
     private func tooltip(_ m: PagerMessage) -> String {
         var t = "\(m.protocolName) · Rufnummer \(m.address) · Funktion \(m.function)"
         if let d = m.detail { t += " · \(d)" }
+        if skyper, m.text == m.alpha, let s = PagerText.skyper(m.text) {
+            t += "\nSkyper · Rubrik \(s.rubric) · Nr. \(s.number)\nGesendet als: \(m.text)"
+        }
         if let a = m.alternative { t += "\n" + a }
         if m.corrected > 0 { t += "\n\(m.corrected) Bitfehler korrigiert" }
         if m.damaged > 0 { t += "\n\(m.damaged) Codewörter nicht lesbar: Text unvollständig" }
@@ -203,10 +210,10 @@ struct PagerTuningPanel: View {
             ForEach(Array(POCSAG.rates.enumerated()).filter { settings.rates.contains($0.element) }, id: \.offset) { i, rate in
                 let st = controller.stats.indices.contains(i) ? controller.stats[i] : POCSAGStats()
                 if st.preambles + st.syncs + st.batchesGood + st.batchesBad > 0 {
-                    Text("\(rate) Bd · Vorspann \(st.preambles) · Sync \(st.syncs)\(st.inverted ? " (invers)" : "") · Stapel \(st.batchesGood) gut / \(st.batchesBad) schlecht · Wörter \(st.wordsGood)/\(st.wordsGood + st.wordsBad)")
+                    Text("\(rate) Bd · Vorspann \(st.preambles) · Sync \(st.syncs)\(st.inverted ? " (invers)" : "") · Stapel \(st.batchesGood) gut / \(st.batchesBad) schlecht · Wörter \(st.wordsGood)/\(st.wordsGood + st.wordsBad)\(st.equalized > 0 ? " · entzerrt \(st.equalized)" : "")")
                         .font(.system(size: 8.5, weight: .medium, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                        .help("Vorspann: Folge wechselnder Bits vor jeder Aussendung. Sync: Synchronwort gefunden. Stapel: 16 Codewörter, „gut“ ab 10 gültigen. Wörter: gültige Codewörter von allen gelesenen (BCH-Prüfung).")
+                        .help("Vorspann: Folge wechselnder Bits vor jeder Aussendung. Sync: Synchronwort gefunden. Stapel: 16 Codewörter, „gut“ ab 10 gültigen. Wörter: gültige Codewörter von allen gelesenen (BCH-Prüfung). Entzerrt: Meldungen, die erst nach Entzerren des verbogenen Audios lesbar waren.")
                 }
             }
         }
@@ -256,22 +263,41 @@ struct PagerSettingsPanel: View {
                     .help(c.note + (c.frequencyHz == nil ? "" : " (nur mit QSY AUTO wird das Funkgerät in FM abgestimmt)"))
                 }
             }
+            // Zwei Reihen: oben, was gelesen wird, darunter, wie der Text angezeigt wird (alle Knöpfe einzeilig, sonst brechen „1.200“ und „SKYPER“ um)
             HStack(spacing: 6) {
                 Text("POCSAG")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
+                    .frame(width: 56, alignment: .leading)
                 ForEach(POCSAG.rates, id: \.self) { r in
                     Button("\(r)") {
                         if settings.rates.contains(r) { if settings.rates.count > 1 { settings.rates.remove(r) } } else { settings.rates.insert(r) }
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.rates.contains(r)))
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("POCSAG mit \(r) Baud lesen")
                 }
                 Button("FLEX") { settings.flex.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.flex))
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("FLEX (1600/3200 Baud) lesen")
+            }
+            HStack(spacing: 6) {
+                Text("ANZEIGE")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                    .frame(width: 56, alignment: .leading)
+                Button("SKYPER") { settings.skyper.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.skyper))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .help("Skyper-Meldungen lesbar machen: Das Skyper-Netz sendet jedes Zeichen um 1 nach oben verschoben (Leerzeichen als !) und vor dem Text Rubrik und Nummer. Das ist keine Verschlüsselung. Aus: der Text wird so gezeigt, wie er gesendet wurde (im Tooltip steht immer die Rohfassung).")
                 Button("ÄÖÜ") { settings.umlauts.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.umlauts))
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("Deutsche Umlaute anzeigen: Funkrufempfänger belegen { | } ~ mit ä ö ü ß und [ \\ ] mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003). Aus: der Text wird so gezeigt, wie er gesendet wurde.")
             }
             HStack(spacing: 6) {
