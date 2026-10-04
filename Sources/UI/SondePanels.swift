@@ -7,18 +7,15 @@ struct SondeMainPanel: View {
     @ObservedObject var controller: SondeController
     @ObservedObject var settings: SondeSettingsStore
     @ObservedObject var home: HomeLocation
-    @ObservedObject var plan: SondePlanStore
-    @ObservedObject var scanner: SondeScanner
 
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
-                Text(scanner.status == .idle ? summary : (scanner.message ?? summary))
+                Text(summary)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundColor(scanColor)
+                    .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                scanControls
                 Button {
                     controller.toggleRecording()
                 } label: {
@@ -51,45 +48,10 @@ struct SondeMainPanel: View {
                 .buttonStyle(ModeButtonStyle(isSelected: false))
                 .help("Liste leeren (Log bleibt)")
             }
-            SondeStationBar(settings: settings, home: home, plan: plan)
             SondeTable(controller: controller, home: home)
                 .background(RadioTheme.bgDeep)
                 .cornerRadius(6)
             SondeDetail(controller: controller, home: home)
-        }
-    }
-
-    private var scanColor: Color {
-        switch scanner.status {
-        case .idle: return RadioTheme.textDim
-        case .scanning: return RadioTheme.vfdAmber
-        case .found: return RadioTheme.vfdGreen
-        case .notFound, .failed: return RadioTheme.ledYellow
-        }
-    }
-
-    /// Suchlauf: Funkgerät Frequenz für Frequenz abstimmen, bis ein Rahmen lesbar ist (braucht QSY AUTO)
-    @ViewBuilder
-    private var scanControls: some View {
-        if scanner.isScanning {
-            Button {
-                scanner.stop()
-            } label: {
-                Label("STOP \(scanner.done + 1)/\(scanner.total)", systemImage: "stop.circle.fill")
-            }
-            .buttonStyle(ModeButtonStyle(isSelected: true))
-            .foregroundColor(RadioTheme.ledRed)
-            .help("Suchlauf abbrechen; die vorherige Frequenz wird wieder eingestellt")
-        } else {
-            Menu {
-                Button("Bekannte Frequenzen (etwa \(scanner.estimatedMinutes(.known)) min)") { scanner.start(.known) }
-                Button("Ganzes Band 400 … 406 MHz (etwa \(scanner.estimatedMinutes(.band)) min)") { scanner.start(.band) }
-            } label: {
-                Label("SUCHE", systemImage: "magnifyingglass")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Suchlauf: stimmt das Funkgerät Frequenz für Frequenz ab und bleibt stehen, sobald ein Rahmen lesbar ist. Braucht QSY AUTO und die Verbindung zum Commander. Bekannte Frequenzen: die der Startorte in der Umgebung und schon gehörte.")
         }
     }
 
@@ -101,65 +63,6 @@ struct SondeMainPanel: View {
 
     static func duration(_ t: TimeInterval) -> String {
         String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
-    }
-}
-
-/// Tasten mit den Startorten der Umgebung und ihrer Frequenz: ein Klick stellt Digidec (und mit QSY AUTO das Funkgerät über den Commander) um
-struct SondeStationBar: View {
-    @ObservedObject var settings: SondeSettingsStore
-    @ObservedObject var home: HomeLocation
-    @ObservedObject var plan: SondePlanStore
-
-    private struct Station: Identifiable {
-        let ranked: SondePlan.Ranked
-        let kHz: Int
-        var id: String { ranked.id }
-    }
-
-    /// RS41-Startorte im Umkreis mit bekannter Frequenz, nächste zuerst (Frequenz: eigene Wahl vor Eintrag der Liste)
-    private var stations: [Station] {
-        guard let point = home.point else { return [] }
-        var out: [Station] = []
-        for r in SondePlan.nearby(plan.sites, home: point, radiusKm: Double(plan.radiusKm)) {
-            if let kHz = plan.frequencyKHz(for: r.site) { out.append(Station(ranked: r, kHz: kHz)) }
-            if out.count >= 24 { break }
-        }
-        return out
-    }
-
-    var body: some View {
-        let list = stations
-        HStack(spacing: 6) {
-            Text("STATION")
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(RadioTheme.textDim)
-            if list.isEmpty {
-                Text(plan.sites.isEmpty ? "Keine Startortliste – im Sendeplan (Reiter SONDE) AKTUALISIEREN"
-                                        : "Keine Station mit bekannter Frequenz im Umkreis von \(plan.radiusKm) km")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(RadioTheme.textMuted)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        ForEach(list) { s in
-                            Button {
-                                settings.frequencyKHz = s.kHz
-                            } label: {
-                                Text("\(s.ranked.site.shortName) \(SondeStationBar.mhz(s.kHz))")
-                            }
-                            .buttonStyle(ModeButtonStyle(isSelected: settings.frequencyKHz == s.kHz))
-                            .help("\(s.ranked.site.name) · \(Geo.formatKm(s.ranked.km)) \(Geo.compass(s.ranked.bearing)) · \(SondeSettingsStore.text(s.kHz))\nStellt die Sondenfrequenz ein; mit QSY AUTO folgt das Funkgerät über den Commander.")
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    static func mhz(_ kHz: Int) -> String {
-        String(format: "%.3f", Double(kHz) / 1000).replacingOccurrences(of: ".", with: ",")
     }
 }
 
@@ -423,11 +326,33 @@ struct SondeTuningPanel: View {
 struct SondeSettingsPanel: View {
     @ObservedObject var controller: SondeController
     @ObservedObject var settings: SondeSettingsStore
+    @ObservedObject var home: HomeLocation
+    @ObservedObject var plan: SondePlanStore
+    @ObservedObject var scanner: SondeScanner
     @State private var text = ""
     @FocusState private var editing: Bool
 
+    private struct Station: Identifiable {
+        let ranked: SondePlan.Ranked
+        let kHz: Int
+        var id: String { ranked.id }
+    }
+
+    /// RS41-Startorte im Umkreis mit bekannter Frequenz, nächste zuerst (Frequenz: eigene Wahl vor Eintrag der Liste)
+    private var stations: [Station] {
+        guard let point = home.point else { return [] }
+        var out: [Station] = []
+        for r in SondePlan.nearby(plan.sites, home: point, radiusKm: Double(plan.radiusKm)) {
+            if let kHz = plan.frequencyKHz(for: r.site) { out.append(Station(ranked: r, kHz: kHz)) }
+            if out.count >= 12 { break }
+        }
+        return out
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            stationButtons
+            scanSection
             Text("FREQUENZ")
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
@@ -482,6 +407,79 @@ struct SondeSettingsPanel: View {
         }
         .onAppear { text = Self.display(settings.frequencyKHz) }
         .onChange(of: settings.frequencyKHz) { _, v in if !editing { text = Self.display(v) } }
+    }
+
+    /// Tasten mit den Startorten der Umgebung und ihrer Frequenz: ein Klick stellt Digidec (und mit QSY AUTO das Funkgerät über den Commander) um
+    @ViewBuilder
+    private var stationButtons: some View {
+        let list = stations
+        label("STATIONEN")
+        if list.isEmpty {
+            Text(plan.sites.isEmpty ? "Keine Startortliste – im Sendeplan (Reiter SONDE) AKTUALISIEREN."
+                                    : "Keine Station mit bekannter Frequenz im Umkreis von \(plan.radiusKm) km.")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(RadioTheme.textMuted)
+        } else {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 2), spacing: 4) {
+                ForEach(list) { s in
+                    Button { settings.frequencyKHz = s.kHz } label: {
+                        VStack(spacing: 1) {
+                            Text(verbatim: s.ranked.site.shortName)
+                                .lineLimit(1).minimumScaleFactor(0.7)
+                            Text(verbatim: Self.mhz(s.kHz))
+                                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                .foregroundColor(RadioTheme.textDim)
+                        }
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.frequencyKHz == s.kHz))
+                    .help("\(s.ranked.site.name) · \(Geo.formatKm(s.ranked.km)) \(Geo.compass(s.ranked.bearing)) · \(SondeSettingsStore.text(s.kHz))\nStellt die Sondenfrequenz ein; mit QSY AUTO folgt das Funkgerät über den Commander.")
+                }
+            }
+        }
+    }
+
+    /// Suchlauf: Funkgerät Frequenz für Frequenz abstimmen, bis ein Rahmen lesbar ist (braucht QSY AUTO)
+    @ViewBuilder
+    private var scanSection: some View {
+        HStack(spacing: 6) {
+            label("SUCHLAUF")
+            if scanner.isScanning {
+                Button {
+                    scanner.stop()
+                } label: {
+                    Label("STOP \(scanner.done + 1)/\(scanner.total)", systemImage: "stop.circle.fill")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: true))
+                .foregroundColor(RadioTheme.ledRed)
+                .help("Suchlauf abbrechen; die vorherige Frequenz wird wieder eingestellt")
+            } else {
+                Button("BEKANNTE") { scanner.start(.known) }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Frequenzen der Startorte in der Umgebung und schon gehörte durchsuchen (etwa \(scanner.estimatedMinutes(.known)) min). Braucht QSY AUTO und die Verbindung zum Commander.")
+                Button("BAND") { scanner.start(.band) }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Ganzes Sondenband 400 … 406 MHz durchsuchen (etwa \(scanner.estimatedMinutes(.band)) min). Braucht QSY AUTO und die Verbindung zum Commander.")
+            }
+        }
+        if let m = scanner.message, scanner.status != .idle {
+            Text(m)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundColor(scanColor)
+                .lineLimit(2)
+        }
+    }
+
+    private var scanColor: Color {
+        switch scanner.status {
+        case .idle: return RadioTheme.textDim
+        case .scanning: return RadioTheme.vfdAmber
+        case .found: return RadioTheme.vfdGreen
+        case .notFound, .failed: return RadioTheme.ledYellow
+        }
+    }
+
+    private static func mhz(_ kHz: Int) -> String {
+        String(format: "%.3f", Double(kHz) / 1000).replacingOccurrences(of: ".", with: ",")
     }
 
     private func commit() {
