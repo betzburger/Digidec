@@ -20,6 +20,7 @@ struct AISMainPanel: View {
                 filterButton("SCHIFFE", on: $settings.showShips, help: "Schiffe und Boote (Klasse A und B) in Liste und Karte zeigen")
                 filterButton("SEEZEICHEN", on: $settings.showAids, help: "Tonnen, Leuchttürme und andere Seezeichen mit AIS (Nachricht 21)")
                 filterButton("STATIONEN", on: $settings.showBase, help: "Küstenstationen (AIS-Basisstationen, Nachricht 4)")
+                filterButton("GEBIETE", on: $settings.showAreas, help: "Gebietsmeldungen der Verkehrszentralen: Sperrgebiete, Warnungen, Seenot, Hinweise (Binärtelegramm 1/22 und 1/23); in der Karte als Fläche oder Linie")
                 Button {
                     controller.toggleRecording()
                 } label: {
@@ -125,11 +126,42 @@ struct AISTable: View {
                             .padding(.top, 3)
                     }
                     ForEach(visible.prefix(400)) { v in row(v, now: now) }
+                    if settings.showAreas && !controller.areas.isEmpty {
+                        Text("GEBIETSMELDUNGEN (\(controller.areas.count))")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .padding(.top, 8).padding(.bottom, 2)
+                        ForEach(controller.areas.prefix(100)) { a in areaRow(a, now: now) }
+                    }
                 }
                 .padding(.horizontal, 6)
                 .padding(.bottom, 6)
             }
         }
+    }
+
+
+    private func areaRow(_ a: AISAreaNotice, now: Date) -> some View {
+        let id = AISMapBuilder.areaID(a)
+        let selected = controller.selection == id
+        let color: Color = a.category == .distress || a.category == .restricted ? RadioTheme.ledRed : a.category == .environment ? Color(red: 0.45, green: 0.72, blue: 1.0) : RadioTheme.vfdAmber
+        var km = ""
+        if let p = a.points.first, let h = home.point { km = String(format: "%.0f km", Geo.distanceKm(h, p)) }
+        return HStack(spacing: 8) {
+            Image(systemName: a.category == .distress ? "lifepreserver.fill" : "exclamationmark.triangle.fill").font(.system(size: 9)).frame(width: 10)
+            Text(a.title).fontWeight(.bold).lineLimit(1)
+            if let t = a.displayText { Text(t).foregroundColor(RadioTheme.textMuted).lineLimit(1) }
+            Spacer(minLength: 0)
+            Text(km).foregroundColor(RadioTheme.textMuted)
+            Text(AISFormat.age(max(0, now.timeIntervalSince(a.receivedAt)))).frame(width: 40, alignment: .trailing)
+        }
+        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .foregroundColor(color)
+        .padding(.vertical, 1)
+        .background(selected ? color.opacity(0.18) : .clear)
+        .contentShape(Rectangle())
+        .onTapGesture { controller.selection = selected ? nil : id }
+        .help("Ein Klick wählt die Meldung (Karte zoomt hin und zeigt Einzelheiten)")
     }
 
     private func row(_ v: AISVessel, now: Date) -> some View {
@@ -189,7 +221,20 @@ struct AISDetail: View {
     let open: (UInt32) -> Void
 
     var body: some View {
-        if let v = controller.selectedVessel {
+        if let a = controller.selectedArea {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(AISMapBuilder.areaDetails(a, home: home.point, now: Date()).enumerated()), id: \.offset) { i, l in
+                    Text(l)
+                        .font(.system(size: i == 0 ? 12 : 10, weight: i == 0 ? .bold : .medium, design: .monospaced))
+                        .foregroundColor(i == 0 ? RadioTheme.vfdAmber : RadioTheme.vfdGreen)
+                        .lineLimit(2)
+                }
+            }
+            .padding(6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RadioTheme.bgDeep.opacity(0.5))
+            .cornerRadius(6)
+        } else if let v = controller.selectedVessel {
             let now = Date()
             let age = max(0, now.timeIntervalSince(v.lastHeard))
             VStack(alignment: .leading, spacing: 5) {
@@ -669,6 +714,10 @@ struct ShipInfoWindow: View {
         }
         if let w = v.waterLevels { rows.append(("Pegel (" + w.country + ")", w.summary)) }
         if let e = v.emma { rows.append(("Warnung", e.text)) }
+        if let s = v.trafficSignal { for (i, l) in s.lines.enumerated() { rows.append((i == 0 ? "Signalstelle" : "", l)) } }
+        if let m = v.monitoring { for (i, l) in m.lines.enumerated() { rows.append((i == 0 ? "Überwachung" : "", l)) } }
+        if let e = v.extended { for (i, l) in e.lines.enumerated() { rows.append((i == 0 ? "Reisedaten (erweitert)" : "", l)) } }
+        if let p = v.persons { rows.append(("Personen", p.text)) }
         if let o = v.otherBinary { rows.append(("Binärtelegramm", o + " (nicht ausgewertet)")) }
         return rows
     }

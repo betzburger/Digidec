@@ -6906,5 +6906,105 @@ aisTests()
 }
 aisBinaryTests()
 
+
+// MARK: - AIS: Gebietsmeldungen, Schifffahrtszeichen, Schiffswetter, erweiterte Reisedaten, Personen, Seezeichen-Überwachung
+
+@MainActor func aisMoreBinaryTests() {
+    // Überwachung eines Seezeichens (GLA, DAC 235 FI 10) aus der gpsd-Sammlung: Versorgung 13,7 V, RACON in Betrieb, Licht aus, Zustand gut
+    if let b = aisBits("!AIVDM,1,1,4,B,6>jR0600V:C0>da4P106P00,2*02"), let m = AISMessage.decode(b), case .atonMonitoring(let a)? = m.binary {
+        check(m.type == 6 && m.dac == 235 && m.fid == 10 && m.destinationMMSI == 2_500_912 && abs((a.supplyVolts ?? 0) - 13.7) < 1e-9 && a.racon == 2 && a.light == 2 && !a.alarm && !a.offPosition, "AIS 235/10: Überwachung eines Seezeichens \(a)")
+        check(a.lines.last == "Licht aus · RACON in Betrieb · Zustand gut" && a.lines.first?.hasPrefix("Versorgung 13,70 V") == true, "AIS 235/10: Anzeigetext \(a.lines)")
+    } else { check(false, "AIS 235/10 nicht lesbar") }
+
+    // Gebietsmeldung: Kreis (Sperrgebiet, 2 km), Rechteck, Vieleck hinter einem Kreis, Sektor, Text
+    let t0 = Date(timeIntervalSince1970: 1_791_100_000)      // 04.10.2026 ca. 07:46 UTC
+    let area1 = AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 17, notice: 37, hour: 9, minute: 0, durationMinutes: 180, shapes: [
+        .circle(lat: 54.30, lon: 7.80, radius: 2000, scale: 0),
+        .rectangle(lat: 54.20, lon: 7.60, east: 40, north: 30, orientation: 90, scale: 2),
+        .circle(lat: 54.10, lon: 7.50, radius: 0, scale: 0),
+        .polygon(legs: [(0, 5), (90, 5), (180, 5)], scale: 3),
+        .sector(lat: 54.00, lon: 7.40, radius: 5, left: 350, right: 40, scale: 3),
+        .text("SCHIESSEN BSH")])
+    if let m = AISMessage.decode(AISBits(area1)), case .area(var a)? = m.binary {
+        a.receivedAt = t0
+        check(m.dac == 1 && m.fid == 22 && a.mmsi == 2_111_000 && a.linkage == 17 && a.notice == 37 && a.title == "Sperrgebiet: Schießgebiet" && a.category == .restricted, "AIS 1/22: Kopf (\(a.title))")
+        check(a.shapes.count == 6 && a.durationMinutes == 180 && a.embeddedText == "SCHIESSEN BSH", "AIS 1/22: sechs Teilgebiete, Dauer, Text \(a.embeddedText)")
+        if case .circle(let c, let r) = a.shapes[0] { check(abs(c.lat - 54.30) < 1e-4 && abs(c.lon - 7.80) < 1e-4 && r == 2000, "AIS 1/22: Kreis") } else { check(false, "AIS 1/22: Kreis fehlt") }
+        if case .rectangle(let p) = a.shapes[1] {
+            let e = Geo.distanceKm(p[0], p[1]), n = Geo.distanceKm(p[0], p[3])
+            check(p.count == 4 && abs(e - 4.0) < 0.05 && abs(n - 3.0) < 0.05 && abs(Geo.bearing(from: p[0], to: p[1]) - 180) < 0.2, "AIS 1/22: Rechteck 4 × 3 km, um 90° gedreht (Ost wird Süd; \(e), \(n))")
+        } else { check(false, "AIS 1/22: Rechteck fehlt") }
+        if case .polygon(let p) = a.shapes[3] {
+            check(p.count == 4 && abs(Geo.distanceKm(p[0], p[1]) - 5.0) < 0.05 && abs(Geo.bearing(from: p[0], to: p[1])) < 0.2 && abs(Geo.bearing(from: p[1], to: p[2]) - 90) < 0.3, "AIS 1/22: Vieleck ab dem Kreismittelpunkt (5 km Nord, 5 km Ost, 5 km Süd)")
+            check(abs(p[0].lat - 54.10) < 1e-4 && abs(p[0].lon - 7.50) < 1e-4, "AIS 1/22: Vieleck beginnt am Punkt davor")
+        } else { check(false, "AIS 1/22: Vieleck fehlt") }
+        if case .sector(let c, let r, let l, let rt) = a.shapes[4] { check(abs(c.lat - 54.0) < 1e-4 && r == 5000 && l == 350 && rt == 40, "AIS 1/22: Sektor 350° bis 40°") } else { check(false, "AIS 1/22: Sektor fehlt") }
+        check(a.start != nil && Calendar(identifier: .gregorian).component(.year, from: a.start!) == 2026 && abs(a.end!.timeIntervalSince(a.start!) - 3 * 3600) < 1, "AIS 1/22: Beginn 04.10. 09:00 UTC im Jahr des Empfangs, Ende 3 h später")
+        check(a.isActive(at: t0) && !a.isActive(at: t0.addingTimeInterval(5 * 3600)) && a.points.count >= 8, "AIS 1/22: gilt bis zum Ende")
+    } else { check(false, "AIS 1/22 nicht lesbar") }
+    // Zufallsbits sind keine Gebietsmeldung (falsche Form)
+    var junk = AISBitWriter()
+    junk.u(8, 6); junk.u(0, 2); junk.u(2_111_000, 30); junk.u(0, 2); junk.u(1, 10); junk.u(22, 6)
+    for k in 0..<200 { junk.bits.append(UInt8((k * 7 + 3) % 2)) }
+    while junk.bits.count % 8 != 0 { junk.bits.append(1) }
+    check(AISMessage.decode(AISBits(junk.bits))?.binary == .other, "AIS 1/22: Unsinn wird nicht als Gebietsmeldung gedeutet")
+
+    // Schifffahrtszeichen
+    let sig = AISSignalGenerator.trafficSignal(mmsi: 2_111_300, linkage: 5, station: "SCHLEUSE BRUNSBUETTEL", lat: 53.89, lon: 9.13, status: 1, signal: 4, nextSignal: 2, hour: 14, minute: 30)
+    if let m = AISMessage.decode(AISBits(sig)), case .trafficSignal(let s)? = m.binary {
+        check(s.station == "SCHLEUSE BRUNSBUETTEL".prefix(20) + "" && s.signal == 4 && s.nextSignal == 2 && s.status == 1 && s.hour == 14 && s.minute == 30, "AIS 1/19: Signalstelle \(s.station)")
+        check(abs((m.latitude ?? 0) - 53.89) < 1e-4 && abs((m.longitude ?? 0) - 9.13) < 1e-4 && m.name == s.station, "AIS 1/19: Ort und Name der Signalstelle")
+        check(s.lines == ["Signal 4: Fahrt frei, Gegenverkehr (regulärer Betrieb)", "Nächstes: Signal 2: Einfahrt und Ausfahrt verboten ab 14:30 UTC"], "AIS 1/19: Anzeigetext \(s.lines)")
+    } else { check(false, "AIS 1/19 nicht lesbar") }
+
+    // Wetterbeobachtung vom Schiff
+    let sw = AISSignalGenerator.shipWeather(mmsi: 211_333_000, location: "DEUTSCHE BUCHT", lat: 54.5, lon: 7.2, windKn: 28, windDir: 250, airTemp: 11.4, pressure: 998, waterTemp: 13.2, waveHeight: 2.8, weatherCode: 2)
+    if let m = AISMessage.decode(AISBits(sw)), case .meteo(let w)? = m.binary {
+        check(w.fromShip && w.locationName == "DEUTSCHE BUCHT" && w.presentWeather == "Regen" && abs((m.latitude ?? 0) - 54.5) < 1e-4, "AIS 1/21: Ort und Wetter")
+        check(w.windKn == 28 && w.windDir == 250 && w.airTemp == 11.4 && w.pressure == 998 && w.waterTemp == 13.2 && abs((w.waveHeight ?? 0) - 2.8) < 1e-9 && w.humidity == nil && w.visibilityNM == 9.5, "AIS 1/21: Werte \(w.lines)")
+        check(w.lines.first == "Wetterbeobachtung vom Schiff bei DEUTSCHE BUCHT: Regen", "AIS 1/21: Kopfzeile")
+    } else { check(false, "AIS 1/21 nicht lesbar") }
+
+    // Erweiterte Reisedaten
+    let ex = AISSignalGenerator.extendedShip(mmsi: 211_333_000, airDraught: 47.25, lastPort: "DEHAM", nextPort: "NLRTM", tonnage: 51_200, laden: 1, persons: 23, failedEquipmentIndex: 5)
+    if let m = AISMessage.decode(AISBits(ex)), case .extended(let e)? = m.binary {
+        check(e.airDraught == 47.25 && e.lastPort == "DEHAM" && e.nextPort == "NLRTM" && e.secondPort == nil && e.tonnage == 51_200 && e.lading == 1 && e.persons == 23, "AIS 1/24: Luftzug, Häfen, Tonnage, Beladung, Personen")
+        check(e.failedEquipment == ["Echolot"] && e.operationalCount == 24 && e.iceClass == nil && e.horsepower == nil, "AIS 1/24: ausgefallenes Echolot")
+        check(e.lines.contains("Luftzug 47,25 m · 51200 BRZ · beladen · 23 Personen") && e.lines.contains("Ausgefallen: Echolot"), "AIS 1/24: Anzeigetext \(e.lines)")
+    } else { check(false, "AIS 1/24 nicht lesbar") }
+
+    // Personen an Bord
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.personsInland(mmsi: 211_512_340, destination: 2_111_000, crew: 4, passengers: 118, personnel: 255))), case .persons(let p)? = m.binary {
+        check(p.crew == 4 && p.passengers == 118 && p.personnel == nil && p.text == "4 Besatzung · 118 Fahrgäste an Bord", "AIS 200/55: Personen \(p.text)")
+    } else { check(false, "AIS 200/55 nicht lesbar") }
+    var pob = AISBitWriter()
+    pob.u(8, 6); pob.u(0, 2); pob.u(211_000_001, 30); pob.u(0, 2); pob.u(1, 10); pob.u(16, 6); pob.set(87, at: 56, 14); pob.pad(to: 72)
+    if let m = AISMessage.decode(AISBits(pob.bits)), case .persons(let p)? = m.binary { check(p.total == 87 && p.text == "87 Personen an Bord", "AIS 1/16: Personen an Bord") } else { check(false, "AIS 1/16 nicht lesbar") }
+
+    // Controller: Gebietsmeldungen, Text mit gleicher Verknüpfung, Aufhebung, Karte
+    let c = AISController(pipeline: AudioPipeline(), settings: AISSettingsStore())
+    c.logEnabled = false
+    c.homePoint = Maidenhead.point("JN49WS")
+    let now = Date()
+    c.ingest(bits: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 17, notice: 37, hour: 24, minute: 60, durationMinutes: 262_143, shapes: [.circle(lat: 54.30, lon: 7.80, radius: 2000, scale: 0), .polyline(legs: [(90, 3)], scale: 3)]), at: now)
+    c.ingest(bits: AISSignalGenerator.textBroadcast(mmsi: 2_111_000, linkage: 17, text: "SCHIESSEN BIS 12 UHR"), at: now.addingTimeInterval(1))
+    c.ingest(bits: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 18, notice: 74, durationMinutes: 600, shapes: [.circle(lat: 54.0, lon: 8.0, radius: 500, scale: 0)]), at: now.addingTimeInterval(2))
+    // poll() läuft im Zeitgeber; hier direkt die Tabelle über die Karte lesen
+    check(c.binaryCounts["1/22"] == 2 && c.binaryCounts["1/29"] == 1, "AIS-Controller: Zähler 1/22 und 1/29 \(c.binaryCounts)")
+    let areas = c.areasForTesting(at: now.addingTimeInterval(3))
+    check(areas.count == 2 && areas.first { $0.linkage == 17 }?.displayText == "SCHIESSEN BIS 12 UHR", "AIS-Controller: zwei Gebiete, Text zur Meldung 17 verknüpft")
+    let mc = AISMapBuilder.content([], home: c.homePoint, now: now.addingTimeInterval(3), filter: .init(), selection: nil, areas: areas)
+    check(mc.markers.contains { $0.id == "ais-area-2111000-17" && $0.symbol == "exclamationmark.triangle.fill" && $0.tone == .alert } && mc.markers.contains { $0.id == "ais-area-2111000-18" && $0.symbol == "lifepreserver.fill" }, "AIS-Karte: Warnzeichen je Gebiet, Seenot mit Rettungsring")
+    check(mc.markers.contains { $0.id == "ais-area-2111000-17-s0" && abs($0.radiusKm - 2.0) < 1e-9 } && mc.lines.contains { $0.id == "ais-area-2111000-17-s1" && $0.points.count == 2 }, "AIS-Karte: Kreis mit Radius 2 km, Linie")
+    check(mc.markers.first { $0.id == "ais-area-2111000-17" }?.details.contains { $0.contains("SCHIESSEN BIS 12 UHR") } == true, "AIS-Karte: Einzelheiten mit Text")
+    check(AISMapBuilder.content([], home: nil, now: now, filter: .init(areas: false), selection: nil, areas: areas).markers.isEmpty, "AIS-Karte: Gebiete abschaltbar")
+    // Aufhebung durch Kennung 126
+    c.ingest(bits: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 17, notice: 126, shapes: [.circle(lat: 54.30, lon: 7.80, radius: 2000, scale: 0)]), at: now.addingTimeInterval(4))
+    check(c.areasForTesting(at: now.addingTimeInterval(5)).map(\.linkage) == [18], "AIS-Controller: Meldung 17 aufgehoben")
+    // Zeichenbibliothek
+    check(AISAreaNotice.noticeText(18) == "Fahrwasser gesperrt" && AISAreaNotice.noticeText(104) == "Seekarte: Fahrwasserhindernis" && AISAreaNotice.noticeText(127) == "Gebietsmeldung" && AISAreaNotice.noticeText(46) == "Gebietsmeldung 46", "AIS: Meldungsarten")
+}
+aisMoreBinaryTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

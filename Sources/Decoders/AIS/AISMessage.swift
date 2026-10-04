@@ -539,6 +539,9 @@ public struct AISMessage: Equatable, Sendable {
                 m.longitude = w.longitude
             case .text(_, let t):
                 m.text = t
+            case .trafficSignal(let s):
+                if let (_, p) = AISBinaryDecoder.trafficSignal(bits) { m.latitude = p?.lat; m.longitude = p?.lon }
+                m.name = s.station.isEmpty ? nil : s.station
             default: break
             }
         case 12:
@@ -701,6 +704,10 @@ public struct AISVessel: Identifiable, Equatable, Sendable {
     public var inland: AISInlandStatic?
     public var waterLevels: AISWaterLevels?
     public var emma: AISEmma?
+    public var trafficSignal: AISTrafficSignal?
+    public var extended: AISExtendedShip?
+    public var persons: AISPersons?
+    public var monitoring: AISAtonMonitoring?
     /// Zuletzt gehörtes unbekanntes Binärtelegramm („DAC 366 · FI 56“)
     public var otherBinary: String?
     /// Position nur aus künstlichen Zielen einer Verkehrszentrale
@@ -787,6 +794,10 @@ public struct AISVessel: Identifiable, Equatable, Sendable {
             case .inland(let i): inland = i
             case .waterLevels(let w): waterLevels = w
             case .emma(let e): emma = e
+            case .trafficSignal(let s): trafficSignal = s
+            case .extended(let e): extended = e
+            case .persons(let p): persons = p
+            case .atonMonitoring(let a): monitoring = a
             case .other: if let d = m.dac, let f = m.fid { otherBinary = "DAC \(d) · FI \(f)" }
             default: break
             }

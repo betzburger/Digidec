@@ -11,6 +11,7 @@ gebaut im Scratchpad mit cmake). AIS-catcher arbeitet auf I/Q, Digidec auf dem A
 |---|---|
 | `AISCore.swift` | Bitfelder (`AISBits`), Bytefolge der Leitung (`AISBitOrder`), CRC-16 (HDLC/X.25), 6-Bit-Panzerung, NMEA-Sätze (auch mehrteilig), HDLC-Rahmenbildung (`AISDeframer`: Flaggen, Bit-Stopfen, Prüfsumme, Korrektur von ein oder zwei Bitfehlern), Sendeseite (`AISFraming`) |
 | `AISMessage.swift` | Nachrichten 1–5, 9, 11, 12, 14, 18, 19, 21, 24, 27; Tabellen (Navigationsstatus, Schiffstyp, Seezeichen, Länder nach MID mit Flagge); Plausibilität (Länge je Typ, MMSI); `AISVessel` führt die Meldungen einer MMSI zusammen (Position, Stammdaten, Weg) |
+| `AISBinaryMore.swift` | Gebietsmeldungen (DAC 1 FI 22 Rundspruch und FI 23 adressiert: Kreis, Rechteck, Sektor, Linie, Vieleck, Text; 100 Meldungsarten auf Deutsch), Schifffahrtszeichen (1/19), Wetterbeobachtung vom Schiff (1/21, beide Fassungen), erweiterte Reisedaten (1/24), Personen an Bord (1/16, 200/55), Überwachung von Seezeichen (DAC 235/250 FI 10) |
 | `AISBinary.swift` | Binäre Nachrichten (Typ 6 und 8) mit DAC/FI: Wetter und Gewässer (1/11, 1/31), Textbeschreibung (1/29, 1/30), künstliche Ziele (1/17), Binnenschiff (200/10), Pegel (200/24), EMMA-Warnung (200/23); alles andere wird als „Binärtelegramm DAC x FI y“ erkannt und gezählt |
 | `AISDemod.swift` | Gauß-Impuls (BT 0,4), Demodulator mit Korrelation auf Training und Startflagge, Taktnachführung, Entscheidung, Wiederholungsstufen; `AISReceiver` mit vier Zweigen (Tiefpass 4,8 / 5,6 / 6,4 / 7,2 kHz) und Zusammenfassen gleicher Rahmen |
 | `AISSignalGenerator.swift` | Nachrichten bauen (1, 4, 5, 18, 21, 24) und als Diskriminator-Audio ausgeben (Prüfstand, Tests) |
@@ -47,6 +48,12 @@ für **FI 31** (IMO SN.1/Circ.289): Länge 25 Bit bei 56, Breite 24 Bit bei 81, 
 Schutz vor Fehldeutung (laut gpsd kommen Zufallstreffer vor): Längenprüfung je Kennung, Wertebereiche, bei 200/10 muss die Schiffsnummer (ENI) aus 8 Ziffern bestehen, ein Telegramm mit lauter Nullen gilt nicht als Wetter.
 Anzeige: Messstationen (Seezeichen und Küstenstationen) erscheinen als Windsymbol mit Windstärke in Knoten und Pfeil in Windrichtung, Einzelheiten in der Auswahl und im Schiffsdaten-Fenster; Binnenschiffe mit ENI, Fahrzeugart nach ERI, Maßen, blauen Lichtern, Beladung;
 Ziele der Verkehrszentrale (FI 17) werden als Schiffe geführt, solange das Schiff nicht selbst zu hören ist.
+Der Luftdruck der FI 31 hat den Offset 799 hPa (0 = höchstens 799, 402 = mindestens 1201), der von FI 11 800 hPa (aus dem gpsd-Header `gps.h` bestätigt).
+
+**Gebietsmeldungen:** je Meldung (Absender, Verknüpfungsnummer) ein Warnzeichen in der Karte (Seenot: Rettungsring) mit Farbe nach Kategorie (Vorsicht/Anweisung gelb, Wetter blau, Sperrgebiet und Seenot rot, Ankerplatz und Information cyan),
+Kreise mit Radius, Rechtecke, Sektoren (Bogen von links nach rechts im Uhrzeigersinn), Linien und Vielecke als Linien; Vieleck und Linie beginnen am Ende des vorigen Teilgebiets (laut Beschreibung am Kreismittelpunkt).
+Ein Text mit gleicher Verknüpfung (FI 29 oder 30) wird angehängt. Gültigkeit: bis Beginn + Dauer, sonst 3 Stunden nach dem letzten Empfang, nie länger als 12 Stunden; Kennung 126 oder Dauer 0 hebt auf.
+Zeile je Meldung unter der Schiffsliste (Knopf GEBIETE schaltet Liste und Karte), Klick zoomt hin. Nicht ausgewertet: Berührung der Sondernetze (St.-Lorenz-Seeweg DAC 316/366), Routenangaben (1/27, 1/28), Umweltdaten (1/26), Liegeplatzdaten (1/18, 1/20), Gezeitenfenster (1/32), Gefahrgutangaben (1/25).
 
 ## Schiffsdaten aus dem Netz
 

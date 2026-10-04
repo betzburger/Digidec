@@ -75,6 +75,8 @@ public final class AISSettingsStore: ObservableObject {
     @Published public var showShips: Bool { didSet { UserDefaults.standard.set(showShips, forKey: "aisShowShips") } }
     @Published public var showAids: Bool { didSet { UserDefaults.standard.set(showAids, forKey: "aisShowAids") } }
     @Published public var showBase: Bool { didSet { UserDefaults.standard.set(showBase, forKey: "aisShowBase") } }
+    /// Gebietsmeldungen (Sperrgebiete, Warnungen) in Liste und Karte zeigen
+    @Published public var showAreas: Bool { didSet { UserDefaults.standard.set(showAreas, forKey: "aisShowAreas") } }
     /// Bei einem Klick auf ein Schiff in der Karte das Fenster mit den Schiffsdaten öffnen
     @Published public var openInfoOnClick: Bool { didSet { UserDefaults.standard.set(openInfoOnClick, forKey: "aisOpenInfoOnClick") } }
     /// Bei der Abfrage im Netz (Wikidata, Wikimedia Commons) automatisch suchen, sobald ein Schiff gewählt wird
@@ -89,6 +91,7 @@ public final class AISSettingsStore: ObservableObject {
         showShips = d.object(forKey: "aisShowShips") as? Bool ?? true
         showAids = d.object(forKey: "aisShowAids") as? Bool ?? true
         showBase = d.object(forKey: "aisShowBase") as? Bool ?? true
+        showAreas = d.object(forKey: "aisShowAreas") as? Bool ?? true
         openInfoOnClick = d.object(forKey: "aisOpenInfoOnClick") as? Bool ?? true
         webLookup = d.object(forKey: "aisWebLookup") as? Bool ?? true
     }
@@ -316,7 +319,8 @@ public enum AISMapBuilder {
         public var ships = true
         public var aids = true
         public var base = true
-        public init(ships: Bool = true, aids: Bool = true, base: Bool = true) { self.ships = ships; self.aids = aids; self.base = base }
+        public var areas = true
+        public init(ships: Bool = true, aids: Bool = true, base: Bool = true, areas: Bool = true) { self.ships = ships; self.aids = aids; self.base = base; self.areas = areas }
     }
 
     public static func id(_ mmsi: UInt32) -> String { "ais-\(mmsi)" }
@@ -374,6 +378,10 @@ public enum AISMapBuilder {
         }
         if let w = v.waterLevels { out.append(w.summary) }
         if let e = v.emma { out.append(e.text) }
+        if let s = v.trafficSignal { out += s.lines }
+        if let m = v.monitoring { out += m.lines }
+        if let e = v.extended { out += e.lines }
+        if let p = v.persons { out.append(p.text) }
         if v.isSynthetic { out.append("Position aus künstlichem Ziel der Verkehrszentrale (kein eigenes AIS-Signal)") }
         return out
     }
@@ -417,7 +425,82 @@ public enum AISMapBuilder {
         return d
     }
 
-    public static func content(_ vessels: [AISVessel], home: GeoPoint?, now: Date, filter: Filter, selection: String?) -> MapContent {
+    public static func areaID(_ a: AISAreaNotice) -> String { "ais-area-\(a.mmsi)-\(a.linkage)" }
+
+    static func areaTone(_ a: AISAreaNotice) -> MapTone {
+        switch a.category {
+        case .caution, .instruction, .chart: return .highlight
+        case .environment: return .weather
+        case .restricted, .distress: return .alert
+        case .anchorage, .information: return .info
+        case .other: return .normal
+        }
+    }
+
+    static func areaDetails(_ a: AISAreaNotice, home: GeoPoint?, now: Date) -> [String] {
+        var d = [a.title]
+        if let t = a.displayText { d.append(t) }
+        var when: [String] = []
+        if let s = a.start { when.append("ab " + areaTime.string(from: s) + " UTC") }
+        if let e = a.end { when.append("bis " + areaTime.string(from: e) + " UTC") } else if a.durationMinutes == nil { when.append("Dauer unbefristet oder unbekannt") }
+        if !when.isEmpty { d.append(when.joined(separator: " · ")) }
+        var src = "Absender MMSI " + AISFormat.mmsiText(a.mmsi)
+        if let f = AISCountry.name(ofMMSI: a.mmsi) { src += " (\(f))" }
+        d.append(src + " · Meldung \(a.linkage)")
+        if let h = home, let p = a.points.first {
+            let km = Geo.distanceKm(h, p), b = Geo.bearing(from: h, to: p)
+            d.append("\(Geo.formatKm(km)) \(Geo.compass(b)) (\(Int(b.rounded()))°)")
+        }
+        d.append("zuletzt vor \(AISFormat.age(max(0, now.timeIntervalSince(a.receivedAt))))")
+        return d
+    }
+
+    private static let areaTime: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "dd.MM. HH:mm"
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "de_DE")
+        return f
+    }()
+
+    /// Gebietsmeldungen: ein Punkt je Meldung (Warnzeichen), Kreise mit Radius, Rechtecke, Sektoren, Linien und Vielecke als Linien
+    static func areaContent(_ areas: [AISAreaNotice], home: GeoPoint?, now: Date) -> (markers: [MapMarker], lines: [MapLine]) {
+        var markers: [MapMarker] = [], lines: [MapLine] = []
+        for a in areas.prefix(300) {
+            guard let anchor = a.points.first else { continue }
+            let tone = areaTone(a)
+            let id = areaID(a)
+            var sub = a.category == .distress ? "SEENOT" : "Gebietsmeldung"
+            if let e = a.end { sub += " · bis " + areaTime.string(from: e) + " UTC" }
+            markers.append(MapMarker(id: id, coordinate: anchor, title: a.displayText.map { String($0.prefix(24)) } ?? String(a.title.split(separator: ":").last ?? "").trimmingCharacters(in: .whitespaces),
+                                     subtitle: sub, details: areaDetails(a, home: home, now: now), symbol: a.category == .distress ? "lifepreserver.fill" : "exclamationmark.triangle.fill",
+                                     tone: tone, heardAt: a.receivedAt))
+            for (k, shape) in a.shapes.enumerated() {
+                let lid = "\(id)-s\(k)"
+                switch shape {
+                case .circle(let c, let r):
+                    if r > 0 { markers.append(MapMarker(id: lid, coordinate: c, title: "", symbol: "scope", tone: tone, radiusKm: r / 1000)) }
+                case .rectangle(let p), .polygon(let p):
+                    lines.append(MapLine(id: lid, points: p + [p[0]], tone: tone))
+                case .polyline(let p):
+                    lines.append(MapLine(id: lid, points: p, tone: tone))
+                case .sector(let c, let r, let left, let right):
+                    var end = right
+                    if end <= left { end += 360 }
+                    var pts = [c]
+                    var b = left
+                    while b < end { pts.append(Geo.destination(from: c, bearing: b, km: r / 1000)); b += 5 }
+                    pts.append(Geo.destination(from: c, bearing: end, km: r / 1000))
+                    pts.append(c)
+                    lines.append(MapLine(id: lid, points: pts, tone: tone))
+                case .text: break
+                }
+            }
+        }
+        return (markers, lines)
+    }
+
+    public static func content(_ vessels: [AISVessel], home: GeoPoint?, now: Date, filter: Filter, selection: String?, areas: [AISAreaNotice] = []) -> MapContent {
         var markers: [MapMarker] = []
         for v in vessels {
             guard let p = v.point else { continue }
@@ -455,7 +538,13 @@ public enum AISMapBuilder {
             markers.append(marker)
 
         }
-        return MapContent(markers: markers, lines: [], home: home, emptyHint: "Noch kein Schiff mit Position empfangen")
+        var lines: [MapLine] = []
+        if filter.areas && !areas.isEmpty {
+            let a = areaContent(areas, home: home, now: now)
+            markers = a.markers + markers
+            lines = a.lines
+        }
+        return MapContent(markers: markers, lines: lines, home: home, emptyHint: "Noch kein Schiff mit Position empfangen")
     }
 }
 
@@ -476,6 +565,8 @@ public final class AISController: ObservableObject {
     @Published public private(set) var messageCount = 0
     @Published public private(set) var typeCounts: [Int: Int] = [:]
     @Published public private(set) var perMinute = 0
+    /// Gültige Gebietsmeldungen (Sperrgebiete, Warnungen), neueste zuerst
+    @Published public private(set) var areas: [AISAreaNotice] = []
     /// Binärtelegramme nach „DAC/FI“
     @Published public private(set) var binaryCounts: [String: Int] = [:]
     /// Weitestes empfangenes Schiff vom Standort
@@ -500,6 +591,8 @@ public final class AISController: ObservableObject {
     private var dirty = false
     private var timer: Timer?
     private var recentTimes: [Date] = []
+    private var areaTable: [String: AISAreaNotice] = [:]
+    private var linkedTexts: [String: String] = [:]
     private var cancellables: Set<AnyCancellable> = []
     private var isActive = false
 
@@ -540,6 +633,9 @@ public final class AISController: ObservableObject {
         messageCount = 0
         typeCounts = [:]
         binaryCounts = [:]
+        areas = []
+        areaTable = [:]
+        linkedTexts = [:]
         recentTimes.removeAll()
         farthest = nil
         decoder.resetStats()
@@ -573,6 +669,13 @@ public final class AISController: ObservableObject {
 
     public var selectedVessel: AISVessel? { selectedMMSI.flatMap { vessels[$0] } }
 
+    /// Für Tests: gültige Gebietsmeldungen zu einem Zeitpunkt (ohne den Zeitgeber)
+    public func areasForTesting(at now: Date) -> [AISAreaNotice] {
+        areaTable.values.filter { $0.isActive(at: now) }.sorted { $0.receivedAt > $1.receivedAt }
+    }
+
+    public var selectedArea: AISAreaNotice? { selection.flatMap { id in areas.first { AISMapBuilder.areaID($0) == id } } }
+
     private func poll() {
         let out = decoder.takeOutput()
         if out.stats != stats { stats = out.stats }
@@ -592,8 +695,14 @@ public final class AISController: ObservableObject {
         }
         recentTimes.removeAll { now.timeIntervalSince($0) > 60 }
         if perMinute != recentTimes.count { perMinute = recentTimes.count }
+        let activeAreas = areaTable.values.filter { $0.isActive(at: now) }
+        if activeAreas.count != areaTable.count {
+            areaTable = Dictionary(uniqueKeysWithValues: activeAreas.map { ($0.id, $0) })
+            dirty = true
+        }
         if dirty || removed {
             dirty = false
+            areas = areaTable.values.sorted { $0.receivedAt > $1.receivedAt }
             ships = vessels.values.sorted { $0.lastHeard > $1.lastHeard }
             if let s = selectedMMSI, vessels[s] == nil { selection = nil }
         }
@@ -631,8 +740,22 @@ public final class AISController: ObservableObject {
                 dirty = true
             }
         }
+        // Gebietsmeldungen: eigene Liste; Aufhebung durch Kennung 126 oder Dauer 0; Texte mit gleicher Verknüpfung gehören dazu
+        if case .area(var a)? = m.binary {
+            a.receivedAt = now
+            let key = a.id
+            if a.isCancellation { areaTable[key] = nil } else {
+                a.linkedText = linkedTexts[key]
+                areaTable[key] = a
+            }
+            dirty = true
+        }
+        if case .text(let linkage, let t)? = m.binary {
+            let key = "\(m.mmsi)-\(linkage)"
+            linkedTexts[key] = t
+            if var a = areaTable[key] { a.linkedText = t; areaTable[key] = a; dirty = true }
+        }
         var v = vessels[m.mmsi] ?? AISVessel(mmsi: m.mmsi, now: now)
-
         v.ingest(m, at: now)
         if channelLetter == "B" { v.heardOnB = true } else { v.heardOnA = true }
         vessels[m.mmsi] = v
@@ -652,6 +775,7 @@ public final class AISController: ObservableObject {
 
     public func mapContent(home: GeoPoint?, now: Date) -> MapContent {
         AISMapBuilder.content(ships, home: home, now: now,
-                              filter: .init(ships: settings.showShips, aids: settings.showAids, base: settings.showBase), selection: selection)
+                              filter: .init(ships: settings.showShips, aids: settings.showAids, base: settings.showBase, areas: settings.showAreas), selection: selection,
+                              areas: areas)
     }
 }

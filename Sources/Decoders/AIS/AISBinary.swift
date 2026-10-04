@@ -45,6 +45,11 @@ public struct AISMeteo: Equatable, Sendable {
     public var ice: Bool?
     /// Aus FI 31 (neues Format) statt FI 11
     public var isNewFormat = false
+    /// Wetterbeobachtung eines Schiffs (FI 21) statt einer Messstation
+    public var fromShip = false
+    public var locationName: String?
+    public var presentWeather: String?
+    public var shipCourse: Int?
 
     public static func tendencyText(_ t: Int?) -> String? {
         switch t {
@@ -78,6 +83,12 @@ public struct AISMeteo: Equatable, Sendable {
     public var lines: [String] {
         func d(_ v: Double, _ digits: Int = 1) -> String { String(format: "%.\(digits)f", v).replacingOccurrences(of: ".", with: ",") }
         var out: [String] = []
+        if fromShip {
+            var head = "Wetterbeobachtung vom Schiff"
+            if let l = locationName, !l.isEmpty { head += " bei \(l)" }
+            if let p = presentWeather { head += ": \(p)" }
+            out.append(head)
+        }
         if let w = windKn {
             var s = "Wind \(w >= 126 ? "≥126" : String(w)) kn"
             if let dir = windDir { s += " aus \(Self.compass(dir)) (\(dir)°)" }
@@ -225,6 +236,11 @@ public enum AISBinary: Equatable, Sendable {
     case text(linkage: Int, text: String)
     case targets([AISSyntheticTarget])
     case emma(AISEmma)
+    case area(AISAreaNotice)
+    case trafficSignal(AISTrafficSignal)
+    case extended(AISExtendedShip)
+    case persons(AISPersons)
+    case atonMonitoring(AISAtonMonitoring)
     case other
 
     public var title: String {
@@ -235,6 +251,11 @@ public enum AISBinary: Equatable, Sendable {
         case .text: return "Text"
         case .targets: return "Verkehrszentrale: Ziele"
         case .emma: return "EMMA-Warnung"
+        case .area: return "Gebietsmeldung"
+        case .trafficSignal: return "Schifffahrtszeichen"
+        case .extended: return "Erweiterte Reisedaten"
+        case .persons: return "Personen an Bord"
+        case .atonMonitoring: return "Seezeichen-Überwachung"
         case .other: return "Binärtelegramm"
         }
     }
@@ -268,8 +289,25 @@ public enum AISBinaryDecoder {
             if let i = inland(b) { return .inland(i) }
         case (8, 200, 24) where n >= 168 && n <= 176:
             if let w = waterLevels(b) { return .waterLevels(w) }
+
         case (8, 200, 23) where n >= 250 && n <= 264:
             if let e = emma(b) { return .emma(e) }
+        case (8, 1, 22):
+            if let a = area(b, base: 56, mmsi: b.u(8, 30), addressed: nil) { return .area(a) }
+        case (6, 1, 23):
+            if let a = area(b, base: 88, mmsi: b.u(8, 30), addressed: b.u(40, 30)) { return .area(a) }
+        case (8, 1, 19) where n >= 258 && n <= 368:
+            if let (s, _) = trafficSignal(b) { return .trafficSignal(s) }
+        case (8, 1, 21) where n >= 340 && n <= 368:
+            if let w = shipWeather(b) { return .meteo(w) }
+        case (8, 1, 24) where n >= 336 && n <= 368:
+            if let e = extendedShip(b) { return .extended(e) }
+        case (6, 1, 16) where n == 72 || n == 136, (8, 1, 16) where n == 72:
+            if let p = persons(b, type: type, dac: 1) { return .persons(p) }
+        case (6, 200, 55) where n == 168:
+            if let p = persons(b, type: type, dac: 200) { return .persons(p) }
+        case (6, 235, 10) where n == 136, (6, 250, 10) where n == 136:
+            if let a = atonMonitoring(b) { return .atonMonitoring(a) }
         default: break
         }
         return .other
@@ -346,7 +384,7 @@ public enum AISBinaryDecoder {
         let t = b.i(154, 11); if t != -1024 && abs(t) <= 600 { m.airTemp = Double(t) / 10 }
         let h = Int(b.u(165, 7)); if h <= 100 { m.humidity = h }
         let dp = b.i(172, 10); if dp != 501 && dp >= -200 && dp <= 500 { m.dewPoint = Double(dp) / 10 }
-        let p = Int(b.u(182, 9)); if p != 511 { m.pressure = p + 800 }
+        let p = Int(b.u(182, 9)); if p != 511 { m.pressure = p >= 402 ? 1201 : p + 799 }   // 0 = höchstens 799 hPa, 402 = mindestens 1201 hPa
         m.pressureTendency = ok(Int(b.u(191, 2)), na: 3)
         m.visibilityGreater = b.flag(193)
         let vis = Int(b.u(194, 7)); if vis != 127 { m.visibilityNM = Double(vis) / 10 }

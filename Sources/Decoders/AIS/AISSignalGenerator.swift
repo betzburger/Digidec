@@ -169,7 +169,7 @@ public enum AISSignalGenerator {
         w.set(airTemp.map { Int(($0 * 10).rounded()) } ?? -1024, at: 154, 11)
         w.set(humidity ?? 101, at: 165, 7)
         w.set(501, at: 172, 10)
-        w.set(pressure.map { $0 - 800 } ?? 511, at: 182, 9)
+        w.set(pressure.map { $0 - 799 } ?? 511, at: 182, 9)
         w.set(3, at: 191, 2)
         w.set(127, at: 194, 7)
         w.set(waterLevel.map { Int((($0 + 10) * 100).rounded()) } ?? 4001, at: 201, 12)
@@ -217,6 +217,109 @@ public enum AISSignalGenerator {
         w.u(UInt32(linkage), 10)
         w.text(text, chars: text.count)
         while w.bits.count % 8 != 0 { w.bits.append(0) }
+        return w.bits
+    }
+
+    // MARK: Weitere Binärnachrichten
+
+    /// Teilgebiet einer Gebietsmeldung für den Sender
+    public enum AreaShape {
+        case circle(lat: Double, lon: Double, radius: Int, scale: Int)
+        case rectangle(lat: Double, lon: Double, east: Int, north: Int, orientation: Int, scale: Int)
+        case sector(lat: Double, lon: Double, radius: Int, left: Int, right: Int, scale: Int)
+        /// Bis zu vier Wegpunkte: Peilung in Grad, Entfernung in 10^Maßstab m
+        case polyline(legs: [(bearing: Double, distance: Int)], scale: Int)
+        case polygon(legs: [(bearing: Double, distance: Int)], scale: Int)
+        case text(String)
+    }
+
+    /// Gebietsmeldung (DAC 1, FI 22, Typ 8)
+    public static func areaNotice(mmsi: UInt32, linkage: Int, notice: Int, month: Int = 10, day: Int = 4, hour: Int = 12, minute: Int = 0, durationMinutes: Int = 240, shapes: [AreaShape]) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 1, fid: 22)
+        w.set(linkage, at: 56, 10); w.set(notice, at: 66, 7)
+        w.set(month, at: 73, 4); w.set(day, at: 77, 5); w.set(hour, at: 82, 5); w.set(minute, at: 87, 6); w.set(durationMinutes, at: 93, 18)
+        for (i, shape) in shapes.prefix(10).enumerated() {
+            let b = 111 + 87 * i
+            func pos(_ lat: Double, _ lon: Double) { w.set(Int((lon * 60_000).rounded()), at: b + 5, 25); w.set(Int((lat * 60_000).rounded()), at: b + 30, 24) }
+            switch shape {
+            case .circle(let lat, let lon, let r, let sc):
+                w.set(0, at: b, 3); w.set(sc, at: b + 3, 2); pos(lat, lon); w.set(4, at: b + 54, 3); w.set(r, at: b + 57, 12)
+            case .rectangle(let lat, let lon, let e, let n, let o, let sc):
+                w.set(1, at: b, 3); w.set(sc, at: b + 3, 2); pos(lat, lon); w.set(4, at: b + 54, 3); w.set(e, at: b + 57, 8); w.set(n, at: b + 65, 8); w.set(o, at: b + 73, 9)
+            case .sector(let lat, let lon, let r, let l, let rt, let sc):
+                w.set(2, at: b, 3); w.set(sc, at: b + 3, 2); pos(lat, lon); w.set(4, at: b + 54, 3); w.set(r, at: b + 57, 12); w.set(l, at: b + 69, 9); w.set(rt, at: b + 78, 9)
+            case .polyline(let legs, let sc), .polygon(let legs, let sc):
+                if case .polyline = shape { w.set(3, at: b, 3) } else { w.set(4, at: b, 3) }
+                w.set(sc, at: b + 3, 2)
+                for k in 0..<4 {
+                    if k < legs.count { w.set(Int((legs[k].bearing * 2).rounded()), at: b + 5 + 20 * k, 10); w.set(legs[k].distance, at: b + 15 + 20 * k, 10) }
+                    else { w.set(720, at: b + 5 + 20 * k, 10); w.set(0, at: b + 15 + 20 * k, 10) }
+                }
+            case .text(let t):
+                w.set(5, at: b, 3)
+                var tw = AISBitWriter(); tw.text(t, chars: 14)
+                for (k, bit) in tw.bits.enumerated() { w.set(Int(bit), at: b + 3 + k, 1) }
+            }
+        }
+        w.pad(to: 111 + 87 * min(shapes.count, 10))
+        while w.bits.count % 8 != 0 { w.bits.append(0) }
+        return w.bits
+    }
+
+    /// Schifffahrtszeichen (DAC 1, FI 19), 360 Bit
+    public static func trafficSignal(mmsi: UInt32, linkage: Int, station: String, lat: Double, lon: Double, status: Int, signal: Int, nextSignal: Int, hour: Int = 24, minute: Int = 60) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 1, fid: 19)
+        w.set(linkage, at: 56, 10)
+        var tw = AISBitWriter(); tw.text(station, chars: 20)
+        for (k, bit) in tw.bits.enumerated() { w.set(Int(bit), at: 66 + k, 1) }
+        w.set(Int((lon * 60_000).rounded()), at: 186, 25); w.set(Int((lat * 60_000).rounded()), at: 211, 24)
+        w.set(status, at: 235, 2); w.set(signal, at: 237, 5); w.set(hour, at: 242, 5); w.set(minute, at: 247, 6); w.set(nextSignal, at: 253, 5)
+        w.pad(to: 360)
+        return w.bits
+    }
+
+    /// Wetterbeobachtung vom Schiff, einfache Fassung (DAC 1, FI 21, Bit 56 = 0), 360 Bit
+    public static func shipWeather(mmsi: UInt32, location: String, lat: Double, lon: Double, windKn: Int, windDir: Int, airTemp: Double, pressure: Int, waterTemp: Double, waveHeight: Double, weatherCode: Int) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 1, fid: 21)
+        w.set(0, at: 56, 1)
+        var tw = AISBitWriter(); tw.text(location, chars: 20)
+        for (k, bit) in tw.bits.enumerated() { w.set(Int(bit), at: 57 + k, 1) }
+        w.set(Int((lon * 60_000).rounded()), at: 177, 25); w.set(Int((lat * 60_000).rounded()), at: 202, 24)
+        w.set(4, at: 226, 5); w.set(12, at: 231, 5); w.set(30, at: 236, 6)
+        w.set(weatherCode, at: 242, 4); w.set(0, at: 246, 1); w.set(95, at: 247, 7); w.set(127, at: 254, 7)
+        w.set(windKn, at: 261, 7); w.set(windDir, at: 268, 9)
+        w.set(pressure - 799, at: 277, 9); w.set(15, at: 286, 4)
+        w.set(Int((airTemp * 10).rounded()), at: 290, 11)
+        w.set(Int((waterTemp * 10).rounded()) + 100, at: 301, 10)
+        w.set(63, at: 311, 6); w.set(Int((waveHeight * 10).rounded()), at: 317, 8); w.set(360, at: 325, 9)
+        w.set(255, at: 334, 8); w.set(360, at: 342, 9); w.set(63, at: 351, 6)
+        w.pad(to: 360)
+        return w.bits
+    }
+
+    /// Erweiterte Stamm- und Reisedaten (DAC 1, FI 24), 360 Bit
+    public static func extendedShip(mmsi: UInt32, airDraught: Double, lastPort: String, nextPort: String, tonnage: Int, laden: Int, persons: Int, failedEquipmentIndex: Int? = nil) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 1, fid: 24)
+        w.set(0, at: 56, 10)
+        w.set(Int((airDraught * 100).rounded()), at: 66, 13)
+        for (start, port) in [(79, lastPort), (109, nextPort), (139, "")] {
+            var tw = AISBitWriter(); tw.text(port, chars: 5)
+            for (k, bit) in tw.bits.enumerated() { w.set(Int(bit), at: start + k, 1) }
+        }
+        for i in 0..<25 { w.set(i == failedEquipmentIndex ? 2 : 1, at: 169 + 2 * i, 2) }
+        w.set(15, at: 221, 4); w.set(262_143, at: 225, 18); w.set(0, at: 243, 12)
+        w.set(tonnage, at: 297, 18); w.set(laden, at: 315, 2)
+        w.set(persons, at: 337, 13)
+        w.pad(to: 360)
+        return w.bits
+    }
+
+    /// Personen an Bord, Binnenschiff-Fassung (DAC 200, FI 55, Typ 6), 168 Bit
+    public static func personsInland(mmsi: UInt32, destination: UInt32, crew: Int, passengers: Int, personnel: Int) -> [UInt8] {
+        var w = AISBitWriter()
+        w.u(6, 6); w.u(0, 2); w.u(mmsi, 30); w.u(0, 2); w.u(destination, 30); w.u(0, 1); w.u(0, 1); w.u(200, 10); w.u(55, 6)
+        w.set(crew, at: 88, 8); w.set(passengers, at: 96, 13); w.set(personnel, at: 109, 8)
+        w.pad(to: 168)
         return w.bits
     }
 

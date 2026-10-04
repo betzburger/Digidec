@@ -159,6 +159,20 @@ if args.first == "demo" {
     lines += AISNMEA.sentences(for: AISSignalGenerator.positionReport(mmsi: 211_700_011, lat: 49.7821, lon: 9.9302, sog: 0, cog: 0, navStatus: 5))
     lines += AISNMEA.sentences(for: AISSignalGenerator.waterLevels(mmsi: 2_111_210, country: "DE", gauges: [(7, 187), (8, 203)]))
     lines += AISNMEA.sentences(for: AISSignalGenerator.baseStation(mmsi: 2_111_210, lat: 49.8, lon: 9.92, year: 2026, month: 10, day: 4, hour: 12, minute: 0, second: 0))
+    // Gebietsmeldungen der Verkehrszentrale (Deutsche Bucht), Signalstelle, Wetterbeobachtung vom Schiff
+    lines += AISNMEA.sentences(for: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 17, notice: 37, hour: 6, minute: 0, durationMinutes: 900, shapes: [
+        .circle(lat: 54.05, lon: 7.70, radius: 3000, scale: 0), .text("SCHIESSEN")]), channel: "A", sequence: 1)
+    lines += AISNMEA.sentences(for: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 18, notice: 18, hour: 6, minute: 0, durationMinutes: 900, shapes: [
+        .rectangle(lat: 54.12, lon: 8.15, east: 60, north: 45, orientation: 20, scale: 2)]), channel: "A", sequence: 2)
+    lines += AISNMEA.sentences(for: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 19, notice: 26, hour: 6, minute: 0, durationMinutes: 900, shapes: [
+        .circle(lat: 54.30, lon: 7.60, radius: 0, scale: 0), .polygon(legs: [(90, 9), (170, 7), (260, 9)], scale: 3)]), channel: "A", sequence: 3)
+    lines += AISNMEA.sentences(for: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 20, notice: 74, hour: 6, minute: 0, durationMinutes: 900, shapes: [
+        .sector(lat: 53.95, lon: 8.30, radius: 6, left: 300, right: 60, scale: 3)]), channel: "A", sequence: 0)
+    lines += AISNMEA.sentences(for: AISSignalGenerator.textBroadcast(mmsi: 2_111_000, linkage: 18, text: "FAHRWASSER BIS 18 UHR GESPERRT"), channel: "A", sequence: 1)
+    lines += AISNMEA.sentences(for: AISSignalGenerator.trafficSignal(mmsi: 2_111_300, linkage: 5, station: "SCHLEUSE BRUNSBUETTEL", lat: 53.89, lon: 9.13, status: 1, signal: 4, nextSignal: 2, hour: 14, minute: 30))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.positionReport(mmsi: 211_333_000, lat: 54.5, lon: 7.2, sog: 11, cog: 80, heading: 80))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.shipWeather(mmsi: 211_333_000, location: "DEUTSCHE BUCHT", lat: 54.5, lon: 7.2, windKn: 28, windDir: 250, airTemp: 11.4, pressure: 998, waterTemp: 13.2, waveHeight: 2.8, weatherCode: 2))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.extendedShip(mmsi: 211_333_000, airDraught: 47.25, lastPort: "DEHAM", nextPort: "NLRTM", tonnage: 51_200, laden: 1, persons: 23, failedEquipmentIndex: 5))
     try? lines.joined(separator: "\n").appending("\n").write(toFile: args[1], atomically: true, encoding: .utf8)
     print("\(lines.count) Sätze -> \(args[1])")
     exit(0)
