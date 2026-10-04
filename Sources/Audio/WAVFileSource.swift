@@ -32,6 +32,8 @@ public final class WAVFileSource: @unchecked Sendable {
     private var framesDelivered = 0
     private var readBuffer: AVAudioPCMBuffer?
     private let mono = UnsafeMutablePointer<Float>.allocate(capacity: 16_384)
+    private let monoLeft = UnsafeMutablePointer<Float>.allocate(capacity: 16_384)
+    private let monoRight = UnsafeMutablePointer<Float>.allocate(capacity: 16_384)
     private static let maxBlock = 16_384
 
     public init(url: URL) throws {
@@ -49,6 +51,8 @@ public final class WAVFileSource: @unchecked Sendable {
 
     deinit {
         mono.deallocate()
+        monoLeft.deallocate()
+        monoRight.deallocate()
     }
 
     public var channelMode: ChannelMode {
@@ -65,6 +69,7 @@ public final class WAVFileSource: @unchecked Sendable {
             file.framePosition = 0
             framesDelivered = 0
             readBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(Self.maxBlock))
+            pipeline.sourceChannels = channelCount
             pipeline.start(inputRate: sampleRate)
             startTime = .now()
 
@@ -113,6 +118,11 @@ public final class WAVFileSource: @unchecked Sendable {
             let planes = (0..<channelCount).map { UnsafePointer(data[$0]) }
             ChannelMode.extract(planar: planes, frames: got, mode: channelMode, into: mono)
             pipeline.ring.write(mono, count: got)
+            if pipeline.wantsStereo {
+                ChannelMode.extract(planar: planes, frames: got, mode: .left, into: monoLeft)
+                ChannelMode.extract(planar: planes, frames: got, mode: .right, into: monoRight)
+                pipeline.writeStereo(left: monoLeft, right: monoRight, count: got)
+            }
             framesDelivered += got
             due -= got
         }

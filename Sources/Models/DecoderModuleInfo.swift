@@ -126,7 +126,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .ale: return ["ale"]
         case .aprs: return ["eu", "na", "iss", "au", "jp", "free"]   // = APRSChannel.rawValue
         case .acars: return ["f131550", "f131725", "f131525", "f130025", "f136900", "free"]   // = ACARSChannel.rawValue
-        case .ais: return ["a", "b"]   // = AISChannel.rawValue (ohne „frei“)
+        case .ais: return ["a", "b", "both"]   // = AISChannel.rawValue (ohne „frei“)
         case .hfdl: return HFDLChannels.allPresetIDs   // = HFDLChannels.presetID(kHz), Standard 8942 kHz
         case .sonde: return ["rs41"]
         case .pager: return ["dapnet", "free"]   // = PagerChannel.rawValue

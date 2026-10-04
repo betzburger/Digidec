@@ -362,6 +362,13 @@ public struct AISMessage: Equatable, Sendable {
     public var text: String?
     public var destinationMMSI: UInt32?
 
+    // Binäre Nachrichten (6, 8)
+    public var dac: Int?
+    public var fid: Int?
+    public var binary: AISBinary?
+    /// Position kommt von einer Verkehrszentrale (künstliches Ziel, FI 17), nicht vom Schiff selbst
+    public var synthetic = false
+
     public static func == (a: AISMessage, b: AISMessage) -> Bool {
         a.type == b.type && a.mmsi == b.mmsi && a.latitude == b.latitude && a.longitude == b.longitude && a.name == b.name
             && a.sog == b.sog && a.cog == b.cog && a.heading == b.heading && a.imo == b.imo && a.destination == b.destination
@@ -518,8 +525,25 @@ public struct AISMessage: Equatable, Sendable {
             m.latitude = lat(89, 27, div: 600_000)
             m.cog = cog10(116)
             m.timestampSecond = Int(bits.u(128, 6))
+
+        case 6, 8:
+            guard let h = AISBinaryDecoder.header(bits, type: type) else { return nil }
+            m.dac = h.dac
+            m.fid = h.fid
+            if type == 6 { m.destinationMMSI = bits.u(40, 30) }
+            let b = AISBinaryDecoder.decode(bits, type: type, dac: h.dac, fid: h.fid)
+            m.binary = b
+            switch b {
+            case .meteo(let w):
+                m.latitude = w.latitude
+                m.longitude = w.longitude
+            case .text(_, let t):
+                m.text = t
+            default: break
+            }
         case 12:
             guard bits.count >= 72 else { return nil }
+
             m.destinationMMSI = bits.u(40, 30)
             m.text = bits.text(72, chars: (bits.count - 72) / 6)
         case 14:
@@ -671,6 +695,19 @@ public struct AISVessel: Identifiable, Equatable, Sendable {
     public var atonType: Int?
     public var motherMMSI: UInt32?
     public var lastText: String?
+    /// Letztes Wetter-/Gewässertelegramm (Messstationen) und sein Empfang
+    public var meteo: AISMeteo?
+    public var meteoDate: Date?
+    public var inland: AISInlandStatic?
+    public var waterLevels: AISWaterLevels?
+    public var emma: AISEmma?
+    /// Zuletzt gehörtes unbekanntes Binärtelegramm („DAC 366 · FI 56“)
+    public var otherBinary: String?
+    /// Position nur aus künstlichen Zielen einer Verkehrszentrale
+    public var isSynthetic = false
+    /// Auf welchen Kanälen gehört (A = 161,975, B = 162,025 MHz)
+    public var heardOnA = false
+    public var heardOnB = false
 
     public var track: [AISFix] = []
     public static let maxTrack = 2_000
@@ -742,7 +779,19 @@ public struct AISVessel: Identifiable, Equatable, Sendable {
         if m.etaMonth != nil { etaMonth = m.etaMonth; etaDay = m.etaDay; etaHour = m.etaHour; etaMinute = m.etaMinute }
         if let a = m.atonType { atonType = a }
         if let mm = m.motherMMSI { motherMMSI = mm }
+
         if let t = m.text, !t.isEmpty { lastText = t }
+        if let b = m.binary {
+            switch b {
+            case .meteo(let w): meteo = w; meteoDate = now
+            case .inland(let i): inland = i
+            case .waterLevels(let w): waterLevels = w
+            case .emma(let e): emma = e
+            case .other: if let d = m.dac, let f = m.fid { otherBinary = "DAC \(d) · FI \(f)" }
+            default: break
+            }
+        }
+        if m.synthetic { isSynthetic = true } else if m.hasPosition { isSynthetic = false }
         guard m.hasPosition, let la = m.latitude, let lo = m.longitude else { return false }
         // Nachricht 27 (Satelliten, grobe Position) nicht über eine genaue Position legen
         if m.type == 27, let last = lastPositionDate, now.timeIntervalSince(last) < 600 { return false }

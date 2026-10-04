@@ -151,6 +151,14 @@ if args.first == "demo" {
         lines += AISNMEA.sentences(for: AISSignalGenerator.staticVoyage(mmsi: s.0, imo: s.1, callsign: s.2, name: s.3, shipType: s.4, bow: s.5 - s.6, stern: s.6, port: s.7, starboard: s.8, draught: s.9, destination: s.10, etaMonth: 10, etaDay: 5, etaHour: 14, etaMinute: 0), channel: "A", sequence: 1)
     }
     lines += AISNMEA.sentences(for: AISSignalGenerator.aidToNavigation(mmsi: 992_110_005, type: 20, name: "ELBE 1", lat: 54.0, lon: 8.1))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.meteo31(mmsi: 992_110_005, lat: 54.0, lon: 8.1, windKn: 22, gustKn: 31, windDir: 285, airTemp: 8.5, humidity: 88, pressure: 1003, waterLevel: 1.25, waveHeight: 1.4, waterTemp: 12.5))
+    // Binnenschiffe auf dem Main bei Würzburg mit europäischer Schiffsnummer, Pegelmeldung der Wasserstraßenverwaltung
+    lines += AISNMEA.sentences(for: AISSignalGenerator.positionReport(mmsi: 211_512_340, lat: 49.7955, lon: 9.9205, sog: 8.4, cog: 255, heading: 254))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.staticVoyage(mmsi: 211_512_340, imo: 0, callsign: "DB1234", name: "MAINPERLE", shipType: 79, bow: 85, stern: 0, port: 0, starboard: 11, draught: 2.4, destination: "ASCHAFFENBURG"), channel: "B", sequence: 2)
+    lines += AISNMEA.sentences(for: AISSignalGenerator.inlandStatic(mmsi: 211_512_340, eni: "04812340", length: 85.0, beam: 11.45, eriType: 8010, hazardCones: 0, draught: 2.4, loaded: 2))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.positionReport(mmsi: 211_700_011, lat: 49.7821, lon: 9.9302, sog: 0, cog: 0, navStatus: 5))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.waterLevels(mmsi: 2_111_210, country: "DE", gauges: [(7, 187), (8, 203)]))
+    lines += AISNMEA.sentences(for: AISSignalGenerator.baseStation(mmsi: 2_111_210, lat: 49.8, lon: 9.92, year: 2026, month: 10, day: 4, hour: 12, minute: 0, second: 0))
     try? lines.joined(separator: "\n").appending("\n").write(toFile: args[1], atomically: true, encoding: .utf8)
     print("\(lines.count) Sätze -> \(args[1])")
     exit(0)

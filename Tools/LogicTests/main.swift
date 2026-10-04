@@ -6750,7 +6750,7 @@ hfdlTests()
 
     // Einstellungen, Abstimmung, Modulliste, URL
     check(DecoderModuleInfo.ais.isAvailable && DecoderModuleInfo.ais.band == .vhfUhf && DecoderModuleInfo.ais.displayName == "AIS" && DecoderModuleInfo.ais.hasMap, "AIS: Modul in der Liste (UKW, mit Karte)")
-    check(DecoderModuleInfo.ais.presetIDs == ["a", "b"] && AISChannel(rawValue: "b")?.frequencyHz == 162_025_000 && AISChannel.a.frequencyHz == 161_975_000, "AIS: Kanäle 161,975 und 162,025 MHz")
+    check(DecoderModuleInfo.ais.presetIDs == ["a", "b", "both"] && AISChannel(rawValue: "b")?.frequencyHz == 162_025_000 && AISChannel.a.frequencyHz == 161_975_000, "AIS: Kanäle 161,975 und 162,025 MHz")
     check(RigTuneTarget.ais(channel: .a) == RigTuneTarget(dialHz: 161_975_000, mode: "FM", passbandHz: 25_000) && RigTuneTarget.ais(channel: .free) == nil, "AIS: Abstimmung FM auf 161,975 MHz")
     if case .success(let r) = DecodeRequestParser.parse(URL(string: "digidec://decode?mode=ais&preset=b")!) {
         check(r.module == .ais && r.presetID == "b", "AIS: URL-Auftrag mit Kanal B")
@@ -6767,6 +6767,144 @@ hfdlTests()
     check(ShipQuery(mmsi: 5, imo: 9).cacheKey == "5-9" && ShipWebInfo().isEmpty, "AIS: Abfrage-Schlüssel")
 }
 aisTests()
+
+
+// MARK: - AIS: binäre Nachrichten und zwei Kanäle
+
+@MainActor func aisBinaryTests() {
+    // Wetter nach IMO SN/Circ.236 (FI 11): Messstation Irland aus der gpsd-Sammlung, Werte der Auswertung des Kanaton-Geräts
+    if let s = AISNMEA.parse("!AIVDO,1,1,4,B,8>jR06@0Bk3:wOli;<`WPhh<1rqVBQf2V@Pdt0J82avIM2b<<Rv1t<ot=@1,2*54"), let b = AISArmor.decode(s.payload, fill: s.fill),
+       let m = AISMessage.decode(AISBits(b)), case .meteo(let w)? = m.binary {
+        check(m.type == 8 && m.dac == 1 && m.fid == 11 && m.mmsi == 992_509_977 && m.kind == .aid, "AIS Binär: Typ 8, DAC 1, FI 11 von 992509977")
+        check(abs((w.latitude ?? 0) - 53.29488) < 1e-4 && abs((w.longitude ?? 0) + 6.13398) < 1e-4, "AIS FI 11: Ort \(String(describing: w.latitude)), \(String(describing: w.longitude))")
+        check(w.windKn == 3 && w.gustKn == 6 && w.windDir == 12 && w.gustDir == 15 && w.day == 18 && w.hour == 17 && w.minute == 15, "AIS FI 11: Wind und Zeit")
+        check(w.airTemp == 14.2 && w.humidity == 50 && abs((w.dewPoint ?? 0) - 12.3) < 1e-9 && w.pressure == 1024 && w.pressureTendency == 2, "AIS FI 11: Luft (14,2 °C, 50 %, Taupunkt 12,3, 1024 hPa, steigend)")
+        check(abs((w.visibilityNM ?? 0) - 15.3) < 1e-9 && abs((w.waterLevel ?? 0) + 8.4) < 1e-9 && w.levelTrend == 1 && abs((w.currentKn ?? 0) - 10.3) < 1e-9 && w.currentDir == 256, "AIS FI 11: Sicht, Wasserstand, Strom")
+        check(abs((w.waveHeight ?? 0) - 4.2) < 1e-9 && w.wavePeriod == 35 && w.waveDir == 25 && abs((w.swellHeight ?? 0) - 2.3) < 1e-9 && w.swellPeriod == 48 && w.swellDir == 124 && w.seaState == 3, "AIS FI 11: Wellen, Dünung, Seegang")
+        check(abs((w.waterTemp ?? 0) - 12.3) < 1e-9 && abs((w.salinity ?? 0) - 5.3) < 1e-9 && w.ice == false && w.precipitation == nil, "AIS FI 11: Wassertemperatur, Salzgehalt, Eis, Niederschlag „6“ unbekannt")
+        check(w.lines.contains { $0.hasPrefix("Wind 3 kn aus NNO (12°)") } && w.lines.contains { $0.contains("Seegang 3 Bft: schwache Brise") } && w.summary.contains("1024 hPa"), "AIS FI 11: Anzeigetext \(w.lines.first ?? "")")
+    } else { check(false, "AIS FI 11 nicht lesbar") }
+    // Finnische Küstenstation (00230…): Kälte, Hochdruck
+    if let b = aisBits("!AIVDM,1,1,,A,8@2<HW@0BkdhF0dcH59=RiRRDqnJ7wfRwwwwwwwwwwwwwwwwwwwwwwwwwt0,2*7D"), let m = AISMessage.decode(b), case .meteo(let w)? = m.binary {
+        check(abs((w.latitude ?? 0) - 64.65) < 1e-6 && abs((w.longitude ?? 0) - 24.4) < 1e-6 && w.windKn == 11 && w.windDir == 162 && w.airTemp == -12.7 && w.pressure == 1032 && w.humidity == 80, "AIS FI 11: Finnland (64,65 N 24,4 O, 11 kn, −12,7 °C, 1032 hPa)")
+        check(w.waterLevel == nil && w.waveHeight == nil && w.dewPoint == nil && w.visibilityNM == nil, "AIS FI 11: nicht verfügbare Werte bleiben leer")
+    } else { check(false, "AIS FI 11 Finnland nicht lesbar") }
+    // Binnenschiff (DAC 200, FI 10) aus der Sammlung: ENI, Maße, Fahrzeugart
+    if let b = aisBits("!AIVDM,1,1,,B,83aDChPj2d<dL<uM=hhhI?a@6HP0,0*40"), let m = AISMessage.decode(b), case .inland(let i)? = m.binary {
+        check(m.dac == 200 && m.fid == 10 && i.eni == "02103547" && i.length == 39.0 && i.beam == 5.0 && i.shipTypeCode == 8010 && i.draught == 2.04 && i.loaded == 1, "AIS DAC 200/10: Binnenschiff \(i)")
+        check(i.shipTypeText == "Motorgüterschiff" && i.hazardText == "kein blaues Licht" && i.loadedText == "unbeladen", "AIS DAC 200/10: Texte")
+    } else { check(false, "AIS 200/10 nicht lesbar") }
+    // Erzeuger und Leser: FI 31, 200/10, 200/24, 1/29
+    let g31 = AISSignalGenerator.meteo31(mmsi: 992_110_005, lat: 54.17, lon: 7.89, windKn: 22, gustKn: 31, windDir: 285, airTemp: -3.5, humidity: 88, pressure: 1003, waterLevel: 1.25, waveHeight: 2.4, waterTemp: 9.5)
+    if let m = AISMessage.decode(AISBits(g31)), case .meteo(let w)? = m.binary {
+        check(g31.count == 360 && m.fid == 31 && w.isNewFormat && abs((w.latitude ?? 0) - 54.17) < 1e-4 && abs((w.longitude ?? 0) - 7.89) < 1e-4, "AIS FI 31: Ort")
+        check(w.windKn == 22 && w.gustKn == 31 && w.windDir == 285 && w.airTemp == -3.5 && w.humidity == 88 && w.pressure == 1003 && abs((w.waterLevel ?? 0) - 1.25) < 1e-9 && abs((w.waveHeight ?? 0) - 2.4) < 1e-9 && abs((w.waterTemp ?? 0) - 9.5) < 1e-9, "AIS FI 31: Werte")
+        check(w.gustDir == nil && w.dewPoint == nil && w.pressureTendency == nil && w.visibilityNM == nil && w.salinity == nil && w.seaState == nil, "AIS FI 31: nicht verfügbare Werte")
+    } else { check(false, "AIS FI 31 nicht lesbar") }
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.inlandStatic(mmsi: 211_500_100, eni: "04810360", length: 110.0, beam: 11.4, eriType: 8030, hazardCones: 2, draught: 3.15, loaded: 2))), case .inland(let i)? = m.binary {
+        check(i.eni == "04810360" && i.length == 110.0 && i.beam == 11.4 && i.shipTypeText == "Containerschiff" && i.hazardText == "2 blaue Lichter" && i.draught == 3.15 && i.loadedText == "beladen", "AIS 200/10: Erzeuger und Leser")
+    } else { check(false, "AIS 200/10 (Erzeuger) nicht lesbar") }
+    // falscher Treffer: DAC 200 FI 10 mit einer Kennung ohne Ziffern ist keine Binnenschiff-Meldung
+    let badInland = AISSignalGenerator.inlandStatic(mmsi: 211_500_100, eni: "ABCDEFGH", length: 110, beam: 11, eriType: 8030, hazardCones: 0, draught: 3, loaded: 1)
+    if let m = AISMessage.decode(AISBits(badInland)) { check(m.binary == .other, "AIS 200/10: Kennung ohne Ziffern wird nicht als Binnenschiff gedeutet") }
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.waterLevels(mmsi: 2_111_000, country: "DE", gauges: [(101, 215), (102, -40)]))), case .waterLevels(let w)? = m.binary {
+        check(w.country == "DE" && w.gauges == [.init(id: 101, levelCM: 215), .init(id: 102, levelCM: -40)] && w.summary == "Pegel 101: 215 cm · Pegel 102: -40 cm", "AIS 200/24: Pegelstände")
+    } else { check(false, "AIS 200/24 nicht lesbar") }
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.textBroadcast(mmsi: 2_111_000, linkage: 77, text: "FAIRWAY CLOSED AT KM 12"))), case .text(let l, let t)? = m.binary {
+        check(l == 77 && t == "FAIRWAY CLOSED AT KM 12" && m.text == t, "AIS 1/29: Text mit Verknüpfung")
+    } else { check(false, "AIS 1/29 nicht lesbar") }
+    // Telegramm mit lauter Nullen (Station ohne Messwerte) und unbekannte Kennung
+    var zero = AISBitWriter()
+    zero.u(8, 6); zero.u(0, 2); zero.u(2_766_080, 30); zero.u(0, 2); zero.u(1, 10); zero.u(11, 6)
+    zero.set(58 * 60_000, at: 56, 24); zero.set(23 * 60_000, at: 80, 25); zero.set(20, at: 105, 5); zero.set(18, at: 110, 5); zero.set(30, at: 115, 6)
+    zero.pad(to: 352)
+    check(AISMessage.decode(AISBits(zero.bits))?.binary == .other, "AIS FI 11: nur Nullen ist kein Wettertelegramm")
+    var unknown = AISBitWriter()
+    unknown.u(8, 6); unknown.u(0, 2); unknown.u(366_999_712, 30); unknown.u(0, 2); unknown.u(366, 10); unknown.u(56, 6); unknown.pad(to: 312)
+    let um = AISMessage.decode(AISBits(unknown.bits))
+    check(um?.dac == 366 && um?.fid == 56 && um?.binary == .other && AISMessage.isPlausible(AISBits(unknown.bits)), "AIS: unbekanntes Binärtelegramm DAC 366 FI 56 wird zugeordnet")
+
+    // Controller: Messstation auf der Karte, Binnenschiff mit ENI, Pegel, Ziele der Verkehrszentrale
+    let c = AISController(pipeline: AudioPipeline(), settings: AISSettingsStore())
+    c.logEnabled = false
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    c.ingest(bits: g31, at: t0)
+    c.ingest(bits: AISSignalGenerator.inlandStatic(mmsi: 211_500_100, eni: "04810360", length: 110, beam: 11.4, eriType: 8030, hazardCones: 2, draught: 3.15, loaded: 2), at: t0.addingTimeInterval(1))
+    c.ingest(bits: AISSignalGenerator.positionReport(mmsi: 211_500_100, lat: 49.8, lon: 9.9, sog: 9.5, cog: 250), at: t0.addingTimeInterval(2))
+    c.ingest(bits: AISSignalGenerator.waterLevels(mmsi: 2_111_000, country: "DE", gauges: [(101, 215)]), at: t0.addingTimeInterval(3))
+    check(c.binaryCounts == ["1/31": 1, "200/10": 1, "200/24": 1], "AIS-Controller: Binärtelegramme gezählt \(c.binaryCounts)")
+    let station = c.vessel(992_110_005)
+    check(station?.kind == .aid && station?.meteo?.windKn == 22 && station?.point != nil, "AIS-Controller: Messstation mit Wetter und Position")
+    let sMarker = AISMapBuilder.content([station!], home: nil, now: t0.addingTimeInterval(60), filter: .init(), selection: nil).markers.first
+    check(sMarker?.valueText == "22" && sMarker?.symbol == "wind" && sMarker?.tone == .weather && sMarker?.headingDeg == 105 && sMarker?.details.contains { $0.hasPrefix("Wind 22 kn aus WNW (285°)") } == true, "AIS-Karte: Messstation mit Windstärke, Pfeil und Wetterzeilen (\(sMarker?.details.prefix(3).joined(separator: " | ") ?? ""))")
+    let barge = c.vessel(211_500_100)
+    check(barge?.inland?.eni == "04810360" && barge?.point != nil && barge?.kind == .shipA, "AIS-Controller: Binnenschiff mit ENI und Position")
+    let bMarker = AISMapBuilder.content([barge!], home: nil, now: t0.addingTimeInterval(60), filter: .init(), selection: nil).markers.first
+    check(bMarker?.details.contains { $0.hasPrefix("ENI 04810360 · Containerschiff · 110,0 × 11,4 m") } == true && bMarker?.details.contains { $0.contains("2 blaue Lichter") && $0.contains("beladen") } == true, "AIS-Karte: Binnenschiff-Zeilen")
+    check(c.vessel(2_111_000)?.waterLevels?.gauges.first?.levelCM == 215, "AIS-Controller: Pegelstand")
+    // künstliche Ziele (FI 17): zwei Ziele, eines mit MMSI, eines mit IMO-Nummer
+    var vts = AISBitWriter()
+    vts.u(8, 6); vts.u(0, 2); vts.u(2_111_000, 30); vts.u(0, 2); vts.u(1, 10); vts.u(17, 6)
+    vts.set(0, at: 56, 2); vts.set(244_123_456, at: 58, 42); vts.set(Int(52.01 * 60_000), at: 56 + 48, 24); vts.set(Int(4.1 * 60_000), at: 56 + 72, 25); vts.set(90, at: 56 + 97, 9); vts.set(30, at: 56 + 106, 6); vts.set(12, at: 56 + 112, 8)
+    vts.set(1, at: 176, 2); vts.set(9_241_061, at: 178, 42); vts.set(Int(52.02 * 60_000), at: 176 + 48, 24); vts.set(Int(4.12 * 60_000), at: 176 + 72, 25); vts.set(360, at: 176 + 97, 9); vts.set(255, at: 176 + 112, 8)
+    vts.pad(to: 296)
+    c.ingest(bits: vts.bits, at: t0.addingTimeInterval(10))
+    let tv = c.vessel(244_123_456)
+    check(tv?.isSynthetic == true && abs((tv?.latitude ?? 0) - 52.01) < 1e-4 && tv?.sog == 12 && tv?.cog == 90 && c.vessel(2_111_000) != nil, "AIS FI 17: Ziel mit MMSI wird zum Schiff (künstliches Ziel)")
+    c.ingest(bits: AISSignalGenerator.positionReport(mmsi: 244_123_456, lat: 52.0105, lon: 4.1005, sog: 12, cog: 90), at: t0.addingTimeInterval(20))
+    check(c.vessel(244_123_456)?.isSynthetic == false, "AIS FI 17: eigenes AIS-Signal ersetzt das künstliche Ziel")
+    c.ingest(bits: vts.bits, at: t0.addingTimeInterval(30))
+    check(c.vessel(244_123_456)?.isSynthetic == false && c.vessel(244_123_456)?.positions == 2, "AIS FI 17: künstliche Ziele überschreiben kein gehörtes Schiff")
+
+    // Zwei Kanäle: links Kanal A, rechts Kanal B über die Pipeline (48 kHz und 96 kHz Quelle)
+    var rng = AISSignalGenerator.RNG(seed: 21)
+    func burstSet(base: UInt32, count: Int) -> (payloads: [[UInt8]], bursts: [AISSignalGenerator.Burst]) {
+        var p: [[UInt8]] = [], b: [AISSignalGenerator.Burst] = []
+        for k in 0..<count {
+            let pay = AISSignalGenerator.positionReport(mmsi: base + UInt32(k), lat: 54 + rng.uniform(), lon: 8 + rng.uniform(), sog: 5, cog: Double(k * 20))
+            p.append(pay)
+            b.append(.init(payload: pay, start: 0.1 + Double(k) * 0.2, offset: Float((rng.uniform() - 0.5) * 0.1), polarity: k % 2 == 0 ? 1 : -1, ppm: (rng.uniform() - 0.5) * 100))
+        }
+        return (p, b)
+    }
+    let setA = burstSet(base: 211_000_100, count: 6), setB = burstSet(base: 244_000_200, count: 6)
+    for inputRate in [48_000.0, 96_000.0] {
+        let audioA = AISSignalGenerator.audio(bursts: setA.bursts, duration: 1.8, sampleRate: inputRate)
+        let audioB = AISSignalGenerator.audio(bursts: setB.bursts, duration: 1.8, sampleRate: inputRate)
+        for swap in [false, true] {
+            let pipeline = AudioPipeline()
+            let decoder = AISDecoder(pipeline: pipeline)
+            decoder.configure(enabled: true, channel: .both, swap: swap)
+            pipeline.start(inputRate: inputRate)
+            Thread.sleep(forTimeInterval: 0.05)
+            check(pipeline.wantsStereo, "AIS A+B: Pipeline liefert beide Kanäle getrennt")
+            var i = 0
+            let block = 2_048
+            while i < audioA.count {
+                let n = min(block, audioA.count - i)
+                audioA.withUnsafeBufferPointer { l in audioB.withUnsafeBufferPointer { r in pipeline.writeStereo(left: l.baseAddress! + i, right: r.baseAddress! + i, count: n) } }
+                i += n
+                Thread.sleep(forTimeInterval: 0.012)
+            }
+            Thread.sleep(forTimeInterval: 0.6)
+            let out = decoder.takeOutput()
+            let a = Set(out.frames.filter { $0.letter == (swap ? "B" : "A") }.map(\.bits)), b = Set(out.frames.filter { $0.letter == (swap ? "A" : "B") }.map(\.bits))
+            check(a == Set(setA.payloads) && b == Set(setB.payloads), "AIS A+B (\(Int(inputRate / 1000)) kHz, \(swap ? "vertauscht" : "links A"))): links \(a.count) von 6, rechts \(b.count) von 6")
+            check(out.channels.count == 2 && out.channels[0].stats.frames == 6 && out.channels[1].stats.frames == 6 && out.channels[0].inputDB > -60, "AIS A+B: Zähler je Kanal \(out.channels.map { $0.stats.frames })")
+            decoder.configure(enabled: false, channel: .a, swap: false)
+            Thread.sleep(forTimeInterval: 0.05)
+            check(!pipeline.wantsStereo, "AIS A+B: nach dem Ausschalten keine getrennten Kanäle mehr")
+            pipeline.stop()
+        }
+    }
+    // Diagnose je Kanal
+    let silent = [AISChannelInfo(letter: "A", stats: AISStats(), level: 0.1, inputDB: -25), AISChannelInfo(letter: "B", stats: AISStats(), level: 0, inputDB: -120)]
+    check(AISDiagnosis.assess(channels: silent).title == "KANAL B OHNE AUDIO", "AIS-Diagnose: Kanal B ohne Audio")
+    var good = AISStats(); good.frames = 4; good.bursts = 4
+    check(AISDiagnosis.assess(channels: [.init(letter: "A", stats: good, level: 0.1, inputDB: -25), .init(letter: "B", stats: good, level: 0.1, inputDB: -25)]).severity == .ok, "AIS-Diagnose: beide Kanäle gut")
+    check(AISChannel.both.isDual && AISChannel.both.frequencyHz == nil && RigTuneTarget.ais(channel: .both) == nil && DecoderModuleInfo.ais.presetIDs == ["a", "b", "both"], "AIS: Kanalwahl A+B ohne Abstimmziel")
+}
+aisBinaryTests()
 
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

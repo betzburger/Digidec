@@ -7,7 +7,7 @@ import os
 
 /// UKW-Seefunkkanäle des AIS
 public enum AISChannel: String, CaseIterable, Identifiable, Sendable {
-    case a, b, free
+    case a, b, both, free
 
     public var id: String { rawValue }
 
@@ -20,14 +20,18 @@ public enum AISChannel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .a: return Self.frequencyA
         case .b: return Self.frequencyB
-        case .free: return nil
+        case .both, .free: return nil
         }
     }
+
+    /// Beide Kanäle zugleich: links Kanal A, rechts Kanal B
+    public var isDual: Bool { self == .both }
 
     public var label: String {
         switch self {
         case .a: return "161,975"
         case .b: return "162,025"
+        case .both: return "161,975 + 162,025"
         case .free: return "frei"
         }
     }
@@ -36,6 +40,7 @@ public enum AISChannel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .a: return "AIS 1 · 87B"
         case .b: return "AIS 2 · 88B"
+        case .both: return "A + B · L/R"
         case .free: return "FREI"
         }
     }
@@ -44,6 +49,7 @@ public enum AISChannel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .a: return "161,975 MHz (Kanal 87B, „AIS 1“, NMEA-Kanal A)"
         case .b: return "162,025 MHz (Kanal 88B, „AIS 2“, NMEA-Kanal B)"
+        case .both: return "Beide Kanäle zugleich: Audio links = Kanal A (161,975 MHz), rechts = Kanal B (162,025 MHz)"
         case .free: return "Frequenz von Hand einstellen"
         }
     }
@@ -52,7 +58,7 @@ public enum AISChannel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .a: return "A"
         case .b: return "B"
-        case .free: return "A"
+        case .both, .free: return "A"
         }
     }
 }
@@ -62,6 +68,8 @@ public enum AISChannel: String, CaseIterable, Identifiable, Sendable {
 @MainActor
 public final class AISSettingsStore: ObservableObject {
     @Published public var channel: AISChannel { didSet { UserDefaults.standard.set(channel.rawValue, forKey: "aisChannel") } }
+    /// Bei A+B: links Kanal B und rechts Kanal A statt umgekehrt
+    @Published public var swapChannels: Bool { didSet { UserDefaults.standard.set(swapChannels, forKey: "aisSwapChannels") } }
     /// Wie lange ein Schiff nach der letzten Meldung in Liste und Karte bleibt (Minuten)
     @Published public var keepMinutes: Double { didSet { UserDefaults.standard.set(keepMinutes, forKey: "aisKeepMinutes") } }
     @Published public var showShips: Bool { didSet { UserDefaults.standard.set(showShips, forKey: "aisShowShips") } }
@@ -75,6 +83,7 @@ public final class AISSettingsStore: ObservableObject {
     public init() {
         let d = UserDefaults.standard
         channel = AISChannel(rawValue: d.string(forKey: "aisChannel") ?? "") ?? .a
+        swapChannels = d.bool(forKey: "aisSwapChannels")
         let k = d.double(forKey: "aisKeepMinutes")
         keepMinutes = (5...1440).contains(k) ? k : 30
         showShips = d.object(forKey: "aisShowShips") as? Bool ?? true
@@ -95,69 +104,136 @@ extension AISSettingsStore: TuningTarget {
 
 // MARK: - Decoder
 
-/// AIS-Empfänger als 48-kHz-Senke an der Pipeline
+/// Zähler und Pegel eines Kanals (A oder B)
+public struct AISChannelInfo: Equatable, Sendable {
+    public var letter: Character
+    public var stats: AISStats
+    public var level: Double
+    /// Pegel des Eingangs (Effektivwert) in dBFS
+    public var inputDB: Double
+}
+
+/// AIS-Empfänger als 48-kHz-Senke an der Pipeline: ein Kanal aus dem gewählten Audiokanal, oder zwei (links A, rechts B)
 public final class AISDecoder: @unchecked Sendable {
+    public struct Frame: Sendable {
+        public var bits: [UInt8]
+        public var letter: Character
+        public var rescued: Bool
+    }
+
     public struct Output: Sendable {
-        public var frames: [AISReceiver.Decoded]
-        public var stats: AISStats
-        public var level: Double
-        /// Pegel des Eingangs (Effektivwert) in dBFS
-        public var inputDB: Double
+        public var frames: [Frame]
+        public var channels: [AISChannelInfo]
+
+        /// Zähler aller Kanäle zusammen
+        public var stats: AISStats {
+            var t = AISStats()
+            for c in channels {
+                t.bursts += c.stats.bursts; t.frames += c.stats.frames; t.failed += c.stats.failed
+                t.rescued += c.stats.rescued; t.implausible += c.stats.implausible
+                if let l = c.stats.lastFrameTime { t.lastFrameTime = max(t.lastFrameTime ?? 0, l) }
+            }
+            return t
+        }
+        public var level: Double { channels.map(\.level).max() ?? 0 }
+        public var inputDB: Double { channels.map(\.inputDB).max() ?? -120 }
     }
 
     public static let sampleRate = 48_000.0
 
     private let pipeline: AudioPipeline
-    private let receiver = AISReceiver(sampleRate: AISDecoder.sampleRate)
+    private let first = AISReceiver(sampleRate: AISDecoder.sampleRate)
+    private let second = AISReceiver(sampleRate: AISDecoder.sampleRate)
+    // Nur auf der Verarbeitungs-Queue
     private var enabled = false
+    private var dual = false
+    private var letters: (Character, Character) = ("A", "B")
+    private var meanSquare = (0.0, 0.0)
+
     private let lock = OSAllocatedUnfairLock()
-    private var pending: [AISReceiver.Decoded] = []
-    private var statsNow = AISStats()
-    private var levelNow = 0.0
-    private var meanSquare = 0.0
-    private var inputDBNow = -120.0
+    private var pending: [Frame] = []
+    private var infos: [AISChannelInfo] = [.init(letter: "A", stats: AISStats(), level: 0, inputDB: -120)]
+    private var infoLetters: (Character, Character) = ("A", "B")
 
     public init(pipeline: AudioPipeline) {
         self.pipeline = pipeline
-        receiver.onFrame = { [weak self] f in self?.lock.withLockUnchecked { self?.pending.append(f) } }
+        first.onFrame = { [weak self] f in self?.deliver(f, second: false) }
+        second.onFrame = { [weak self] f in self?.deliver(f, second: true) }
         pipeline.addSink(rate: Self.sampleRate) { [weak self] samples in self?.consume(samples) }
+        pipeline.addStereoSink(rate: Self.sampleRate) { [weak self] l, r in self?.consumeStereo(l, r) }
     }
 
-    public func setEnabled(_ on: Bool) {
+    /// Betriebsart: ein Audiokanal (Kanal A oder B laut Einstellung) oder zwei (A links, B rechts; mit `swap` umgekehrt)
+    public func configure(enabled on: Bool, channel: AISChannel, swap: Bool) {
         pipeline.perform { [self] in
+            let wantDual = channel.isDual
+            if on != enabled || wantDual != dual { first.reset(); second.reset() }
             enabled = on
-            if !on { receiver.reset() }
+            dual = wantDual
+            letters = wantDual ? (swap ? ("B", "A") : ("A", "B")) : (channel.nmeaChannel, "B")
+            meanSquare = (0, 0)
+            lock.withLockUnchecked {
+                infoLetters = letters
+                infos = wantDual ? [.init(letter: letters.0, stats: AISStats(), level: 0, inputDB: -120), .init(letter: letters.1, stats: AISStats(), level: 0, inputDB: -120)]
+                                 : [.init(letter: letters.0, stats: AISStats(), level: 0, inputDB: -120)]
+            }
         }
+        pipeline.wantsStereo = on && channel.isDual
     }
 
     public func resetStats() {
         pipeline.perform { [self] in
-            receiver.resetStats()
-            lock.withLockUnchecked { statsNow = AISStats() }
+            first.resetStats()
+            second.resetStats()
+            lock.withLockUnchecked { for i in infos.indices { infos[i].stats = AISStats() } }
         }
     }
 
     public func takeOutput() -> Output {
         lock.withLockUnchecked {
             defer { pending.removeAll() }
-            return Output(frames: pending, stats: statsNow, level: levelNow, inputDB: inputDBNow)
+            return Output(frames: pending, channels: infos)
         }
     }
 
-    private func consume(_ samples: UnsafeBufferPointer<Float>) {
-        guard enabled else { return }
-        receiver.process(samples)
+    private func deliver(_ f: AISReceiver.Decoded, second isSecond: Bool) {
+        let letter = isSecond ? infoLetters.1 : infoLetters.0
+        lock.withLockUnchecked { pending.append(Frame(bits: f.bits, letter: letter, rescued: f.rescued)) }
+    }
+
+    private func db(_ samples: UnsafeBufferPointer<Float>, _ ms: inout Double) -> Double {
         var sum = 0.0
         for x in samples { sum += Double(x) * Double(x) }
         let blockMS = samples.isEmpty ? 0 : sum / Double(samples.count)
         let k = min(1.0, Double(samples.count) / (0.3 * Self.sampleRate))
-        meanSquare += k * (blockMS - meanSquare)
-        let db = meanSquare > 1e-12 ? max(-120, 10 * log10(meanSquare)) : -120
-        let stats = receiver.stats, level = receiver.level
+        ms += k * (blockMS - ms)
+        return ms > 1e-12 ? max(-120, 10 * log10(ms)) : -120
+    }
+
+    private func consume(_ samples: UnsafeBufferPointer<Float>) {
+        guard enabled, !dual else { return }
+        first.process(samples)
+        let d = db(samples, &meanSquare.0)
+        let stats = first.stats, level = first.level
         lock.withLockUnchecked {
-            statsNow = stats
-            levelNow = level
-            inputDBNow = db
+            if infos.count >= 1 { infos[0].stats = stats; infos[0].level = level; infos[0].inputDB = d }
+        }
+    }
+
+    private func consumeStereo(_ l: UnsafeBufferPointer<Float>, _ r: UnsafeBufferPointer<Float>) {
+        guard enabled, dual else { return }
+        first.process(l)
+        // Mono-Quelle: rechts ist dasselbe Signal wie links, dann gibt es keinen zweiten Kanal
+        let hasSecond = pipeline.sourceChannels >= 2
+        if hasSecond { second.process(r) }
+        let d0 = db(l, &meanSquare.0)
+        let d1 = hasSecond ? db(r, &meanSquare.1) : -120
+        let s0 = first.stats, l0 = first.level, s1 = second.stats, l1 = second.level
+        lock.withLockUnchecked {
+            if infos.count >= 2 {
+                infos[0].stats = s0; infos[0].level = l0; infos[0].inputDB = d0
+                infos[1].stats = s1; infos[1].level = l1; infos[1].inputDB = d1
+            }
         }
     }
 }
@@ -174,6 +250,23 @@ public enum AISDiagnosis {
     }
 
     public static let silenceDB = -70.0
+
+    /// Beurteilung bei zwei Kanälen (A links, B rechts): fehlt das Audio eines Kanals, sagt die Anzeige, welcher
+    public static func assess(channels: [AISChannelInfo]) -> Result {
+        guard channels.count == 2 else {
+            return assess(inputDB: channels.first?.inputDB ?? -120, stats: channels.first?.stats ?? AISStats())
+        }
+        let silent = channels.filter { $0.inputDB < silenceDB && $0.stats.bursts == 0 }
+        if silent.count == 2 { return assess(inputDB: -120, stats: AISStats()) }
+        if let s = silent.first {
+            let side = s.letter == channels[0].letter ? "links" : "rechts"
+            return Result(severity: .waiting, title: "KANAL \(s.letter) OHNE AUDIO",
+                          advice: "Auf dem \(side) liegt kein Signal an (Kanal \(s.letter)). Im SDR-Programm den zweiten Empfänger (162,025 bzw. 161,975 MHz) anlegen und seine Ausgabe ganz nach \(side) legen (Pan/Balance). Ist die Quelle mono, gibt es nur einen Kanal.")
+        }
+        var total = AISStats()
+        for c in channels { total.bursts += c.stats.bursts; total.frames += c.stats.frames; total.failed += c.stats.failed }
+        return assess(inputDB: channels.map(\.inputDB).max() ?? -120, stats: total)
+    }
 
     public static func assess(inputDB: Double, stats: AISStats) -> Result {
         if inputDB < silenceDB && stats.bursts == 0 {
@@ -234,8 +327,8 @@ public enum AISMapBuilder {
 
     static func symbol(_ v: AISVessel) -> String {
         switch v.kind {
-        case .aid: return v.virtualAton ? "diamond" : "diamond.fill"
-        case .base: return "antenna.radiowaves.left.and.right"
+        case .aid: return v.meteo != nil ? "wind" : v.virtualAton ? "diamond" : "diamond.fill"
+        case .base: return v.meteo != nil ? "wind" : "antenna.radiowaves.left.and.right"
         case .aircraft: return "airplane"
         case .sart: return "exclamationmark.triangle.fill"
         case .craft: return "smallcircle.filled.circle"
@@ -251,6 +344,7 @@ public enum AISMapBuilder {
     static func tone(_ v: AISVessel, age: Double) -> MapTone {
         if v.kind == .sart { return .alert }
         if age > 600 && v.kind != .aid && v.kind != .base { return .dim }
+        if v.meteo != nil && (v.kind == .aid || v.kind == .base) { return age > 6 * 3600 ? .dim : .weather }
         switch v.kind {
         case .aid: return .dim
         case .base: return .info
@@ -264,6 +358,24 @@ public enum AISMapBuilder {
         case .fishing, .sailing, .pleasure, .tug, .special, .highSpeed: return .info
         case .other, .unknown: return v.shipType == nil ? .dim : .normal
         }
+    }
+
+
+    /// Zeilen zu den binären Telegrammen (Wetter, Binnenschiff, Pegel, EMMA, VTS)
+    static func binaryLines(_ v: AISVessel) -> [String] {
+        var out: [String] = []
+        if let w = v.meteo { out += w.lines }
+        if let i = v.inland {
+            var t = ["ENI \(i.eni)", i.shipTypeText]
+            if let l = i.length, let b = i.beam { t.append(String(format: "%.1f × %.1f m", l, b).replacingOccurrences(of: ".", with: ",")) }
+            out.append(t.joined(separator: " · "))
+            let extra = [i.hazardText, i.loadedText, i.draught.map { String(format: "Tiefgang %.2f m", $0).replacingOccurrences(of: ".", with: ",") }].compactMap { $0 }
+            if !extra.isEmpty { out.append(extra.joined(separator: " · ")) }
+        }
+        if let w = v.waterLevels { out.append(w.summary) }
+        if let e = v.emma { out.append(e.text) }
+        if v.isSynthetic { out.append("Position aus künstlichem Ziel der Verkehrszentrale (kein eigenes AIS-Signal)") }
+        return out
     }
 
     static func details(_ v: AISVessel, home: GeoPoint?, age: Double) -> [String] {
@@ -283,6 +395,9 @@ public enum AISMapBuilder {
             if let dr = v.draught { t.append("Tiefgang \(AISFormat.decimal(dr)) m") }
             d.append(t.joined(separator: " · "))
         }
+        // Messstationen: Wetter vor der Position (die Auswahl in der Karte zeigt höchstens 8 Zeilen)
+        let stationLines = (v.kind == .aid || v.kind == .base) ? binaryLines(v) : []
+        d += stationLines
         if let p = v.point { d.append(Geo.format(p)) }
         var move: [String] = []
         if let s = v.sog { move.append("\(AISFormat.decimal(s)) kn") }
@@ -291,11 +406,14 @@ public enum AISMapBuilder {
         if let n = v.navStatus, v.kind == .shipA { move.append(AISNavStatus.text(n)) }
         if !move.isEmpty { d.append(move.joined(separator: " · ")) }
         if let dest = v.destination { d.append("Ziel \(dest)" + (v.etaText.map { " · ETA \($0)" } ?? "")) }
+        if stationLines.isEmpty { d += binaryLines(v) }
+        if let t = v.lastText, v.kind != .shipA { d.append("Text: \(t)") }
         if let h = home, let p = v.point {
             let km = Geo.distanceKm(h, p), b = Geo.bearing(from: h, to: p)
             d.append("\(Geo.formatKm(km)) (\(AISFormat.seaMiles(km: km))) \(Geo.compass(b)) (\(Int(b.rounded()))°)")
         }
-        d.append("\(v.messages) Meldungen · zuletzt vor \(AISFormat.age(age))")
+        let ch = v.heardOnA && v.heardOnB ? "A + B" : v.heardOnB ? "B" : "A"
+        d.append("\(v.messages) Meldungen auf Kanal \(ch) · zuletzt vor \(AISFormat.age(age))")
         return d
     }
 
@@ -323,9 +441,19 @@ public enum AISMapBuilder {
                 track = v.track.enumerated().filter { $0.offset % stride == 0 }.map(\.element.point)
                 if let last = v.track.last?.point, track.last != last { track.append(last) }
             }
-            markers.append(MapMarker(id: id(v.mmsi), coordinate: p, title: v.displayName, subtitle: sub.filter { !$0.isEmpty }.joined(separator: " · "),
-                                     details: details(v, home: home, age: age), symbol: symbol(v), tone: tone(v, age: age), heardAt: v.lastHeard,
-                                     track: track, headingDeg: heading))
+
+            var marker = MapMarker(id: id(v.mmsi), coordinate: p, title: v.displayName, subtitle: sub.filter { !$0.isEmpty }.joined(separator: " · "),
+                                   details: details(v, home: home, age: age), symbol: symbol(v), tone: tone(v, age: age), heardAt: v.lastHeard,
+                                   track: track, headingDeg: heading)
+            // Messstation: Windstärke in Knoten als Wert im Punkt, Pfeil in Windrichtung (wie bei den SYNOP-Stationen)
+            if (v.kind == .aid || v.kind == .base), let w = v.meteo, let kn = w.windKn, age < 6 * 3600 {
+                marker.valueText = "\(kn)"
+                marker.valueLevel = min(max(Double(kn) / 50, 0), 1)
+                marker.headingDeg = w.windDir.map { Double(($0 + 180) % 360) }
+                marker.subtitle = "Messstation · " + w.summary
+            }
+            markers.append(marker)
+
         }
         return MapContent(markers: markers, lines: [], home: home, emptyHint: "Noch kein Schiff mit Position empfangen")
     }
@@ -342,10 +470,14 @@ public final class AISController: ObservableObject {
     @Published public private(set) var stats = AISStats()
     @Published public private(set) var inputDB = -120.0
     @Published public private(set) var level = 0.0
+    /// Zähler und Pegel je Kanal (ein Eintrag, bei A+B zwei)
+    @Published public private(set) var channelInfo: [AISChannelInfo] = []
     /// Meldungen insgesamt, nach Typ und in der letzten Minute
     @Published public private(set) var messageCount = 0
     @Published public private(set) var typeCounts: [Int: Int] = [:]
     @Published public private(set) var perMinute = 0
+    /// Binärtelegramme nach „DAC/FI“
+    @Published public private(set) var binaryCounts: [String: Int] = [:]
     /// Weitestes empfangenes Schiff vom Standort
     @Published public private(set) var farthest: (mmsi: UInt32, km: Double)?
     /// Schiff, dessen Daten im Fenster „Schiffsdaten“ stehen
@@ -369,6 +501,7 @@ public final class AISController: ObservableObject {
     private var timer: Timer?
     private var recentTimes: [Date] = []
     private var cancellables: Set<AnyCancellable> = []
+    private var isActive = false
 
     public init(pipeline: AudioPipeline, settings: AISSettingsStore) {
         self.settings = settings
@@ -379,7 +512,12 @@ public final class AISController: ObservableObject {
         settings.$channel
             .dropFirst()
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.markSession() }
+            .sink { [weak self] _ in self?.markSession(); self?.applyDecoder() }
+            .store(in: &cancellables)
+        settings.$swapChannels
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.applyDecoder() }
             .store(in: &cancellables)
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
@@ -387,7 +525,12 @@ public final class AISController: ObservableObject {
     }
 
     public func setActive(_ active: Bool) {
-        decoder.setEnabled(active)
+        isActive = active
+        applyDecoder()
+    }
+
+    private func applyDecoder() {
+        decoder.configure(enabled: isActive, channel: settings.channel, swap: settings.swapChannels)
     }
 
     public func clear() {
@@ -396,6 +539,7 @@ public final class AISController: ObservableObject {
         selection = nil
         messageCount = 0
         typeCounts = [:]
+        binaryCounts = [:]
         recentTimes.removeAll()
         farthest = nil
         decoder.resetStats()
@@ -415,10 +559,10 @@ public final class AISController: ObservableObject {
         recordingDuration = 0
     }
 
-    public var diagnosis: AISDiagnosis.Result { AISDiagnosis.assess(inputDB: inputDB, stats: stats) }
+    public var diagnosis: AISDiagnosis.Result { channelInfo.isEmpty ? AISDiagnosis.assess(inputDB: inputDB, stats: stats) : AISDiagnosis.assess(channels: channelInfo) }
 
     public func markSession() {
-        var h = "AIS · \(settings.channel.label) MHz FM · GMSK 9600 Bd"
+        var h = "AIS · \(settings.channel.label) MHz FM · GMSK 9600 Bd" + (settings.channel.isDual ? (settings.swapChannels ? " · links B, rechts A" : " · links A, rechts B") : "")
         if let rig = rigDescription { h += " · \(rig)" }
         logger.markSession(h)
     }
@@ -434,9 +578,11 @@ public final class AISController: ObservableObject {
         if out.stats != stats { stats = out.stats }
         level = out.level
         if abs(out.inputDB - inputDB) >= 0.5 { inputDB = out.inputDB }
+        let rounded = out.channels.map { c -> AISChannelInfo in var x = c; x.inputDB = (c.inputDB / 2).rounded() * 2; x.level = (c.level * 50).rounded() / 50; return x }
+        if rounded != channelInfo { channelInfo = rounded }
         if isRecording { recordingDuration = recorder.duration }
         let now = Date()
-        for f in out.frames { ingest(bits: f.bits, at: now) }
+        for f in out.frames { ingest(bits: f.bits, at: now, letter: f.letter) }
         // alte Einträge entfernen
         let keep = settings.keepMinutes * 60
         var removed = false
@@ -454,18 +600,41 @@ public final class AISController: ObservableObject {
     }
 
     /// Eine empfangene Nachricht aufnehmen (auch für Tests und Dateiwiedergabe)
-    public func ingest(bits: [UInt8], at now: Date = Date()) {
+    public func ingest(bits: [UInt8], at now: Date = Date(), letter: Character? = nil) {
+        let channelLetter = letter ?? settings.channel.nmeaChannel
         messageCount += 1
         recentTimes.append(now)
         let type = Int(AISBits(bits).u(0, 6))
         typeCounts[type, default: 0] += 1
         if logEnabled {
-            let lines = AISNMEA.sentences(for: bits, channel: settings.channel.nmeaChannel)
+            let lines = AISNMEA.sentences(for: bits, channel: channelLetter)
             logger.append(lines.joined(separator: "\n") + "\n", now: now)
         }
+
         guard let m = AISMessage.decode(AISBits(bits)) else { return }
+        if let dac = m.dac, let fid = m.fid { binaryCounts["\(dac)/\(fid)", default: 0] += 1 }
+        // Verkehrszentralen senden Ziele mit Position (FI 17): wie Positionsmeldungen führen, solange das Schiff nicht selbst zu hören ist
+        if case .targets(let list)? = m.binary {
+            for t in list where t.idType == 0 && t.latitude != nil {
+                let id = UInt32(truncatingIfNeeded: t.idNumber)
+                guard AISCountry.isValidMMSI(id) else { continue }
+                var tv = vessels[id] ?? AISVessel(mmsi: id, now: now)
+                if tv.positions > 0, !tv.isSynthetic, now.timeIntervalSince(tv.lastPositionDate ?? .distantPast) < 300 { continue }
+                var pm = AISMessage(type: 1, mmsi: id)
+                pm.latitude = t.latitude
+                pm.longitude = t.longitude
+                pm.sog = t.sog
+                pm.cog = t.cog
+                pm.synthetic = true
+                tv.ingest(pm, at: now)
+                vessels[id] = tv
+                dirty = true
+            }
+        }
         var v = vessels[m.mmsi] ?? AISVessel(mmsi: m.mmsi, now: now)
+
         v.ingest(m, at: now)
+        if channelLetter == "B" { v.heardOnB = true } else { v.heardOnA = true }
         vessels[m.mmsi] = v
         dirty = true
         if let p = v.point, let h = homePoint {

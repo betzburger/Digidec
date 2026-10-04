@@ -11,6 +11,7 @@ gebaut im Scratchpad mit cmake). AIS-catcher arbeitet auf I/Q, Digidec auf dem A
 |---|---|
 | `AISCore.swift` | Bitfelder (`AISBits`), Bytefolge der Leitung (`AISBitOrder`), CRC-16 (HDLC/X.25), 6-Bit-Panzerung, NMEA-Sätze (auch mehrteilig), HDLC-Rahmenbildung (`AISDeframer`: Flaggen, Bit-Stopfen, Prüfsumme, Korrektur von ein oder zwei Bitfehlern), Sendeseite (`AISFraming`) |
 | `AISMessage.swift` | Nachrichten 1–5, 9, 11, 12, 14, 18, 19, 21, 24, 27; Tabellen (Navigationsstatus, Schiffstyp, Seezeichen, Länder nach MID mit Flagge); Plausibilität (Länge je Typ, MMSI); `AISVessel` führt die Meldungen einer MMSI zusammen (Position, Stammdaten, Weg) |
+| `AISBinary.swift` | Binäre Nachrichten (Typ 6 und 8) mit DAC/FI: Wetter und Gewässer (1/11, 1/31), Textbeschreibung (1/29, 1/30), künstliche Ziele (1/17), Binnenschiff (200/10), Pegel (200/24), EMMA-Warnung (200/23); alles andere wird als „Binärtelegramm DAC x FI y“ erkannt und gezählt |
 | `AISDemod.swift` | Gauß-Impuls (BT 0,4), Demodulator mit Korrelation auf Training und Startflagge, Taktnachführung, Entscheidung, Wiederholungsstufen; `AISReceiver` mit vier Zweigen (Tiefpass 4,8 / 5,6 / 6,4 / 7,2 kHz) und Zusammenfassen gleicher Rahmen |
 | `AISSignalGenerator.swift` | Nachrichten bauen (1, 4, 5, 18, 21, 24) und als Diskriminator-Audio ausgeben (Prüfstand, Tests) |
 | `AISModule.swift` | Kanäle, Einstellungen, Decoder-Senke (48 kHz), Diagnose, Kartenaufbereitung, Controller |
@@ -29,6 +30,23 @@ gebaut im Scratchpad mit cmake). AIS-catcher arbeitet auf I/Q, Digidec auf dem A
    bekannte MID und volle Bytelänge), korrigierte Rahmen unbekannter MMSI werden erst bei einer zweiten Sichtung angenommen, korrigierte Rahmen entfallen, wenn derselbe Burst unverändert gelesen wurde.
 6. **Bitreihenfolge:** Auf der Leitung geht in jedem Byte das niederwertige Bit zuerst, die Felder der Nachricht sind MSB-zuerst; `AISDeframer` liefert Nutzbits in Nachrichtenordnung (wie `!AIVDM`).
    Das stand nicht in der Referenz, sondern ergab sich an der echten Aufnahme (zuerst Typ 8, 10, 43 statt 1, 5).
+
+## Zwei Kanäle zugleich (A+B)
+
+`AudioPipeline` hält zusätzlich den linken und rechten Kanal der Quelle getrennt (`ringLeft`, `ringRight`, nur solange ein Modul `wantsStereo` setzt; Stereo-Senken `addStereoSink`, gleiche Blocklängen links und rechts).
+`AISDecoder` betreibt dann zwei Empfänger: links Kanal A (161,975 MHz), rechts Kanal B (162,025 MHz), mit Schalter zum Vertauschen. Jede Meldung trägt ihren Kanalbuchstaben (NMEA-Satz, Log, „Kanäle“ im Schiff).
+Voraussetzung: eine Stereoquelle, in der das SDR-Programm zwei Empfänger hat (VFO A ganz nach links, VFO B ganz nach rechts, Pan/Balance); bei einer Monoquelle gibt es nur Kanal A (Anzeige „KANAL B OHNE AUDIO“).
+Beide Empfänger sind unabhängig, die Rechenlast verdoppelt sich (unter 4 % eines Kerns).
+
+## Binäre Nachrichten
+
+Layouts und Wertebereiche nach der Beschreibung des gpsd-Projekts (`www/AIVDM.adoc`, `Vendor/_upstream/ais`, BSD) und an dessen Testsätzen geprüft; eigene Umsetzung.
+Beim Prüfen ergab sich für **FI 11** (IMO SN/Circ.236): Breite 24 Bit bei Bit 56, Länge 25 Bit bei 80, Temperaturen als Zahl ohne Vorzeichen mit Offset (Luft −60 °C, Taupunkt −20 °C, Wasser −10 °C), Wasserstand −10 m;
+für **FI 31** (IMO SN.1/Circ.289): Länge 25 Bit bei 56, Breite 24 Bit bei 81, Temperaturen mit Vorzeichen, Wasserstand in cm. Die Irland-Station der Sammlung stimmt in allen 25 Werten mit der Auswertung des Kanaton-Geräts überein
+(14,2 °C, 50 %, Taupunkt 12,3, 1024 hPa, Sicht 15,3 sm, Wasserstand −8,4 m, Strom 10,3 kn, Wellen 4,2 m / 35 s, Dünung 2,3 m, Wasser 12,3 °C, Salzgehalt 5,3 ‰).
+Schutz vor Fehldeutung (laut gpsd kommen Zufallstreffer vor): Längenprüfung je Kennung, Wertebereiche, bei 200/10 muss die Schiffsnummer (ENI) aus 8 Ziffern bestehen, ein Telegramm mit lauter Nullen gilt nicht als Wetter.
+Anzeige: Messstationen (Seezeichen und Küstenstationen) erscheinen als Windsymbol mit Windstärke in Knoten und Pfeil in Windrichtung, Einzelheiten in der Auswahl und im Schiffsdaten-Fenster; Binnenschiffe mit ENI, Fahrzeugart nach ERI, Maßen, blauen Lichtern, Beladung;
+Ziele der Verkehrszentrale (FI 17) werden als Schiffe geführt, solange das Schiff nicht selbst zu hören ist.
 
 ## Schiffsdaten aus dem Netz
 

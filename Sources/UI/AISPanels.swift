@@ -145,8 +145,8 @@ struct AISTable: View {
         let flag = AISCountry.flag(ofMMSI: v.mmsi)
         let typeText: String
         switch v.kind {
-        case .aid: typeText = v.atonType.map { AISAtonType.text($0) } ?? "Seezeichen"
-        case .base: typeText = "Küstenstation"
+        case .aid: typeText = v.meteo != nil ? "Wetter" : v.atonType.map { AISAtonType.text($0) } ?? "Seezeichen"
+        case .base: typeText = v.meteo != nil ? "Wetter" : "Küstenstation"
         case .aircraft: typeText = "Flugzeug"
         case .sart: typeText = "NOTSENDER"
         default: typeText = v.shipType.map(AISShipType.short) ?? (v.kind == .shipB ? "Klasse B" : "?")
@@ -161,7 +161,8 @@ struct AISTable: View {
             Text(v.sog.map { AISFormat.decimal($0, 1) } ?? "–").frame(width: 34, alignment: .trailing)
             Text(v.cog.map { String(format: "%.0f°", $0) } ?? "–").frame(width: 38, alignment: .trailing)
             Text(v.length.map { "\($0)" } ?? "–").frame(width: 40, alignment: .trailing)
-            Text(v.destination ?? (v.navStatus.map { AISNavStatus.short($0) } ?? "–")).frame(width: 112, alignment: .leading).lineLimit(1)
+            Text(v.destination ?? v.meteo.map(\.summary) ?? v.waterLevels?.summary ?? v.inland.map { "ENI \($0.eni)" } ?? (v.navStatus.map { AISNavStatus.short($0) } ?? "–"))
+                .frame(width: 112, alignment: .leading).lineLimit(1)
             Text(km).frame(width: 42, alignment: .trailing)
             Text(bearing).frame(width: 38, alignment: .trailing)
             Text(AISFormat.age(age)).frame(width: 40, alignment: .trailing)
@@ -251,9 +252,27 @@ struct AISTuningPanel: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
             }
-            PagerLevelBar(level: controller.level)
-                .frame(height: 8)
-                .help("Signalpegel des Datenstroms")
+            if controller.channelInfo.count == 2 {
+                ForEach(controller.channelInfo, id: \.letter) { c in
+                    HStack(spacing: 6) {
+                        Text("KANAL \(String(c.letter))")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .frame(width: 52, alignment: .leading)
+                        PagerLevelBar(level: c.level)
+                            .frame(height: 8)
+                        Text("\(c.stats.frames)")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundColor(c.inputDB < AISDiagnosis.silenceDB ? RadioTheme.ledRed : RadioTheme.vfdCyan)
+                            .frame(width: 34, alignment: .trailing)
+                    }
+                    .help("Signalpegel und Zahl der gelesenen Rahmen auf Kanal \(String(c.letter)) (\(c.letter == "A" ? "161,975" : "162,025") MHz)")
+                }
+            } else {
+                PagerLevelBar(level: controller.level)
+                    .frame(height: 8)
+                    .help("Signalpegel des Datenstroms")
+            }
             HStack {
                 readout("KANAL", settings.channel.title)
                 Spacer()
@@ -299,6 +318,13 @@ struct AISTuningPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(2)
             }
+            if !controller.binaryCounts.isEmpty {
+                Text("Binär: " + controller.binaryCounts.sorted { $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " "))
+                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                    .lineLimit(2)
+                    .help("Binärtelegramme (Typ 6 und 8) nach Gebietskennung/Funktion: 1/31 und 1/11 Wetter und Gewässer, 200/10 Binnenschiff, 200/24 Pegel, 1/17 Ziele der Verkehrszentrale, 1/29 und 1/30 Text")
+            }
             if !controller.typeCounts.isEmpty {
                 Text("Typen: " + controller.typeCounts.sorted { $0.key < $1.key }.map { "\($0.key)×\($0.value)" }.joined(separator: " "))
                     .font(.system(size: 8.5, weight: .medium, design: .monospaced))
@@ -329,16 +355,26 @@ struct AISSettingsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
-                ForEach([AISChannel.a, .b]) { c in
+                ForEach([AISChannel.a, .b, .both]) { c in
                     Button { settings.channel = c } label: {
                         VStack(spacing: 1) {
                             Text(verbatim: c.title)
-                            Text(verbatim: c.label + " MHz").font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(RadioTheme.textDim)
+                            Text(verbatim: c.isDual ? "L = A · R = B" : c.label + " MHz").font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(RadioTheme.textDim)
                         }
                         .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.channel == c))
-                    .help(c.detail + ". Mit QSY AUTO stellt Digidec das Funkgerät über den Commander in FM auf diese Frequenz.")
+                    .help(c.detail + (c.isDual ? ". Zwei Empfänger im SDR-Programm, Kanal A ganz nach links, Kanal B ganz nach rechts (Pan/Balance); Eingang „L“ oder „R“ spielt keine Rolle." : ". Mit QSY AUTO stellt Digidec das Funkgerät über den Commander in FM auf diese Frequenz."))
+                }
+            }
+            if settings.channel.isDual {
+                HStack(spacing: 6) {
+                    Button { settings.swapChannels.toggle() } label: {
+                        Label(settings.swapChannels ? "LINKS B · RECHTS A" : "LINKS A · RECHTS B", systemImage: "arrow.left.arrow.right")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.swapChannels))
+                    .help("Vertauscht die Zuordnung der Audiokanäle zu den AIS-Kanälen (Standard: links 161,975 MHz = A, rechts 162,025 MHz = B)")
                 }
             }
             HStack(spacing: 6) {
@@ -358,7 +394,7 @@ struct AISSettingsPanel: View {
                     .buttonStyle(ModeButtonStyle(isSelected: settings.webLookup))
                     .help("Beim Öffnen der Schiffsdaten automatisch im Netz suchen (Wikidata, Wikimedia Commons, Wikipedia). Dabei gehen MMSI, IMO-Nummer, Rufzeichen und Name des Schiffs an diese Dienste. Aus: erst auf Knopfdruck im Fenster.")
             }
-            Text("Digidec liest das Diskriminator-Audio eines FM-Empfängers (SDR-Programm → VALHost oder Funkgerät). Zwei Kanäle gibt es: einen nach dem anderen hören, oder in zwei SDR-Programm-Instanzen je einen. Einstellung im SDR-Programm: FM-Bandbreite 15 … 25 kHz, Audio mindestens 6 kHz breit, ohne De-Emphase, Rauschsperre offen. Antenne: Marine-Antenne oder 2-m-Antenne mit freier Sicht zum Wasser.")
+            Text("Digidec liest das Diskriminator-Audio eines FM-Empfängers (SDR-Programm → VALHost oder Funkgerät). Zwei AIS-Kanäle gibt es: A+B hört beide zugleich (zwei Empfänger im SDR-Programm, A links, B rechts, bei einer Stereoquelle), sonst ein Kanal nach dem anderen. Einstellung im SDR-Programm: FM-Bandbreite 15 … 25 kHz, Audio mindestens 6 kHz breit, ohne De-Emphase, Rauschsperre offen. Antenne: Marine-Antenne oder 2-m-Antenne mit freier Sicht zum Wasser.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -426,6 +462,11 @@ struct ShipInfoWindow: View {
         .preferredColorScheme(.dark)
     }
 
+    /// Nur Schiffe werden im Netz gesucht, nicht Seezeichen, Küstenstationen und Notsender
+    private static func isShip(_ v: AISVessel) -> Bool {
+        v.kind == .shipA || v.kind == .shipB || v.kind == .craft
+    }
+
     private func query(_ v: AISVessel) -> ShipQuery {
         ShipQuery(mmsi: v.mmsi, imo: v.imo, callsign: v.callsign, name: v.name)
     }
@@ -436,7 +477,7 @@ struct ShipInfoWindow: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 header(v)
-                photo(v)
+                if Self.isShip(v) { photo(v) }
                 if let e = model.info?.extract {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(e)
@@ -452,15 +493,16 @@ struct ShipInfoWindow: View {
                     .background(RadioTheme.bgDeep.opacity(0.6))
                     .cornerRadius(6)
                 }
-                webFacts
+                if Self.isShip(v) { webFacts }
                 aisFacts(v)
-                links(q)
-                footer(q)
+                binaryFacts(v)
+                if Self.isShip(v) { links(q) }
+                if Self.isShip(v) { footer(q) }
             }
             .padding(14)
         }
         .task(id: q) {
-            if settings.webLookup { model.load(q) } else { model.reset() }
+            if settings.webLookup && Self.isShip(v) { model.load(q) } else { model.reset() }
         }
     }
 
@@ -606,6 +648,39 @@ struct ShipInfoWindow: View {
         return VStack(alignment: .leading, spacing: 4) {
             sectionTitle("AUS DEM AIS-SIGNAL (LIVE)")
             table(rows)
+        }
+    }
+
+
+    /// Telegramme mit Wetter, Binnenschiff-Daten, Pegelständen und Warnungen
+    private func binaryRows(_ v: AISVessel) -> [(String, String)] {
+        var rows: [(String, String)] = []
+        if let w = v.meteo {
+            if let d = w.day, let h = w.hour, let m = w.minute { rows.append(("Messung", String(format: "Tag %d, %02d:%02d UTC", d, h, m))) }
+            for (i, l) in w.lines.enumerated() { rows.append((i == 0 ? "Wetter · Gewässer" : "", l)) }
+        }
+        if let i = v.inland {
+            rows.append(("Binnenschiff", "ENI \(i.eni) (europäische Schiffsnummer)"))
+            rows.append(("Fahrzeugart", i.shipTypeText))
+            if let l = i.length { rows.append(("Länge · Breite", String(format: "%.1f m", l).replacingOccurrences(of: ".", with: ",") + (i.beam.map { String(format: " · %.1f m", $0).replacingOccurrences(of: ".", with: ",") } ?? ""))) }
+            if let h = i.hazardText { rows.append(("Gefahrgut", h)) }
+            if let l = i.loadedText { rows.append(("Ladung", l)) }
+            if let d = i.draught { rows.append(("Tiefgang", String(format: "%.2f m", d).replacingOccurrences(of: ".", with: ","))) }
+        }
+        if let w = v.waterLevels { rows.append(("Pegel (" + w.country + ")", w.summary)) }
+        if let e = v.emma { rows.append(("Warnung", e.text)) }
+        if let o = v.otherBinary { rows.append(("Binärtelegramm", o + " (nicht ausgewertet)")) }
+        return rows
+    }
+
+    @ViewBuilder
+    private func binaryFacts(_ v: AISVessel) -> some View {
+        let rows = binaryRows(v)
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                sectionTitle("BINÄRTELEGRAMME")
+                table(rows)
+            }
         }
     }
 

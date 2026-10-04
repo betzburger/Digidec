@@ -34,6 +34,14 @@ public struct AISBitWriter {
         }
     }
 
+    /// Feld an eine bestimmte Bitstelle schreiben (die Folge wird mit Nullen verlängert)
+    public mutating func set(_ value: Int, at start: Int, _ length: Int) {
+        pad(to: start + length)
+        let mask: UInt64 = length >= 64 ? .max : (UInt64(1) << UInt64(length)) - 1
+        let v = UInt64(bitPattern: Int64(value)) & mask
+        for k in 0..<length { bits[start + k] = UInt8((v >> UInt64(length - 1 - k)) & 1) }
+    }
+
     public mutating func pad(to length: Int) {
         while bits.count < length { bits.append(0) }
     }
@@ -136,6 +144,79 @@ public enum AISSignalGenerator {
         w.i(Int((lat * 600_000).rounded()), 27)
         w.u(1, 4); w.u(0, 10); w.flag(false)
         w.pad(to: 168)
+        return w.bits
+    }
+
+    // MARK: Binäre Nachrichten (Typ 8)
+
+    private static func binaryHeader(mmsi: UInt32, dac: Int, fid: Int) -> AISBitWriter {
+        var w = AISBitWriter()
+        w.u(8, 6); w.u(0, 2); w.u(mmsi, 30); w.u(0, 2); w.u(UInt32(dac), 10); w.u(UInt32(fid), 6)
+        return w
+    }
+
+    /// Wetter und Gewässer nach IMO SN.1/Circ.289 (DAC 1, FI 31), 360 Bit; nicht angegebene Werte stehen auf „nicht verfügbar“
+    public static func meteo31(mmsi: UInt32, lat: Double, lon: Double, day: Int = 4, hour: Int = 12, minute: Int = 30, windKn: Int? = nil, gustKn: Int? = nil,
+                               windDir: Int? = nil, airTemp: Double? = nil, humidity: Int? = nil, pressure: Int? = nil, waterLevel: Double? = nil,
+                               waveHeight: Double? = nil, waterTemp: Double? = nil) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 1, fid: 31)
+        w.set(Int((lon * 60_000).rounded()), at: 56, 25)
+        w.set(Int((lat * 60_000).rounded()), at: 81, 24)
+        w.set(1, at: 105, 1)
+        w.set(day, at: 106, 5); w.set(hour, at: 111, 5); w.set(minute, at: 116, 6)
+        w.set(windKn ?? 127, at: 122, 7); w.set(gustKn ?? 127, at: 129, 7)
+        w.set(windDir ?? 360, at: 136, 9); w.set(360, at: 145, 9)
+        w.set(airTemp.map { Int(($0 * 10).rounded()) } ?? -1024, at: 154, 11)
+        w.set(humidity ?? 101, at: 165, 7)
+        w.set(501, at: 172, 10)
+        w.set(pressure.map { $0 - 800 } ?? 511, at: 182, 9)
+        w.set(3, at: 191, 2)
+        w.set(127, at: 194, 7)
+        w.set(waterLevel.map { Int((($0 + 10) * 100).rounded()) } ?? 4001, at: 201, 12)
+        w.set(3, at: 213, 2)
+        w.set(255, at: 215, 8); w.set(360, at: 223, 9); w.set(255, at: 232, 8); w.set(360, at: 240, 9); w.set(31, at: 249, 5)
+        w.set(255, at: 254, 8); w.set(360, at: 262, 9); w.set(31, at: 271, 5)
+        w.set(waveHeight.map { Int(($0 * 10).rounded()) } ?? 255, at: 276, 8); w.set(63, at: 284, 6); w.set(360, at: 290, 9)
+        w.set(255, at: 299, 8); w.set(63, at: 307, 6); w.set(360, at: 313, 9)
+        w.set(13, at: 322, 4)
+        w.set(waterTemp.map { Int(($0 * 10).rounded()) } ?? 501, at: 326, 10)
+        w.set(7, at: 336, 3); w.set(510, at: 339, 9); w.set(3, at: 348, 2)
+        w.pad(to: 360)
+        return w.bits
+    }
+
+    /// Binnenschiff-Daten (DAC 200, FI 10), 168 Bit
+    public static func inlandStatic(mmsi: UInt32, eni: String, length: Double, beam: Double, eriType: Int, hazardCones: Int, draught: Double, loaded: Int) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 200, fid: 10)
+        w.text(eni, chars: 8)
+        w.set(Int((length * 10).rounded()), at: 104, 13)
+        w.set(Int((beam * 10).rounded()), at: 117, 10)
+        w.set(eriType, at: 127, 14)
+        w.set(hazardCones, at: 141, 3)
+        w.set(Int((draught * 100).rounded()), at: 144, 11)
+        w.set(loaded, at: 155, 2)
+        w.pad(to: 168)
+        return w.bits
+    }
+
+    /// Pegelstände (DAC 200, FI 24): bis vier Pegel mit Kennung und Stand in cm, 168 Bit
+    public static func waterLevels(mmsi: UInt32, country: String, gauges: [(id: Int, cm: Int)]) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 200, fid: 24)
+        w.text(country, chars: 2)
+        for (i, g) in gauges.prefix(4).enumerated() {
+            w.set(g.id, at: 68 + 25 * i, 11)
+            w.set(g.cm, at: 79 + 25 * i, 14)
+        }
+        w.pad(to: 168)
+        return w.bits
+    }
+
+    /// Textbeschreibung (DAC 1, FI 29)
+    public static func textBroadcast(mmsi: UInt32, linkage: Int, text: String) -> [UInt8] {
+        var w = binaryHeader(mmsi: mmsi, dac: 1, fid: 29)
+        w.u(UInt32(linkage), 10)
+        w.text(text, chars: text.count)
+        while w.bits.count % 8 != 0 { w.bits.append(0) }
         return w.bits
     }
 

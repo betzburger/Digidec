@@ -61,7 +61,7 @@ public actor ShipInfoService {
     public static let shared = ShipInfoService()
 
     private let session: URLSession
-    private let userAgent = "Digidec/0.54 (macOS; AIS ship info; Wikimedia API client)"
+    private let userAgent = "Digidec/0.55 (macOS; AIS ship info; Wikimedia API client)"
 
     public init() {
         let cfg = URLSessionConfiguration.default
