@@ -325,8 +325,10 @@ enum POCSAGEqualizer {
 
 // MARK: - Abschnittsverwaltung im Empfänger
 
-/// Begleitet eine Baudrate: sammelt Audio ab dem Vorspann und holt, wenn der einfache Zweig nichts liest, die Meldungen über den Entzerrer.
-/// Ergebnisse erscheinen einige Sekunden nach der Aussendung (der Abschnitt wird alle zwei Sekunden neu ausgewertet).
+/// Begleitet eine Baudrate: sammelt Audio ab dem Vorspann und liest es mit dem Entzerrer, falls der einfache Zweig nicht alles liest.
+/// Der Abschnitt wird alle zwei Sekunden neu ausgewertet, die Meldungen aber erst beim Schließen ausgegeben (3 s nach dem letzten guten
+/// Stapel, am Ende der Aufnahme oder nach 20 s): sonst erschienen angefangene Meldungen, und die vollständige käme nie mehr nach.
+/// Was der einfache Zweig im Abschnitt schon ausgegeben hat (gleiche Rufnummer, Funktion und Text), kommt nicht noch einmal.
 final class POCSAGRescue {
     let rate: Int
     let sampleRate: Double
@@ -343,9 +345,10 @@ final class POCSAGRescue {
     private var nextPass = 0
     private var lastGood = 0
     private var lastPreambles = 0
-    private var base = POCSAGStats()
-    private var stats = POCSAGStats()
-    private var sent: [(address: Int, time: Date)] = []
+    /// Meldungen der letzten Auswertung, noch nicht ausgegeben
+    private var pending: [PagerMessage] = []
+    /// Schon ausgegebene Meldungen dieses Abschnitts (Rufnummer, Funktion, Klartext, Ziffern)
+    private var keys: Set<String> = []
     /// Vom Entzerrer gelesene Meldungen (für die Diagnose)
     private(set) var count = 0
 
@@ -361,10 +364,11 @@ final class POCSAGRescue {
     func reset() {
         tail.removeAll()
         seg.removeAll()
+        pending.removeAll()
+        keys.removeAll()
         active = false
         lastPreambles = 0
         count = 0
-        sent.removeAll()
     }
 
     /// Zähler der Diagnose auf null (die Zähler des Rahmenlesers werden gleichzeitig gelöscht)
@@ -373,14 +377,17 @@ final class POCSAGRescue {
         count = 0
     }
 
-    /// Meldung des einfachen Zweigs: der Entzerrer gibt dieselbe Rufnummer zur selben Zeit nicht noch einmal aus
+    private static func key(_ m: PagerMessage) -> String {
+        "\(m.address)|\(m.function)|\(m.alpha)|\(m.numeric)"
+    }
+
+    /// Meldung des einfachen Zweigs: der Entzerrer gibt dieselbe Meldung nicht noch einmal aus
     func noteEmitted(_ m: PagerMessage) {
-        if active { sent.append((m.address, m.time)) }
+        if active { keys.insert(Self.key(m)) }
     }
 
     /// Einen Block Audio aufnehmen; `stats` sind die Zähler des Rahmenlesers dieser Baudrate
     func feed(_ block: UnsafeBufferPointer<Float>, stats: POCSAGStats, now: Date, emit: (PagerMessage) -> Void) {
-        self.stats = stats
         if active {
             seg.append(contentsOf: block)
         } else {
@@ -394,8 +401,8 @@ final class POCSAGRescue {
                 preambleStarts = [max(0, Double(seg.count) - 100 * spb)]
                 nextPass = seg.count + Int(2.5 * sampleRate)
                 lastGood = 0
-                base = stats
-                sent.removeAll()
+                pending.removeAll()
+                keys.removeAll()
             }
         }
         // Weiterer Vorspann im selben Abschnitt: neue Aussendung mit anderer Taktlage
@@ -408,46 +415,58 @@ final class POCSAGRescue {
         pass(emit: emit)
     }
 
-    /// Ende der Aufnahme: letzten Abschnitt auswerten
+    /// Ende der Aufnahme: letzten Abschnitt auswerten und ausgeben
     func flush(emit: (PagerMessage) -> Void) {
         guard active else { return }
-        if seg.count > Int(sampleRate) { pass(emit: emit) }
+        if seg.count > Int(sampleRate) { evaluate() }
+        release(dropLast: false, emit: emit)
         finish()
     }
 
     private func finish() {
         tail = Array(seg.suffix(preRoll))
         seg.removeAll()
+        pending.removeAll()
         active = false
     }
 
+    /// Ausgewertete Meldungen ausgeben. `dropLast`: der Abschnitt wurde mitten in einer Aussendung abgeschnitten, die letzte Meldung
+    /// ist dann unvollständig (der einfache Zweig liest sie weiter).
+    private func release(dropLast: Bool, emit: (PagerMessage) -> Void) {
+        var list = pending
+        pending.removeAll()
+        if dropLast && !list.isEmpty { list.removeLast() }
+        for var m in list {
+            let k = Self.key(m)
+            if keys.contains(k) { continue }
+            keys.insert(k)
+            m.detail = "entzerrt"
+            count += 1
+            emit(m)
+        }
+    }
+
+    /// Abschnitt entzerren und die Meldungen vormerken
+    private func evaluate() {
+        pending.removeAll()
+        guard let r = POCSAGEqualizer.equalize(seg, sampleRate: sampleRate, baud: baud, starts: preambleStarts) else { return }
+        var framer = POCSAGFramer(rate: rate)
+        for i in 0..<r.bits.count {
+            let when = segStart.addingTimeInterval(r.times[i] / sampleRate)
+            framer.push(Int(r.bits[i]), now: when) { pending.append($0) }
+        }
+        pending.append(contentsOf: framer.flushMessage())
+        lastGood = max(lastGood, r.lastGoodEnd)
+    }
+
     private func pass(emit: (PagerMessage) -> Void) {
+        evaluate()
         let length = seg.count
-        // Der einfache Zweig hat synchronisiert und keinen Stapel verloren: kein Entzerrer nötig (sonst kämen Meldungen doppelt)
-        if stats.syncs > base.syncs && stats.batchesBad == base.batchesBad {
-            if stats.batchesGood > base.batchesGood { finish() } else { nextPass = length + Int(2 * sampleRate) }
-            return
-        }
-        if let r = POCSAGEqualizer.equalize(seg, sampleRate: sampleRate, baud: baud, starts: preambleStarts) {
-            var framer = POCSAGFramer(rate: rate)
-            var found: [PagerMessage] = []
-            for i in 0..<r.bits.count {
-                let when = segStart.addingTimeInterval(r.times[i] / sampleRate)
-                framer.push(Int(r.bits[i]), now: when) { found.append($0) }
-            }
-            found.append(contentsOf: framer.flushMessage())
-            for var m in found {
-                if sent.contains(where: { $0.address == m.address && abs($0.time.timeIntervalSince(m.time)) < 2.5 }) { continue }
-                sent.append((m.address, m.time))
-                m.detail = "entzerrt"
-                count += 1
-                emit(m)
-            }
-            lastGood = max(lastGood, r.lastGoodEnd)
-        }
         let quietFor = Double(length - lastGood) / sampleRate
         let waited = (Double(length) - (preambleStarts.first ?? 0)) / sampleRate
-        if (lastGood > 0 && quietFor > 3) || (lastGood == 0 && waited > 7) || length > maxLength {
+        let capped = length > maxLength
+        if (lastGood > 0 && quietFor > 3) || (lastGood == 0 && waited > 7) || capped {
+            release(dropLast: capped, emit: emit)
             finish()
         } else {
             nextPass = length + Int(2 * sampleRate)
