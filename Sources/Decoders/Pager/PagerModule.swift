@@ -212,6 +212,7 @@ public enum PagerDiagnosis {
         let good = active.reduce(0) { $0 + $1.batchesGood }
         let bad = active.reduce(0) { $0 + $1.batchesBad }
         let messages = active.reduce(0) { $0 + $1.messages }
+        let equalized = active.reduce(0) { $0 + $1.equalized }
         if inputDB < silenceDB && preambles == 0 && syncs == 0 {
             return Result(severity: .problem, title: "KEIN AUDIO",
                           advice: "Am Eingang liegt kein Signal an. Rauschsperre des Funkgeräts offen? Richtiger Kanal (L, R oder L+R) und Eingang gewählt?")
@@ -219,6 +220,10 @@ public enum PagerDiagnosis {
         if preambles == 0 && syncs == 0 {
             return Result(severity: .waiting, title: "WARTEN AUF FUNKRUF",
                           advice: "Audio kommt an, aber noch kein Funkrufsignal. DAPNET sendet nur zeitweise: weiter warten. Sonst Frequenz, Betriebsart FM (nicht schmal) und Diskriminator-Audio ohne Rauschsperre prüfen.")
+        }
+        if equalized > 0 && equalized * 2 >= messages {
+            return Result(severity: .ok, title: "EMPFANG ENTZERRT",
+                          advice: "Das Audio ist verbogen (Hochpass oder Bandpass im Audioweg): Digidec entzerrt es und liest die Meldungen nachträglich, einige Sekunden nach der Aussendung. Besser wäre Diskriminator-Audio ohne Hochpass.")
         }
         if syncs == 0 {
             return Result(severity: .problem, title: "VORSPANN OHNE SYNCHRONWORT",

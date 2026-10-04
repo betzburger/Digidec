@@ -230,6 +230,8 @@ public struct POCSAGStats: Equatable, Sendable {
     public var wordsGood = 0
     public var wordsBad = 0
     public var messages = 0
+    /// Meldungen, die erst der Entzerrer (`POCSAGEqualizer`) aus verbogenem Audio gelesen hat
+    public var equalized = 0
     /// Das Synchronwort wurde invertiert gelesen
     public var inverted = false
     public var lastPreamble: Date?
@@ -447,6 +449,8 @@ public final class POCSAGReceiver {
     public let sampleRate: Double
     private var slicers: [PagerBitSlicer]
     private var framers: [POCSAGFramer]
+    /// Entzerrer je Baudrate: springt ein, wenn der einfache Zweig bei verbogenem Audio nichts liest
+    private var rescues: [POCSAGRescue]
     public private(set) var synced: [Bool]
     /// Zuletzt gute Meldung: andere Baudraten mit zweifelhaften Meldungen werden danach kurz ignoriert
     private var lastGood: (rate: Int, sample: Int)?
@@ -456,6 +460,7 @@ public final class POCSAGReceiver {
         self.sampleRate = sampleRate
         slicers = POCSAG.rates.map { PagerBitSlicer(sampleRate: sampleRate, baud: Double($0)) }
         framers = POCSAG.rates.map { POCSAGFramer(rate: $0) }
+        rescues = POCSAG.rates.map { POCSAGRescue(rate: $0, sampleRate: sampleRate) }
         synced = [false, false, false]
     }
 
@@ -463,10 +468,19 @@ public final class POCSAGReceiver {
     public var enabled: Set<Int> = [0, 1, 2]
 
     /// Zähler je Baudrate (512, 1200, 2400) für die Diagnose
-    public var stats: [POCSAGStats] { framers.map(\.stats) }
+    public var stats: [POCSAGStats] {
+        framers.indices.map { i in
+            var s = framers[i].stats
+            s.equalized = rescues[i].count
+            return s
+        }
+    }
 
     public func resetStats() {
-        for i in framers.indices { framers[i].resetStats() }
+        for i in framers.indices {
+            framers[i].resetStats()
+            rescues[i].resetCounters()
+        }
     }
 
     public var level: Double { Double(slicers.map(\.level).max() ?? 0) }
@@ -474,27 +488,36 @@ public final class POCSAGReceiver {
     /// Angefangene Meldungen ausgeben (z. B. am Ende einer Datei)
     public func flush(emit: (PagerMessage) -> Void) {
         for i in framers.indices { for m in framers[i].flushMessage() { emit(m) } }
+        for i in rescues.indices where enabled.contains(i) {
+            rescues[i].flush { m in accept(m, rateIndex: i, emit: emit) }
+        }
     }
 
     public func reset() {
         slicers.forEach { $0.reset() }
         for i in framers.indices { framers[i].reset() }
+        rescues.forEach { $0.reset() }
         synced = [false, false, false]
+    }
+
+    /// Meldung einer Baudrate weitergeben, außer sie widerspricht einer gerade gelesenen guten Meldung einer anderen Baudrate
+    private func accept(_ m: PagerMessage, rateIndex i: Int, emit: (PagerMessage) -> Void) {
+        let clean = m.damaged == 0 && m.corrected == 0 && !(m.alpha.isEmpty && m.numeric.isEmpty)
+        if clean { lastGood = (POCSAG.rates[i], sampleCount) }
+        // falsche Baudrate neben einer gerade gelesenen guten Meldung: nur makellose Meldungen zulassen
+        if let g = lastGood, g.rate != POCSAG.rates[i], Double(sampleCount - g.sample) < 3 * sampleRate, !clean { return }
+        rescues[i].noteEmitted(m)
+        emit(m)
     }
 
     public func process(_ block: UnsafeBufferPointer<Float>, now: Date = Date(), emit: (PagerMessage) -> Void) {
         for i in slicers.indices where enabled.contains(i) {
             slicers[i].process(block) { bit in
-                framers[i].push(bit, now: now) { m in
-                    let clean = m.damaged == 0 && m.corrected == 0 && !(m.alpha.isEmpty && m.numeric.isEmpty)
-                    if clean { lastGood = (POCSAG.rates[i], sampleCount) }
-                    // falsche Baudrate neben einer gerade gelesenen guten Meldung: nur makellose Meldungen zulassen
-                    if let g = lastGood, g.rate != POCSAG.rates[i], Double(sampleCount - g.sample) < 3 * sampleRate, !clean { return }
-                    emit(m)
-                }
+                framers[i].push(bit, now: now) { m in accept(m, rateIndex: i, emit: emit) }
                 if framers[i].isSynced { slicers[i].markLocked() }
             }
             synced[i] = framers[i].isSynced
+            rescues[i].feed(block, stats: framers[i].stats, now: now) { m in accept(m, rateIndex: i, emit: emit) }
         }
         sampleCount += block.count
     }
