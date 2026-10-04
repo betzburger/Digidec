@@ -389,7 +389,7 @@ Priorität nach Nutzen und Aufwand. „Leicht“ = C/C++ mit wenig Abhängigkeit
 | ACARS | acarsdec | C | leicht |
 | VDL2 | dumpvdl2 | C | mittel |
 | HFDL | dumphfdl (nur gelesen, I/Q-Eingang) | C | **erledigt (0.53.0)**, eigener Audio-Empfänger in Swift |
-| AIS | AIS-catcher | C++ | leicht–mittel |
+| AIS | AIS-catcher (nur als Gegenprobe), eigene Umsetzung | C++ / Swift | **erledigt (0.54.0)**, eigener Audio-Empfänger in Swift |
 | DSC, VOR, ILS, LoRa | SDRangel | C++ (Qt) | schwer |
 | NOAA APT / Meteor LRPT | aptdec / SatDump | C / C++ | leicht / schwer |
 | Radiosonden | zilog80/radiosonde | C | RS41 erledigt (0.46.0, eigene Umsetzung); M10/M20, DFM u. a. offen |
@@ -461,6 +461,8 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M49 | Suchlauf SONDE | ✅ 04.10.2026 (v0.51.0): Knöpfe BEKANNTE und BAND im rechten Bereich „SONDE“: stimmt das Funkgerät (QSY AUTO, Commander) Frequenz für Frequenz ab und bleibt bei der ersten lesbaren Sonde stehen; „Bekannte Frequenzen“ (Startorte der Umgebung, schon gehörte) oder „Ganzes Band 400 … 406 MHz“ |
 | M50 | Startorte auf der Sonden-Karte | ✅ 04.10.2026 (v0.52.0): Startorte (RS41, Umkreis des Sendeplans) mit Name, Frequenz und Zeiten auf der Karte; der Weg einer Sonde beginnt am vermuteten Startort und läuft über alle empfangenen Positionen |
 | M51 | HFDL | ✅ 04.10.2026 (v0.53.0): neues Modul HFDL (ARINC 635): Datenlink der Flugzeuge auf KW, USB-Audio, PSK 1800 Bd (300 bis 1800 bit/s, einfacher und doppelter Slot), 16 Bodenstationen mit allen Kanälen, Squitter, Anmeldungen, Frequenz- und Leistungsdaten mit Ort, ACARS im HFDL; Karte mit Flugzeugen und Stationen; eigener Empfänger, Gegenprobe mit dumphfdl (echte Aufnahme: alle 24 Referenzrahmen, dazu 2 mehr; alle 8 Betriebsarten durch dumphfdl lesbar) |
+| M52 | AIS | ✅ 04.10.2026 (v0.54.0): neues Modul AIS (Schiffsverfolgung, GMSK 9600 Bd, 161,975 / 162,025 MHz) aus FM-Diskriminator-Audio (SDR-Programm über VALHost); eigener Empfänger (Korrelation auf Training und Flagge, Taktnachführung, Bitkorrektur), Nachrichten 1–5, 9, 11, 12, 14, 18, 19, 21, 24, 27; Schiffsliste, Karte mit Kurs und Weg, NMEA-Log; Klick auf ein Schiff öffnet ein Fenster mit Foto, Baujahr und technischen Daten aus Wikidata, Wikimedia Commons und Wikipedia; echte Aufnahme bitgleich mit AIS-catcher (`Vendor/Ais/UPSTREAM_AIS.md`) |
+
 ---
 
 ## 11. Aktueller Stand
@@ -1152,12 +1154,22 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - Die Uhrzeit der Meldungen ist die des Empfangs (Ende des Bursts), nicht die des Senders. Eine Inversion (LSB) wird nicht ausgeglichen.
     - Im Doppel-Slot (4,5 s) kann sich die Zeit bei starkem Taktfehler des Audiogeräts verschieben; geprüft sind nur 2 echte Doppel-Slot-Rahmen.
 - **0.53.1 (04.10.2026): Modul SONDE: Stationstasten und Suchlauf in die rechte Spalte.** Die Tasten saßen als Leiste über der Sondenliste, die Bedienung aller anderen Decoder (Kanal, Band, Frequenz) liegt aber im rechten Bereich. Jetzt: `SondeSettingsPanel` zeigt oben die Stationen (zwei Spalten, höchstens 12, nächste zuerst, Name und MHz), darunter SUCHLAUF (BEKANNTE, BAND, STOP) mit Meldung, dann die Frequenzeingabe. Der Hauptbereich (Liste, REC, LOG) ist wie in 0.46.0.
+- **0.54.0 (04.10.2026): M52 AIS.**
+  - **Anlass:** Nutzer: „AIS einbauen; Signal über die virtuelle Soundkarte (VALHost), Karte mit Schiffen, Klick auf ein Schiff soll im Netz suchen und in einem Fenster Bild, Baujahr und technische Daten zeigen.“ Als Quellen dienen RTL-SDR, HackRF und SDRPlay Duo mit einem SDR-Programm (FM-Demodulator).
+  - **Entscheidung Eingang:** Digidec liest Diskriminator-Audio (Pipeline 48 kHz, 5 Abtastwerte je Bit), kein I/Q. Ein Kanal zugleich (A 161,975 oder B 162,025 MHz); zwei SDR-Instanzen oder Umschalten für beide. Einzelheiten, Empfänger und Nachweis: `Vendor/Ais/UPSTREAM_AIS.md`.
+  - **Dateien:** `Sources/Decoders/AIS/` (Core, Message, Demod, SignalGenerator, Module), `Sources/Models/ShipInfoService.swift`, `Sources/UI/AISPanels.swift`; Prüfstand `Tools/AISBench` (`ais_bench.sh <wav>`, `fm` I/Q → Audio, `synth`, `selftest`, `info <mmsi> <imo> …`, `demo`; `ais_rf_sim.py` für die nachgebildete Funkstrecke).
+  - **Bedienung:** Modul AIS (VHF/UHF). Liste (Name mit Flagge, MMSI, Typ, kn, Kurs, Länge, Ziel, km, Peilung, Alter), Filter SCHIFFE / SEEZEICHEN / STATIONEN, REC, LOG (NMEA `!AIVDM` je Tag, z. B. für OpenCPN), Karte mit Schiffssymbol je Typ, Kurspfeil, Weg (SPUR). **Ein Klick auf ein Schiff in der Karte** (Einstellung INFO BEI KLICK) oder Doppelklick in der Liste öffnet das Fenster „Schiffsdaten“: Foto (Wikidata, sonst Wikimedia Commons über die IMO-Nummer, mit Urheber und Lizenz), Kurztext aus Wikipedia, Daten aus Wikidata (Schiffstyp, Baujahr bzw. in Dienst seit, Werft, Eigner, Betreiber, Registerland, Heimathafen, Maße, Tiefgang, Bruttoraumzahl, Geschwindigkeit …), darunter die Live-Daten aus dem AIS-Signal und Knöpfe zu MarineTraffic, VesselFinder, ShipSpotting, BalticShipping. NETZ-SUCHE aus: Abfrage erst auf Knopfdruck.
+  - **Netz:** Wikidata, Wikimedia Commons und Wikipedia (ohne Schlüssel). Die großen Schiffsdatenbanken haben keine freie Schnittstelle (Verweise im Browser). Wikidata kennt vor allem große Schiffe; Boote und Segler fehlen oft, dann bleibt es bei den AIS-Daten. Gesendet werden MMSI, IMO-Nummer, Rufzeichen, Name.
+  - **Nachweis:** siehe `Vendor/Ais/UPSTREAM_AIS.md` (gpsd-Testsätze, echte Aufnahme bitgleich mit AIS-catcher, nachgebildete Funkstrecke: ab 12 dB C/N 98 %, bei 10 dB 93 %, 8 dB 56 % gegen 99 % bei AIS-catcher auf I/Q, kein Zufallsrahmen in 400 s Rauschen).
+  - **Entwicklungshilfen:** `DIGIDEC_AIS_NMEA=<datei>` (Sätze wie empfangen aufnehmen), `DIGIDEC_AIS_INFO=<MMSI>` (Schiffsdaten-Fenster öffnen), `DIGIDEC_SNAPSHOT_WINDOW=Schiffsdaten` (dieses Fenster statt des Hauptfensters aufnehmen), `AIS_LOWPASS`/`AIS_STAGES` (Empfängerzweige und Stufen für Versuche).
+  - **Gefunden unterwegs:** (1) Bytefolge der Leitung: pro Byte niederwertiges Bit zuerst (Typ 8 statt 1 ohne Umkehrung). (2) Zufallstreffer der CRC-16 bei Rauschen (2 bis 3 je 400 s), behoben durch Längen-/MMSI-Prüfung und Bestätigung korrigierter Rahmen. (3) Platzhalter-MMSI wie 222222222 senden in der Praxis; sie gelten beim unveränderten Rahmen.
+  - **Grenzen/Offen:** Live-Empfang offen (eigener Test mit RTL-SDR/HackRF/SDRplay und VALHost: FM mindestens 15 kHz, besser 25 kHz, Audio mindestens 6 kHz ohne De-Emphase und Sprachfilter). Unter etwa 10 dB C/N (nur Audio hinter dem Diskriminator) sinkt die Ausbeute. Kein Doppelkanal (A und B gleichzeitig; möglich wäre L = A, R = B aus einer Stereoquelle), keine Nachrichten 6/8 (binäre Meldungen, Wetter, Fahrwasserdaten), kein NMEA-Ausgang per UDP/TCP. Alle Dienste Netz → nur bei Verbindung.
 - **Nächste Schritte:**
   - HFDL live (siehe 0.53.0); danach ADS-C-Positionen und CPDLC aus den ACARS-Texten (ARINC 622), Suchlauf über die Kanäle nach Tageszeit.
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.
   - Sonden live: PCR-1500, FM, 15-kHz-Filter (50 kHz geht auch), Frequenz einer Sonde in der Nähe (Starts etwa 23 und 11 UTC); bei Misserfolg REC drücken und die WAV bereithalten. Danach Suchlauf über 400 … 406 MHz, M10/M20 und DFM.
   - Skimmer live: 20 m CW (14,020 MHz) und PSK31 (14,070 MHz) mit breitem USB-Filter; Schwelle, Mindest-S/N und Scheinsignale beurteilen, Fehlerbild abwarten (insbesondere CW bei QSB und QRN).
-  - AIS (161,975 / 162,025 MHz, 9600 Bd GMSK): erst die Bandbreite des FM-Audios beider Geräte messen (Aufnahme 30 s), dann Decoder; Karte und Stationsliste sind da.
+  - AIS live (0.54.0): SDR-Programm → VALHost, 161,975 MHz FM; bei Misserfolg REC drücken (30 s) und die WAV bereithalten; danach Doppelkanal (L = A, R = B) und binäre Nachrichten (Wetter, Fahrwasser) erwägen.
   - JT65/JT9 (WSJT-X), Mehrträger-PSKR/OFDM; Bildempfang (MFSK, Thor, IFKP, FSQ); FSQ-Rufzeichenauswertung.
   - Parallelbetrieb mehrerer Module (kein Warnton, vom Nutzer nicht gewünscht).
   - CW-Erkennung verbessern (Fehlerbild vom Nutzer abwarten).

@@ -9,6 +9,7 @@ struct ModuleMapView: View {
             switch state.activeModule {
             case .aprs:   APRSMapView(controller: state.aprsController, settings: state.aprs, home: state.home)
             case .acars:  ACARSMapView(controller: state.acarsController, home: state.home)
+            case .ais:    AISMapView(controller: state.aisController, settings: state.ais, home: state.home)
             case .hfdl:   HFDLMapView(controller: state.hfdlController, home: state.home)
             case .sonde:  SondeMapView(controller: state.sondeController, home: state.home)
             case .ft8:    FT8MapView(controller: state.ft8Controller, home: state.home)
@@ -45,7 +46,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .acars, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -54,7 +55,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .acars, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -68,6 +69,7 @@ extension DecoderModuleInfo {
         case .efr: return "Rundsteuertelegramme"
         case .skimmer: return "Alle gehörten Signale mit Rufzeichen, Rauschabstand und Spots"
         case .sonde: return "Die empfangenen Radiosonden mit Höhe, Steigen, Messwerten und Entfernung"
+        case .ais: return "Die empfangenen Schiffe mit Typ, Fahrt, Ziel und Entfernung; Doppelklick öffnet die Schiffsdaten"
         case .aprs, .acars, .hfdl, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
     }
@@ -103,7 +105,44 @@ private struct ACARSMapView: View {
     }
 }
 
+
+// MARK: - AIS
+
+private struct AISMapView: View {
+    @ObservedObject var controller: AISController
+    @ObservedObject var settings: AISSettingsStore
+    @ObservedObject var home: HomeLocation
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 3)) { ctx in
+            MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: $controller.selection,
+                     legend: "Schiffe mit Kurs und Weg · Klick öffnet die Schiffsdaten", accessory: AnyView(infoButton), keepZoomOnSelect: true)
+        }
+        .onChange(of: controller.selection) { _, id in
+            guard settings.openInfoOnClick, let id, let mmsi = AISMapBuilder.mmsi(fromID: id) else { return }
+            controller.showInfo(for: mmsi)
+            openWindow(id: "ship-info")
+        }
+    }
+
+    @ViewBuilder
+    private var infoButton: some View {
+        if let mmsi = controller.selectedMMSI {
+            Button {
+                controller.showInfo(for: mmsi)
+                openWindow(id: "ship-info")
+            } label: {
+                Label("SCHIFFSDATEN", systemImage: "info.circle")
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Fenster mit Foto, Baujahr und technischen Daten des gewählten Schiffs")
+        }
+    }
+}
+
 // MARK: - HFDL
+
 
 private struct HFDLMapView: View {
     @ObservedObject var controller: HFDLController

@@ -50,6 +50,7 @@ swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     $S/Models/TextModeController.swift $S/Decoders/PSK/FldigiPSKCore.swift $S/Decoders/PSK/PSKModule.swift \
     $S/Decoders/ALE/ALECore.swift $S/Decoders/ALE/ALEModule.swift \
     $S/Decoders/ACARS/ACARSCore.swift $S/Decoders/ACARS/ACARSPosition.swift $S/Decoders/ACARS/ACARSModule.swift \
+    $S/Decoders/AIS/AISCore.swift $S/Decoders/AIS/AISMessage.swift $S/Decoders/AIS/AISDemod.swift $S/Decoders/AIS/AISSignalGenerator.swift $S/Decoders/AIS/AISModule.swift $S/Models/ShipInfoService.swift \
     $S/Decoders/HFDL/HFDLCore.swift $S/Decoders/HFDL/HFDLProtocol.swift $S/Decoders/HFDL/HFDLStations.swift $S/Decoders/HFDL/HFDLSignalGenerator.swift $S/Decoders/HFDL/HFDLModule.swift \
     $S/Decoders/Sonde/RS41Core.swift $S/Decoders/Sonde/RS41Demod.swift $S/Decoders/Sonde/RS41Signal.swift $S/Decoders/Sonde/SondeModule.swift \
     $S/Decoders/Skimmer/SkimmerTables.swift $S/Decoders/Skimmer/SkimmerSpectrum.swift $S/Decoders/Skimmer/SkimmerChannels.swift $S/Decoders/Skimmer/SkimmerEngine.swift $S/Decoders/Skimmer/SkimmerSignals.swift $S/Decoders/Skimmer/SkimmerModule.swift \

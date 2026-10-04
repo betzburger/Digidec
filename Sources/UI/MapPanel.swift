@@ -49,6 +49,8 @@ struct MapPanel: View {
     var legend: String? = nil
     /// Zusätzliche Bedienelemente neben den Schaltern (z. B. Auswahl der Ansicht)
     var accessory: AnyView? = nil
+    /// Bei der Auswahl eines Punktes nur zentrieren, den Zoom aber lassen (dichte Karten wie AIS)
+    var keepZoomOnSelect = false
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var fitted = false
@@ -62,12 +64,13 @@ struct MapPanel: View {
 
     private var appearance: MapAppearance { MapAppearance(rawValue: appearanceRaw) ?? .standard }
 
-    init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil, accessory: AnyView? = nil) {
+    init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil, accessory: AnyView? = nil, keepZoomOnSelect: Bool = false) {
         self.content = content
         self.home = home
         self._selection = selection
         self.legend = legend
         self.accessory = accessory
+        self.keepZoomOnSelect = keepZoomOnSelect
     }
 
     var body: some View {
@@ -99,7 +102,9 @@ struct MapPanel: View {
         .onChange(of: content.home) { _, _ in if !fitted { fit(force: true) } }
         .onChange(of: selection) { _, id in
             guard let id, let m = content.markers.first(where: { $0.id == id }) else { return }
-            if showTracks, m.track.count > 1, let r = Self.region(of: m.track) {
+            if keepZoomOnSelect {
+                withAnimation { camera = .region(MKCoordinateRegion(center: m.coordinate.cl, span: MKCoordinateSpan(latitudeDelta: max(span, 0.005), longitudeDelta: max(span, 0.005)))) }
+            } else if showTracks, m.track.count > 1, let r = Self.region(of: m.track) {
                 // Der Weg der Station soll ganz zu sehen sein
                 withAnimation { camera = .region(r) }
             } else {

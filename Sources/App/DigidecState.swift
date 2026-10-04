@@ -52,6 +52,8 @@ public final class DigidecState: ObservableObject {
     public let aprsController: APRSController
     public let acars = ACARSSettingsStore()
     public let acarsController: ACARSController
+    public let ais = AISSettingsStore()
+    public let aisController: AISController
     public let hfdl = HFDLSettingsStore()
     public let hfdlController: HFDLController
     public let sonde = SondeSettingsStore()
@@ -114,6 +116,7 @@ public final class DigidecState: ObservableObject {
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
         aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
         acarsController = ACARSController(pipeline: audio.pipeline, settings: acars)
+        aisController = AISController(pipeline: audio.pipeline, settings: ais)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
         sondeController = SondeController(pipeline: audio.pipeline, settings: sonde)
         pagerController = PagerController(pipeline: audio.pipeline, settings: pager)
@@ -133,6 +136,10 @@ public final class DigidecState: ObservableObject {
             rigReady: { [unowned self] in self.rigControlEnabled && self.rig.radio != nil && self.rig.state.connected },
             isActive: { [unowned self] in self.activeModule == .sonde },
             knownFrequencies: { [unowned self] in self.sondePlan.knownFrequencies(home: self.home.point) + self.sondeController.heardFrequencies })
+
+        // Standort für die AIS-Entfernungen (weitester Empfang)
+        aisController.homePoint = home.point
+        home.$locator.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in self?.aisController.homePoint = self?.home.point }.store(in: &cancellables)
 
         // Ein Standort für alle: der Locator der Karte gilt auch für Entfernungen in FT8, FT4, WSPR und die NAVTEX-Stationssuche
         let syncLocators: @MainActor (String) -> Void = { [weak self] loc in
@@ -167,6 +174,7 @@ public final class DigidecState: ObservableObject {
                 self?.aleController.setActive(module == .ale)
                 self?.aprsController.setActive(module == .aprs)
                 self?.acarsController.setActive(module == .acars)
+                self?.aisController.setActive(module == .ais)
                 self?.hfdlController.setActive(module == .hfdl)
                 self?.sondeController.setActive(module == .sonde)
                 self?.pagerController.setActive(module == .pager)
@@ -193,6 +201,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(dsc.$channel)
         observeForTuning(aprs.$channel)
         observeForTuning(acars.$channel)
+        observeForTuning(ais.$channel)
         observeForTuning(hfdl.$frequencyKHz)
         observeForTuning(sonde.$frequencyKHz)
         observeForTuning(sonde.$filterKHz)
@@ -239,6 +248,7 @@ public final class DigidecState: ObservableObject {
             aleController.rigDescription = rig.description
             aprsController.rigDescription = rig.description
             acarsController.rigDescription = rig.description
+            aisController.rigDescription = rig.description
             hfdlController.rigDescription = rig.description
             sondeController.rigDescription = rig.description
             pagerController.rigDescription = rig.description
@@ -275,6 +285,7 @@ public final class DigidecState: ObservableObject {
         case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
         case .aprs:   return .aprs(channel: aprs.channel)
         case .acars:  return .acars(channel: acars.channel)
+        case .ais:    return .ais(channel: ais.channel)
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
@@ -317,6 +328,13 @@ public final class DigidecState: ObservableObject {
             // spielt eine Datei statt des Live-Eingangs ab
             if let id = ProcessInfo.processInfo.environment["DIGIDEC_MODULE"], let module = DecoderModuleInfo(rawValue: id) {
                 state.activeModule = module
+            }
+            // Entwicklungshilfe: DIGIDEC_AIS_NMEA=/Pfad/sätze.nmea nimmt AIS-Sätze (!AIVDM) wie empfangen auf (Schnappschüsse ohne Funksignal)
+            if let path = ProcessInfo.processInfo.environment["DIGIDEC_AIS_NMEA"], let text = try? String(contentsOfFile: path, encoding: .utf8) {
+                var asm = AISNMEA.Assembler()
+                for line in text.split(whereSeparator: \.isNewline) {
+                    if let s = AISNMEA.parse(String(line)), let bits = asm.add(s) { state.aisController.ingest(bits: bits) }
+                }
             }
             if let path = ProcessInfo.processInfo.environment["DIGIDEC_PLAY_FILE"] {
                 state.audio.openFile(URL(fileURLWithPath: path))
@@ -363,6 +381,8 @@ public final class DigidecState: ObservableObject {
                     if let center = request.centerHz { aprs.setCenter(center) }
                 case .acars:
                     if let preset = request.presetID, let c = ACARSChannel(rawValue: preset) { acars.channel = c }
+                case .ais:
+                    if let preset = request.presetID, let c = AISChannel(rawValue: preset) { ais.channel = c }
                 case .hfdl:
                     if let preset = request.presetID, let f = HFDLChannels.kHz(presetID: preset) { hfdl.frequencyKHz = f }
                 case .sonde:
