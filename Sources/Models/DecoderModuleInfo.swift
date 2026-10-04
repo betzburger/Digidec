@@ -1,6 +1,7 @@
 import Foundation
 
-/// Decoder-Module, die Digidec kennt. Reihenfolge = Reihenfolge in der Modul-Leiste.
+/// Decoder-Module, die Digidec kennt. Die Reihenfolge der Fälle ist die Entstehungsreihenfolge;
+/// die Modul-Leiste ordnet nach `Band` und darin nach Namen A–Z (`Band.modules`).
 /// `isAvailable` wird pro Modul auf `true` gesetzt, sobald es implementiert ist (PLAN.md, Abschnitt 10).
 public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case rtty
@@ -54,6 +55,42 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dcf77:  return "DCF77"
         case .efr:    return "EFR"
         case .sstv:   return "SSTV"
+        }
+    }
+
+    /// Frequenzbereich, dem die Modul-Leiste ein Modul zuordnet (je Modul genau einer, nach dem Haupteinsatz)
+    public enum Band: String, CaseIterable, Identifiable, Sendable {
+        case hf
+        case vhfUhf
+
+        public var id: String { rawValue }
+
+        public var title: String {
+            switch self {
+            case .hf:     return "HF"
+            case .vhfUhf: return "VHF/UHF"
+            }
+        }
+
+        public var detail: String {
+            switch self {
+            case .hf:     return "Lang-, Mittel- und Kurzwelle"
+            case .vhfUhf: return "UKW und darüber"
+            }
+        }
+
+        /// Module dieses Bereichs, nach Namen A–Z (Umlaute wie ihr Grundbuchstabe)
+        public var modules: [DecoderModuleInfo] {
+            DecoderModuleInfo.allCases
+                .filter { $0.band == self }
+                .sorted { $0.displayName.compare($1.displayName, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }
+        }
+    }
+
+    public var band: Band {
+        switch self {
+        case .acars, .aprs, .pager, .sonde, .tones: return .vhfUhf
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
 
