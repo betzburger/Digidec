@@ -117,6 +117,16 @@ do {
     for m in DecoderModuleInfo.allCases where m.isAvailable {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
     }
+
+    // Modul-Leiste: jedes Modul in genau einer Rubrik, darin A–Z
+    let bars = DecoderModuleInfo.Band.allCases.flatMap(\.modules)
+    check(Set(bars).count == bars.count && Set(bars) == Set(DecoderModuleInfo.allCases), "Modul-Leiste: jedes Modul genau einmal")
+    for band in DecoderModuleInfo.Band.allCases {
+        let names = band.modules.map(\.displayName)
+        check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
+    }
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "APRS", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
 
