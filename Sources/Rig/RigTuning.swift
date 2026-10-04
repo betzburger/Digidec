@@ -63,6 +63,11 @@ public struct RigTuneTarget: Equatable, Sendable {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "AM") }
     }
 
+    /// HFDL-Kanal: USB, Dial = zugewiesene Frequenz (das Signal liegt bei 1440 Hz im NF)
+    public static func hfdl(frequencyKHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64((frequencyKHz * 1000).rounded()), mode: "USB")
+    }
+
     /// Funkruf-Kanal: FM auf der Kanalfrequenz (frei = nichts)
     public static func pager(channel: PagerChannel) -> RigTuneTarget? {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
