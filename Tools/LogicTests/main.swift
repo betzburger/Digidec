@@ -5168,7 +5168,7 @@ pagerModuleTests()
 
     // Skyper: Zeichen um 1 nach oben verschoben, Leerzeichen als „!“, Kopf aus Rubrik und Nummer (echte DAPNET-Meldungen, RIC 4520)
     let sk1 = PagerText.skyper(")$25195/1!QE1CBS!!!!!!ef!QE3XM!bu!2168{")
-    check(sk1?.text == "14084.0 PD0BBR      de PD2WL at 1057z" && sk1?.rubric == 9 && sk1?.number == 3, "Skyper: DX-Spot (\(sk1?.text ?? "nil"), Rubrik \(sk1?.rubric ?? -1), Nr. \(sk1?.number ?? -1))")
+    check(sk1?.text == "14084.0 PD0BAR      de PD2WL at 1057z" && sk1?.rubric == 9 && sk1?.number == 3, "Skyper: DX-Spot (\(sk1?.text ?? "nil"), Rubrik \(sk1?.rubric ?? -1), Nr. \(sk1?.number ?? -1))")
     let sk2 = PagerText.skyper("p!Ebufocbtjt;!Efvutdifs!Xfuufsejfotu-!Nfmevohfo!hflvfs{u")
     check(sk2?.text == "Datenbasis: Deutscher Wetterdienst, Meldungen gekuerzt" && sk2?.rubric == 80 && sk2?.number == 0, "Skyper: Meldungstext mit Doppelpunkt und Komma (\(sk2?.text ?? "nil"))")
     check(PagerText.skyper("%$81141/9!H5KOU0C!!!!!ef!H1BQJ!bu!1:17{")?.text == "70030.8 G4JNT/B     de G0API at 0906z", "Skyper: Rufzeichen mit Schrägstrich")
