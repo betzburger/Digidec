@@ -376,6 +376,12 @@ final class POCSAGRescue {
     private var pending: [PagerMessage] = []
     /// Schon ausgegebene Meldungen dieses Abschnitts (Rufnummer, Funktion, Klartext, Ziffern)
     private var keys: Set<String> = []
+    /// Rufnummern, die der einfache Zweig im Abschnitt ausgegeben hat
+    private var primaryAddresses: Set<Int> = []
+    /// Der einfache Zweig hat im Abschnitt mindestens eine makellose Meldung gelesen: dann ist das Audio brauchbar, und der Entzerrer
+    /// darf nur noch makellose Meldungen anderer Rufnummern beisteuern (seine Fehler werden sonst als Scheinmeldungen sichtbar)
+    private var primaryClean = false
+    private var releasing = false
     /// Vom Entzerrer gelesene Meldungen (für die Diagnose)
     private(set) var count = 0
 
@@ -392,6 +398,8 @@ final class POCSAGRescue {
         seg.removeAll()
         pending.removeAll()
         keys.removeAll()
+        primaryAddresses.removeAll()
+        primaryClean = false
         active = false
         lastPreambles = 0
         count = 0
@@ -409,7 +417,10 @@ final class POCSAGRescue {
 
     /// Meldung des einfachen Zweigs: der Entzerrer gibt dieselbe Meldung nicht noch einmal aus
     func noteEmitted(_ m: PagerMessage) {
-        if active { keys.insert(Self.key(m)) }
+        guard active, !releasing else { return }
+        keys.insert(Self.key(m))
+        primaryAddresses.insert(m.address)
+        if m.damaged == 0 && m.corrected == 0 && !(m.alpha.isEmpty && m.numeric.isEmpty) { primaryClean = true }
     }
 
     /// Einen Block Audio aufnehmen; `stats` sind die Zähler des Rahmenlesers dieser Baudrate
@@ -429,6 +440,8 @@ final class POCSAGRescue {
                 lastGood = 0
                 pending.removeAll()
                 keys.removeAll()
+                primaryAddresses.removeAll()
+                primaryClean = false
             }
         }
         lastPreambles = stats.preambles
@@ -457,7 +470,10 @@ final class POCSAGRescue {
         var list = pending
         pending.removeAll()
         if dropLast && !list.isEmpty { list.removeLast() }
+        releasing = true
+        defer { releasing = false }
         for var m in list {
+            if primaryClean && (m.corrected > 0 || m.damaged > 0 || primaryAddresses.contains(m.address)) { continue }
             let k = Self.key(m)
             if keys.contains(k) { continue }
             keys.insert(k)
