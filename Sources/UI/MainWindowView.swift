@@ -33,7 +33,7 @@ public struct MainWindowView: View {
                             } else if state.activeModule == .acars {
                                 ACARSMessagePanel(controller: state.acarsController, settings: state.acars)
                             } else if state.activeModule == .sonde {
-                                SondeMainPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan, scanner: state.sondeScanner)
+                                SondeMainPanel(controller: state.sondeController, settings: state.sonde, home: state.home)
                             } else if state.activeModule == .pager {
                                 PagerMessagePanel(controller: state.pagerController, settings: state.pager)
                             } else if state.activeModule == .tones {
@@ -180,7 +180,7 @@ public struct MainWindowView: View {
                         } else if state.activeModule == .sonde {
                             SondeTuningPanel(controller: state.sondeController, settings: state.sonde)
                                 .radioCard(title: "Abstimmanzeige")
-                            SondeSettingsPanel(controller: state.sondeController, settings: state.sonde)
+                            SondeSettingsPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan, scanner: state.sondeScanner)
                                 .radioCard(title: "SONDE")
                         } else if state.activeModule == .pager {
                             PagerTuningPanel(controller: state.pagerController, settings: state.pager)
