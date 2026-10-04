@@ -7,6 +7,7 @@ struct SondeMainPanel: View {
     @ObservedObject var controller: SondeController
     @ObservedObject var settings: SondeSettingsStore
     @ObservedObject var home: HomeLocation
+    @ObservedObject var plan: SondePlanStore
 
     var body: some View {
         VStack(spacing: 6) {
@@ -48,6 +49,7 @@ struct SondeMainPanel: View {
                 .buttonStyle(ModeButtonStyle(isSelected: false))
                 .help("Liste leeren (Log bleibt)")
             }
+            SondeStationBar(settings: settings, home: home, plan: plan)
             SondeTable(controller: controller, home: home)
                 .background(RadioTheme.bgDeep)
                 .cornerRadius(6)
@@ -63,6 +65,65 @@ struct SondeMainPanel: View {
 
     static func duration(_ t: TimeInterval) -> String {
         String(format: "%d:%02d", Int(t) / 60, Int(t) % 60)
+    }
+}
+
+/// Tasten mit den Startorten der Umgebung und ihrer Frequenz: ein Klick stellt Digidec (und mit QSY AUTO das Funkgerät über den Commander) um
+struct SondeStationBar: View {
+    @ObservedObject var settings: SondeSettingsStore
+    @ObservedObject var home: HomeLocation
+    @ObservedObject var plan: SondePlanStore
+
+    private struct Station: Identifiable {
+        let ranked: SondePlan.Ranked
+        let kHz: Int
+        var id: String { ranked.id }
+    }
+
+    /// RS41-Startorte im Umkreis mit bekannter Frequenz, nächste zuerst (Frequenz: eigene Wahl vor Eintrag der Liste)
+    private var stations: [Station] {
+        guard let point = home.point else { return [] }
+        var out: [Station] = []
+        for r in SondePlan.nearby(plan.sites, home: point, radiusKm: Double(plan.radiusKm)) {
+            if let kHz = plan.frequencyKHz(for: r.site) { out.append(Station(ranked: r, kHz: kHz)) }
+            if out.count >= 24 { break }
+        }
+        return out
+    }
+
+    var body: some View {
+        let list = stations
+        HStack(spacing: 6) {
+            Text("STATION")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+            if list.isEmpty {
+                Text(plan.sites.isEmpty ? "Keine Startortliste – im Sendeplan (Reiter SONDE) AKTUALISIEREN"
+                                        : "Keine Station mit bekannter Frequenz im Umkreis von \(plan.radiusKm) km")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textMuted)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(list) { s in
+                            Button {
+                                settings.frequencyKHz = s.kHz
+                            } label: {
+                                Text("\(s.ranked.site.shortName) \(SondeStationBar.mhz(s.kHz))")
+                            }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.frequencyKHz == s.kHz))
+                            .help("\(s.ranked.site.name) · \(Geo.formatKm(s.ranked.km)) \(Geo.compass(s.ranked.bearing)) · \(SondeSettingsStore.text(s.kHz))\nStellt die Sondenfrequenz ein; mit QSY AUTO folgt das Funkgerät über den Commander.")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    static func mhz(_ kHz: Int) -> String {
+        String(format: "%.3f", Double(kHz) / 1000).replacingOccurrences(of: ".", with: ",")
     }
 }
 
