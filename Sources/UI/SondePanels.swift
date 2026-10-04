@@ -8,15 +8,17 @@ struct SondeMainPanel: View {
     @ObservedObject var settings: SondeSettingsStore
     @ObservedObject var home: HomeLocation
     @ObservedObject var plan: SondePlanStore
+    @ObservedObject var scanner: SondeScanner
 
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
-                Text(summary)
+                Text(scanner.status == .idle ? summary : (scanner.message ?? summary))
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundColor(RadioTheme.textDim)
+                    .foregroundColor(scanColor)
                     .lineLimit(1)
                 Spacer()
+                scanControls
                 Button {
                     controller.toggleRecording()
                 } label: {
@@ -54,6 +56,40 @@ struct SondeMainPanel: View {
                 .background(RadioTheme.bgDeep)
                 .cornerRadius(6)
             SondeDetail(controller: controller, home: home)
+        }
+    }
+
+    private var scanColor: Color {
+        switch scanner.status {
+        case .idle: return RadioTheme.textDim
+        case .scanning: return RadioTheme.vfdAmber
+        case .found: return RadioTheme.vfdGreen
+        case .notFound, .failed: return RadioTheme.ledYellow
+        }
+    }
+
+    /// Suchlauf: Funkgerät Frequenz für Frequenz abstimmen, bis ein Rahmen lesbar ist (braucht QSY AUTO)
+    @ViewBuilder
+    private var scanControls: some View {
+        if scanner.isScanning {
+            Button {
+                scanner.stop()
+            } label: {
+                Label("STOP \(scanner.done + 1)/\(scanner.total)", systemImage: "stop.circle.fill")
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: true))
+            .foregroundColor(RadioTheme.ledRed)
+            .help("Suchlauf abbrechen; die vorherige Frequenz wird wieder eingestellt")
+        } else {
+            Menu {
+                Button("Bekannte Frequenzen (etwa \(scanner.estimatedMinutes(.known)) min)") { scanner.start(.known) }
+                Button("Ganzes Band 400 … 406 MHz (etwa \(scanner.estimatedMinutes(.band)) min)") { scanner.start(.band) }
+            } label: {
+                Label("SUCHE", systemImage: "magnifyingglass")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Suchlauf: stimmt das Funkgerät Frequenz für Frequenz ab und bleibt stehen, sobald ein Rahmen lesbar ist. Braucht QSY AUTO und die Verbindung zum Commander. Bekannte Frequenzen: die der Startorte in der Umgebung und schon gehörte.")
         }
     }
 

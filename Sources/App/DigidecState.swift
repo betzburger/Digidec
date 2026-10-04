@@ -77,6 +77,7 @@ public final class DigidecState: ObservableObject {
     public let navtexPlan = NavtexPlanStore()
     public let sondePlan = SondePlanStore()
     public private(set) var autoRecorder: ScheduleAutoRecorder!
+    public private(set) var sondeScanner: SondeScanner!
     /// Welcher Sendeplan gerade im Fenster gezeigt wird (nil = Fenster zu)
     @Published public var scheduleSheet: BroadcastService?
     /// Darstellung je Modul: Liste, Karte oder beides (gemerkt). Frühere Versionen merkten nur „Karte“ in `mapModules`.
@@ -123,6 +124,12 @@ public final class DigidecState: ObservableObject {
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
 
         autoRecorder = ScheduleAutoRecorder(state: self, wefax: wefaxSchedule, rtty: rttySchedule, navtex: navtexPlan, sonde: sondePlan)
+        // Suchlauf nach Sonden: stimmt über die Abstimmung des Moduls (QSY AUTO, rigctld) Frequenz für Frequenz ab
+        sondeScanner = SondeScanner(
+            settings: sonde, controller: sondeController,
+            rigReady: { [unowned self] in self.rigControlEnabled && self.rig.radio != nil && self.rig.state.connected },
+            isActive: { [unowned self] in self.activeModule == .sonde },
+            knownFrequencies: { [unowned self] in self.sondePlan.knownFrequencies(home: self.home.point) + self.sondeController.heardFrequencies })
 
         // Ein Standort für alle: der Locator der Karte gilt auch für Entfernungen in FT8, FT4, WSPR und die NAVTEX-Stationssuche
         let syncLocators: @MainActor (String) -> Void = { [weak self] loc in

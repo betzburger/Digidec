@@ -6166,5 +6166,44 @@ sondeModuleTests()
 }
 sondePlanTests()
 
+// MARK: - Sonden-Suchlauf: Reihenfolge der Frequenzen und Ablauf
+@MainActor func sondeScanTests() {
+    typealias E = SondeScanEngine
+    // Frequenzliste: bekannte zuerst, ohne Doppelte, nur im Sondenband
+    check(E.frequencies(mode: .known, known: [403_500, 402_700, 403_500, 410_000, 399_000], filterKHz: 15) == [403_500, 402_700], "Suchlauf: bekannte Frequenzen ohne Doppelte und ohne Werte außerhalb des Bandes")
+    check(E.frequencies(mode: .known, known: [], filterKHz: 15).isEmpty, "Suchlauf: ohne bekannte Frequenzen leer")
+    let band = E.frequencies(mode: .band, known: [403_000], filterKHz: 15)
+    check(band.first == 403_000 && band.count == 601 && band.contains(400_000) && band.contains(406_000) && band.filter { $0 == 403_000 }.count == 1, "Suchlauf: Band mit 15-kHz-Filter im 10-kHz-Raster, bekannte zuerst (\(band.count))")
+    check(band.dropFirst().contains(403_010) && band.dropFirst().contains(402_990) && !band.dropFirst().contains(403_000), "Suchlauf: Raster ohne die schon bekannte Frequenz")
+    let wide = E.frequencies(mode: .band, known: [403_000], filterKHz: 50)
+    check(wide.count == 241 && wide.first == 403_000 && E.step(filterKHz: 50) == 25 && E.step(filterKHz: 15) == 10, "Suchlauf: 50-kHz-Filter im 25-kHz-Raster (\(wide.count))")
+    // eine bekannte Frequenz zwischen zwei Rasterpunkten deckt den nahen Rasterpunkt ab
+    let near = E.frequencies(mode: .band, known: [402_704], filterKHz: 15)
+    check(near.first == 402_704 && !near.dropFirst().contains(402_700) && near.dropFirst().contains(402_710) && near.count == 601, "Suchlauf: bekannte 402,704 ersetzt den Rasterpunkt 402,700 (\(near.count))")
+    check(E.duration(count: 10) == 26, "Suchlauf: 10 Frequenzen dauern 26 s")
+
+    // Ablauf: Frequenz einstellen, einschwingen, hören; Treffer hält an
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    var e = E(frequencies: [403_500, 404_000])
+    check(e.start(now: t0) == .tune(403_500) && e.current == 403_500, "Suchlauf: beginnt mit der ersten Frequenz")
+    check(e.advance(now: t0.addingTimeInterval(0.5), decoded: 7) == nil, "Suchlauf: während des Einschwingens nichts")
+    check(e.advance(now: t0.addingTimeInterval(0.9), decoded: 9) == nil, "Suchlauf: Einschwingen vorbei, Zählerstand 9 wird Bezug")
+    check(e.advance(now: t0.addingTimeInterval(2.0), decoded: 9) == nil, "Suchlauf: ohne neuen Rahmen weiter hören")
+    check(e.advance(now: t0.addingTimeInterval(2.8), decoded: 9) == .tune(404_000) && e.index == 1, "Suchlauf: nach der Hörzeit die nächste Frequenz")
+    check(e.advance(now: t0.addingTimeInterval(3.0), decoded: 12) == nil, "Suchlauf: Rahmen aus der Einschwingzeit zählen nicht")
+    check(e.advance(now: t0.addingTimeInterval(3.7), decoded: 12) == nil, "Suchlauf: neuer Bezug 12")
+    check(e.advance(now: t0.addingTimeInterval(4.0), decoded: 13) == .found(404_000), "Suchlauf: Rahmen gelesen → Treffer auf 404,000 MHz")
+    check(e.advance(now: t0.addingTimeInterval(9.0), decoded: 50) == nil, "Suchlauf: nach dem Treffer ruhig")
+
+    var none = E(frequencies: [403_500])
+    _ = none.start(now: t0)
+    _ = none.advance(now: t0.addingTimeInterval(0.9), decoded: 0)
+    check(none.advance(now: t0.addingTimeInterval(2.8), decoded: 0) == .finished, "Suchlauf: letzte Frequenz ohne Treffer → fertig")
+    check(none.advance(now: t0.addingTimeInterval(5), decoded: 0) == nil, "Suchlauf: nach dem Ende ruhig")
+    var empty = E(frequencies: [])
+    check(empty.start(now: t0) == .finished && empty.current == nil, "Suchlauf: leere Liste ist sofort fertig")
+}
+sondeScanTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

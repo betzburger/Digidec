@@ -122,6 +122,16 @@ public final class SondePlanStore: ObservableObject {
         site.items(leadMinutes: 0, windowMinutes: 1)
     }
 
+    /// Frequenzen der RS41-Startorte im Umkreis (nächste zuerst, ohne Doppelte) für den Suchlauf
+    public func knownFrequencies(home: GeoPoint?) -> [Int] {
+        guard let home else { return [] }
+        var out: [Int] = []
+        for r in SondePlan.nearby(sites, home: home, radiusKm: Double(radiusKm)) {
+            if let f = frequencyKHz(for: r.site), !out.contains(f) { out.append(f) }
+        }
+        return out
+    }
+
     public func toggle(_ site: SondeSite) {
         if selectedSiteIDs.contains(site.id) { selectedSiteIDs.remove(site.id) } else { selectedSiteIDs.insert(site.id) }
     }

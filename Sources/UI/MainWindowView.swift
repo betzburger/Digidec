@@ -33,7 +33,7 @@ public struct MainWindowView: View {
                             } else if state.activeModule == .acars {
                                 ACARSMessagePanel(controller: state.acarsController, settings: state.acars)
                             } else if state.activeModule == .sonde {
-                                SondeMainPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan)
+                                SondeMainPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan, scanner: state.sondeScanner)
                             } else if state.activeModule == .pager {
                                 PagerMessagePanel(controller: state.pagerController, settings: state.pager)
                             } else if state.activeModule == .tones {
