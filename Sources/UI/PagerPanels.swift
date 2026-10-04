@@ -48,7 +48,7 @@ struct PagerMessagePanel: View {
                 .buttonStyle(ModeButtonStyle(isSelected: false))
                 .help("Liste und Zähler der Diagnose leeren (Log bleibt)")
             }
-            PagerTable(messages: controller.messages, watched: settings.watched, umlauts: settings.umlauts)
+            PagerTable(messages: controller.messages, watched: settings.watched, umlauts: settings.umlauts, skyper: settings.skyper)
                 .background(RadioTheme.bgDeep)
                 .cornerRadius(6)
         }
@@ -68,6 +68,7 @@ struct PagerTable: View {
     let messages: [PagerMessage]
     var watched: Set<Int> = []
     var umlauts = false
+    var skyper = false
     var scrolls = true
 
     var body: some View {
@@ -120,14 +121,20 @@ struct PagerTable: View {
         .help(tooltip(m))
     }
 
-    /// Klartext, auf Wunsch mit deutschen Umlauten (nur bei Funktion 3 = Klartext)
+    /// Klartext, auf Wunsch als Skyper entschlüsselt und mit deutschen Umlauten (nur bei Klartext, nicht bei Ziffern)
     private func shown(_ m: PagerMessage) -> String {
-        umlauts && m.text == m.alpha ? PagerText.germanUmlauts(m.text) : m.text
+        guard m.text == m.alpha else { return m.text }
+        var t = m.text
+        if skyper, let s = PagerText.skyper(t) { t = s.text }
+        return umlauts ? PagerText.germanUmlauts(t) : t
     }
 
     private func tooltip(_ m: PagerMessage) -> String {
         var t = "\(m.protocolName) · Rufnummer \(m.address) · Funktion \(m.function)"
         if let d = m.detail { t += " · \(d)" }
+        if skyper, m.text == m.alpha, let s = PagerText.skyper(m.text) {
+            t += "\nSkyper · Rubrik \(s.rubric) · Nr. \(s.number)\nGesendet als: \(m.text)"
+        }
         if let a = m.alternative { t += "\n" + a }
         if m.corrected > 0 { t += "\n\(m.corrected) Bitfehler korrigiert" }
         if m.damaged > 0 { t += "\n\(m.damaged) Codewörter nicht lesbar: Text unvollständig" }
@@ -270,6 +277,9 @@ struct PagerSettingsPanel: View {
                 Button("FLEX") { settings.flex.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.flex))
                     .help("FLEX (1600/3200 Baud) lesen")
+                Button("SKYPER") { settings.skyper.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.skyper))
+                    .help("Skyper-Meldungen lesbar machen: Das Skyper-Netz sendet jedes Zeichen um 1 nach oben verschoben (Leerzeichen als !) und vor dem Text Rubrik und Nummer. Das ist keine Verschlüsselung. Aus: der Text wird so gezeigt, wie er gesendet wurde (im Tooltip steht immer die Rohfassung).")
                 Button("ÄÖÜ") { settings.umlauts.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.umlauts))
                     .help("Deutsche Umlaute anzeigen: Funkrufempfänger belegen { | } ~ mit ä ö ü ß und [ \\ ] mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003). Aus: der Text wird so gezeigt, wie er gesendet wurde.")

@@ -5165,6 +5165,18 @@ pagerModuleTests()
     check(PagerText.germanUmlauts("Hallo Welt 123") == "Hallo Welt 123" && PagerText.germanUmlauts("") == "", "Umlaute: gewöhnlicher Text bleibt")
     let us = PagerSettingsStore()
     check(us.umlauts, "Umlaute: standardmäßig an")
+
+    // Skyper: Zeichen um 1 nach oben verschoben, Leerzeichen als „!“, Kopf aus Rubrik und Nummer (echte DAPNET-Meldungen, RIC 4520)
+    let sk1 = PagerText.skyper(")$25195/1!QE1CBS!!!!!!ef!QE3XM!bu!2168{")
+    check(sk1?.text == "14084.0 PD0BBR      de PD2WL at 1057z" && sk1?.rubric == 9 && sk1?.number == 3, "Skyper: DX-Spot (\(sk1?.text ?? "nil"), Rubrik \(sk1?.rubric ?? -1), Nr. \(sk1?.number ?? -1))")
+    let sk2 = PagerText.skyper("p!Ebufocbtjt;!Efvutdifs!Xfuufsejfotu-!Nfmevohfo!hflvfs{u")
+    check(sk2?.text == "Datenbasis: Deutscher Wetterdienst, Meldungen gekuerzt" && sk2?.rubric == 80 && sk2?.number == 0, "Skyper: Meldungstext mit Doppelpunkt und Komma (\(sk2?.text ?? "nil"))")
+    check(PagerText.skyper("%$81141/9!H5KOU0C!!!!!ef!H1BQJ!bu!1:17{")?.text == "70030.8 G4JNT/B     de G0API at 0906z", "Skyper: Rufzeichen mit Schrägstrich")
+    // Gewöhnlicher Klartext bleibt unberührt
+    for plain in ["7150.0 EA4IFI       de EA3INX at 1100z", "Hallo Welt, Test 1", "ALARM!", "FEUER! FEUER! Halle 3", "Ziffern 0123456789", "", "Hilfe!"] {
+        check(PagerText.skyper(plain) == nil, "Skyper: „\(plain)“ bleibt, wie gesendet")
+    }
+    check(us.skyper, "Skyper: standardmäßig an")
 }
 pagerChannelTests()
 
