@@ -122,6 +122,13 @@ public final class SondePlanStore: ObservableObject {
         site.items(leadMinutes: 0, windowMinutes: 1)
     }
 
+    /// Startorte für die Karte: die RS41-Stationen im Umkreis des Standorts werden markiert, alle dienen der Zuordnung einer Sonde zu ihrem Start
+    public func mapLayer(home: GeoPoint?) -> SondeSiteLayer {
+        var shown = Set<String>()
+        if let home { shown = Set(SondePlan.nearby(sites, home: home, radiusKm: Double(radiusKm)).map(\.site.id)) }
+        return SondeSiteLayer(sites: sites.filter(\.isRS41), shown: shown, frequencies: frequencyOverridesKHz)
+    }
+
     /// Frequenzen der RS41-Startorte im Umkreis (nächste zuerst, ohne Doppelte) für den Suchlauf
     public func knownFrequencies(home: GeoPoint?) -> [Int] {
         guard let home else { return [] }

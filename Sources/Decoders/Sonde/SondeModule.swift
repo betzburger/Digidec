@@ -313,9 +313,28 @@ public enum SondeMapBuilder {
         s < 90 ? "\(Int(s)) s" : s < 5400 ? "\(Int(s / 60)) min" : "\(Int(s / 3600)) h"
     }
 
-    public static func content(_ flights: [SondeFlight], home: GeoPoint?, now: Date, selection: String?) -> MapContent {
+    /// Startort als Marke: Name, Frequenz, Zeiten, Eintrag der Liste
+    static func siteMarker(_ site: SondeSite, layer: SondeSiteLayer, home: GeoPoint?, isLaunch: Bool) -> MapMarker {
+        let kHz = layer.frequency(site)
+        var sub = kHz.map { SondeSettingsStore.text($0) } ?? "keine Frequenz in der Liste"
+        if !site.launches.isEmpty { sub += " · " + SondeLaunchTime.summary(site.launches) + " UTC" }
+        var details = [Geo.format(site.point) + " · " + Maidenhead.locator(site.point)]
+        if let h = home {
+            let km = Geo.distanceKm(h, site.point), b = Geo.bearing(from: h, to: site.point)
+            details.append("\(Geo.formatKm(km)) \(Geo.compass(b)) (\(Int(b.rounded()))°)")
+        }
+        if site.launches.isEmpty, let note = site.timeNotes.first { details.append("Startzeit laut Eintrag: \(note)") }
+        if let a = site.altitude { details.append("Höhe \(a) m") }
+        if let u = site.updated { details.append("Eintrag der SondeHub-Liste vom \(u)") }
+        if let n = site.notes { details.append(n) }
+        return MapMarker(id: "sonde-site-" + site.id, coordinate: site.point, title: site.shortName, subtitle: sub, details: details,
+                         symbol: "mappin.circle.fill", tone: isLaunch ? .highlight : .info)
+    }
+
+    public static func content(_ flights: [SondeFlight], home: GeoPoint?, now: Date, selection: String?, sites: SondeSiteLayer? = nil) -> MapContent {
         var markers: [MapMarker] = []
         var lines: [MapLine] = []
+        var launchIDs = Set<String>()
         for f in flights.sorted(by: { $0.lastHeard > $1.lastHeard }) {
             guard let p = f.point, let alt = f.latest.altitude else { continue }
             let phase = f.phase(now: now)
@@ -345,6 +364,13 @@ public enum SondeMapBuilder {
             let stride = max(1, (f.track.count + 798) / 799)
             var pts = f.track.enumerated().filter { $0.offset % stride == 0 }.map(\.element.point)
             if let last = f.track.last?.point, pts.last != last { pts.append(last) }
+            // Der Weg beginnt am vermuteten Startort und läuft über alle empfangenen Positionen
+            if let layer = sites, let first = f.track.first,
+               let launch = SondePlan.launchSite(firstFix: first.point, altitude: first.altitude, sondeKHz: f.frequencyKHz, layer: layer) {
+                launchIDs.insert(launch.site.id)
+                pts.insert(launch.site.point, at: 0)
+                details.append("Start vermutlich in \(launch.site.shortName) (\(Geo.formatKm(launch.km)) vom ersten Empfang)")
+            }
             var sub = (f.model ?? "RS41") + " · " + phase.label.capitalized
             if let khz = f.frequencyKHz { sub += " · " + SondeSettingsStore.text(khz) }
             sub += " · vor " + ageText(age)
@@ -364,6 +390,12 @@ public enum SondeMapBuilder {
             if let h = home, age < 300, Geo.distanceKm(h, p) > 5, f.serial == selection || selection == nil {
                 lines.append(MapLine(id: "sonde-home-" + f.serial, points: [h, p], tone: .dim, geodesic: true))
             }
+        }
+        // Startorte darunter (die Sonden liegen darüber); der Start einer empfangenen Sonde ist hervorgehoben, auch außerhalb des Umkreises
+        if let layer = sites {
+            let siteMarkers = layer.sites.filter { layer.shown.contains($0.id) || launchIDs.contains($0.id) }
+                .map { siteMarker($0, layer: layer, home: home, isLaunch: launchIDs.contains($0.id)) }
+            markers = siteMarkers + markers
         }
         return MapContent(markers: markers, lines: lines, home: home, emptyHint: "Noch keine Sonde mit Position empfangen")
     }
@@ -483,8 +515,8 @@ public final class SondeController: ObservableObject {
     }
 
     /// Kartenpunkte aller Sonden
-    public func mapContent(home: GeoPoint?, now: Date) -> MapContent {
-        SondeMapBuilder.content(flights, home: home, now: now, selection: selection)
+    public func mapContent(home: GeoPoint?, now: Date, sites: SondeSiteLayer? = nil) -> MapContent {
+        SondeMapBuilder.content(flights, home: home, now: now, selection: selection, sites: sites)
     }
 
     /// Frequenzen, auf denen Sonden gehört wurden (kHz)

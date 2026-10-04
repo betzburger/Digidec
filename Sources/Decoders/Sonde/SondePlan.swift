@@ -244,3 +244,44 @@ public enum SondePlan {
             .sorted { ($0.km, $0.site.id) < ($1.km, $1.site.id) }
     }
 }
+
+// MARK: - Startorte auf der Karte
+
+/// Startorte für die Karte: alle RS41-Stationen (zum Zuordnen), die davon angezeigten und die eigenen Frequenzen
+public struct SondeSiteLayer: Equatable, Sendable {
+    public var sites: [SondeSite]
+    /// Kennungen der Stationen, die auf der Karte stehen (Umkreis um den Standort)
+    public var shown: Set<String>
+    /// Eigene Frequenz je Station (kHz), übersteuert den Eintrag der Liste
+    public var frequencies: [String: Int]
+
+    public init(sites: [SondeSite], shown: Set<String>, frequencies: [String: Int] = [:]) {
+        self.sites = sites
+        self.shown = shown
+        self.frequencies = frequencies
+    }
+
+    public func frequency(_ site: SondeSite) -> Int? { frequencies[site.id] ?? site.frequencyKHz }
+}
+
+extension SondePlan {
+    /// Wo eine Sonde vermutlich gestartet ist, aus der ersten empfangenen Position.
+    /// Annahmen (keine Messung): Der Ballon driftet je Kilometer Höhe höchstens etwa 10 km waagerecht, dazu 30 km Spielraum
+    /// (bei einer Sonde am Boden also 30 km). Stationen, deren eingetragene Frequenz von der der Sonde abweicht (mehr als 10 kHz), scheiden aus;
+    /// Stationen mit passender Frequenz gehen vor, dann die ohne eingetragene Frequenz. Innerhalb der Gruppe gewinnt die nächste.
+    public static func launchSite(firstFix: GeoPoint, altitude: Double, sondeKHz: Int?, layer: SondeSiteLayer) -> (site: SondeSite, km: Double)? {
+        var matching: [(site: SondeSite, km: Double)] = []
+        var open: [(site: SondeSite, km: Double)] = []
+        for s in layer.sites where s.isRS41 {
+            let km = Geo.distanceKm(firstFix, s.point)
+            let heightKm = max(0, altitude - Double(s.altitude ?? 0)) / 1000
+            guard km <= 30 + 10 * heightKm else { continue }
+            if let sondeKHz, let f = layer.frequency(s) {
+                if abs(f - sondeKHz) <= 10 { matching.append((site: s, km: km)) }
+            } else {
+                open.append((site: s, km: km))
+            }
+        }
+        return matching.min { $0.km < $1.km } ?? open.min { $0.km < $1.km }
+    }
+}

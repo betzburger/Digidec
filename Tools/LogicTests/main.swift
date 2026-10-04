@@ -5990,6 +5990,18 @@ sondeTests()
     check(map.markers.count == 2 && m1?.symbol == "balloon.fill" && (m1?.track.count ?? 0) > 50, "Sonde-Karte: zwei Ballons, Weg mit \(m1?.track.count ?? 0) Punkten")
     check(m1?.details.contains { $0.hasPrefix("Höhe ") } == true && m1?.details.contains { $0.contains("km") } == true && m1?.details.contains { $0.hasPrefix("Elevation") } == true, "Sonde-Karte: Höhe, Entfernung und Elevation in den Einzelheiten (\(m1?.details ?? []))")
     check(map.lines.contains { $0.id.hasPrefix("sonde-home-") }, "Sonde-Karte: Linie vom Standort zur Sonde")
+    // Startorte auf der Karte: Name und Frequenz, der Weg beginnt am vermuteten Startort
+    let siteHere = SondeSite(id: "S1", name: "Teststart (Germany)", point: GeoPoint(lat: 49.7901, lon: 9.9502), altitude: 180, types: ["41"],
+                             launches: [SondeLaunchTime(weekday: nil, minute: 720)])
+    let siteFar = SondeSite(id: "S2", name: "Weitweg (Germany)", point: GeoPoint(lat: 52.0, lon: 13.0), altitude: 50, types: ["41"], frequencyKHz: 404_000)
+    let siteLayer = SondeSiteLayer(sites: [siteHere, siteFar], shown: ["S1"])
+    let mapS = c.mapContent(home: Maidenhead.point("JN49WS"), now: t0.addingTimeInterval(62), sites: siteLayer)
+    let siteMark = mapS.markers.first { $0.id == "sonde-site-S1" }
+    let flightMark = mapS.markers.first { $0.id == "sonde-T2610001" }
+    check(siteMark?.title == "Teststart" && siteMark?.symbol == "mappin.circle.fill" && siteMark?.tone == .highlight && siteMark?.subtitle == "keine Frequenz in der Liste · 12:00 UTC", "Sonde-Karte: Startort mit Name, hervorgehoben als Start der Sonde (\(siteMark?.subtitle ?? "nil"))")
+    check(mapS.markers.first { $0.id == "sonde-site-S2" } == nil && mapS.markers.first?.id == "sonde-site-S1", "Sonde-Karte: ferne Station nicht angezeigt, Startorte unter den Sonden")
+    check(flightMark?.track.first == siteHere.point && (flightMark?.track.count ?? 0) > 50 && flightMark?.details.contains { $0.hasPrefix("Start vermutlich in Teststart") } == true, "Sonde-Karte: Weg beginnt am Startort (\(flightMark?.details.last ?? "nil"))")
+    check(c.mapContent(home: nil, now: t0.addingTimeInterval(62)).markers.allSatisfy { !$0.id.hasPrefix("sonde-site-") }, "Sonde-Karte: ohne Startortliste keine Startorte")
     // Sinkflug mit Landemarke
     let cd = SondeController(pipeline: AudioPipeline(), settings: settings)
     cd.logEnabled = false
@@ -6204,6 +6216,36 @@ sondePlanTests()
     check(empty.start(now: t0) == .finished && empty.current == nil, "Suchlauf: leere Liste ist sofort fertig")
 }
 sondeScanTests()
+
+// MARK: - Sonden-Karte: Zuordnung einer Sonde zu ihrem Startort
+@MainActor func sondeLaunchTests() {
+    let meiningen = SondeSite(id: "10548", name: "Meiningen (Germany)", point: GeoPoint(lat: 50.56, lon: 10.38), altitude: 450, types: ["41"])
+    let stuttgart = SondeSite(id: "10739", name: "Stuttgart / Schnarrenberg (Germany)", point: GeoPoint(lat: 48.83, lon: 9.2), altitude: 315, types: ["41"], frequencyKHz: 404_500)
+    let kuemmersbruck = SondeSite(id: "10771", name: "Kuemmersbruck (Germany)", point: GeoPoint(lat: 49.43, lon: 11.9), altitude: 418, types: ["41", "17"], frequencyKHz: 402_700)
+    let graw = SondeSite(id: "-97", name: "Graw (Germany)", point: GeoPoint(lat: 49.4, lon: 11.0), altitude: 300, types: ["17"])
+    let layer = SondeSiteLayer(sites: [meiningen, stuttgart, kuemmersbruck, graw], shown: ["10548"])
+
+    // Sonde am Boden bei Meiningen (Meiningen hat keine Frequenz in der Liste): Meiningen, auch wenn die Sonde 404,5 MHz meldet
+    let ground = SondePlan.launchSite(firstFix: GeoPoint(lat: 50.55, lon: 10.40), altitude: 470, sondeKHz: 404_500, layer: layer)
+    check(ground?.site.id == "10548" && (ground?.km ?? 99) < 3, "Startort: Sonde am Boden bei Meiningen → Meiningen (Frequenz unbekannt, Stuttgart zu weit)")
+    // ohne gemeldete Frequenz genauso
+    check(SondePlan.launchSite(firstFix: GeoPoint(lat: 50.55, lon: 10.40), altitude: 470, sondeKHz: nil, layer: layer)?.site.id == "10548", "Startort: ohne Frequenz der Sonde nur nach Entfernung")
+    // hoch und abgetrieben erstmals gehört: passende Frequenz geht vor, auch wenn Meiningen näher an der Position liegt
+    let drifted = SondePlan.launchSite(firstFix: GeoPoint(lat: 49.9, lon: 11.5), altitude: 12_000, sondeKHz: 402_700, layer: layer)
+    check(drifted?.site.id == "10771", "Startort: abgetrieben, Frequenz 402,7 passt → Kümmersbruck (\(drifted?.site.id ?? "nil"))")
+    // eine Station mit anderer eingetragener Frequenz scheidet aus
+    check(SondePlan.launchSite(firstFix: GeoPoint(lat: 48.83, lon: 9.2), altitude: 320, sondeKHz: 403_000, layer: layer) == nil, "Startort: Stuttgart und Kümmersbruck haben andere Frequenzen, Meiningen ist zu weit → keiner")
+    check(SondePlan.launchSite(firstFix: GeoPoint(lat: 48.83, lon: 9.2), altitude: 320, sondeKHz: 404_495, layer: layer)?.site.id == "10739", "Startort: Frequenz auf 5 kHz genau → Stuttgart")
+    // eigene Frequenz je Station
+    let mine = SondeSiteLayer(sites: layer.sites, shown: [], frequencies: ["10548": 403_000])
+    check(SondePlan.launchSite(firstFix: GeoPoint(lat: 50.55, lon: 10.40), altitude: 470, sondeKHz: 403_000, layer: mine)?.site.id == "10548", "Startort: eigene Frequenz für Meiningen passt")
+    check(SondePlan.launchSite(firstFix: GeoPoint(lat: 50.55, lon: 10.40), altitude: 470, sondeKHz: 404_000, layer: mine) == nil, "Startort: eigene Frequenz für Meiningen passt nicht → keiner")
+    // weit weg oder Sonde ohne Bodenbezug: nichts raten; Stationen ohne RS41 zählen nicht
+    check(SondePlan.launchSite(firstFix: GeoPoint(lat: 52.0, lon: 13.0), altitude: 500, sondeKHz: nil, layer: layer) == nil, "Startort: weit von jeder Station → keiner")
+    check(SondePlan.launchSite(firstFix: GeoPoint(lat: 49.4, lon: 11.0), altitude: 300, sondeKHz: nil, layer: layer) == nil || SondePlan.launchSite(firstFix: GeoPoint(lat: 49.4, lon: 11.0), altitude: 300, sondeKHz: nil, layer: layer)?.site.id != "-97", "Startort: Graw (keine RS41) wird nicht zugeordnet")
+    check(layer.frequency(stuttgart) == 404_500 && layer.frequency(meiningen) == nil && mine.frequency(meiningen) == 403_000, "Startort: Frequenz eigene Wahl vor Eintrag")
+}
+sondeLaunchTests()
 
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)
