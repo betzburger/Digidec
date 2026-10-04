@@ -521,19 +521,92 @@ private struct ModuleBar: View {
     @ObservedObject var state: DigidecState
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(DecoderModuleInfo.allCases) { module in
-                Button(module.displayName) {
-                    state.select(module: module)
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: state.activeModule == module))
-                .disabled(!module.isAvailable)
-                .opacity(module.isAvailable ? 1.0 : 0.45)
-                .help(module.isAvailable ? module.displayName : "\(module.displayName) – geplant")
+        VStack(spacing: 6) {
+            ForEach(DecoderModuleInfo.Band.allCases) { band in
+                bandRow(band)
             }
-            Spacer()
         }
         .padding(.horizontal, 14)
+    }
+
+    /// Eine Rubrik: farbige Leiste links, Kürzel des Bereichs, dann die Module A–Z
+    private func bandRow(_ band: DecoderModuleInfo.Band) -> some View {
+        let color = Self.color(of: band)
+        return HStack(alignment: .top, spacing: 8) {
+            Text(band.title)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(color)
+                .tracking(0.8)
+                .frame(width: 52, alignment: .leading)
+                .padding(.top, 8)
+                .help(band.detail)
+            ModuleFlowLayout(spacing: 6, lineSpacing: 6) {
+                ForEach(band.modules) { module in
+                    Button(module.displayName) {
+                        state.select(module: module)
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: state.activeModule == module))
+                    .disabled(!module.isAvailable)
+                    .opacity(module.isAvailable ? 1.0 : 0.45)
+                    .help(module.isAvailable ? "\(module.displayName) · \(band.title)" : "\(module.displayName) – geplant")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, 11)
+        // Als Hintergrund hat die Leiste genau die Höhe der Buttons (ein frei stehendes Shape dehnt sich auf die ganze Fensterhöhe)
+        .background(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(color)
+                .frame(width: 3)
+                .shadow(color: color.opacity(0.5), radius: 3)
+        }
+    }
+
+    private static func color(of band: DecoderModuleInfo.Band) -> Color {
+        switch band {
+        case .hf:     return RadioTheme.vfdAmber
+        case .vhfUhf: return RadioTheme.vfdGreen
+        }
+    }
+}
+
+/// Reiht Schaltflächen nebeneinander und bricht bei Platzmangel in die nächste Zeile um
+private struct ModuleFlowLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, usedWidth: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                y += rowHeight + lineSpacing
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width
+            usedWidth = max(usedWidth, x)
+            x += spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: usedWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                y += rowHeight + lineSpacing
+                x = bounds.minX
+                rowHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
