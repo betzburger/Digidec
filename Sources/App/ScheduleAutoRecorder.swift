@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-/// Nimmt ausgewählte Sendungen (Wetterfax, RTTY, NAVTEX) zur Sendezeit automatisch auf: schaltet auf das Modul, wählt Frequenz
+/// Nimmt ausgewählte Sendungen (Wetterfax, RTTY, NAVTEX, Radiosonden) zur Sendezeit automatisch auf: schaltet auf das Modul, wählt Frequenz
 /// und Voreinstellung (mit QSY AUTO stimmt es auch das Funkgerät ab), sorgt für Log bzw. Bildablage und kehrt danach zurück.
 /// Digidec muss dafür laufen und der Mac wach sein (während einer Aufnahme verhindert Digidec den Ruhezustand).
 /// Es empfängt immer nur ein Dienst gleichzeitig: bei Überschneidung läuft die zuerst begonnene Sendung weiter.
@@ -27,6 +27,7 @@ public final class ScheduleAutoRecorder: ObservableObject {
     private let wefaxStore: WefaxScheduleStore
     private let rttyStore: RttyScheduleStore
     private let navtexStore: NavtexPlanStore
+    private let sondeStore: SondePlanStore
     private let recorder: InputRecorder
     private var handled: Set<String> = []
     private var timer: Timer?
@@ -37,11 +38,12 @@ public final class ScheduleAutoRecorder: ObservableObject {
     /// RTTY/NAVTEX: Log war vor der Aufnahme aus und wird danach wieder ausgeschaltet
     private var restoreLogOff = false
 
-    public init(state: DigidecState, wefax: WefaxScheduleStore, rtty: RttyScheduleStore, navtex: NavtexPlanStore) {
+    public init(state: DigidecState, wefax: WefaxScheduleStore, rtty: RttyScheduleStore, navtex: NavtexPlanStore, sonde: SondePlanStore) {
         self.state = state
         wefaxStore = wefax
         rttyStore = rtty
         navtexStore = navtex
+        sondeStore = sonde
         recorder = InputRecorder(pipeline: state.audio.pipeline)
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -62,6 +64,7 @@ public final class ScheduleAutoRecorder: ObservableObject {
         case .wefax:  return wefaxStore.schedule.items
         case .rtty:   return rttyStore.schedule.items
         case .navtex: return navtexStore.items
+        case .sonde:  return sondeStore.items
         }
     }
 
@@ -70,6 +73,7 @@ public final class ScheduleAutoRecorder: ObservableObject {
         case .wefax:  return wefaxStore.selected
         case .rtty:   return rttyStore.selected
         case .navtex: return navtexStore.selectedItemIDs
+        case .sonde:  return sondeStore.selectedItemIDs
         }
     }
 
@@ -78,6 +82,7 @@ public final class ScheduleAutoRecorder: ObservableObject {
         case .wefax:  return wefaxStore.autoEnabled
         case .rtty:   return rttyStore.autoEnabled
         case .navtex: return navtexStore.autoEnabled
+        case .sonde:  return sondeStore.autoEnabled
         }
     }
 
@@ -86,6 +91,7 @@ public final class ScheduleAutoRecorder: ObservableObject {
         case .wefax:  return wefaxStore.returnToPreviousModule
         case .rtty:   return rttyStore.returnToPreviousModule
         case .navtex: return navtexStore.returnToPreviousModule
+        case .sonde:  return sondeStore.returnToPreviousModule
         }
     }
 
@@ -193,6 +199,19 @@ public final class ScheduleAutoRecorder: ObservableObject {
             if state.navtex.frequency != f { state.navtex.frequency = f }
             enableLog(state.navtexController.logEnabled) { state.navtexController.logEnabled = true }
             target = RigTuneTarget.navtex(frequency: f, centerHz: state.navtex.centerHz)
+        case .sonde:
+            guard let site = sondeStore.site(forItemID: item.id) else {
+                note = "SONDE-Empfang übersprungen: unbekannte Station für \(item.title)"
+                return
+            }
+            guard let kHz = sondeStore.frequencyKHz(for: site) else {
+                note = "SONDE-Empfang übersprungen: für \(site.shortName) ist keine Frequenz bekannt (in der Liste eintragen)"
+                return
+            }
+            if state.sonde.frequencyKHz != kHz { state.sonde.frequencyKHz = kHz }
+            enableLog(state.sondeController.logEnabled) { state.sondeController.logEnabled = true }
+            state.sondeController.logger.markSession("Sendeplan: \(item.title) · \(SondeSettingsStore.text(kHz))")
+            target = RigTuneTarget.sonde(frequencyKHz: kHz, filterKHz: state.sonde.filterKHz)
         }
         state.activeModule = item.service.module
         session = Session(service: item.service, itemID: item.id, title: item.title, start: due.start, end: due.end,
@@ -225,6 +244,8 @@ public final class ScheduleAutoRecorder: ObservableObject {
             if restoreLogOff { state.rttyController.logEnabled = false }
         case .navtex:
             if restoreLogOff { state.navtexController.logEnabled = false }
+        case .sonde:
+            if restoreLogOff { state.sondeController.logEnabled = false }
         }
         restoreLogOff = false
         session = nil

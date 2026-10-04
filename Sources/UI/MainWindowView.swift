@@ -383,7 +383,7 @@ private struct MapToggleButton: View {
     }
 }
 
-/// Öffnet den Sendeplan (Wetterfax, RTTY, NAVTEX); zeigt eine laufende geplante Aufnahme
+/// Öffnet den Sendeplan (Wetterfax, RTTY, NAVTEX, Radiosonden); zeigt eine laufende geplante Aufnahme
 private struct ScheduleButton: View {
     @ObservedObject var state: DigidecState
     @ObservedObject var auto: ScheduleAutoRecorder
@@ -406,7 +406,7 @@ private struct ScheduleButton: View {
             .cornerRadius(4)
         }
         .buttonStyle(.plain)
-        .help("Sendepläne von Wetterfax, RTTY und NAVTEX ansehen und Sendungen zur automatischen Aufnahme wählen")
+        .help("Sendepläne von Wetterfax, RTTY, NAVTEX und Radiosonden ansehen und Sendungen zur automatischen Aufnahme wählen")
     }
 }
 

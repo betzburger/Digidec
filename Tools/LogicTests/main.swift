@@ -6063,5 +6063,108 @@ sondeTests()
 }
 sondeModuleTests()
 
+// MARK: - Sonden-Plan (SondeHub-Startorte): Lesen, Zeiten mit Wochentag, Entfernung, Sendefenster
+@MainActor func sondePlanTests() {
+    func utc(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+    let json = """
+    {"10771":{"station_name":"Kuemmersbruck (Germany)","rs_types":[["41","402.7"],"17"],"times":["0:00:00","0:12:00"],"datetime":"2023-09-08T07:30:00Z","station":"10771","alt":418,"position":[11.9,49.43],"burst_altitude":33000,"ascent_rate":5.1},
+     "10954":{"station_name":"Altenstadt (Germany)","rs_types":[["41",402.5],"17"],"times":["1:03:00","1:09:00","2:03:00","3:03:00","4:03:00","5:03:00"],"datetime":"2023-07-06T06:19:07Z","station":"10954","alt":740,"position":[10.87,47.83]},
+     "10962":{"station_name":"Hohenpeissenberg (Germany)","rs_types":[["41","402.9"],"14"],"times":["1:06:00","3:06:00","5:06:00"],"datetime":"2023-07-06T06:19:07Z","station":"10962","alt":977,"position":[11.01,47.8]},
+     "10548":{"station_name":"Meiningen (Germany)","rs_types":["41"],"times":["0:00:00","0:12:00"],"datetime":"2023-07-06T06:19:07Z","station":"10548","alt":450,"position":[10.38,50.56]},
+     "-99":{"station_name":"Testfeld (Germany)","rs_types":["41"],"times":["Irregular"],"notes":"Nur Tests","datetime":"2024-01-01T00:00:00Z","station":"-99","alt":10,"position":[9.9,49.8]},
+     "-98":{"station_name":"Nachtstart (Germany)","rs_types":[["41",404.5]],"times":["1:00:00","0:00:30"],"datetime":"2025-01-01T00:00:00Z","station":"-98","alt":10,"position":[9.0,49.0]},
+     "-97":{"station_name":"Graw (Germany)","rs_types":["17","54"],"times":[],"datetime":"2024-11-21T00:00:00Z","station":"-97","alt":300,"position":[11.0,49.4]},
+     "-96":{"station_name":"Kaputt (Nowhere)","rs_types":["41"],"datetime":"2024-11-21T00:00:00Z","station":"-96","position":[999,99]},
+     "-95":{"station_name":"Ausserhalb (Germany)","rs_types":[["41","410.0"]],"times":["0:00:00"],"datetime":"2024-11-21T00:00:00Z","station":"-95","alt":1,"position":[10.0,50.0]}}
+    """
+    guard let sites = SondePlanParser.parse(Data(json.utf8)) else { check(false, "Sonden-Plan: Liste nicht lesbar"); return }
+    check(sites.count == 8, "Sonden-Plan: 8 gültige Stationen (Position 999/99 verworfen), gelesen \(sites.count)")
+    func site(_ id: String) -> SondeSite? { sites.first { $0.id == id } }
+
+    // Typ und Frequenz: [„41“, „402.7“] als Text, 402.5 als Zahl, keine Frequenz ohne Eintrag, 410 MHz außerhalb des Bandes
+    check(site("10771")?.frequencyKHz == 402_700 && site("10771")?.types == ["41", "17"], "Sonden-Plan: Frequenz als Text (402,7 MHz) und Typen")
+    check(site("10954")?.frequencyKHz == 402_500, "Sonden-Plan: Frequenz als Zahl (402,5 MHz)")
+    check(site("10548")?.frequencyKHz == nil && site("10548")?.isRS41 == true, "Sonden-Plan: RS41 ohne Frequenz im Eintrag")
+    check(site("-95")?.frequencyKHz == nil, "Sonden-Plan: 410 MHz liegt außerhalb des Sondenbandes → keine Frequenz")
+    check(site("-97")?.isRS41 == false && site("-97")?.launches.isEmpty == true, "Sonden-Plan: Graw (Typ 17/54) ist keine RS41, ohne Zeiten")
+    check(site("10771")?.altitude == 418 && site("10771")?.burstAltitude == 33000 && site("10771")?.updated == "2023-09-08", "Sonden-Plan: Höhe, Platzhöhe, Datum des Eintrags")
+    check(site("10771")?.point == GeoPoint(lat: 49.43, lon: 11.9), "Sonden-Plan: Position steht als [Länge, Breite] im Eintrag")
+    check(site("10771")?.shortName == "Kuemmersbruck" && site("10771")?.country == "Germany", "Sonden-Plan: Name und Land aus „Ort (Land)“")
+
+    // Zeiten: „Wochentag:Stunde:Minute“, 0 = täglich, 1 = Montag … 7 = Sonntag; Freitext wird Hinweis
+    check(SondeLaunchTime.parse("0:12:00") == SondeLaunchTime(weekday: nil, minute: 720), "Sonden-Zeit: 0:12:00 = täglich 12:00")
+    check(SondeLaunchTime.parse("3:06:30") == SondeLaunchTime(weekday: 3, minute: 390), "Sonden-Zeit: 3:06:30 = Mittwoch 06:30")
+    check(SondeLaunchTime.parse("12:00") == SondeLaunchTime(weekday: nil, minute: 720), "Sonden-Zeit: ohne Wochentag täglich")
+    check(SondeLaunchTime.parse("Irregular") == nil && SondeLaunchTime.parse("8:12:00") == nil && SondeLaunchTime.parse("0:24:00") == nil && SondeLaunchTime.parse("0:12:60") == nil, "Sonden-Zeit: Freitext und ungültige Werte verworfen")
+    check(site("-99")?.launches.isEmpty == true && site("-99")?.timeNotes == ["Irregular"] && site("-99")?.notes == "Nur Tests", "Sonden-Plan: Freitext statt Zeit bleibt Hinweis")
+    let sumKuemmersbruck = SondeLaunchTime.summary(site("10771")?.launches ?? [])
+    let sumAltenstadt = SondeLaunchTime.summary(site("10954")?.launches ?? [])
+    let sumHohenpeissenberg = SondeLaunchTime.summary(site("10962")?.launches ?? [])
+    check(sumKuemmersbruck == "00:00 · 12:00", "Sonden-Zeiten kurz: täglich (\(sumKuemmersbruck))")
+    check(sumAltenstadt == "03:00 Mo–Fr · 09:00 Mo", "Sonden-Zeiten kurz: Altenstadt (\(sumAltenstadt))")
+    check(sumHohenpeissenberg == "06:00 (Mo,Mi,Fr)", "Sonden-Zeiten kurz: Montag, Mittwoch, Freitag (\(sumHohenpeissenberg))")
+
+    // Entfernung vom Standort JN49XS: nur RS41, sortiert, Umkreis
+    let home = Maidenhead.point("JN49XS") ?? GeoPoint(lat: 49.77, lon: 9.96)
+    let near = SondePlan.nearby(sites, home: home, radiusKm: 300)
+    check(near.map(\.site.id).first == "-99", "Sonden-Plan: nächste Station zuerst (\(near.map(\.site.id)))")
+    check(!near.contains { $0.site.id == "-97" }, "Sonden-Plan: Stationen ohne RS41 nicht gelistet")
+    check(near.allSatisfy { $0.km <= 300 } && near.map(\.km) == near.map(\.km).sorted(), "Sonden-Plan: Umkreis und Sortierung")
+    let wide = SondePlan.nearby(sites, home: home, radiusKm: 100)
+    check(wide.map(\.site.id) == ["-99", "10548"] || wide.map(\.site.id).first == "-99", "Sonden-Plan: Umkreis 100 km (\(wide.map(\.site.id)))")
+
+    // Sendefenster: Beginn eine Stunde vor dem Termin, Wochentag verschiebt sich über Mitternacht
+    let k = site("10771")!
+    let items = k.items(leadMinutes: 60, windowMinutes: 150)
+    check(items.map(\.startMinute).sorted() == [660, 1380] && items.allSatisfy { $0.weekday == nil && $0.durationMinutes == 150 && $0.service == .sonde }, "Sonden-Fenster: täglich 23:00 und 11:00 UTC (\(items.map(\.startMinute)))")
+    check(items.contains { $0.id == "10771|0|0000" } && items.contains { $0.id == "10771|0|1200" }, "Sonden-Fenster: Kennungen")
+    check(SondeSite.siteID(fromItemID: "10771|0|1200") == "10771" && SondeSite.siteID(fromItemID: "-98|1|0000") == "-98", "Sonden-Fenster: Station aus der Kennung")
+    let night = site("-98")!.items(leadMinutes: 60, windowMinutes: 150)
+    let nightText = night.map { String($0.weekday ?? 0) + "/" + String($0.startMinute) }.joined(separator: " ")
+    check(night.contains { $0.weekday == 7 && $0.startMinute == 1380 }, "Sonden-Fenster: Montag 00:00 minus 1 h = Sonntag 23:00 (\(nightText))")
+
+    // Zeitrechnung mit Wochentag: Altenstadt Mo–Fr 03:00 nominal → Fenster ab 02:00
+    let a = site("10954")!.items(leadMinutes: 60, windowMinutes: 150)
+    check(ScheduleCalc.isoWeekday(utc("2026-10-04T12:00:00Z")) == 7 && ScheduleCalc.isoWeekday(utc("2026-10-05T12:00:00Z")) == 1, "Wochentag: 04.10.2026 ist Sonntag (7), 05.10. Montag (1)")
+    let nextA = ScheduleCalc.next(items: a, after: utc("2026-10-04T12:00:00Z"))
+    check(nextA?.start == utc("2026-10-05T02:00:00Z"), "Sonden-Plan: nach Sonntag 12:00 beginnt das nächste Fenster am Montag 02:00 (\(String(describing: nextA?.start)))")
+    check(ScheduleCalc.running(items: a, at: utc("2026-10-05T03:30:00Z")) != nil, "Sonden-Plan: Montag 03:30 läuft ein Fenster")
+    check(ScheduleCalc.running(items: a, at: utc("2026-10-04T03:30:00Z")) == nil, "Sonden-Plan: Sonntag 03:30 läuft keins (nur Mo–Fr)")
+    let sel = Set(a.map(\.id))
+    let late = ScheduleCalc.due(items: a, selected: sel, at: utc("2026-10-05T03:20:00Z"), handled: [])
+    let lateKey = late?.key ?? "nil"
+    check(late?.key == "20261005-sonde-10954|1|0300", "Sonden-Plan: später Einstieg im laufenden Fenster erlaubt (\(lateKey))")
+    check(ScheduleCalc.due(items: a, selected: sel, at: utc("2026-10-05T03:20:00Z"), handled: ["20261005-sonde-10954|1|0300"]) == nil, "Sonden-Plan: begonnenes Fenster nicht noch einmal")
+    check(ScheduleCalc.due(items: a, selected: sel, at: utc("2026-10-04T02:30:00Z"), handled: []) == nil, "Sonden-Plan: Sonntag nichts fällig")
+    // Pläne ohne Wochentag unverändert (täglich), späte Einstiege bleiben dort auf 120 s begrenzt
+    let daily = [ScheduledItem(service: .rtty, id: "x", startMinute: 600, durationMinutes: 30, title: "t")]
+    check(ScheduleCalc.due(items: daily, selected: ["x"], at: utc("2026-10-04T10:05:00Z"), handled: []) == nil, "Zeit: tägliche Pläne ohne späten Einstieg wie bisher")
+    check(ScheduleCalc.next(items: daily, after: utc("2026-10-04T10:05:00Z"))?.start == utc("2026-10-05T10:00:00Z"), "Zeit: tägliche Pläne: nächste morgen wie bisher")
+
+    // Speicher: Auswahl, Frequenz je Station, Fenster der Auswahl
+    for key in ["sondePlanSelected", "sondePlanFrequencies", "sondePlanLead", "sondePlanWindow", "sondePlanRadius", "sondePlanAuto", "sondePlanReturn"] { UserDefaults.standard.removeObject(forKey: key) }
+    let store = SondePlanStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("digidec_sondeplan_test_\(UUID().uuidString)"))
+    check(store.leadMinutes == 60 && store.windowMinutes == 150 && store.radiusKm == 500 && store.items.isEmpty, "Sonden-Speicher: Voreinstellungen (60 min vor, 150 min, 500 km), nichts gewählt")
+    check(store.sites.count == 900, "Sonden-Speicher: eingebaute Liste geladen (\(store.sites.count) Stationen)")
+    store.selectedSiteIDs = ["10771"]
+    check(store.items.count == 2 && store.selectedItemIDs.count == 2, "Sonden-Speicher: gewählte Station ergibt ihre Fenster")
+    store.leadMinutes = 90
+    check(store.items.map(\.startMinute).sorted() == [630, 1350], "Sonden-Speicher: Beginn 90 min vorher (\(store.items.map(\.startMinute)))")
+    for key in ["sondePlanSelected", "sondePlanLead"] { UserDefaults.standard.removeObject(forKey: key) }
+
+    // Echte Liste (Stand 04.10.2026, 900 Stationen weltweit)
+    if let data = FileManager.default.contents(atPath: "Resources/Sonde/sondehub_sites.json"), let all = SondePlanParser.parse(data) {
+        check(all.count == 900, "Sonden-Plan echte Liste: 900 Stationen (\(all.count))")
+        let rs41 = all.filter(\.isRS41)
+        check(rs41.count == 358, "Sonden-Plan echte Liste: 358 Stationen mit RS41 (\(rs41.count))")
+        let stuttgart = all.first { $0.id == "10739" }
+        check(stuttgart?.frequencyKHz == 404_500 && stuttgart?.launches.count == 2 && stuttgart?.isRS41 == true, "Sonden-Plan echte Liste: Stuttgart 404,5 MHz, zwei Zeiten")
+        let nearReal = SondePlan.nearby(all, home: home, radiusKm: 500)
+        check(nearReal.count >= 30 && nearReal.count <= 40, "Sonden-Plan echte Liste: 35 RS41-Startorte bis 500 km von JN49XS (\(nearReal.count))")
+        check(nearReal.first.map { $0.km < 100 } == true, "Sonden-Plan echte Liste: nächster Startort unter 100 km")
+    }
+}
+sondePlanTests()
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

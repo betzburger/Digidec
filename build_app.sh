@@ -32,6 +32,10 @@ cp "$DIR"/Resources/Rtty/* "$APP_BUNDLE/Contents/Resources/Rtty/"
 mkdir -p "$APP_BUNDLE/Contents/Resources/Wefax"
 cp "$DIR"/Resources/Wefax/* "$APP_BUNDLE/Contents/Resources/Wefax/"
 
+# SondeHub-Startorte (CC BY-SA 2.0) als eingebauter Stand des Sonden-Plans
+mkdir -p "$APP_BUNDLE/Contents/Resources/Sonde"
+cp "$DIR"/Resources/Sonde/* "$APP_BUNDLE/Contents/Resources/Sonde/"
+
 # OurAirports (gemeinfrei): Flughäfen für die ACARS-Karte
 mkdir -p "$APP_BUNDLE/Contents/Resources/Airports"
 cp "$DIR"/Resources/Airports/* "$APP_BUNDLE/Contents/Resources/Airports/"
@@ -58,9 +62,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.46.0</string>
+    <string>0.47.0</string>
     <key>CFBundleVersion</key>
-    <string>0.46.0</string>
+    <string>0.47.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>

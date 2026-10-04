@@ -82,6 +82,7 @@ private struct PlanHeader: View {
     let lines: [String]
     var message: String?
     var isUpdating = false
+    var updateHelp = "Holt den aktuellen Sendeplan von dwd.de (PDF) und merkt ihn sich"
     var onUpdate: (() -> Void)?
     var onClose: () -> Void
 
@@ -101,7 +102,7 @@ private struct PlanHeader: View {
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
                     .disabled(isUpdating)
-                    .help("Holt den aktuellen Sendeplan von dwd.de (PDF) und merkt ihn sich")
+                    .help(updateHelp)
                 }
                 Button("SCHLIESSEN", action: onClose).buttonStyle(ModeButtonStyle(isSelected: false))
             }
@@ -160,6 +161,12 @@ struct ScheduleSheet: View {
             case .wefax:  WefaxScheduleTab(store: state.wefaxSchedule, auto: state.autoRecorder, close: { dismiss() })
             case .rtty:   RttyScheduleTab(store: state.rttySchedule, auto: state.autoRecorder, close: { dismiss() })
             case .navtex: NavtexScheduleTab(store: state.navtexPlan, auto: state.autoRecorder, close: { dismiss() })
+            case .sonde:  SondeScheduleTab(store: state.sondePlan, auto: state.autoRecorder, home: state.home, settings: state.sonde,
+                                           tune: { kHz in
+                                               state.sonde.frequencyKHz = kHz
+                                               state.activeModule = .sonde
+                                           },
+                                           close: { dismiss() })
             }
         }
         .padding(16)
@@ -665,5 +672,204 @@ struct NavtexScheduleTab: View {
             }
         }
         return out.sorted { $0.1 < $1.1 }.prefix(5).map { (item: $0.0, start: $0.1) }
+    }
+}
+
+// MARK: - Reiter SONDE
+
+/// Startorte der Wettersonden (SondeHub) in der Umgebung des Standorts: Zeiten, Frequenz, Entfernung; Auswahl für den automatischen Empfang
+struct SondeScheduleTab: View {
+    @ObservedObject var store: SondePlanStore
+    @ObservedObject var auto: ScheduleAutoRecorder
+    @ObservedObject var home: HomeLocation
+    @ObservedObject var settings: SondeSettingsStore
+    let tune: (Int) -> Void
+    let close: () -> Void
+    var scrolls = true
+    @State private var textFilter = ""
+    @State private var onlyUsable = false
+
+    private var ranked: [SondePlan.Ranked] {
+        guard let point = home.point else { return [] }
+        return SondePlan.nearby(store.sites, home: point, radiusKm: Double(store.radiusKm)).filter { r in
+            (!onlyUsable || (!r.site.launches.isEmpty && store.frequencyKHz(for: r.site) != nil))
+                && (textFilter.isEmpty || r.site.name.localizedCaseInsensitiveContains(textFilter))
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            PlanHeader(title: "WETTERSONDEN-STARTS (RS41)",
+                       lines: ["Startorte, Zeiten und Frequenzen aus der SondeHub-Datenbank (von Nutzern gepflegt, CC BY-SA 2.0) · Standort \(home.locator.uppercased()) · nur Stationen mit RS41, die Digidec lesen kann",
+                               "Zeiten UTC und nominal: die Sonde startet meist vor dem Termin (z. B. 11:15 UTC für 12:00). Nicht jeder Eintrag hat Zeit und Frequenz; Alter des Eintrags (Jahr) beachten. Es wird nichts geraten.",
+                               "Quelle: \(store.sourceName)" + (store.updatedAt.map { " · abgerufen \(ScheduleTime.stamp.string(from: $0))" } ?? "")],
+                       message: store.message, isUpdating: store.isUpdating,
+                       updateHelp: "Holt die Startortliste von api.v2.sondehub.org und merkt sie sich",
+                       onUpdate: { Task { await store.update() } }, onClose: close)
+            HStack(spacing: 10) {
+                Menu {
+                    ForEach(SondePlanStore.radiusOptions, id: \.self) { km in Button("bis \(km) km") { store.radiusKm = km } }
+                } label: {
+                    Text("Umkreis bis \(store.radiusKm) km")
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 150, alignment: .leading)
+                .help("Nur Startorte bis zu dieser Entfernung vom Standort anzeigen")
+                TextField("Filter (Name)", text: $textFilter)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 10, design: .monospaced))
+                Toggle("nur mit Zeit und Frequenz", isOn: $onlyUsable).font(.system(size: 10, design: .monospaced))
+                Text("\(ranked.count) Startorte")
+                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+            }
+            Divider()
+            list
+            Divider()
+            AutoFooter(autoEnabled: $store.autoEnabled, returnToPrevious: $store.returnToPreviousModule,
+                       selectedCount: store.selectedSiteIDs.count, auto: auto,
+                       extra: AnyView(HStack(spacing: 14) {
+                           leadMenu
+                           windowMenu
+                       }),
+                       onAll: { store.selectedSiteIDs.formUnion(ranked.filter { !$0.site.launches.isEmpty }.map(\.site.id)) },
+                       onNone: { store.selectedSiteIDs.subtract(ranked.map(\.site.id)) },
+                       note: "Zu den Startzeiten der gewählten Stationen schaltet Digidec auf SONDE und stellt die Frequenz aus der Liste ein (mit QSY AUTO auch das Funkgerät; nur der PCR-1500 empfängt 400 … 406 MHz). Stationen ohne Frequenz werden übersprungen: dort die Frequenz von Hand eintragen. Es empfängt immer nur eine Station; bei Überschneidung läuft die zuerst begonnene weiter. Digidec muss laufen und der Mac wach sein.")
+        }
+    }
+
+    private var leadMenu: some View {
+        Menu {
+            ForEach(SondePlanStore.leadOptions, id: \.self) { m in Button("\(m) min vor dem Termin") { store.leadMinutes = m } }
+        } label: {
+            Text("Beginn \(store.leadMinutes) min vorher")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 170, alignment: .leading)
+        .help("Wie viele Minuten vor der nominalen Startzeit der Empfang beginnt")
+    }
+
+    private var windowMenu: some View {
+        Menu {
+            ForEach(SondePlanStore.windowOptions, id: \.self) { m in Button("\(m) min") { store.windowMinutes = m } }
+        } label: {
+            Text("Dauer \(store.windowMinutes) min")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 130, alignment: .leading)
+        .help("So lange bleibt Digidec im Modul SONDE; ein Ballon steigt etwa 1½ bis 2 Stunden")
+    }
+
+    private var list: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let now = context.date
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    ColumnTitle(text: "", width: 22)
+                    ColumnTitle(text: "ENTFERNUNG", width: 84)
+                    ColumnTitle(text: "STARTORT", width: nil)
+                    ColumnTitle(text: "MHz", width: 70)
+                    ColumnTitle(text: "STARTZEITEN (UTC)", width: 190)
+                    ColumnTitle(text: "NÄCHSTER (UTC)", width: 112)
+                    ColumnTitle(text: "STAND", width: 38)
+                    ColumnTitle(text: "", width: 26)
+                    ColumnTitle(text: "", width: 44)
+                }
+                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+                if home.point == nil {
+                    Text("Der Standort-Locator ist ungültig – in den Karteneinstellungen korrigieren.")
+                        .font(rowFont).foregroundColor(RadioTheme.ledYellow)
+                } else if store.sites.isEmpty {
+                    Text("Keine Liste vorhanden – AKTUALISIEREN holt sie von SondeHub.")
+                        .font(rowFont).foregroundColor(RadioTheme.textMuted)
+                }
+                if scrolls { ScrollView { rows(now: now) } } else { rows(now: now) }
+            }
+        }
+    }
+
+    private func rows(now: Date) -> some View {
+        VStack(spacing: 2) {
+            ForEach(ranked) { r in row(r, now: now) }
+        }
+    }
+
+    private func row(_ r: SondePlan.Ranked, now: Date) -> some View {
+        let site = r.site
+        let selected = store.selectedSiteIDs.contains(site.id)
+        let usable = !site.launches.isEmpty
+        let kHz = store.frequencyKHz(for: site)
+        let overridden = store.frequencyOverridesKHz[site.id] != nil
+        let next = ScheduleCalc.next(items: store.nominalItems(for: site), after: now)
+        let running = ScheduleCalc.running(items: store.items(for: site), at: now) != nil
+        var nextText = "–"
+        if let n = next {
+            let day = SondeLaunchTime.weekdayNames[ScheduleCalc.isoWeekday(n.start) - 1]
+            nextText = "\(day) \(ScheduleTime.utc.string(from: n.start)) (\(ScheduleTime.local.string(from: n.start)))"
+        }
+        return HStack(spacing: 8) {
+            Button { store.toggle(site) } label: { checkbox(selected) }
+                .buttonStyle(.plain)
+                .frame(width: 22)
+                .disabled(!usable)
+                .help(usable ? "Für den automatischen Empfang wählen" : "Keine feste Startzeit eingetragen")
+            Text(Geo.formatKm(r.km) + " " + Geo.compass(r.bearing)).frame(width: 84, alignment: .leading)
+            Text(site.name).frame(maxWidth: .infinity, alignment: .leading).lineLimit(1).help(siteHelp(site))
+            frequencyMenu(site, kHz: kHz, overridden: overridden)
+            Text(usable ? SondeLaunchTime.summary(site.launches) : (site.timeNotes.first ?? "keine Zeit eingetragen"))
+                .frame(width: 190, alignment: .leading)
+                .foregroundColor(usable ? RadioTheme.textBright : RadioTheme.textMuted)
+                .lineLimit(2)
+                .font(.system(size: 8.5, weight: .regular, design: .monospaced))
+                .help(site.timeNotes.joined(separator: "\n"))
+            Text(nextText).frame(width: 112, alignment: .leading)
+                .foregroundColor(selected ? RadioTheme.vfdAmber : RadioTheme.textDim)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+            Text(site.updated.map { String($0.prefix(4)) } ?? "–").frame(width: 38, alignment: .leading)
+                .foregroundColor(RadioTheme.textDim)
+                .help(site.updated.map { "Eintrag zuletzt geändert: \($0)" } ?? "Kein Datum im Eintrag")
+            Button { if let kHz { tune(kHz) } } label: { Image(systemName: "dot.radiowaves.left.and.right") }
+                .buttonStyle(.plain)
+                .frame(width: 26)
+                .disabled(kHz == nil)
+                .help(kHz == nil ? "Keine Frequenz bekannt" : "Jetzt auf \(SondeSettingsStore.text(kHz ?? 0)) abstimmen (Modul SONDE)")
+            statusTag(running: running, next: false)
+        }
+        .font(rowFont)
+        .foregroundColor(RadioTheme.textBright)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(running ? RadioTheme.vfdGreen.opacity(0.12) : (selected ? RadioTheme.vfdAmber.opacity(0.08) : RadioTheme.bgDeep.opacity(0.6)))
+        .cornerRadius(4)
+    }
+
+    private func frequencyMenu(_ site: SondeSite, kHz: Int?, overridden: Bool) -> some View {
+        Menu {
+            Button("Wie in der Liste" + (site.frequencyKHz.map { " (\(SondeSettingsStore.text($0)))" } ?? " (keine)")) {
+                store.setFrequency(nil, for: site)
+            }
+            Button("Frequenz des Moduls SONDE übernehmen (\(SondeSettingsStore.text(settings.frequencyKHz)))") {
+                store.setFrequency(settings.frequencyKHz, for: site)
+            }
+        } label: {
+            Text(kHz.map { String(format: "%.3f", Double($0) / 1000).replacingOccurrences(of: ".", with: ",") } ?? "–")
+                .foregroundColor(overridden ? RadioTheme.vfdAmber : RadioTheme.textDim)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 70, alignment: .leading)
+        .help(kHz == nil ? "Keine Frequenz in der Liste – hier eintragen (erst im Modul SONDE einstellen)" : (overridden ? "Eigene Frequenz" : "Frequenz laut Liste"))
+    }
+
+    private func siteHelp(_ site: SondeSite) -> String {
+        var lines = [site.name, Geo.format(site.point) + " · " + Maidenhead.locator(site.point)]
+        if let a = site.altitude { lines.append("Höhe \(a) m") }
+        lines.append("Typ laut Eintrag: " + (site.types.isEmpty ? "–" : site.types.joined(separator: ", ")) + "  (41 = Vaisala RS41)")
+        if let b = site.burstAltitude { lines.append(String(format: "Platzhöhe etwa %.0f m", b)) }
+        if let n = site.notes { lines.append(n) }
+        return lines.joined(separator: "\n")
     }
 }

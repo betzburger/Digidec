@@ -2,7 +2,7 @@ import Foundation
 
 /// Dienste mit Sendeplan (alle Zeiten UTC, Plan gilt täglich gleich)
 public enum BroadcastService: String, CaseIterable, Identifiable, Codable, Sendable {
-    case wefax, rtty, navtex
+    case wefax, rtty, navtex, sonde
 
     public var id: String { rawValue }
 
@@ -11,6 +11,7 @@ public enum BroadcastService: String, CaseIterable, Identifiable, Codable, Senda
         case .wefax:  return "WEFAX"
         case .rtty:   return "RTTY"
         case .navtex: return "NAVTEX"
+        case .sonde:  return "SONDE"
         }
     }
 
@@ -19,6 +20,7 @@ public enum BroadcastService: String, CaseIterable, Identifiable, Codable, Senda
         case .wefax:  return .wefax
         case .rtty:   return .rtty
         case .navtex: return .navtex
+        case .sonde:  return .sonde
         }
     }
 }
@@ -26,19 +28,27 @@ public enum BroadcastService: String, CaseIterable, Identifiable, Codable, Senda
 /// Eine Sendung eines Plans in einheitlicher Form (für Zeitrechnung und automatische Aufnahme)
 public struct ScheduledItem: Identifiable, Equatable, Sendable {
     public let service: BroadcastService
-    /// eindeutig innerhalb des Dienstes (WEFAX „1636“, RTTY „1-0005“, NAVTEX „DEU-518-S-Pinneberg@0300“)
+    /// eindeutig innerhalb des Dienstes (WEFAX „1636“, RTTY „1-0005“, NAVTEX „DEU-518-S-Pinneberg@0300“, SONDE „10771|0|1045“)
     public let id: String
     /// Beginn in Minuten seit 00:00 UTC
     public let startMinute: Int
     public let durationMinutes: Int
     public let title: String
+    /// Wochentag (UTC) des Beginns: 1 = Montag … 7 = Sonntag; nil = täglich (alle Pläne außer SONDE)
+    public let weekday: Int?
+    /// Wie spät (Sekunden nach dem Beginn) die automatische Aufnahme noch einsteigen darf; nil = Vorgabe von `ScheduleCalc.due`.
+    /// Eine Sonde fliegt über Stunden, ein später Einstieg verliert nichts.
+    public let joinLate: TimeInterval?
 
-    public init(service: BroadcastService, id: String, startMinute: Int, durationMinutes: Int, title: String) {
+    public init(service: BroadcastService, id: String, startMinute: Int, durationMinutes: Int, title: String,
+                weekday: Int? = nil, joinLate: TimeInterval? = nil) {
         self.service = service
         self.id = id
         self.startMinute = startMinute
         self.durationMinutes = durationMinutes
         self.title = title
+        self.weekday = weekday
+        self.joinLate = joinLate
     }
 }
 
@@ -67,12 +77,22 @@ public enum ScheduleCalc {
         utcCalendar.startOfDay(for: day).addingTimeInterval(Double(item.startMinute) * 60)
     }
 
-    /// Nächste Sendung nach `date` (heute, sonst morgen); bei gleichem Beginn die zuerst gelistete
+    /// Wochentag (UTC) eines Zeitpunkts: 1 = Montag … 7 = Sonntag
+    public static func isoWeekday(_ date: Date) -> Int {
+        (utcCalendar.component(.weekday, from: date) + 5) % 7 + 1
+    }
+
+    /// Gilt die Sendung an dem (UTC-)Tag von `day`? Pläne ohne Wochentag gelten täglich.
+    public static func applies(_ item: ScheduledItem, onDayOf day: Date) -> Bool {
+        item.weekday.map { $0 == isoWeekday(day) } ?? true
+    }
+
+    /// Nächste Sendung nach `date` (heute, sonst morgen, bei Wochentagsplänen bis in die nächste Woche); bei gleichem Beginn die zuerst gelistete
     public static func next(items: [ScheduledItem], after date: Date) -> (item: ScheduledItem, start: Date)? {
         var best: (ScheduledItem, Date)?
-        for dayOffset in 0...1 {
+        for dayOffset in 0...7 {
             let day = date.addingTimeInterval(Double(dayOffset) * 86_400)
-            for item in items {
+            for item in items where applies(item, onDayOf: day) {
                 let s = start(of: item, onDayOf: day)
                 if s > date, best == nil || s < best!.1 { best = (item, s) }
             }
@@ -86,7 +106,7 @@ public enum ScheduleCalc {
         var best: (ScheduledItem, Date)?
         for dayOffset in [-1, 0] {
             let day = date.addingTimeInterval(Double(dayOffset) * 86_400)
-            for item in items {
+            for item in items where applies(item, onDayOf: day) {
                 let s = start(of: item, onDayOf: day)
                 if date >= s && date < s.addingTimeInterval(Double(item.durationMinutes) * 60), best == nil || s > best!.1 { best = (item, s) }
             }
@@ -102,11 +122,11 @@ public enum ScheduleCalc {
         var best: Due?
         for dayOffset in [-1, 0, 1] {
             let day = date.addingTimeInterval(Double(dayOffset) * 86_400)
-            for item in items where selected.contains(item.id) {
+            for item in items where selected.contains(item.id) && applies(item, onDayOf: day) {
                 let s = start(of: item, onDayOf: day)
                 let e = s.addingTimeInterval(Double(item.durationMinutes) * 60)
                 let key = dayKey(s) + "-" + item.service.rawValue + "-" + item.id
-                guard date >= s.addingTimeInterval(-lead), date < min(e.addingTimeInterval(tail), s.addingTimeInterval(maxLate)),
+                guard date >= s.addingTimeInterval(-lead), date < min(e.addingTimeInterval(tail), s.addingTimeInterval(item.joinLate ?? maxLate)),
                       !handled.contains(key) else { continue }
                 if best == nil || s < best!.start { best = Due(item: item, start: s, end: e, key: key) }
             }

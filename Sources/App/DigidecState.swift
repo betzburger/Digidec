@@ -75,6 +75,7 @@ public final class DigidecState: ObservableObject {
     public let wefaxSchedule = WefaxScheduleStore()
     public let rttySchedule = RttyScheduleStore()
     public let navtexPlan = NavtexPlanStore()
+    public let sondePlan = SondePlanStore()
     public private(set) var autoRecorder: ScheduleAutoRecorder!
     /// Welcher Sendeplan gerade im Fenster gezeigt wird (nil = Fenster zu)
     @Published public var scheduleSheet: BroadcastService?
@@ -121,7 +122,7 @@ public final class DigidecState: ObservableObject {
         efrController = EFRController(pipeline: audio.pipeline, settings: efr)
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
 
-        autoRecorder = ScheduleAutoRecorder(state: self, wefax: wefaxSchedule, rtty: rttySchedule, navtex: navtexPlan)
+        autoRecorder = ScheduleAutoRecorder(state: self, wefax: wefaxSchedule, rtty: rttySchedule, navtex: navtexPlan, sonde: sondePlan)
 
         // Ein Standort für alle: der Locator der Karte gilt auch für Entfernungen in FT8, FT4, WSPR und die NAVTEX-Stationssuche
         let syncLocators: @MainActor (String) -> Void = { [weak self] loc in
