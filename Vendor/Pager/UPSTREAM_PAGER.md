@@ -9,6 +9,7 @@
 | Datei | Inhalt |
 |---|---|
 | `POCSAGCore.swift` | `PagerBCH` (BCH(31,21) + Parität, Korrektur bis 2 Bit), POCSAG-Codewörter, Stapel, Meldungsaufbau, `PagerBitSlicer`, `POCSAGReceiver` (512/1200/2400 parallel), Testsignal |
+| `POCSAGEqualizer.swift` | Eigene Arbeit (kein Fremdcode): `POCSAGEqualizer` (Vorfilter, Takt aus Nulldurchgängen, linearer Entzerrer nach kleinsten Quadraten, Lernen auf BCH-gesicherten Bits) und `POCSAGRescue` (Abschnitt ab dem Vorspann, wertet alle 2 s aus, wenn der einfache Zweig nichts liest) |
 | `FLEXCore.swift` | `FLEXReceiver`: Symbole (2 und 4 Pegel), Synchronisation, FIW, Phasen A–D, Entschachteln, Alphanumerik, Ziffern, Tonrufe, Gruppenrufe; Testsignal 1600 Bd |
 | `ToneCore.swift` | Normtabellen, Goertzel, `ToneDecoder` (DTMF, 8 Selektivrufnormen), Testsignale |
 | `PagerModule.swift`, `TonesModule.swift` | Einstellungen, 24-kHz- bzw. 8-kHz-Senke, Controller, Logs |

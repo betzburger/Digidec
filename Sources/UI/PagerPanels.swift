@@ -203,10 +203,10 @@ struct PagerTuningPanel: View {
             ForEach(Array(POCSAG.rates.enumerated()).filter { settings.rates.contains($0.element) }, id: \.offset) { i, rate in
                 let st = controller.stats.indices.contains(i) ? controller.stats[i] : POCSAGStats()
                 if st.preambles + st.syncs + st.batchesGood + st.batchesBad > 0 {
-                    Text("\(rate) Bd · Vorspann \(st.preambles) · Sync \(st.syncs)\(st.inverted ? " (invers)" : "") · Stapel \(st.batchesGood) gut / \(st.batchesBad) schlecht · Wörter \(st.wordsGood)/\(st.wordsGood + st.wordsBad)")
+                    Text("\(rate) Bd · Vorspann \(st.preambles) · Sync \(st.syncs)\(st.inverted ? " (invers)" : "") · Stapel \(st.batchesGood) gut / \(st.batchesBad) schlecht · Wörter \(st.wordsGood)/\(st.wordsGood + st.wordsBad)\(st.equalized > 0 ? " · entzerrt \(st.equalized)" : "")")
                         .font(.system(size: 8.5, weight: .medium, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                        .help("Vorspann: Folge wechselnder Bits vor jeder Aussendung. Sync: Synchronwort gefunden. Stapel: 16 Codewörter, „gut“ ab 10 gültigen. Wörter: gültige Codewörter von allen gelesenen (BCH-Prüfung).")
+                        .help("Vorspann: Folge wechselnder Bits vor jeder Aussendung. Sync: Synchronwort gefunden. Stapel: 16 Codewörter, „gut“ ab 10 gültigen. Wörter: gültige Codewörter von allen gelesenen (BCH-Prüfung). Entzerrt: Meldungen, die erst nach Entzerren des verbogenen Audios lesbar waren.")
                 }
             }
         }

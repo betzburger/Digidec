@@ -22,6 +22,7 @@ void feld::rx_init()
 		col_data[i] = 0;
 	col_pointer = 0;
 	peakhold = 0.0;
+	peakval = 0.0;
 	agc = 0.0;
 
 	RxColumnLen = progdefaults.HellRcvHeight;
@@ -202,6 +203,7 @@ feld::feld(trx_mode m)
 
 	rxphacc = 0.0;
 	txphacc = 0.0;
+	peakval = 0.0; // ABWEICHUNG fldigi (Digidec): fldigi lässt den Spitzenwert uninitialisiert (Heap-Zufallswert, Hell X5 im Test wechselhaft)
 
 	// ABWEICHUNG fldigi (Digidec): Marker und Raster-Widget entfallen
 
