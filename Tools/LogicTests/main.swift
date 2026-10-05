@@ -6879,5 +6879,122 @@ do {
     check(SynopRawLocator.find(id: "10655", in: twice).map { (twice as NSString).substring(with: $0) } == "10655 12980 2=", "Rohmeldung: bei Wiederholung die jüngste")
 }
 
+
+// MARK: - Freies Funkgerät: Endpunkt, Profile, Verbindung zu beliebigem Rechner (rigctld nachgebaut)
+do {
+    // Endpunkt: Rechner und Port prüfen
+    check(RigEndpoint(host: "127.0.0.1", port: 4532)?.text == "127.0.0.1:4532" && RigEndpoint(host: " radio.local ", port: 4533)?.host == "radio.local", "Endpunkt: IP und Name, Leerzeichen am Rand fallen weg")
+    check(RigEndpoint(host: "::1", port: 4532)?.text == "[::1]:4532" && RigEndpoint(host: "fe80::1", port: 1)?.text == "[fe80::1]:1", "Endpunkt: IPv6 in eckigen Klammern")
+    check(RigEndpoint(host: "", port: 4532) == nil && RigEndpoint(host: "a b", port: 4532) == nil && RigEndpoint(host: "röntgen", port: 4532) == nil && RigEndpoint(host: "host;rm", port: 4532) == nil, "Endpunkt: leer, Leerzeichen, Umlaute, Sonderzeichen ungültig")
+    check(RigEndpoint(host: "x", port: 0) == nil && RigEndpoint(host: "x", port: 65536) == nil && RigEndpoint(host: "x", port: 65535) != nil && RigEndpoint(host: "x", port: 1) != nil, "Endpunkt: Port 1 … 65535")
+    check(RigEndpoint(host: String(repeating: "a", count: 254), port: 1) == nil && RigEndpoint(host: String(repeating: "a", count: 253), port: 1) != nil, "Endpunkt: höchstens 253 Zeichen")
+    check(RigEndpoint.loopback(port: 4532).isLoopback && RigEndpoint(host: "localhost", port: 1)!.isLoopback && RigEndpoint(host: "127.1.2.3", port: 1)!.isLoopback && RigEndpoint(host: "::1", port: 1)!.isLoopback
+          && !RigEndpoint(host: "192.168.1.20", port: 1)!.isLoopback && !RigEndpoint(host: "shack.example.org", port: 1)!.isLoopback, "Endpunkt: Loopback erkannt")
+
+    // Profil
+    var p = RigProfile(name: "IC-7300")
+    check(p.host == "127.0.0.1" && p.port == 4532 && p.endpoint == RigEndpoint.loopback(port: 4532) && p.problem == nil && p.displayName == "IC-7300", "Profil: Voreinstellungen 127.0.0.1:4532")
+    p.host = "bad host"
+    check(p.endpoint == nil && p.problem?.hasPrefix("Rechner") == true, "Profil: ungültiger Rechner wird gemeldet")
+    p.host = "pi.local"; p.port = 70000
+    check(p.endpoint == nil && p.problem?.hasPrefix("Port") == true, "Profil: ungültiger Port wird gemeldet")
+    check(RigProfile(name: "  ", host: "pi.local", port: 4534).displayName == "rigctld pi.local:4534", "Profil: ohne Namen Rechner und Port als Anzeige")
+
+    // Liste
+    var list = RigProfileList()
+    let a = list.add(RigProfile(name: "")), b = list.add(RigProfile(name: "FDM-DUO", host: "192.168.1.5", port: 4540, audioUID: "UID-1", audioName: "USB Audio"))
+    check(a.name == "Funkgerät 1" && list.profiles.count == 2 && list.active == nil, "Liste: leerer Name wird „Funkgerät 1“, ohne Wahl gilt die Automatik")
+    list.activeID = b.id
+    check(list.active?.name == "FDM-DUO" && list.profile(id: a.id)?.id == a.id, "Liste: gewähltes Gerät")
+    var changed = b; changed.name = "FDM-DUO (Shack)"
+    list.update(changed)
+    check(list.profiles[1].name == "FDM-DUO (Shack)" && list.profiles.count == 2, "Liste: Eintrag ersetzt")
+    list.update(RigProfile(id: "unbekannt", name: "x"))
+    check(list.profiles.count == 2, "Liste: unbekannte Kennung ändert nichts")
+    let restored = RigProfileList.decoded(from: list.encoded())
+    check(restored == list && restored.active?.audioUID == "UID-1", "Liste: Speichern und Laden")
+    check(RigProfileList.decoded(from: nil) == RigProfileList() && RigProfileList.decoded(from: Data("kaputt".utf8)) == RigProfileList(), "Liste: Unlesbares → leer")
+    list.remove(id: b.id)
+    check(list.profiles.count == 1 && list.activeID == nil && list.active == nil, "Liste: gelöschtes gewähltes Gerät → Automatik")
+    check(RigProfileList(profiles: [], activeID: "weg").active == nil, "Liste: Wahl ohne Eintrag → Automatik")
+
+    // Verbindung über Rechnernamen („localhost“ probiert ::1 und 127.0.0.1) zu einem nachgebauten rigctld
+    final class Box: @unchecked Sendable { let lock = NSLock(); var last = RigState(); var count = 0 }
+    if let fake = FakeRigctld() {
+        let box = Box()
+        let client = RigctlClient { s in box.lock.withLock { box.last = s; box.count += 1 } }
+        client.setEndpoint(RigEndpoint(host: "localhost", port: Int(fake.port)))
+        var waited = 0.0
+        while waited < 4, box.lock.withLock({ box.last.frequencyHz }) == nil { Thread.sleep(forTimeInterval: 0.1); waited += 0.1 }
+        let s = box.lock.withLock { box.last }
+        check(s.connected && s.frequencyHz == 14_074_000 && s.mode == "USB" && s.host == "localhost" && s.port == fake.port, "Verbindung über „localhost“ (Name aufgelöst, IPv6 → IPv4): \(s)")
+        // Abstimmen über denselben Weg: nur F und M, danach liefert die Abfrage die neue Frequenz
+        let tuned = Box()
+        client.tune(frequencyHz: 7_074_000, mode: "LSB", passbandHz: 2700) { r in tuned.lock.withLock { tuned.count = r == .ok ? 1 : -1 } }
+        waited = 0
+        while waited < 3, box.lock.withLock({ box.last.frequencyHz }) != 7_074_000 { Thread.sleep(forTimeInterval: 0.1); waited += 0.1 }
+        check(tuned.lock.withLock { tuned.count } == 1 && fake.currentFrequency == 7_074_000 && fake.currentMode == "LSB", "Abstimmen: F und M kommen an")
+        check(box.lock.withLock { box.last.frequencyHz } == 7_074_000 && box.lock.withLock { box.last.mode } == "LSB", "Nach dem Abstimmen zeigt die Abfrage die neue Frequenz")
+        check(fake.commands.allSatisfy { ["f", "m"].contains($0) || $0.hasPrefix("F ") || $0.hasPrefix("M ") } && !fake.commands.contains { $0.hasPrefix("T") }, "Nur f, m, F, M gesendet, nie PTT: \(Set(fake.commands))")
+        // Umschalten auf einen anderen Endpunkt trennt zuerst
+        client.setEndpoint(nil)
+        Thread.sleep(forTimeInterval: 0.3)
+        check(!box.lock.withLock { box.last.connected } && box.lock.withLock { box.last.host } == nil, "Trennen setzt den Zustand zurück")
+
+        // Test-Knopf: einmalige Abfrage
+        let done = DispatchSemaphore(value: 0)
+        let probed = Box()
+        RigctlClient.probe(RigEndpoint(host: "127.0.0.1", port: Int(fake.port))!) { r in
+            if case .ok(let st) = r { probed.lock.withLock { probed.last = st } }
+            done.signal()
+        }
+        check(done.wait(timeout: .now() + 4) == .success && probed.lock.withLock { probed.last.frequencyHz } == 7_074_000 && probed.lock.withLock { probed.last.mode } == "LSB", "Test-Knopf: Frequenz und Mode gelesen")
+        check(RigProbeResult.ok(probed.last).message.hasPrefix("Verbunden · 7.074,000 kHz · LSB"), "Test-Knopf: Meldung \(RigProbeResult.ok(probed.last).message)")
+    } else {
+        check(false, "Test-rigctld konnte nicht starten")
+    }
+
+    // Kein Server: nicht erreichbar; Server, der nicht antwortet: keine Antwort; beides ohne Absturz
+    let none = DispatchSemaphore(value: 0)
+    let outcome = Box()
+    RigctlClient.probe(RigEndpoint(host: "127.0.0.1", port: 1)!) { r in outcome.lock.withLock { outcome.count = r == .unreachable ? 1 : -1 }; none.signal() }
+    check(none.wait(timeout: .now() + 4) == .success && outcome.lock.withLock { outcome.count } == 1, "Test-Knopf: nichts auf dem Port → „nicht erreichbar“")
+    if let mute = FakeRigctld(behavior: .silent) {
+        let silent = DispatchSemaphore(value: 0)
+        RigctlClient.probe(RigEndpoint(host: "127.0.0.1", port: Int(mute.port))!) { r in outcome.lock.withLock { outcome.count = r == .noAnswer ? 2 : -2 }; silent.signal() }
+        check(silent.wait(timeout: .now() + 4) == .success && outcome.lock.withLock { outcome.count } == 2, "Test-Knopf: Server schweigt → „keine Antwort“")
+    }
+    check(RigProbeResult.unreachable.message.contains("rigctld") && RigProbeResult.noAnswer.message.contains("keine Antwort"), "Test-Knopf: Meldungen")
+    // Nicht auflösbarer Name: kein Absturz, kein Hängen
+    let t0 = Date()
+    let unresolved = DispatchSemaphore(value: 0)
+    RigctlClient.probe(RigEndpoint(host: "gibt-es-nicht.invalid", port: 4532)!) { r in outcome.lock.withLock { outcome.count = r == .unreachable ? 3 : -3 }; unresolved.signal() }
+    check(unresolved.wait(timeout: .now() + 8) == .success && outcome.lock.withLock { outcome.count } == 3 && Date().timeIntervalSince(t0) < 8, "Nicht auflösbarer Rechnername: „nicht erreichbar“ in endlicher Zeit")
+}
+
+
+// MARK: - Funkgerät wählen: Automatik, freies Gerät, Auftrag per URL (RigModel)
+do {
+    let m = RigModel()
+    check(!m.hasRig && m.rigName == nil && m.description == nil && !m.overriddenByRequest, "RigModel: am Anfang kein Funkgerät")
+    m.follow(radio: .pcr1500)
+    check(m.hasRig && m.rigName == "IC-PCR1500" && m.customProfile == nil, "RigModel: Automatik folgt dem Codec (PCR-1500)")
+    m.use(profile: RigProfile(name: "IC-7300", host: "127.0.0.1", port: 4540))
+    check(m.rigName == "IC-7300" && m.customProfile?.port == 4540 && !m.overriddenByRequest, "RigModel: freies Gerät hat Vorrang vor der Automatik")
+    m.follow(radio: nil)
+    check(m.hasRig && m.rigName == "IC-7300", "RigModel: freies Gerät gilt auch ohne Commander-Codec (beliebiges Audiogerät)")
+    m.apply(request: DecodeRequest(source: "ft991a", rigctlPort: 4533))
+    check(m.customProfile == nil && m.overriddenByRequest && !m.hasRig, "RigModel: Auftrag eines Commanders → Automatik für diese Sitzung")
+    m.apply(request: DecodeRequest(source: "WSJT-X", rigctlPort: 4580))
+    check(m.customProfile?.host == "127.0.0.1" && m.customProfile?.port == 4580 && m.rigName == "WSJT-X" && m.overriddenByRequest, "RigModel: unbekannte Quelle mit Port → Gerät auf 127.0.0.1")
+    m.apply(request: DecodeRequest(source: "WSJT-X"))
+    m.apply(request: DecodeRequest(rigctlPort: 4590))
+    check(m.rigName == "WSJT-X" && m.customProfile?.port == 4580, "RigModel: Auftrag ohne Quelle oder ohne Port ändert nichts")
+    m.use(profile: nil)
+    check(!m.overriddenByRequest && m.customProfile == nil && !m.hasRig, "RigModel: Wahl in den Einstellungen hebt die Übersteuerung auf")
+    m.follow(radio: .ft991a)
+    check(m.rigName == "FT-991A" && m.description == "FT-991A", "RigModel: Beschreibung ohne Verbindung nur der Name")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

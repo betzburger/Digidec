@@ -26,6 +26,10 @@ public final class DigidecState: ObservableObject {
     public let waterfall: WaterfallModel
     public let rttyController: RTTYController
     public let rig = RigModel()
+    /// Gespeicherte freie Funkgeräte (rigctld auf beliebigem Rechner und Port)
+    public let rigProfiles = RigProfileStore()
+    /// Dialog „Funkgerät“ offen?
+    @Published public var showRigSettings = false
     /// Eigener Standort für alle Karten und Entfernungen
     public let home = HomeLocation()
     public let navtex = NavtexSettingsStore()
@@ -130,7 +134,7 @@ public final class DigidecState: ObservableObject {
         // Suchlauf nach Sonden: stimmt über die Abstimmung des Moduls (QSY AUTO, rigctld) Frequenz für Frequenz ab
         sondeScanner = SondeScanner(
             settings: sonde, controller: sondeController,
-            rigReady: { [unowned self] in self.rigControlEnabled && self.rig.radio != nil && self.rig.state.connected },
+            rigReady: { [unowned self] in self.rigControlEnabled && self.rig.hasRig && self.rig.state.connected },
             isActive: { [unowned self] in self.activeModule == .sonde },
             knownFrequencies: { [unowned self] in self.sondePlan.knownFrequencies(home: self.home.point) + self.sondeController.heardFrequencies })
 
@@ -209,6 +213,17 @@ public final class DigidecState: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] input, kind in
                 self?.rig.follow(radio: kind == .live ? input?.radio : nil)
+            }
+            .store(in: &cancellables)
+        // Freies Funkgerät aus den Einstellungen: gilt ab Start und bei jeder Änderung der Liste
+        rig.use(profile: rigProfiles.active)
+        rigProfiles.$list
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] list in
+                guard let self else { return }
+                // Nur neu setzen, wenn sich das wirksame Gerät ändert (z. B. nicht beim Tippen im Namensfeld eines anderen Geräts)
+                if self.rig.customProfile != list.active || self.rig.overriddenByRequest { self.rig.use(profile: list.active) }
             }
             .store(in: &cancellables)
         rig.onChange = { [weak self] state in
@@ -291,17 +306,29 @@ public final class DigidecState: ObservableObject {
         return hz.map { RigTuneTarget.rtty(frequencyHz: $0, centerHz: rtty.centerHz) }
     }
 
+    /// Gerät im Dialog „Funkgerät“ wählen (nil = Automatik über den USB-Codec der Commander). Gehört zum Gerät ein Audio-Eingang,
+    /// wird er mit gewählt: zuerst über die UID, sonst über den Namen (die UID von USB-Geräten ändert sich beim Umstecken).
+    public func activateRigProfile(id: String?) {
+        rigProfiles.setActive(id: id)
+        rig.use(profile: rigProfiles.active)
+        guard let profile = rigProfiles.active, profile.audioUID != nil || profile.audioName != nil else { return }
+        audio.refreshDevices()
+        let device = audio.devices.first { $0.id == profile.audioUID }
+            ?? audio.devices.first { $0.name == profile.audioName }
+        if let device { audio.select(device: device) }
+    }
+
     /// Stimmt das Funkgerät auf ein Ziel ab (geplante Aufnahme) – nur mit Freigabe (QSY AUTO) und Verbindung.
     /// Die Abstimmung nach Modul-/Voreinstellungswechsel wird kurz unterdrückt, damit nicht doppelt gesendet wird.
     public func tuneRig(to target: RigTuneTarget) {
-        guard rigControlEnabled, rig.radio != nil else { return }
+        guard rigControlEnabled, rig.hasRig else { return }
         suppressRigTuneUntil = Date().addingTimeInterval(3.0)
         rig.tune(to: target)
     }
 
     /// Stellt das Funkgerät auf das Ziel des aktiven Moduls – nur mit Freigabe und Verbindung
     public func tuneRigForActiveModule() {
-        guard rigControlEnabled, Date() >= suppressRigTuneUntil, rig.radio != nil,
+        guard rigControlEnabled, Date() >= suppressRigTuneUntil, rig.hasRig,
               let target = rigTargetForActiveModule else { return }
         rig.tune(to: target)
     }

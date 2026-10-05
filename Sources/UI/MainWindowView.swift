@@ -303,6 +303,9 @@ public struct MainWindowView: View {
         .sheet(item: $state.scheduleSheet) { service in
             ScheduleSheet(state: state, tab: service)
         }
+        .sheet(isPresented: $state.showRigSettings) {
+            RigSettingsSheet(state: state)
+        }
     }
 }
 
@@ -345,7 +348,7 @@ private struct HeaderBar: View {
             MapToggleButton(state: state)
             ScheduleButton(state: state, auto: state.autoRecorder)
             RigControlToggle(state: state, rig: state.rig)
-            RigBadge(rig: state.rig, audio: state.audio)
+            RigBadge(rig: state.rig, audio: state.audio, onTap: { state.showRigSettings = true })
             UTCClock()
         }
         .padding(.horizontal, 14)
@@ -442,12 +445,12 @@ private struct RigControlToggle: View {
             .cornerRadius(4)
         }
         .buttonStyle(.plain)
-        .disabled(rig.radio == nil)
+        .disabled(!rig.hasRig)
         .help(help)
     }
 
     private var help: String {
-        if rig.radio == nil { return "Kein Funkgerät angeschlossen" }
+        if !rig.hasRig { return "Kein Funkgerät gewählt (Klick auf die Funkgeräte-Anzeige oben rechts)" }
         var s = state.rigControlEnabled
             ? "Digidec stimmt das Funkgerät über den rigctld des Commanders ab (nur Frequenz F und Mode M, nie PTT), wenn Modul, Band, Kanal oder Sender gewechselt wird. Klicken zum Ausschalten."
             : "Digidec liest nur Frequenz und Mode. Klicken, damit es das Funkgerät auf Band, Kanal oder Sender des Moduls abstimmt."
@@ -456,50 +459,56 @@ private struct RigControlToggle: View {
     }
 }
 
-/// Funkgerät, Frequenz und Mode laut rigctld des Commanders
+/// Funkgerät, Frequenz und Mode laut rigctld; ein Klick öffnet den Dialog „Funkgerät“
 private struct RigBadge: View {
     @ObservedObject var rig: RigModel
     @ObservedObject var audio: AudioInputManager
+    var onTap: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text(label)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(color)
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+                Text(label)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(color)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RadioTheme.bgDeep)
+            .cornerRadius(4)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(RadioTheme.bgDeep)
-        .cornerRadius(4)
+        .buttonStyle(.plain)
         .help(help)
     }
 
     private var color: Color {
-        if rig.radio == nil { return RadioTheme.textDim }
+        if !rig.hasRig { return RadioTheme.textDim }
         return rig.state.connected ? RadioTheme.vfdGreen : RadioTheme.ledYellow
     }
 
     private var label: String {
         if audio.sourceKind == .file { return "DATEI" }
-        guard let radio = rig.radio else {
+        guard let name = rig.rigName else {
             return (audio.activeInput?.device.name ?? "KEIN EINGANG").uppercased()
         }
-        guard rig.state.connected else { return "\(radio.displayName) · RIGCTLD ?" }
-        var s = radio.displayName.uppercased()
+        guard rig.state.connected else { return "\(name) · RIGCTLD ?" }
+        var s = name.uppercased()
         if let f = rig.state.frequencyText { s += " · \(f)" }
         if let m = rig.state.mode { s += " · \(m)" }
         return s
     }
 
     private var help: String {
-        guard let radio = rig.radio else { return "Kein Funkgerät – Frequenz und Mode unbekannt" }
-        let port = rig.state.port.map { String($0) } ?? "?"
-        return rig.state.connected
-            ? "\(radio.displayName): Frequenz und Mode vom Commander (rigctld \(port))" + (rig.tuneMessage.map { "\n\($0)" } ?? "")
-            : "\(radio.displayName): rigctld \(port) nicht erreichbar – läuft der Commander mit aktivem rigctld-Server?"
+        let click = "\nKlick: Funkgerät einstellen (rigctld auf beliebigem Rechner und Port)"
+        guard let name = rig.rigName else { return "Kein Funkgerät – Frequenz und Mode unbekannt" + click }
+        let target = rig.state.host.map { h in "\(h):\(rig.state.port.map(String.init) ?? "?")" } ?? (rig.state.port.map { "Port \($0)" } ?? "?")
+        let source = rig.customProfile != nil ? "rigctld" : "Commander, rigctld"
+        return (rig.state.connected
+            ? "\(name): Frequenz und Mode (\(source) \(target))" + (rig.tuneMessage.map { "\n\($0)" } ?? "")
+            : "\(name): rigctld \(target) nicht erreichbar – läuft er?") + click
     }
 }
 

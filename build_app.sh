@@ -62,9 +62,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.54.0</string>
+    <string>0.55.0</string>
     <key>CFBundleVersion</key>
-    <string>0.54.0</string>
+    <string>0.55.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -72,7 +72,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Zugriff auf den USB-Audio-Codec von IC-PCR1500 und FT-991A (oder eine virtuelle Soundkarte), um das Empfangsaudio zu decodieren.</string>
+    <string>Zugriff auf den Audio-Eingang des Funkgeräts (USB-Codec, USB-Soundkarte oder virtuelle Soundkarte), um das Empfangsaudio zu decodieren.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Digidec verbindet sich auf Wunsch mit einem rigctld (Hamlib) im lokalen Netz, um Frequenz und Mode des Funkgeräts zu lesen.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
