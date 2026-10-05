@@ -16,7 +16,8 @@ struct ModuleMapView: View {
             case .wspr:   WSPRMapView(controller: state.wsprController, settings: state.wspr, home: state.home)
             case .dsc:    DSCMapView(controller: state.dscController, home: state.home)
             case .navtex: NavtexMapView(controller: state.navtexController, home: state.home)
-            case .rtty:   RTTYMapView(controller: state.rttyController, presetID: state.rtty.presetID, home: state.home)
+            case .rtty:   RTTYMapView(controller: state.rttyController, presetID: state.rtty.presetID, home: state.home,
+                                      showRawText: { revealRTTYStation($0) })
             case .cw:     TextCallMapView(model: state.cwController.textModel, mode: "CW", home: state.home)
             case .psk:    TextCallMapView(model: state.pskController.textModel, mode: "PSK", home: state.home)
             case .olivia: TextCallMapView(model: state.oliviaController.textModel, mode: "Olivia", home: state.home)
@@ -220,22 +221,106 @@ private struct NavtexMapView: View {
     }
 }
 
+extension ModuleMapView {
+    /// Von der Karte zur Rohmeldung im RTTY-Empfangstext springen. Ist die Textansicht ausgeblendet (nur Karte), wird BEIDE
+    /// eingeschaltet. Rückgabe: gefunden (oder wird nach dem Einblenden gesucht).
+    @MainActor
+    func revealRTTYStation(_ id: String) -> Bool {
+        let model = state.rttyController.textModel
+        if model.reveal(station: id) { return true }
+        guard state.mapLayout(.rtty) == .map else { return false }
+        state.setMapLayout(.split, for: .rtty)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            _ = model.reveal(station: id)
+        }
+        return true
+    }
+}
+
 // MARK: - RTTY (SYNOP) und Text-Betriebsarten (Rufzeichen)
 
 private struct RTTYMapView: View {
     let controller: RTTYController
     let presetID: String
     @ObservedObject var home: HomeLocation
+    /// Springt zur Rohmeldung der Station im Empfangstext (Kennung); false = nicht im Text gefunden
+    let showRawText: (String) -> Bool
     @State private var selection: String?
+    @State private var showExtremes = false
+    @State private var rawNote: String?
     @AppStorage("synopLayer") private var layerRaw = SynopLog.Layer.symbol.rawValue
+    /// Abstand der Isobaren in hPa (0 = aus), Temperaturverteilung als Farbfläche
+    @AppStorage("synopIsobarStep") private var isobarStep = 0
+    @AppStorage("synopTempField") private var tempField = false
 
     private var layer: SynopLog.Layer { SynopLog.Layer(rawValue: layerRaw) ?? .symbol }
+    private var overlay: SynopOverlayOptions { SynopOverlayOptions(isobarStepHPa: isobarStep, temperatureField: tempField) }
+    private var isWeatherPreset: Bool { presetID.hasPrefix("dwd") }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { ctx in
             MapPanel(content: content(now: ctx.date), home: home, selection: $selection,
-                     legend: presetID.hasPrefix("dwd") ? "SYNOP und Sender" : "Rufzeichen",
-                     accessory: presetID.hasPrefix("dwd") ? AnyView(layerPicker) : nil)
+                     legend: isWeatherPreset ? "SYNOP und Sender" : "Rufzeichen",
+                     accessory: isWeatherPreset ? AnyView(controls) : nil,
+                     detailAction: isWeatherPreset ? rawAction : nil,
+                     snapshotName: isWeatherPreset ? "RTTY-" + layer.title : "RTTY")
+        }
+    }
+
+    /// „IM TEXT“ in der Auswahl einer Wetterstation: zur empfangenen Rohmeldung springen
+    private var rawAction: MapDetailAction {
+        MapDetailAction(title: "IM TEXT", help: "Zur empfangenen Rohmeldung im Empfangstext springen und sie markieren",
+                        systemImage: "text.alignleft",
+                        applies: { $0.id.hasPrefix("synop-") },
+                        perform: { marker in
+                            if !showRawText(String(marker.id.dropFirst("synop-".count))) { flashRawNote() }
+                        })
+    }
+
+    private func flashRawNote() {
+        let text = "Rohmeldung nicht im Text (Textfilter an oder Text gelöscht)"
+        rawNote = text
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            if rawNote == text { rawNote = nil }
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 5) {
+            layerPicker
+            Picker("", selection: $isobarStep) {
+                Text("ISOBAREN AUS").tag(0)
+                Text("ISOBAREN 2 hPa").tag(2)
+                Text("ISOBAREN 4 hPa").tag(4)
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 140)
+            .disabled(layer == .sea)
+            .help("Linien gleichen Luftdrucks auf Meereshöhe, aus den Stationen berechnet (mindestens 5 Stationen). Dazu H und T an den Zentren.")
+            Button("T-FLÄCHE") { tempField.toggle() }
+                .buttonStyle(ModeButtonStyle(isSelected: tempField))
+                .disabled(layer == .sea)
+                .help("Temperaturverteilung als Farbfläche, aus den Stationen berechnet (mindestens 5 Stationen)")
+            Button {
+                showExtremes.toggle()
+            } label: {
+                Label("EXTREME", systemImage: "arrow.up.arrow.down")
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: showExtremes))
+            .disabled(!SynopLog.Layer.measured.contains(layer))
+            .help("Höchste und niedrigste Werte der gewählten Ebene")
+            .popover(isPresented: $showExtremes) { extremesView }
+            if let rawNote {
+                Text(rawNote)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(RadioTheme.vfdAmber)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(RadioTheme.bgDeep.opacity(0.85))
+                    .cornerRadius(4)
+            }
         }
     }
 
@@ -243,16 +328,65 @@ private struct RTTYMapView: View {
         Picker("", selection: $layerRaw) {
             ForEach(SynopLog.Layer.allCases) { Text($0.title).tag($0.rawValue) }
         }
-        .pickerStyle(.segmented)
+        .pickerStyle(.menu)
         .labelsHidden()
-        .frame(width: 330)
-        .help("Was die Karte zeigt: Wetterstationen als Symbol oder Messwert (Temperatur, Druck, Wind, Sicht) oder SEE: Seegebiete, Warnungen, Hochs, Tiefs, Fronten")
+        .frame(width: 105)
+        .help("Was die Karte zeigt: Wetterstationen als Symbol oder Messwert (Temperatur, Druck, Wind, Sicht, Feuchte, Niederschlag) oder SEE: Seegebiete, Warnungen, Hochs, Tiefs, Fronten")
+    }
+
+    /// Rangliste der höchsten und niedrigsten Werte; ein Klick wählt die Station auf der Karte
+    private var extremesView: some View {
+        let result = controller.textModel.synop.extremes(layer: layer)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(result.map { "\($0.layer.quantity.uppercased()) · \($0.stations) Stationen" } ?? layer.quantity.uppercased())
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+            if let result {
+                extremeList("HÖCHSTE", result.highest, tint: RadioTheme.ledRed)
+                if !result.lowest.isEmpty { extremeList("NIEDRIGSTE", result.lowest, tint: RadioTheme.vfdCyan) }
+            } else {
+                Text("Noch keine Station mit diesem Messwert und Ort")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textMuted)
+            }
+        }
+        .padding(12)
+        .frame(minWidth: 270, alignment: .leading)
+        .background(RadioTheme.bgCard)
+    }
+
+    private func extremeList(_ title: String, _ entries: [SynopExtremeEntry], tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(tint)
+            ForEach(entries) { e in
+                Button {
+                    selection = e.id
+                    showExtremes = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(e.text)
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textBright)
+                            .frame(width: 84, alignment: .trailing)
+                        Text(e.name)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Station auf der Karte wählen")
+            }
+        }
     }
 
     private func content(now: Date) -> MapContent {
         var content = layer == .sea
             ? controller.textModel.sea.content(home: home.point, now: now, transmitters: sites)
-            : controller.textModel.synop.content(home: home.point, now: now, transmitters: sites, layer: layer)
+            : controller.textModel.synop.content(home: home.point, now: now, transmitters: sites, layer: layer, overlay: overlay)
         if layer != .sea {
             content.markers += controller.textModel.sea.pointMarkers(home: home.point, layer: layer)
         }

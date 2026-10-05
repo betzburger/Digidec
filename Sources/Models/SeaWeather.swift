@@ -865,7 +865,7 @@ public final class SeaLog {
                 } else {
                     continue
                 }
-            case .pressure, .visibility:
+            case .pressure, .visibility, .humidity, .precipitation:
                 continue
             case .sea:
                 m.symbol = "water.waves"

@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import AppKit
 
 /// Farben der Kartenpunkte im RadioTheme
 extension MapTone {
@@ -39,6 +40,16 @@ enum MapAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+/// Zusätzlicher Knopf in der Auswahl eines Kartenpunkts (z. B. „IM TEXT“: zur Rohmeldung springen)
+struct MapDetailAction {
+    var title: String
+    var help: String
+    var systemImage: String
+    /// Für welche Punkte der Knopf erscheint
+    var applies: (MapMarker) -> Bool
+    var perform: (MapMarker) -> Void
+}
+
 /// Gemeinsame Karte für alle Module: Punkte, Wege, Großkreislinien, Standort, Auswahl mit Einzelheiten.
 /// Das Modul liefert nur `MapContent`; Sicht, Stil und Standort-Eingabe sind hier.
 struct MapPanel: View {
@@ -49,8 +60,14 @@ struct MapPanel: View {
     var legend: String? = nil
     /// Zusätzliche Bedienelemente neben den Schaltern (z. B. Auswahl der Ansicht)
     var accessory: AnyView? = nil
+    var detailAction: MapDetailAction? = nil
+    /// Namensteil der Bilddatei („RTTY-TEMP“ → Karte-RTTY-TEMP-20261005-123000.png)
+    var snapshotName: String = "Karte"
 
     @State private var camera: MapCameraPosition = .automatic
+    @State private var visibleRegion: MKCoordinateRegion?
+    @State private var mapSize: CGSize = .zero
+    @State private var snapshotMessage: String?
     @State private var fitted = false
     @State private var devSelected = false
     @State private var span: Double = 60
@@ -62,12 +79,15 @@ struct MapPanel: View {
 
     private var appearance: MapAppearance { MapAppearance(rawValue: appearanceRaw) ?? .standard }
 
-    init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil, accessory: AnyView? = nil) {
+    init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil, accessory: AnyView? = nil,
+         detailAction: MapDetailAction? = nil, snapshotName: String = "Karte") {
         self.content = content
         self.home = home
         self._selection = selection
         self.legend = legend
         self.accessory = accessory
+        self.detailAction = detailAction
+        self.snapshotName = snapshotName
     }
 
     var body: some View {
@@ -117,6 +137,28 @@ struct MapPanel: View {
 
     private var map: some View {
         Map(position: $camera, selection: $selection) {
+            ForEach(content.patches) { patch in
+                MapPolygon(coordinates: patch.corners.map(\.cl))
+                    .foregroundStyle(MarkerBadge.scale(patch.level).opacity(0.32))
+            }
+            ForEach(content.contours) { contour in
+                // dunkler Saum für den Kontrast auf hellen und bunten Karten, darüber die weiße Linie
+                MapPolyline(coordinates: contour.points.map(\.cl))
+                    .stroke(Color.black.opacity(0.45), style: StrokeStyle(lineWidth: 3.4, lineCap: .round, lineJoin: .round))
+                MapPolyline(coordinates: contour.points.map(\.cl))
+                    .stroke(Color.white.opacity(0.95), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+            ForEach(content.contours) { contour in
+                if let label = contour.label, let at = contour.labelPoint {
+                    Annotation("", coordinate: at.cl, anchor: .center) {
+                        Text(label)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 3)
+                            .background(Capsule().fill(Color.white.opacity(0.85)))
+                    }
+                }
+            }
             ForEach(content.lines) { line in
                 MapPolyline(coordinates: line.points.map(\.cl), contourStyle: line.geodesic ? .geodesic : .straight)
                     .stroke(line.tone.color.opacity(0.55), lineWidth: 1.2)
@@ -182,7 +224,15 @@ struct MapPanel: View {
         }
         .onMapCameraChange(frequency: .onEnd) { context in
             span = max(context.region.span.latitudeDelta, context.region.span.longitudeDelta)
+            visibleRegion = context.region
         }
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { mapSize = geo.size }
+                    .onChange(of: geo.size) { _, newSize in mapSize = newSize }
+            }
+        )
     }
 
     private var controls: some View {
@@ -216,6 +266,13 @@ struct MapPanel: View {
                     .buttonStyle(ModeButtonStyle(isSelected: showTracks))
                     .help("Weg der bewegten Stationen als Linie zeichnen; ein Klick auf einen Punkt zeigt seinen ganzen Weg")
                 }
+                Button {
+                    saveImage()
+                } label: {
+                    Label("BILD", systemImage: "camera")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Den sichtbaren Kartenausschnitt mit Punkten, Isobaren und Flächen als PNG speichern (~/Documents/Digidec/Maps)")
                 Text(content.markers.count == 1 ? "1 Punkt" : "\(content.markers.count) Punkte")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -232,8 +289,47 @@ struct MapPanel: View {
                         .cornerRadius(4)
                 }
             }
+            if let note = snapshotMessage ?? content.note {
+                Text(note)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(snapshotMessage != nil ? RadioTheme.vfdCyan : RadioTheme.vfdAmber)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(RadioTheme.bgDeep.opacity(0.85))
+                    .cornerRadius(4)
+            }
         }
         .padding(8)
+    }
+
+    /// Meldung unter den Schaltern, verschwindet nach einigen Sekunden
+    private func flash(_ text: String, keep: Bool = false) {
+        snapshotMessage = text
+        guard !keep else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            if snapshotMessage == text { snapshotMessage = nil }
+        }
+    }
+
+    /// Sichtbaren Ausschnitt als PNG ablegen und im Finder zeigen
+    private func saveImage() {
+        guard let region = visibleRegion, mapSize.width > 50, mapSize.height > 50 else {
+            flash("Karte noch nicht bereit")
+            return
+        }
+        flash("Bild wird erstellt …", keep: true)
+        let content = self.content, appearance = self.appearance, tracks = showTracks, size = mapSize, name = snapshotName, title = legend
+        Task { @MainActor in
+            let result = await MapSnapshotExporter.save(content: content, region: region, size: size, appearance: appearance,
+                                                        showTracks: tracks, name: name, title: title)
+            switch result {
+            case .success(let url):
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                flash("Gespeichert: " + url.lastPathComponent)
+            case .failure(let error):
+                flash(error.message)
+            }
+        }
     }
 
     private var homeEditor: some View {
@@ -290,11 +386,21 @@ struct MapPanel: View {
             if let sub = m.subtitle {
                 Text(sub).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundColor(RadioTheme.textMuted)
             }
-            ForEach(Array(m.details.prefix(8).enumerated()), id: \.offset) { _, line in
+            ForEach(Array(m.details.prefix(10).enumerated()), id: \.offset) { _, line in
                 Text(line)
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textBright)
                     .lineLimit(2)
+            }
+            if let action = detailAction, action.applies(m) {
+                Button {
+                    action.perform(m)
+                } label: {
+                    Label(action.title, systemImage: action.systemImage)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help(action.help)
+                .padding(.top, 2)
             }
         }
         .padding(8)
@@ -393,7 +499,7 @@ struct MarkerBadge: View {
     }
 
     /// Farbskala 0 (blau) … 0,5 (grün/gelb) … 1 (rot)
-    private static func scale(_ level: Double) -> Color {
+    static func scale(_ level: Double) -> Color {
         Color(hue: 0.66 * (1 - min(max(level, 0), 1)), saturation: 0.75, brightness: 0.98)
     }
 }

@@ -4454,6 +4454,7 @@ do {
         case .pressure: check(withPoint.count == 2 && withPoint.allSatisfy { $0.valueText == "1031" }, "Karte Luftdruck: \(withPoint.map { $0.valueText ?? "-" })")
         case .wind: check(withPoint.contains { $0.headingDeg != nil && $0.valueText == "2" }, "Karte Wind: Pfeil und Knoten (\(withPoint.map { $0.valueText ?? "-" }))")
         case .visibility: check(withPoint.contains { $0.valueText == "13" }, "Karte Sicht: \(withPoint.map { $0.valueText ?? "-" })")
+        case .humidity, .precipitation: check(withPoint.allSatisfy { $0.valueText != nil && $0.valueLevel != nil && $0.symbol == nil }, "Karte \(layer.title): nur Stationen mit Wert, als Zahl (\(withPoint.count))")
         case .sea: break
         }
     }
@@ -6573,6 +6574,310 @@ func hfdlDecode(_ audio: [Float], chunk: Int = 1200) -> [HFDLRawFrame] {
     check(s.stationsOnChannel.count >= 3 && s.centerHz == 1440, "HFDL: Stationen auf 13276 kHz, NF-Mitte 1440 Hz")
 }
 hfdlTests()
+
+
+// MARK: - Wetterauswertung (0.54.0): Feuchte, Gitter, Isobaren, Hoch/Tief, Farbfläche
+do {
+    // Relative Luftfeuchte (Magnus-Formel)
+    check(WeatherMath.relativeHumidity(temperatureC: 20, dewpointC: 10).map { abs($0 - 52.5) < 1 } == true, "Feuchte: 20 °C / Taupunkt 10 °C ≈ 52,5 %")
+    check(WeatherMath.relativeHumidity(temperatureC: 5, dewpointC: 5) == 100, "Feuchte: Taupunkt = Temperatur → 100 %")
+    check(WeatherMath.relativeHumidity(temperatureC: 10, dewpointC: 12) == nil && WeatherMath.relativeHumidity(temperatureC: nil, dewpointC: 5) == nil, "Feuchte: unplausibel oder fehlend → nil")
+
+    // Stationsraster mit Hoch bei 48°N 4°O (1035) und Tief bei 57°N 20°O (982); fest, ohne Zufall
+    func pressureAt(_ lat: Double, _ lon: Double) -> Double {
+        let h = 25 * exp(-(pow((lat - 48) / 6, 2) + pow((lon - 4) / 9, 2)))
+        let t = -28 * exp(-(pow((lat - 57) / 5, 2) + pow((lon - 20) / 8, 2)))
+        return 1010 + h + t
+    }
+    var raster: [(lat: Double, lon: Double, p: Double)] = []
+    for i in 0..<15 {
+        for j in 0..<15 {
+            let lat = ((40 + 24 * (Double(i) + 0.5) / 15 + 0.5 * cos(Double(5 * i + 2 * j))) * 1000).rounded() / 1000
+            let lon = ((-8 + 40 * (Double(j) + 0.5) / 15 + 0.7 * sin(Double(7 * i + 3 * j))) * 1000).rounded() / 1000
+            raster.append((lat, lon, (pressureAt(lat, lon) * 10).rounded() / 10))
+        }
+    }
+    let samples = raster.map { FieldSample(point: GeoPoint(lat: $0.lat, lon: $0.lon), value: $0.p) }
+    check(WeatherField.grid(samples: Array(samples.prefix(4))) == nil, "Gitter: unter 5 Werte → keines")
+    check(WeatherField.grid(samples: [FieldSample(point: GeoPoint(lat: 0, lon: -100), value: 1), FieldSample(point: GeoPoint(lat: 1, lon: 100), value: 2)] + samples.prefix(4)) == nil, "Gitter: über 180° Breite → keines")
+    if let g = WeatherField.grid(samples: samples) {
+        let r = g.range
+        check(r != nil && r!.min > 981 && r!.min < 986 && r!.max > 1031 && r!.max < 1036, "Gitter: Wertebereich folgt dem Feld (\(String(describing: r)))")
+        // Hoch und Tief an der richtigen Stelle, nichts sonst
+        let ex = WeatherField.extrema(of: g)
+        let highs = ex.filter { $0.isHigh }, lows = ex.filter { !$0.isHigh }
+        check(highs.count == 1 && abs(highs[0].point.lat - 48) < 2.5 && abs(highs[0].point.lon - 4) < 3.5 && highs[0].value > 1031 && highs[0].value < 1036, "Hoch bei 48°N 4°O: \(highs)")
+        check(lows.count == 1 && abs(lows[0].point.lat - 57) < 2.5 && abs(lows[0].point.lon - 20) < 3.5 && lows[0].value > 981 && lows[0].value < 986, "Tief bei 57°N 20°O: \(lows)")
+        // Isobaren: um Hoch und Tief geschlossene Ringe, nach außen offene Linien
+        let ring1024 = WeatherField.contours(of: g, level: 1024)
+        check(ring1024.count == 1 && ring1024[0].isClosed && ring1024[0].points.count > 8, "Isobare 1024 hPa: ein geschlossener Ring um das Hoch (\(ring1024.count))")
+        let ring992 = WeatherField.contours(of: g, level: 992)
+        check(ring992.count == 1 && ring992[0].isClosed, "Isobare 992 hPa: ein geschlossener Ring um das Tief")
+        let open1008 = WeatherField.contours(of: g, level: 1008)
+        check(!open1008.isEmpty && open1008.allSatisfy { !$0.isClosed }, "Isobare 1008 hPa: offene Linien zwischen Hoch und Tief")
+        let all = WeatherField.contourLines(of: g, step: 4)
+        let levels = Set(all.map { Int($0.level) })
+        check(levels.contains(1024) && levels.contains(992) && levels.allSatisfy { $0 % 4 == 0 }, "Isobaren alle 4 hPa: \(levels.sorted())")
+        check(all.allSatisfy { line in line.points.allSatisfy { $0.isValid } }, "Isobaren: alle Punkte gültig")
+        // Abgerundet: Anfang und Ende offener Linien bleiben, geschlossene bleiben geschlossen
+        if let open = open1008.first {
+            let rounded = WeatherField.rounded(open)
+            check(rounded.points.first == open.points.first && rounded.points.last == open.points.last && rounded.points.count > open.points.count, "Chaikin: Enden bleiben, mehr Punkte")
+        }
+        let r2 = WeatherField.rounded(ring1024[0])
+        check(r2.isClosed && r2.points.first == r2.points.last, "Chaikin: geschlossene Linie bleibt geschlossen")
+        check(WeatherField.contourLines(of: g, step: 0).isEmpty, "Isobaren: Abstand 0 → keine")
+    } else {
+        check(false, "Gitter aus 225 Stationen")
+    }
+
+    // Marching Squares auf Hand-Gittern
+    func handGrid(_ rows: Int, _ cols: Int, _ f: (Int, Int) -> Double) -> WeatherGrid {
+        var v: [Double] = []
+        for r in 0..<rows { for c in 0..<cols { v.append(f(r, c)) } }
+        return WeatherGrid(latMin: 50, lonMin: 8, dLat: 1, dLon: 1, rows: rows, cols: cols, values: v)
+    }
+    let ramp = handGrid(4, 4) { r, _ in Double(r) }
+    let rampLines = WeatherField.contours(of: ramp, level: 1.5)
+    check(rampLines.count == 1 && rampLines[0].points.count == 4 && !rampLines[0].isClosed && rampLines[0].points.allSatisfy { abs($0.lat - 51.5) < 1e-9 }, "Rampe: eine waagerechte offene Linie bei 51,5°N (\(rampLines.count))")
+    let peak = handGrid(5, 5) { r, c in r == 2 && c == 2 ? 10 : 0 }
+    let peakLines = WeatherField.contours(of: peak, level: 5)
+    check(peakLines.count == 1 && peakLines[0].isClosed && peakLines[0].points.count == 5, "Gipfel: ein geschlossener Ring aus 4 Stücken (\(peakLines.map { $0.points.count }))")
+    let saddle = handGrid(2, 2) { r, c in (r + c) % 2 == 0 ? 10 : 0 }
+    check(WeatherField.contours(of: saddle, level: 5).count == 2 && WeatherField.contours(of: saddle, level: 6).count == 2, "Sattel: zwei getrennte Linien, wie der Mittelwert auch fällt")
+    check(WeatherField.contours(of: ramp, level: 99).isEmpty && WeatherField.contours(of: ramp, level: -1).isEmpty, "Linie außerhalb des Wertebereichs: keine")
+    var holey = handGrid(4, 4) { r, _ in Double(r) }
+    holey.values[1 * 4 + 1] = .nan
+    let holeyLines = WeatherField.contours(of: holey, level: 1.5)
+    check(holeyLines.allSatisfy { $0.points.count >= 2 } && holeyLines.reduce(0, { $0 + $1.points.count }) < 4 + 4, "Leerer Eckpunkt: Zellen daneben fallen aus")
+
+    // Farbflächen: waagerechte Nachbarn gleicher Stufe werden zu einem Rechteck
+    let flat = handGrid(3, 6) { _, _ in 10 }
+    let flatPatches = WeatherField.patches(of: flat, bandWidth: 2.5) { ($0 + 20) / 55 }
+    check(flatPatches.count == 3 && flatPatches.allSatisfy { $0.corners.count == 4 && abs($0.level - (11.25 + 20) / 55) < 1e-9 }, "Flächen: je Zeile ein Rechteck, Stufenmitte 11,25 °C (\(flatPatches.count))")
+    let stepped = handGrid(1, 6) { _, c in c < 3 ? 1 : 11 }
+    check(WeatherField.patches(of: stepped, bandWidth: 2.5) { $0 }.count == 2, "Flächen: zwei Stufen nebeneinander → zwei Rechtecke")
+    let gapped = handGrid(1, 6) { _, c in c == 3 ? .nan : 5 }
+    check(WeatherField.patches(of: gapped, bandWidth: 2.5) { $0 }.count == 2, "Flächen: leere Zelle trennt")
+}
+
+// MARK: - Wetterauswertung: Extremwerte, Ebenen, Überlagerung, CSV (Klartext wie vom SYNOP-Decoder)
+do {
+    let now = Date()
+    func klar(_ id: String, lat: Double, lon: Double, t: Double? = nil, td: Double? = nil, p: Double? = nil, rain: Double? = nil, wind: Int? = nil) -> String {
+        var s = "\tShip/Buoy identifier=\(id)\n\tLatitude=\(lat)\n\tLongitude=\(lon)\n"
+        if let t { s += "\tTemperature=\(t) °C\n" }
+        if let td { s += "\tDewpoint temperature=\(td) °C\n" }
+        if let p { s += "\tSea level pressure=\(p) hPa\n" }
+        if let wind { s += "\tWind speed=\(wind) knots\n" }
+        if let rain { s += "\tPrecipitation amount=\(rain) mm\n\tPrecipitation duration=6 hours\n" }
+        return s
+    }
+    let log = SynopLog()
+    log.feed(klar("DBAA", lat: 54.0, lon: 8.0, t: 30.5, td: 10.0, p: 1020.4, rain: 12.0)
+             + klar("DBBB", lat: 55.0, lon: 9.0, t: -5.0, td: -8.0, p: 995.0, rain: 0.0, wind: 40)
+             + klar("DBCC", lat: 53.0, lon: 7.0, t: 12.0, td: 11.0, p: 1013.0)
+             + klar("DBDD", lat: 52.0, lon: 6.0, t: 21.0, td: 9.0, rain: 3.2)
+             + klar("DBEE", lat: 51.0, lon: 5.0, t: 8.0), decoded: true, at: now)
+    log.feed("X", decoded: false, at: now)
+    log.flush(at: now)
+    check(log.observations.count == 5, "Auswertung: fünf Stationen (\(log.observations.count))")
+    let a = log.observations["DBAA"]
+    check(a?.dewpointC == 10 && a?.seaLevelPressureHPa == 1020.4 && a?.precipitationMm == 12 && a?.precipitationHours == 6, "Beobachtung: Taupunkt, Meeresdruck, Niederschlag und Zeitraum")
+    check(a?.humidityPct.map { $0 > 25 && $0 < 33 } == true && log.observations["DBEE"]?.humidityPct == nil, "Feuchte aus Temperatur und Taupunkt, ohne Taupunkt keine (\(String(describing: a?.humidityPct)))")
+    check(log.observations["DBDD"]?.seaLevelPressureHPa == nil, "Ohne Druck auf Meereshöhe bleibt das Feld leer")
+
+    // Extremwerte
+    let t = log.extremes(layer: .temperature, count: 2, now: now)
+    check(t?.highest.map(\.id) == ["synop-DBAA", "synop-DBDD"] && t?.lowest.map(\.id) == ["synop-DBBB", "synop-DBEE"] && t?.stations == 5, "Extremwerte Temperatur: höchste und niedrigste (\(String(describing: t?.highest.map(\.id))), \(String(describing: t?.lowest.map(\.id))))")
+    check(t?.highest.first?.text == "30,5 °C" && t?.lowest.first?.text == "-5,0 °C", "Extremwerte: Text mit Komma und Einheit (\(String(describing: t?.highest.first?.text)))")
+    check(log.extremes(layer: .humidity, count: 1, now: now)?.highest.first?.id == "synop-DBCC", "Extremwerte Feuchte: DBCC mit 99 %")
+    let rain = log.extremes(layer: .precipitation, count: 3, now: now)
+    check(rain?.highest.first?.id == "synop-DBAA" && rain?.lowest.isEmpty == true && rain?.stations == 3, "Extremwerte Niederschlag: nur höchste, 3 Stationen")
+    check(log.extremes(layer: .wind, count: 3, now: now)?.highest.map(\.id) == ["synop-DBBB"] && log.extremes(layer: .wind, count: 3, now: now)?.lowest.isEmpty == true, "Extremwerte Wind: eine Station, keine niedrigsten")
+    check(log.extremes(layer: .visibility, now: now) == nil && log.extremes(layer: .symbol, now: now) == nil && log.extremes(layer: .sea, now: now) == nil, "Extremwerte: ohne Daten oder ohne Messwert-Ebene nil")
+
+    // Ebenen auf der Karte
+    let hum = log.content(home: nil, now: now, layer: .humidity).markers.filter { $0.id.hasPrefix("synop-") }
+    check(hum.count == 4 && hum.allSatisfy { $0.valueText != nil && $0.valueLevel != nil }, "Karte Feuchte: vier Stationen mit Taupunkt (\(hum.count))")
+    let reg = log.content(home: nil, now: now, layer: .precipitation).markers.filter { $0.id.hasPrefix("synop-") }
+    check(reg.count == 3 && reg.contains { $0.valueText == "12" } && reg.contains { $0.valueText == "3,2" }, "Karte Niederschlag: \(reg.map { $0.valueText ?? "-" })")
+    let details = log.content(home: nil, now: now, layer: .symbol).markers.first { $0.id == "synop-DBAA" }?.details ?? []
+    check(details.contains { $0.hasPrefix("Feuchte") } && details.contains { $0.contains("Niederschlag 12 mm in 6 h") }, "Auswahl nennt Feuchte und Niederschlag: \(details)")
+    check(SynopLog.Layer.allCases.filter { $0 != .symbol && $0 != .sea }.allSatisfy { SynopLog.Layer.measured.contains($0) }, "Alle Messwert-Ebenen sind aufgeführt")
+    check(SynopLog.Layer.temperature.text(-5) == "-5,0 °C" && SynopLog.Layer.pressure.text(1013) == "1013 hPa" && SynopLog.Layer.pressure.text(1013.4) == "1013,4 hPa" && SynopLog.Layer.visibility.text(4.5) == "4,5 km" && SynopLog.Layer.humidity.text(52.4) == "52 %", "Werttexte je Ebene")
+
+    // Abschluss-Rückruf: jede Meldung einmal, erst wenn vollständig
+    let em = SynopLog()
+    var emitted: [String] = []
+    em.onObservationClosed = { emitted.append($0.id) }
+    em.feed(klar("DBAA", lat: 54.0, lon: 8.0, t: 10), decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted.isEmpty, "Abschluss: die laufende Meldung ist noch nicht fertig")
+    em.feed(klar("DBBB", lat: 55.0, lon: 9.0, t: 11), decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted == ["DBAA"], "Abschluss: die nächste Meldung schließt die vorige ab (\(emitted))")
+    em.feed("\tBulletin end\n", decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted == ["DBAA", "DBBB"], "Abschluss: „Bulletin end“ schließt die letzte ab (\(emitted))")
+    // Wiederholt der Sender den Block, kommt nichts doppelt; die unfertige Meldung nach „Bulletin end“ wird nicht vorzeitig gemeldet
+    em.feed(klar("DBAA", lat: 54.0, lon: 8.0, t: 10), decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    em.feed("\tTemperature=", decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted == ["DBAA", "DBBB"], "Abschluss: keine Doppelten, keine unfertige Meldung (\(emitted))")
+    let revBefore = em.revision
+    em.flush(at: now.addingTimeInterval(5))
+    em.flush(at: now.addingTimeInterval(10))
+    check(em.revision == revBefore, "Wiederholtes Auswerten derselben offenen Meldung ändert die Revision nicht")
+
+    // CSV
+    let fields = SynopCSV.row(a!).components(separatedBy: ";")
+    check(fields.count == SynopCSV.columns.count && SynopCSV.header.components(separatedBy: ";").count == SynopCSV.columns.count, "CSV: Zeile und Kopf haben \(SynopCSV.columns.count) Spalten (\(fields.count))")
+    check(fields[0].hasPrefix("20") && fields[0].hasSuffix("Z") && fields[2] == "DBAA" && fields[4] == "54.000" && fields[7] == "30.5" && fields[8] == "10.0" && fields[10] == "1020.4" && fields[11] == "Meereshoehe" && fields[16] == "12.0" && fields[17] == "6", "CSV: Werte mit Dezimalpunkt (\(fields))")
+    let noRain = SynopCSV.row(log.observations["DBEE"]!).components(separatedBy: ";")
+    check(noRain[8] == "" && noRain[9] == "" && noRain[10] == "" && noRain[11] == "" && noRain[16] == "", "CSV: fehlende Werte bleiben leer (\(noRain))")
+    check(SynopCSV.text("a;b") == "\"a;b\"" && SynopCSV.text("x\"y") == "\"x\"\"y\"" && SynopCSV.text("plain") == "plain", "CSV: Anführungszeichen bei Semikolon und Anführungszeichen")
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("digidec-csv-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let writer = SynopCSVWriter(directory: dir)
+    check(writer.append(a!) && writer.append(log.observations["DBBB"]!), "CSV-Datei: schreiben")
+    let fileText = (try? String(contentsOf: writer.fileURL(for: a!.received), encoding: .utf8)) ?? ""
+    let lines = fileText.split(separator: "\n").map(String.init)
+    check(lines.count == 3 && lines[0] == SynopCSV.header && lines[1].contains(";DBAA;") && lines[2].contains(";DBBB;"), "CSV-Datei: Kopfzeile einmal, dann je Meldung eine Zeile (\(lines.count))")
+    check(writer.fileURL(for: a!.received).lastPathComponent.hasPrefix("SYNOP-20") && writer.fileURL(for: a!.received).pathExtension == "csv", "CSV-Datei: Name SYNOP-JJJJ-MM-TT.csv")
+}
+
+// MARK: - Isobaren und Temperaturfläche aus den SYNOP-Beobachtungen (mit Zwischenspeicher)
+do {
+    let now = Date()
+    func pressureAt(_ lat: Double, _ lon: Double) -> Double {
+        let h = 25 * exp(-(pow((lat - 48) / 6, 2) + pow((lon - 4) / 9, 2)))
+        let t = -28 * exp(-(pow((lat - 57) / 5, 2) + pow((lon - 20) / 8, 2)))
+        return 1010 + h + t
+    }
+    var text = ""
+    for i in 0..<15 {
+        for j in 0..<15 {
+            let lat = ((40 + 24 * (Double(i) + 0.5) / 15 + 0.5 * cos(Double(5 * i + 2 * j))) * 1000).rounded() / 1000
+            let lon = ((-8 + 40 * (Double(j) + 0.5) / 15 + 0.7 * sin(Double(7 * i + 3 * j))) * 1000).rounded() / 1000
+            let p = (pressureAt(lat, lon) * 10).rounded() / 10
+            let temp = ((25 - 0.8 * (lat - 40)) * 10).rounded() / 10
+            text += "\tShip/Buoy identifier=ST\(i)X\(j)\n\tLatitude=\(lat)\n\tLongitude=\(lon)\n\tTemperature=\(temp) °C\n\tSea level pressure=\(p) hPa\n"
+        }
+    }
+    let log = SynopLog()
+    log.feed(text, decoded: true, at: now)
+    log.feed("X", decoded: false, at: now)
+    log.flush(at: now)
+    check(log.observations.count == 225, "Überlagerung: 225 Stationen (\(log.observations.count))")
+
+    check(!SynopOverlayOptions.off.isActive && SynopOverlayOptions(isobarStepHPa: 4).isActive && SynopOverlayOptions(temperatureField: true).isActive, "Überlagerung: aktiv nur mit Isobaren oder Fläche")
+    let none = log.content(home: nil, now: now, layer: .temperature)
+    check(none.contours.isEmpty && none.patches.isEmpty && none.note == nil, "Ohne Überlagerung bleibt die Karte wie bisher")
+
+    let iso = log.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now)
+    let levels = Set(iso.contours.map { Int($0.level) })
+    check(iso.contours.count >= 8 && levels.contains(1024) && levels.contains(992) && iso.patches.isEmpty && iso.note == nil, "Isobaren aus Stationen: \(iso.contours.count) Linien, Ebenen \(levels.sorted())")
+    check(iso.contours.contains { $0.label == "1024" && $0.labelPoint != nil } && Set(iso.contours.map(\.id)).count == iso.contours.count, "Isobaren: beschriftet, Kennungen eindeutig")
+    let hl = iso.centers.sorted { $0.title < $1.title }
+    check(hl.count == 2 && hl[0].title == "Hoch" && hl[1].title == "Tief" && hl[0].valueText?.hasPrefix("H 103") == true && hl[1].valueText?.hasPrefix("T 98") == true, "Hoch und Tief als Punkte: \(hl.map { $0.valueText ?? "-" })")
+    let iso2 = log.overlay(options: SynopOverlayOptions(isobarStepHPa: 2), now: now)
+    check(iso2.contours.count > iso.contours.count, "Isobaren alle 2 hPa: mehr Linien als alle 4 hPa (\(iso2.contours.count) / \(iso.contours.count))")
+    check(log.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now).contours.count == iso.contours.count, "Überlagerung aus dem Zwischenspeicher: gleiches Ergebnis")
+
+    let tf = log.overlay(options: SynopOverlayOptions(temperatureField: true), now: now)
+    check(tf.contours.isEmpty && tf.patches.count > 20 && tf.patches.allSatisfy { $0.level >= 0 && $0.level <= 1 && $0.corners.count == 4 }, "Temperaturfläche: \(tf.patches.count) Rechtecke")
+    // Wärmer im Süden: der südlichste Streifen hat einen höheren Farbwert als der nördlichste
+    let south = tf.patches.min { ($0.corners[0].lat) < ($1.corners[0].lat) }
+    let north = tf.patches.max { ($0.corners[0].lat) < ($1.corners[0].lat) }
+    check(south != nil && north != nil && south!.level > north!.level, "Temperaturfläche: Süden wärmer als Norden")
+
+    let both = log.content(home: nil, now: now, layer: .temperature, overlay: SynopOverlayOptions(isobarStepHPa: 4, temperatureField: true))
+    check(!both.contours.isEmpty && !both.patches.isEmpty && both.markers.contains { $0.id.hasPrefix("hl-") } && both.markers.contains { $0.id.hasPrefix("synop-") }, "Karteninhalt: Stationen, Hoch/Tief, Isobaren und Fläche zusammen")
+
+    // Zu wenige Stationen: Hinweis statt Linien
+    let few = SynopLog()
+    few.feed("\tShip/Buoy identifier=A1\n\tLatitude=50\n\tLongitude=8\n\tSea level pressure=1010 hPa\n\tTemperature=10 °C\n"
+             + "\tShip/Buoy identifier=A2\n\tLatitude=51\n\tLongitude=9\n\tSea level pressure=1011 hPa\n\tTemperature=11 °C\n", decoded: true, at: now)
+    few.feed("X", decoded: false, at: now)
+    let fewOverlay = few.overlay(options: SynopOverlayOptions(isobarStepHPa: 4, temperatureField: true), now: now)
+    check(fewOverlay.contours.isEmpty && fewOverlay.patches.isEmpty && fewOverlay.note?.contains("mindestens 5") == true, "Zu wenige Stationen: Hinweis (\(fewOverlay.note ?? "-"))")
+    // Alte Meldungen fließen nicht ein
+    check(log.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now.addingTimeInterval(SynopLog.overlayMaxAge + 3600)).contours.isEmpty, "Meldungen älter als 9 Stunden zählen nicht für Isobaren")
+    // Stationsdruck ohne Meereshöhe: keine Isobaren (Höhenfehler)
+    let stationOnly = SynopLog()
+    var stText = ""
+    for i in 0..<8 { stText += "\tShip/Buoy identifier=S\(i)\n\tLatitude=\(48 + Double(i) * 0.7)\n\tLongitude=\(8 + Double(i % 3))\n\tStation pressure=\(900 + i * 3) hPa\n" }
+    stationOnly.feed(stText, decoded: true, at: now)
+    stationOnly.feed("X", decoded: false, at: now)
+    check(stationOnly.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now).contours.isEmpty, "Nur Stationsdruck: keine Isobaren")
+}
+
+// MARK: - Textfilter für den Empfangstext
+do {
+    func run(_ f: ReceiveTextFilter, _ text: String, chunk: Int) -> String {
+        var runner = ReceiveTextFilterRunner(filter: f)
+        var out = ""
+        var i = text.startIndex
+        while i < text.endIndex {
+            let j = text.index(i, offsetBy: chunk, limitedBy: text.endIndex) ?? text.endIndex
+            out += runner.process(String(text[i..<j]))
+            i = j
+        }
+        return out + runner.flush()
+    }
+    let stream = "RYRYRYRYRYRY\r\nZCZC ABC\r\nBBXX DBCR 22064 99543\r\n=\r\nNNNN\r\nRYRYRYRYRY\r\nxx bbxx AAAA 1=\r\nNNNN rest"
+    let window = ReceiveTextFilter(enabled: true, start: "bbxx", stop: "nnnn", hideFiller: true)
+    let expected = "BBXX DBCR 22064 99543\r\n=\r\nNNNN\nbbxx AAAA 1=\r\nNNNN"
+    for n in [1, 2, 3, 5, 7, 100] {
+        let out = run(window, stream, chunk: n)
+        check(out == expected, "Filter ab/bis, Stücke zu \(n): \(out.debugDescription)")
+    }
+    // Nur Füllzeichen weglassen, auch über Stückgrenzen
+    let fillerOnly = ReceiveTextFilter(enabled: true, start: "", stop: "", hideFiller: true)
+    for n in [1, 4, 100] {
+        check(run(fillerOnly, stream, chunk: n) == "\r\nZCZC ABC\r\nBBXX DBCR 22064 99543\r\n=\r\nNNNN\r\n\r\nxx bbxx AAAA 1=\r\nNNNN rest", "Nur RYRY weg, Stücke zu \(n)")
+    }
+    // Ausgeschaltet: alles unverändert, auch wenn Start und Stopp gesetzt sind
+    check(run(ReceiveTextFilter(enabled: false, start: "bbxx", stop: "nnnn"), stream, chunk: 3) == stream, "Filter aus: Text unverändert")
+    // Stopp ohne Start wirkt nicht
+    check(run(ReceiveTextFilter(enabled: true, start: "", stop: "nnnn", hideFiller: false), stream, chunk: 7) == stream, "Stopp ohne Start: alles bleibt")
+    // Wörter, die auf RY enden, gehen nicht verloren
+    let words = "WEATHER FORECAST SECONDARY PRIMARY\r\n"
+    check(run(ReceiveTextFilter(enabled: true, hideFiller: true), words, chunk: 1) == words, "Wörter mit …RY am Ende bleiben erhalten")
+    // Klartext der SYNOP-Auswertung folgt dem Zustand
+    var runner = ReceiveTextFilterRunner(filter: window)
+    check(!runner.allowsDecoded(), "Filter zu: Klartext wird nicht angezeigt")
+    _ = runner.process("BBXX ")
+    check(runner.allowsDecoded(), "Filter offen: Klartext wird angezeigt")
+    _ = runner.process("DBCR=NNNN")
+    check(!runner.allowsDecoded(), "Nach dem Stopptext wieder zu")
+    runner.configure(ReceiveTextFilter(enabled: false))
+    check(runner.allowsDecoded(), "Filter aus: Klartext immer")
+    check(ReceiveTextFilter().summary == "aus" && window.summary == "ab „bbxx“ bis „nnnn“ ohne RYRY" && ReceiveTextFilter(enabled: true, hideFiller: false).summary == "an", "Filter: Kurzbeschreibung")
+    let coded = try? JSONDecoder().decode(ReceiveTextFilter.self, from: JSONEncoder().encode(window))
+    check(coded == window, "Filter: Speicherformat Rundreise")
+}
+
+// MARK: - Rohmeldung einer Station im Text finden (Sprung von der Karte)
+do {
+    let text = "AAXX 05061\r\n10655 12970 82205 10123 20103 10655 40113=\r\n10015 NIL=\r\n\tWMO Station=10655\r\n\tWMO station=Wuerzburg\r\nBBXX DBCR 05064 99543 10655 11111=\r\nNNNN\r\n"
+    func part(_ id: String) -> String? {
+        SynopRawLocator.find(id: id, in: text).map { (text as NSString).substring(with: $0) }
+    }
+    check(part("10655") == "10655 12970 82205 10123 20103 10655 40113=", "Rohmeldung: Anfang am Zeilenanfang, bis zum „=“; Zahl mitten in der Meldung und Klartext zählen nicht (\(String(describing: part("10655"))))")
+    check(part("DBCR") == "DBCR 05064 99543 10655 11111=", "Rohmeldung: Schiff hinter BBXX (\(String(describing: part("DBCR"))))")
+    check(part("10015") == "10015 NIL=", "Rohmeldung: Station nach „=“")
+    check(part("99999") == nil && SynopRawLocator.find(id: "", in: text) == nil && SynopRawLocator.find(id: "10655", in: "") == nil, "Rohmeldung: unbekannt oder leer → nil")
+    // Nur freistehendes Vorkommen mitten in einer Zeile: notfalls dieses
+    check(SynopRawLocator.find(id: "4321", in: "foo bar 4321 baz") == NSRange(location: 8, length: 8), "Rohmeldung: ohne Meldungsanfang das letzte freistehende Vorkommen")
+    // Teil einer längeren Zahl zählt nicht
+    check(SynopRawLocator.find(id: "655", in: text) == nil && SynopRawLocator.find(id: "1065", in: text) == nil, "Rohmeldung: Teil einer längeren Kennung zählt nicht")
+    // Das letzte Vorkommen gewinnt (Meldung wurde wiederholt)
+    let twice = "10655 12970 1=\r\n10655 12980 2=\r\n"
+    check(SynopRawLocator.find(id: "10655", in: twice).map { (twice as NSString).substring(with: $0) } == "10655 12980 2=", "Rohmeldung: bei Wiederholung die jüngste")
+}
 
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

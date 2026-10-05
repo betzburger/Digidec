@@ -55,6 +55,7 @@ swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/Skimmer/SkimmerTables.swift $S/Decoders/Skimmer/SkimmerSpectrum.swift $S/Decoders/Skimmer/SkimmerChannels.swift $S/Decoders/Skimmer/SkimmerEngine.swift $S/Decoders/Skimmer/SkimmerSignals.swift $S/Decoders/Skimmer/SkimmerModule.swift \
     $S/Decoders/Pager/POCSAGCore.swift $S/Decoders/Pager/POCSAGEqualizer.swift $S/Decoders/Pager/PagerChannelModel.swift $S/Decoders/Pager/FLEXCore.swift $S/Decoders/Pager/ToneCore.swift $S/Decoders/Pager/PagerModule.swift $S/Decoders/Pager/TonesModule.swift \
     $S/Decoders/APRS/APRSPacket.swift $S/Decoders/APRS/AFSKModem.swift $S/Decoders/APRS/APRSModule.swift $S/Models/Geo.swift $S/Models/ModuleMaps.swift $S/Models/SeaWeather.swift \
+    $S/Models/WeatherField.swift $S/Models/SynopAnalysis.swift $S/Models/SynopExport.swift $S/Models/ReceiveTextFilter.swift $S/Models/SynopRawLocator.swift \
     $S/Decoders/DSC/DSCCore.swift $S/Decoders/DSC/DSCVHF.swift $S/Decoders/DSC/DSCModule.swift \
     $S/Decoders/Olivia/FldigiOliviaCore.swift $S/Decoders/Olivia/OliviaModule.swift \
     $S/Decoders/MFSK/FldigiMFSKCore.swift $S/Decoders/MFSK/MFSKModule.swift \

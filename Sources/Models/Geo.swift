@@ -200,6 +200,38 @@ public struct MapLine: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Linie gleichen Werts (Isobare) mit Beschriftung
+public struct MapContour: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var level: Double
+    public var points: [GeoPoint]
+    /// Beschriftung („1020“) an `labelPoint`; nil bei kurzen Linien
+    public var label: String?
+    public var labelPoint: GeoPoint?
+
+    public init(id: String, level: Double, points: [GeoPoint], label: String? = nil, labelPoint: GeoPoint? = nil) {
+        self.id = id
+        self.level = level
+        self.points = points
+        self.label = label
+        self.labelPoint = labelPoint
+    }
+}
+
+/// Farbfläche auf der Karte (Viereck mit Farbwert 0 … 1 wie `MapMarker.valueLevel`)
+public struct MapPatch: Identifiable, Equatable, Sendable {
+    public var id: String
+    /// Vier Ecken im Kreis
+    public var corners: [GeoPoint]
+    public var level: Double
+
+    public init(id: String, corners: [GeoPoint], level: Double) {
+        self.id = id
+        self.corners = corners
+        self.level = level
+    }
+}
+
 /// Alles, was eine Karte zeigt: Punkte, Linien und der eigene Standort
 public struct MapContent: Equatable, Sendable {
     public var markers: [MapMarker]
@@ -207,12 +239,22 @@ public struct MapContent: Equatable, Sendable {
     public var home: GeoPoint?
     /// Satz unter der Karte, wenn nichts zu zeigen ist
     public var emptyHint: String
+    /// Isobaren (unter den Punkten gezeichnet)
+    public var contours: [MapContour]
+    /// Farbflächen, z. B. Temperaturverteilung (ganz unten gezeichnet)
+    public var patches: [MapPatch]
+    /// Hinweis zu Isobaren oder Farbflächen (z. B. zu wenige Stationen); die Karte zeigt ihn klein an
+    public var note: String?
 
-    public init(markers: [MapMarker] = [], lines: [MapLine] = [], home: GeoPoint? = nil, emptyHint: String = "Noch keine Positionen empfangen") {
+    public init(markers: [MapMarker] = [], lines: [MapLine] = [], home: GeoPoint? = nil, emptyHint: String = "Noch keine Positionen empfangen",
+                contours: [MapContour] = [], patches: [MapPatch] = [], note: String? = nil) {
         self.markers = markers
         self.lines = lines
         self.home = home
         self.emptyHint = emptyHint
+        self.contours = contours
+        self.patches = patches
+        self.note = note
     }
 
     private static func span(_ pts: [GeoPoint]) -> (lat: Double, lon: Double) {

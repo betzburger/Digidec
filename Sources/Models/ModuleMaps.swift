@@ -204,6 +204,17 @@ public struct SynopObservation: Identifiable, Equatable, Sendable {
     public var windUnitAssumed = false
     /// Frühere Orte desselben Schiffs oder derselben Boje (älteste zuerst), ohne den aktuellen
     public var track: [GeoPoint] = []
+    public var dewpointC: Double?
+    /// Nur der auf Meereshöhe umgerechnete Druck (Gruppe 4PPPP); der Stationsdruck taugt nicht für Isobaren
+    public var seaLevelPressureHPa: Double?
+    public var precipitationMm: Double?
+    /// Zeitraum der Niederschlagsmenge in Stunden
+    public var precipitationHours: Double?
+
+    /// Relative Luftfeuchte in % aus Temperatur und Taupunkt
+    public var humidityPct: Double? {
+        WeatherMath.relativeHumidity(temperatureC: temperatureC, dewpointC: dewpointC)
+    }
 
     public var windSpeedKn: Double? {
         guard let v = windSpeedValue else { return nil }
@@ -292,6 +303,14 @@ public final class SynopLog {
     private var guessedRun = false
     /// Art der Meldung, die im angefangenen Klartext steht (Land, Schiff, Boje)
     private var pendingKind = "Land"
+    /// Zählt jede Änderung an den Beobachtungen; Karten-Überlagerungen werden nur dann neu berechnet
+    public private(set) var revision = 0
+    /// Zuletzt berechnete Überlagerung (Isobaren, Farbfläche) samt Schlüssel
+    var overlayCache: (key: String, overlay: SynopOverlay)?
+    /// Eine Meldung ist vollständig (die nächste hat begonnen oder der Block ist zu Ende): jede genau einmal, mit Zeitstempel
+    /// des Empfangs. Dient der CSV-Ablage. Wiederholt der Sender eine Meldung, kommt sie nicht noch einmal.
+    public var onObservationClosed: ((SynopObservation) -> Void)?
+    private var emitted: Set<String> = []
 
     public init() {}
 
@@ -301,6 +320,8 @@ public final class SynopLog {
         lastWindUnit = nil
         guessedRun = false
         pendingKind = "Land"
+        revision += 1
+        overlayCache = nil
     }
 
     /// Klartext vom Decoder (`decoded == true`) sammeln; Rohtext (`false`) löst nur eine Auswertung aus.
@@ -321,7 +342,12 @@ public final class SynopLog {
         let text = pending
         if text.contains("Note=Header missing") { guessedRun = true }
         let parsed = Self.parseRun(text, at: date, kind: pendingKind)
-        for var obs in parsed.observations {
+        // Vollständig sind alle bis auf die letzte, außer der Block ist zu Ende (der Text schließt mit „Bulletin end“ ab)
+        let ended = text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("Bulletin end")
+        let closedCount = ended ? parsed.observations.count : max(parsed.observations.count - 1, 0)
+        var changed = false
+        for (index, parsedObs) in parsed.observations.enumerated() {
+            var obs = parsedObs
             if guessedRun { obs.headerGuessed = true }
             // Wandert ein Schiff, zeichnet die Karte seinen Weg
             if let old = observations[obs.id] {
@@ -333,10 +359,23 @@ public final class SynopLog {
                 obs.windUnit = lastWindUnit ?? "kn"
                 obs.windUnitAssumed = true
             }
+            // Die laufende Meldung wird bei jeder Auswertung neu gelesen: nur ein anderer Inhalt zählt als Änderung
+            if let old = observations[obs.id] {
+                var same = obs
+                same.received = old.received
+                if same != old { changed = true }
+            } else {
+                changed = true
+            }
             observations[obs.id] = obs
+            if index < closedCount { emit(obs, at: date) }
         }
-        // Nur die letzte, möglicherweise noch unvollständige Meldung bleibt stehen
-        if let cut = parsed.openStart {
+        if changed { revision += 1 }
+        // Nur die letzte, möglicherweise noch unvollständige Meldung bleibt stehen; nach „Bulletin end“ ist nichts mehr offen
+        if ended {
+            pending = ""
+            pendingKind = "Land"
+        } else if let cut = parsed.openStart {
             pending = String(text[cut...])
             pendingKind = parsed.kind
         }
@@ -344,6 +383,15 @@ public final class SynopLog {
         if observations.count > 600, let oldest = observations.values.min(by: { $0.received < $1.received }) {
             observations.removeValue(forKey: oldest.id)
         }
+    }
+
+    /// Meldet eine vollständige Beobachtung einmal je Station, Beobachtungszeit und Tag
+    private func emit(_ obs: SynopObservation, at date: Date) {
+        guard let handler = onObservationClosed else { return }
+        let key = "\(obs.id)|\(obs.time ?? "")|\(Int(date.timeIntervalSince1970 / 86400))"
+        guard emitted.insert(key).inserted else { return }
+        if emitted.count > 4000 { emitted.removeAll(); emitted.insert(key) }
+        handler(obs)
     }
 
     /// Klartext in Beobachtungen zerlegen (ein „WMO Station=…“ beginnt eine neue)
@@ -387,6 +435,12 @@ public final class SynopLog {
             obs.windSpeedValue = SynopObservation.number(cur["Wind speed"])
             obs.windUnit = SynopObservation.windUnit(cur["Wind speed"])
             obs.visibilityKm = SynopObservation.km(cur["Visibility"])
+            obs.dewpointC = SynopObservation.number(cur["Dewpoint temperature"])
+            obs.seaLevelPressureHPa = SynopObservation.number(cur["Sea level pressure"])
+            if let rain = cur["Precipitation amount"] {
+                obs.precipitationMm = rain.lowercased().contains("trace") ? 0 : SynopObservation.number(rain)
+                obs.precipitationHours = SynopObservation.number(cur["Precipitation duration"])
+            }
             out.append(obs)
             cur = [:]
             lines = []
@@ -416,7 +470,7 @@ public final class SynopLog {
 
     /// Was die Karte an den SYNOP-Stationen zeigt
     public enum Layer: String, CaseIterable, Sendable, Identifiable {
-        case symbol, temperature, pressure, wind, visibility, sea
+        case symbol, temperature, pressure, wind, visibility, humidity, precipitation, sea
         public var id: String { rawValue }
         public var title: String {
             switch self {
@@ -425,6 +479,8 @@ public final class SynopLog {
             case .pressure: return "DRUCK"
             case .wind: return "WIND"
             case .visibility: return "SICHT"
+            case .humidity: return "FEUCHTE"
+            case .precipitation: return "REGEN"
             case .sea: return "SEE"
             }
         }
@@ -435,6 +491,8 @@ public final class SynopLog {
             case .pressure: return "Luftdruck auf Meereshöhe in hPa (sonst Stationsdruck)"
             case .wind: return "Windgeschwindigkeit in Knoten mit Pfeil in Windrichtung, Farbe nach Beaufort"
             case .visibility: return "Sichtweite in km, rot (schlecht) bis grün (gut)"
+            case .humidity: return "Relative Luftfeuchte in %, aus Temperatur und Taupunkt berechnet; rot (trocken) bis blau (feucht)"
+            case .precipitation: return "Niederschlagsmenge in mm im gemeldeten Zeitraum (meist 6 oder 12 Stunden)"
             case .sea: return "Seegebiete mit Wind aus dem Seewetterbericht, Warnungen, Hochs, Tiefs und Fronten"
             }
         }
@@ -445,7 +503,8 @@ public final class SynopLog {
         String(format: "%.\(digits)f", v).replacingOccurrences(of: ".", with: ",")
     }
 
-    public func content(home: GeoPoint?, now: Date, transmitters: [TransmitterSite] = [], layer: Layer = .symbol) -> MapContent {
+    public func content(home: GeoPoint?, now: Date, transmitters: [TransmitterSite] = [], layer: Layer = .symbol,
+                        overlay: SynopOverlayOptions = .off) -> MapContent {
         flush(at: now)
         var markers: [MapMarker] = []
         var shown = 0
@@ -461,6 +520,10 @@ public final class SynopLog {
                 details.append("Wind \(dir)\(Self.fmt(kn)) kn (Einheit angenommen)")
             } else if let t = o.wind { details.append("Wind \(t)") }
             if let t = o.visibility { details.append("Sicht \(t)") }
+            if let h = o.humidityPct { details.append("Feuchte \(Self.fmt(h)) % (berechnet)") }
+            if let mm = o.precipitationMm {
+                details.append("Niederschlag \(Self.fmt(mm, digits: mm >= 10 ? 0 : 1)) mm" + (o.precipitationHours.map { " in \(Self.fmt($0)) h" } ?? ""))
+            }
             if let t = o.time { details.append("Zeit \(t)") }
             if o.headerGuessed { details.append("Kopfzeile fehlte: Zeit und Windeinheit (Knoten) angenommen") }
             let sub = "\(o.kind) · WMO \(o.wmo)" + (o.temperature.map { " · \($0)" } ?? "")
@@ -491,6 +554,16 @@ public final class SynopLog {
                 marker.symbol = nil
                 marker.valueText = v >= 10 ? Self.fmt(v) : Self.fmt(v, digits: 1)
                 marker.valueLevel = 1 - min(max(v / 20, 0), 1)                // 20 km und mehr grün, nah an 0 rot
+            case .humidity:
+                guard let h = o.humidityPct else { continue }
+                marker.symbol = nil
+                marker.valueText = Self.fmt(h)
+                marker.valueLevel = 1 - min(max(h / 100, 0), 1)               // trocken rot, feucht blau
+            case .precipitation:
+                guard let mm = o.precipitationMm else { continue }
+                marker.symbol = nil
+                marker.valueText = mm >= 10 ? Self.fmt(mm) : Self.fmt(mm, digits: 1)
+                marker.valueLevel = min(max(mm / 30, 0), 1)                   // 0 mm blau … 30 mm und mehr rot
             }
             shown += 1
             markers.append(marker)
@@ -500,6 +573,13 @@ public final class SynopLog {
         c.emptyHint = observations.isEmpty ? "Noch keine SYNOP-Meldung mit Ort decodiert"
             : "Keine Station mit diesem Messwert (\(layer.title.capitalized))"
         _ = shown
+        if overlay.isActive {
+            let extra = self.overlay(options: overlay, now: now)
+            c.contours = extra.contours
+            c.patches = extra.patches
+            c.markers += extra.centers
+            c.note = extra.note
+        }
         return c
     }
 
