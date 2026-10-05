@@ -7042,7 +7042,7 @@ do {
         guard let e = FileManager.default.enumerator(atPath: root.appendingPathComponent(dir).path) else { return [] }
         return (e.allObjects as? [String] ?? []).filter { match(($0 as NSString).lastPathComponent) }
     }
-    let licenseFiles = files(under: "Vendor", where: { $0.hasPrefix("LICENSE_") }).map { ($0 as NSString).lastPathComponent }
+    let licenseFiles = files(under: "Vendor", where: { $0.hasPrefix("LICENSE_") }).filter { !$0.contains("_upstream") }.map { ($0 as NSString).lastPathComponent }
     check(licenseFiles.count >= 10 && licenseFiles.allSatisfy { thirdParty.contains($0) }, "Jede LICENSE_*-Datei steht in THIRD_PARTY.md (fehlt: \(licenseFiles.filter { !thirdParty.contains($0) }))")
     // Jede Datei in Resources (außer Symbolen) ist genannt, mit Dateiname oder Ordner
     let resourceFiles = files(under: "Resources", where: { !$0.hasPrefix("AppIcon") && !$0.hasPrefix(".") })

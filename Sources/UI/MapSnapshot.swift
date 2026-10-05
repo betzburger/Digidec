@@ -59,8 +59,10 @@ enum MapSnapshotExporter {
                     holder.snapshotter = nil
                     return
                 }
+                // Der Schnappschuss wird nur auf der Hauptwarteschlange (hier) benutzt; die Hülle sagt das dem Compiler
+                let box = SnapshotBox(snapshot: snapshot)
                 let png = MainActor.assumeIsolated {
-                    render(snapshot: snapshot, content: content, showTracks: showTracks, label: label)
+                    render(snapshot: box.snapshot, content: content, showTracks: showTracks, label: label)
                 }
                 continuation.resume(returning: png)
                 holder.snapshotter = nil
@@ -87,6 +89,11 @@ enum MapSnapshotExporter {
             case .write(let why): return "Speichern nicht möglich: \(why)"
             }
         }
+    }
+
+    /// Trägt den Schnappschuss vom Rückruf (Hauptwarteschlange) in die Zeichnung (Hauptakteur), ohne dass er den Bereich verlässt
+    private struct SnapshotBox: @unchecked Sendable {
+        let snapshot: MKMapSnapshotter.Snapshot
     }
 
     /// Hält den Schnappschuss-Auftrag am Leben, bis die Rückmeldung kommt
