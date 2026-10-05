@@ -92,7 +92,7 @@ public final class SynopCSVWriter {
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
             if !exists || (size?.intValue ?? 0) == 0 {
                 out += SynopCSV.header + "\n"
-                if !exists { FileManager.default.createFile(atPath: url.path, contents: nil) }
+                if !exists { _ = FileManager.default.createFile(atPath: url.path, contents: nil) }
             }
             out += SynopCSV.row(o) + "\n"
             let handle = try FileHandle(forWritingTo: url)
