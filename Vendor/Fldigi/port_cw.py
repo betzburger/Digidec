@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Erzeugt den CW-Empfänger für Digidec aus fldigi 4.2.13 (src/cw/cw.cxx, morse.cxx, include/cw.h, morse.h,
 filters/filters.cxx, include/filters.h). Die Empfangsfunktionen werden wörtlich herausgezogen; Senden und Tastung
 entfallen. fldigis Einstellungen und Anzeigen stellt src/cw/cw_compat.h unter denselben Namen bereit.

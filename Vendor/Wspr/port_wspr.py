@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Übernimmt den WSPR-Decoder wsprd aus WSJT-X (K1JT, K9AN u. a., GPLv3) nach Vendor/Wspr.
 
 Die Algorithmik (Kandidatensuche, Synchronisation, Soft-Symbole, Fano-Decoder, Signalsubtraktion,

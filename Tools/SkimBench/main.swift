@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // SkimBench: Skimmer (CW, BPSK31/63) an synthetischen Mischungen und an Aufnahmen messen.
 //
 //   skim_bench.sh synth <cw|psk31|psk63> [--seconds n] [--snr dB] [--thr dB] [--seed n] [--verbose]

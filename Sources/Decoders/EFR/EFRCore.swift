@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Kern des EFR-Decoders (Europäische Funk-Rundsteuerung auf Langwelle: 129,1 kHz DCF49 / 139,0 kHz DCF39).

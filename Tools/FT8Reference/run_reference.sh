@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # FT8-Qualitätsnachweis: Digidec (ft8mon) gegen die WSJT-X-Decodes der ft8_lib-Testaufnahmen.
 # Voraussetzung: Vendor/_upstream/ft8_lib (git clone https://github.com/kgoba/ft8_lib), siehe Vendor/FT8/UPSTREAM_FT8.md.
 # Aufruf: Tools/FT8Reference/run_reference.sh [Rechenzeit in s, Standard 3]

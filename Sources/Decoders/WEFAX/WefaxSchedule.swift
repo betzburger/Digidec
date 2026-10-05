@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Eine Wetterkarten-Ausstrahlung des DWD (Radiofax, Sender Pinneberg).

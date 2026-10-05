@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Übernimmt MT63 (Pawel Jalocha SP9VRC, dsp.cxx / mt63base.cxx) und die Olivia/Contestia-Bibliothek
 (Pawel Jalocha, include/jalocha/*.h, nur Header) aus fldigi 4.2.13 nach Vendor/Fldigi. Die Bibliotheken werden
 wortgleich kopiert; die Empfangslogik der fldigi-Modems (mt63.cxx, olivia.cxx, contestia.cxx) steht in den von

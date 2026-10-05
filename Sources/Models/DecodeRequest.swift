@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Auftrag eines Hauptprogramms an Digidec, übergeben per URL-Schema (PLAN.md, Abschnitt 3.1):

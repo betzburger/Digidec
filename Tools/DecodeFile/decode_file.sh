@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Digidec offline: Aufnahme mit dem RTTY-, CW-, PSK-, WEFAX- oder FT8-Kern decodieren und auswerten (PLAN.md, Abschnitt 8 / M6).
 # Aufruf: Tools/DecodeFile/decode_file.sh <aufnahme.wav> [Optionen]   (Hilfe: --help)
 # Baut das Werkzeug bei Bedarf nach .build/decode_file (Quellen wie in den Logiktests).

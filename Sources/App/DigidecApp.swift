@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 import AppKit
 
@@ -56,6 +58,9 @@ struct DigidecApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appInfo) {
+                Button("Über Digidec") { state.showAbout = true }
+            }
             CommandGroup(replacing: .appTermination) {
                 Button("Digidec beenden") {
                     state.cleanup()

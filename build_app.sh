@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 set -e
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -45,6 +47,10 @@ if [ -f "$DIR/Resources/cty.dat" ]; then
     cp "$DIR/Resources/cty.dat" "$APP_BUNDLE/Contents/Resources/cty.dat"
 fi
 
+# Lizenz (GPL-3.0-or-later), Quellen und Drittanbieter-Software: im Info-Fenster angezeigt, liegen auch lose im Bundle
+cp "$DIR/LICENSE" "$APP_BUNDLE/Contents/Resources/LICENSE"
+cp "$DIR/THIRD_PARTY.md" "$APP_BUNDLE/Contents/Resources/THIRD_PARTY.md"
+
 echo "=== 3. Writing Info.plist ==="
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -62,13 +68,15 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.55.0</string>
+    <string>0.56.0</string>
     <key>CFBundleVersion</key>
-    <string>0.55.0</string>
+    <string>0.56.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Peter Betz und Mitwirkende. Freie Software unter GPL-3.0-or-later.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // Logiktests für Digidec (reine Rechenlogik, ohne Audio).
 // Nicht Teil des Swift-Packages (Package.swift baut nur "Sources").
 // Ausführen im Projektverzeichnis:
@@ -6996,5 +6998,67 @@ do {
     check(m.rigName == "FT-991A" && m.description == "FT-991A", "RigModel: Beschreibung ohne Verbindung nur der Name")
 }
 
+
+// MARK: - Lizenz und Quellen: Dokumente, Markdown-Leser, Vollständigkeit (Projektordner = aktuelles Verzeichnis)
+do {
+    // Markdown-Leser
+    let md = "# Titel\n\nErster Absatz\nzweite Zeile\n\n- Punkt eins\n  - Unterpunkt\n- Punkt zwei\n  weiter\n## Abschnitt\n### Unter\nText\n#kein-Titel\n#### zu tief\n"
+    check(MarkdownLite.parse(md) == [.heading(level: 1, text: "Titel"), .paragraph("Erster Absatz zweite Zeile"), .bullet(level: 0, text: "Punkt eins"),
+                                     .bullet(level: 1, text: "Unterpunkt"), .bullet(level: 0, text: "Punkt zwei weiter"), .heading(level: 2, text: "Abschnitt"),
+                                     .heading(level: 3, text: "Unter"), .paragraph("Text #kein-Titel #### zu tief")], "Markdown: Überschriften, Absätze, Listen, Fortsetzung")
+    check(MarkdownLite.parse("") == [] && MarkdownLite.parse("\n\n  \n") == [], "Markdown: leer")
+
+    // Orte der Dokumente: zuerst das App-Bundle, dann der Projektordner
+    let a = URL(fileURLWithPath: "/app/Resources"), b = URL(fileURLWithPath: "/src")
+    check(LicenseDocument.license.candidates(bundleResources: a, projectRoot: b).map(\.path) == ["/app/Resources/LICENSE", "/src/LICENSE"]
+          && LicenseDocument.thirdParty.candidates(bundleResources: nil, projectRoot: b).map(\.path) == ["/src/THIRD_PARTY.md"], "Dokumente: Suchreihenfolge")
+    check(LicenseDocument.license.load(bundleResources: nil, projectRoot: nil) == nil, "Dokumente: nichts gefunden → nil")
+
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    if let licenseText = LicenseDocument.license.load(bundleResources: nil, projectRoot: root),
+       let thirdParty = LicenseDocument.thirdParty.load(bundleResources: nil, projectRoot: root) {
+    check(licenseText.contains("GNU GENERAL PUBLIC LICENSE") && licenseText.contains("Version 3, 29 June 2007") && licenseText.contains("END OF TERMS AND CONDITIONS")
+          && licenseText.contains("How to Apply These Terms to Your New Programs"), "LICENSE: vollständiger GPL-3-Text")
+    let blocks = MarkdownLite.parse(thirdParty)
+    check(blocks.first == .heading(level: 1, text: "Lizenz, Quellen und Drittanbieter-Software"), "THIRD_PARTY.md: Titel")
+    check(blocks.filter { if case .heading(2, _) = $0 { return true } else { return false } }.count == 6 && blocks.filter { if case .bullet = $0 { return true } else { return false } }.count > 30, "THIRD_PARTY.md: sechs Abschnitte mit Listenpunkten")
+    check(thirdParty.contains("GPL-3.0-or-later") && thirdParty.contains("`LICENSE`") && thirdParty.contains("https://github.com/betzburger/Digidec"), "THIRD_PARTY.md: Lizenz, LICENSE, Quelltext-Adresse")
+
+    // Jede Lizenzdatei im Repository ist in THIRD_PARTY.md genannt
+    func files(under dir: String, where match: (String) -> Bool) -> [String] {
+        guard let e = FileManager.default.enumerator(atPath: root.appendingPathComponent(dir).path) else { return [] }
+        return (e.allObjects as? [String] ?? []).filter { match(($0 as NSString).lastPathComponent) }
+    }
+    let licenseFiles = (files(under: "Vendor", where: { $0.hasPrefix("LICENSE_") }) + files(under: "TestData", where: { $0.hasPrefix("LICENSE_") })).map { ($0 as NSString).lastPathComponent }
+    check(licenseFiles.count >= 10 && licenseFiles.allSatisfy { thirdParty.contains($0) }, "Jede LICENSE_*-Datei steht in THIRD_PARTY.md (fehlt: \(licenseFiles.filter { !thirdParty.contains($0) }))")
+    // Jede Datei in Resources (außer Symbolen) ist genannt, mit Dateiname oder Ordner
+    let resourceFiles = files(under: "Resources", where: { !$0.hasPrefix("AppIcon") && !$0.hasPrefix(".") })
+    let unnamed = resourceFiles.filter { path in
+        let name = (path as NSString).lastPathComponent
+        let folder = (path as NSString).deletingLastPathComponent
+        return !thirdParty.contains(name) && !(folder.isEmpty ? false : thirdParty.contains("Resources/\(folder)/"))
+    }
+    check(!resourceFiles.isEmpty && unnamed.isEmpty, "Jede Datei in Resources ist in THIRD_PARTY.md genannt (fehlt: \(unnamed))")
+    // Jedes Vendor-Verzeichnis ist genannt: der Ordner selbst oder das Vorbild
+    let referenceByModule = ["Acars": "acarsdec", "Ale": "openALE", "Aprs": "Dire Wolf", "Dsc": "TAOSW", "Pager": "multimon-ng", "Skimmer": "KZ4AP", "Sonde": "rs41mod"]
+    let vendorDirs = ((try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Vendor").path)) ?? []).filter { !$0.hasPrefix("_") && !$0.hasPrefix(".") }
+    let missing = vendorDirs.filter { dir in !(thirdParty.contains("Vendor/\(dir)/") || (referenceByModule[dir].map { thirdParty.contains($0) } ?? false)) }
+    check(vendorDirs.count >= 10 && missing.isEmpty, "Jedes Vendor-Verzeichnis ist in THIRD_PARTY.md genannt (fehlt: \(missing))")
+    // Neue eigene Dateien brauchen die SPDX-Kennzeichnung
+    var swiftFiles = 0
+    var withoutHeader: [String] = []
+    for dir in ["Sources", "Tools"] {
+        for relative in files(under: dir, where: { $0.hasSuffix(".swift") }) {
+            swiftFiles += 1
+            let url = root.appendingPathComponent(dir).appendingPathComponent(relative)
+            let head = ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n", maxSplits: 4, omittingEmptySubsequences: false).prefix(4)
+            if !head.contains(where: { $0.contains("SPDX-License-Identifier: GPL-3.0-or-later") }) { withoutHeader.append(dir + "/" + relative) }
+        }
+    }
+    check(swiftFiles > 150 && withoutHeader.isEmpty, "Jede Swift-Datei trägt „SPDX-License-Identifier: GPL-3.0-or-later“ (fehlt: \(withoutHeader.prefix(5)))")
+    } else {
+        check(false, "LICENSE und THIRD_PARTY.md im Projektordner \(root.path)")
+    }
+}
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

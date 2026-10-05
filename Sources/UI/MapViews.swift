@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 
 /// Karte des aktiven Moduls. Jedes Modul liefert nur seine Punkte; die Karte selbst ist `MapPanel`.

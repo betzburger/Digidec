@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // Nachgebauter rigctld für die Logiktests (macOS und Linux): hört auf 127.0.0.1, merkt sich Frequenz und Mode,
 // antwortet auf f, m, F, M und protokolliert alle Befehle. Nicht Teil der App.
 import Foundation

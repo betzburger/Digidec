@@ -463,6 +463,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 | M51 | HFDL | ✅ 04.10.2026 (v0.53.0): neues Modul HFDL (ARINC 635): Datenlink der Flugzeuge auf KW, USB-Audio, PSK 1800 Bd (300 bis 1800 bit/s, einfacher und doppelter Slot), 16 Bodenstationen mit allen Kanälen, Squitter, Anmeldungen, Frequenz- und Leistungsdaten mit Ort, ACARS im HFDL; Karte mit Flugzeugen und Stationen; eigener Empfänger, Gegenprobe mit dumphfdl (echte Aufnahme: alle 24 Referenzrahmen, dazu 2 mehr; alle 8 Betriebsarten durch dumphfdl lesbar) |
 | M52 | Wetterauswertung (aus dem Vergleich mit Zorns Lemma) | ⚠️ 05.10.2026 (v0.54.0): CSV-Ablage der SYNOP-Meldungen, Textfilter, Karte als PNG, Extremwerte und neue Ebenen FEUCHTE/REGEN, Isobaren mit Hoch/Tief, Temperaturfläche, Sprung von der Karte zur Rohmeldung; Rechenlogik unter Linux (Swift 6.0.3, strenger Modus) übersetzt, 90 neue Prüfungen bestanden; **Oberfläche (SwiftUI/MapKit) und Controller noch nicht übersetzt** (siehe Eintrag 0.54.0) |
 | M53 | Freies Funkgerät (rigctld) | ✅ 05.10.2026 (v0.55.0): Dialog „Funkgerät“ (Klick auf die Anzeige oben rechts): Profile mit Name, Rechner, Port und Audio-Eingang; Automatik über die Commander bleibt; Verbindungstest; Logik unter Linux geprüft, Oberfläche noch nicht am Mac übersetzt |
+| M54 | Lizenz, Quellen, Info-Fenster | ✅ 05.10.2026 (v0.56.0): `LICENSE` (GPL-3.0), `THIRD_PARTY.md`, SPDX-Kopfzeilen in allen eigenen Dateien, Info-Knopf mit Quellen und Lizenztext; Rechenteile und Vollständigkeitsprüfung unter Linux geprüft, Oberfläche noch nicht am Mac übersetzt |
 ---
 
 ## 11. Aktueller Stand
@@ -663,6 +664,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - Befehle an Funkgeräte: standardmäßig keine, der Decoder liest nur. Nur wenn der Nutzer den Schalter **QSY AUTO** einschaltet, sendet Digidec ausschließlich `F` (Frequenz) und `M` (Mode) an den rigctld des Commanders (Abschnitt 3.2), niemals PTT oder anderes.
 - Am Mac hängt ein Transceiver (CP2105, `/dev/cu.usbserial-01A22C9D*`) und der IC-PCR1500: Der Decoder öffnet **keine** seriellen Ports.
 - Sprache für UI, Doku und Kommentare: Deutsch (wie Commander).
+- Neue eigene Dateien (Swift, Shell, Python) beginnen mit `SPDX-License-Identifier: GPL-3.0-or-later` und der Copyright-Zeile (Logiktest prüft das). Neue Fremdquellen, Daten oder Testaufnahmen kommen mit Lizenz in `THIRD_PARTY.md` (auch das prüft ein Logiktest).
 
 - **Umbau 01.10.2026:** Die fldigi-Teile sind jetzt **ein** Target `Fldigi` (`Vendor/Fldigi`, Übersicht `Vendor/Fldigi/UPSTREAM.md`), Vorbereitung für NAVTEX/CW/WEFAX.
   fldigis `complex.h` wurde in `fldigi_complex.h` umbenannt, weil es sonst mit `<complex.h>` des Systems kollidiert. Das trat erst auf, als C (GNU-Regex) und C++ im selben Target lagen.
@@ -1172,6 +1174,23 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
   - **Sicherheit unverändert:** gesendet werden nur `f` und `m`, mit QSY AUTO `F` und `M` (`RigCommand`); nie PTT.
   - **Geprüft (Linux, Swift 6.0.3):** Endpunkt und Profile, `RigctlClient` gegen einen nachgebauten rigctld (`Tools/LogicTests/FakeRigctld.swift`, jetzt auch für macOS): Verbindung über den Namen „localhost“ (IPv6 → IPv4), Abstimmen mit `F`/`M`, Lesen der neuen Frequenz, nur erlaubte Befehle, Test-Knopf (verbunden, nichts auf dem Port, Server schweigt, Name nicht auflösbar), `RigModel` (Automatik, freies Gerät, Aufträge): 38 Prüfungen, 0 Fehler. `RigModel` und `RigProfileStore` wurden mit Platzhaltern für SwiftUI/Combine typgeprüft.
   - **Nicht geprüft (am Mac):** `RigSettingsSheet`, Kopfzeile, `DigidecState`; Bedienung und Mikrofon-/Netzfreigaben (macOS fragt bei Verbindungen zu Rechnern im lokalen Netz nach: dafür steht jetzt `NSLocalNetworkUsageDescription` in der Info.plist von `build_app.sh`; der Hinweistext zum Mikrofon wurde allgemeiner gefasst, deshalb fragt macOS nach dem Update die Mikrofon-Freigabe neu ab).
+- **0.56.0 (05.10.2026): Lizenz, Quellen und Info-Fenster (Vorbereitung der Veröffentlichung).**
+  - **Lizenz: GPL-3.0-or-later.** Ergibt sich aus fldigi und WSJT-X (beide GPL-3.0), alle anderen Fremdlizenzen im Paket (MIT, BSD-3, LGPL, gemeinfrei) sind damit vereinbar. `LICENSE` ist der unveränderte GPL-3-Text (aus `/usr/share/common-licenses/GPL-3`); `Vendor/Fldigi/LICENSE_LGPL-3.0.txt` (gfft.h) und `LICENSE_LGPL-2.0.txt` (Hamlib-Locator), `Vendor/FT8/LICENSE_kissfft.txt`, `Vendor/Dsc/LICENSE_TAOSW.DSC_Decoder.txt`, `Vendor/Ale/LICENSE_openALE.txt` sind neu; die schon vorhandenen Lizenzdateien blieben.
+  - **`THIRD_PARTY.md`** (ohne Tabellen, damit das Programm sie anzeigen kann): Lizenz von Digidec, Fremdcode in `Vendor/` mit Autor, Quelle, Commit und Lizenz, eigene Umsetzungen nach Vorbildern, Daten (`Resources/`), Testdaten, Systembestandteile.
+  - **SPDX-Kopf** `SPDX-License-Identifier: GPL-3.0-or-later` und `Copyright (C) 2026 Peter Betz und Mitwirkende` in allen eigenen Swift-, Shell- und Python-Dateien (188 Dateien; `Package.swift` und Shebang-Zeilen bleiben in Zeile 1). Neue eigene Dateien brauchen ihn auch: ein Logiktest prüft das. Fremder Quelltext unter `Vendor/` blieb unverändert.
+  - **Info-Fenster** (`AboutSheet.swift`): Knopf ⓘ in der Kopfzeile und Menüpunkt „Über Digidec“. Reiter ÜBER (Version, Copyright, GPL-Hinweis, Link zum Quelltext, wichtigste Bestandteile), QUELLEN UND LIZENZEN (`THIRD_PARTY.md`, gelesen mit `MarkdownLite`) und LIZENZTEXT (`LICENSE`). `build_app.sh` kopiert beide Dateien nach `Contents/Resources` und setzt `NSHumanReadableCopyright`. Beim Start aus dem Quellbaum werden sie im Projektordner gesucht (ohne eingebauten Pfad).
+  - **Logiktests (neu, unter Linux gelaufen, 12 Prüfungen):** Markdown-Leser, Suchreihenfolge, `LICENSE` vollständig; Vollständigkeit: jede `LICENSE_*`-Datei, jede Datei in `Resources/`, jedes `Vendor/`-Verzeichnis und jede Swift-Datei (SPDX) ist in `THIRD_PARTY.md` genannt bzw. gekennzeichnet.
+  - **Offen vor der Veröffentlichung (Entscheidung oder Prüfung durch den Betreuer):**
+    - Der Name im Copyright („Peter Betz“) ist aus der Bundle-ID und der Commit-Adresse abgeleitet; bitte bestätigen oder ändern (`THIRD_PARTY.md`, SPDX-Zeilen, `build_app.sh`, `AboutSheet.swift`).
+    - **SondeHub (CC BY-SA 2.0)**, `Resources/Sonde/sondehub_sites.json`: Namensnennung steht in `THIRD_PARTY.md`; Share-Alike gilt für die Datei. Lizenz aus den Projektnotizen übernommen, nicht an der Quelle geprüft.
+    - **cty.dat (AD1C)**: keine förmliche Lizenz bekannt, nur die Bereitstellung zur freien Nutzung; Herkunft angegeben.
+    - **Stationslisten** aus fldigi: Herkunft teils unklar (WMO, NDBC, JCOMM, Schiffs- und NAVTEX-Listen); stehen mit fldigi unter GPL, aber die ursprünglichen Rechte sind nicht geprüft.
+    - **DWD-Sendepläne** (`Resources/Rtty`, `Resources/Wefax`): Nutzungsbedingungen des DWD (Quellenangabe) nicht geprüft.
+    - **acars-decoder-typescript** (MIT, 65 Testfälle in den Logiktests): die Lizenzdatei des Projekts konnte nicht abgerufen werden; Lizenz nach Projektnotiz.
+    - **Pawel Jalocha (MT63, Olivia)**: Die Quelltexte kommen über fldigi (GPL); die Kopfzeilen der Original-Header nennen keine eigene Lizenz.
+    - **`TestData/Pager/dapnet_verbogen_48k.wav`** enthält echte DAPNET-Meldungen mit Rufzeichen; im Zweifel durch eine synthetische Datei ersetzen.
+    - `PLAN.md` nennt den Projektordner `/Volumes/X9-Mac-mini/…`; die Commits tragen die Adresse `peter.betz@gmail.com` (bei Bedarf auf eine GitHub-„noreply“-Adresse umstellen, bevor das Repository öffentlich wird).
+    - Eine `README.md` fehlt noch.
 - **Nächste Schritte:**
   - HFDL live (siehe 0.53.0); danach ADS-C-Positionen und CPDLC aus den ACARS-Texten (ARINC 622), Suchlauf über die Kanäle nach Tageszeit.
   - Live-Tests der neuen Module (APRS, WSPR, PSK, Olivia, MT63, DSC, ALE) und der übrigen (WEFAX, DCF77, EFR, SSTV, geplante Aufnahmen); APRS auf 144,800 MHz mit dem PCR-1500 oder FT-991A.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 import SwiftUI
 import AVFoundation
@@ -30,6 +32,8 @@ public final class DigidecState: ObservableObject {
     public let rigProfiles = RigProfileStore()
     /// Dialog „Funkgerät“ offen?
     @Published public var showRigSettings = false
+    /// Info-Fenster (Version, Lizenz, Quellen) offen?
+    @Published public var showAbout = false
     /// Eigener Standort für alle Karten und Entfernungen
     public let home = HomeLocation()
     public let navtex = NavtexSettingsStore()

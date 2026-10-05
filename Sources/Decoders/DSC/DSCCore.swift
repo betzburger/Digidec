@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // DSC (Digitaler Selektivruf) nach ITU-R M.493 für MF/HF: F1B/J2B, 170 Hz Hub, 100 Baud, Mitte 1700 Hz im NF (J2B).

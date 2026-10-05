@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Erzeugt synthetische 8-kHz-Audiosignale für EFR (200 Baud FSK, Shift 340 Hz, 8E1, DIN 19244).

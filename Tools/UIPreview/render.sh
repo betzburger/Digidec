@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Rendert Digidec-Karten offscreen als PNG (Layout-Prüfung ohne App-Start). Aufruf: Tools/UIPreview/render.sh <ordner>
 set -euo pipefail
 ROOT="${0:A:h:h:h}"

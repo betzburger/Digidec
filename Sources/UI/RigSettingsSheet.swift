@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 
 /// Dialog „Funkgerät“: Digidec bekommt Frequenz und Mode von einem rigctld. Entweder automatisch vom Commander, dessen USB-Codec

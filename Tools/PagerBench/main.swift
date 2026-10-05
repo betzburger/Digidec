@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // PagerBench: POCSAG-Empfang unter nachgebildeten Funkbedingungen messen (Digidec gegen multimon-ng).
 //
 // Aufruf: Tools/PagerBench/pager_bench.sh [Optionen]

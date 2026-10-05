@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 import AppKit
 
@@ -306,6 +308,9 @@ public struct MainWindowView: View {
         .sheet(isPresented: $state.showRigSettings) {
             RigSettingsSheet(state: state)
         }
+        .sheet(isPresented: $state.showAbout) {
+            AboutSheet()
+        }
     }
 }
 
@@ -349,6 +354,7 @@ private struct HeaderBar: View {
             ScheduleButton(state: state, auto: state.autoRecorder)
             RigControlToggle(state: state, rig: state.rig)
             RigBadge(rig: state.rig, audio: state.audio, onTap: { state.showRigSettings = true })
+            AboutButton(onTap: { state.showAbout = true })
             UTCClock()
         }
         .padding(.horizontal, 14)
@@ -509,6 +515,23 @@ private struct RigBadge: View {
         return (rig.state.connected
             ? "\(name): Frequenz und Mode (\(source) \(target))" + (rig.tuneMessage.map { "\n\($0)" } ?? "")
             : "\(name): rigctld \(target) nicht erreichbar – läuft er?") + click
+    }
+}
+
+/// Info-Knopf in der Kopfzeile: Version, Lizenz, Quellen
+private struct AboutButton: View {
+    var onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(RadioTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 3)
+        }
+        .buttonStyle(.plain)
+        .help("Info: Version, Lizenz (GPL-3.0-or-later), Quelltext, verwendete Quellen und Drittanbieter-Software")
     }
 }
 

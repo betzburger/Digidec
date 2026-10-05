@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Baut und startet die Logiktests (reine Rechenlogik, ohne Audio, ohne App-Start).
 # Aufruf aus beliebigem Verzeichnis:  Tools/LogicTests/run_logic_tests.sh [Ausgabeverzeichnis]
 # Ohne Argument landet der Build in einem temporären Verzeichnis, das danach gelöscht wird.
@@ -35,7 +37,7 @@ Tools/build_fldigi.sh "$OUT/fldigi"
 swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     -I "$OUT/fldigi/module" \
     Tools/LogicTests/main.swift Tools/LogicTests/FakeRigctld.swift \
-    $S/Models/RigProfile.swift $S/Rig/RigModel.swift \
+    $S/Models/RigProfile.swift $S/Rig/RigModel.swift $S/Models/LicenseDocuments.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift $S/Models/DXCC.swift \
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \
     $S/Audio/AudioPipeline.swift $S/Audio/WAVFileSource.swift \
