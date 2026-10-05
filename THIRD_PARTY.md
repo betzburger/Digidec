@@ -63,7 +63,7 @@ In diesen Fällen steht **kein Fremdcode** im Digidec-Quelltext. Die Programme w
 - **Skimmer**: eigener Entwurf; der Aufbau von KZ4AP Skimmer (GPL-3.0) wurde zum Vergleich gelesen. Die Varicode-Tabelle ist die allgemein bekannte von G3PLX und wurde gegen fldigi geprüft.
 - **Radiosonden (RS41)**: Rahmenaufbau, Reed-Solomon und Kalibrierformeln nach rs41mod (zilog80, radiosonde_auto_rx, GPL-3.0).
 - **HFDL**: Rahmenaufbau, Protokolltypen und die Systemtabelle der Bodenstationen nach dumphfdl 1.7.0 (Tomasz Lemiech, GPL-3.0); die Signalverarbeitung ist eigene Arbeit.
-- **SSTV, DCF77, EFR (DCF49/DCF39/HGA22)**: nach den veröffentlichten Beschreibungen der Verfahren; der EFR-Decoder wurde an einer Aufnahme aus dcf39_decoder (MIT) geprüft (Abschnitt 5).
+- **SSTV, DCF77, EFR (DCF49/DCF39/HGA22)**: nach den veröffentlichten Beschreibungen der Verfahren.
 
 Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): ITU-R M.493, MIL-STD-188-141, ARINC 618 und 635, APRS Protocol Reference (APRS101), DIN 19244 / IEC 60870-5, WMO FM 12/13/18 (SYNOP, SHIP, BUOY), IMO NAVTEX-Handbuch.
 
@@ -78,15 +78,12 @@ Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): 
 
 Außer den Kartenkacheln von Apple und der Verbindung zu deinem rigctld ruft Digidec nichts im Netz ab. Plandaten werden nur geladen, wenn du den Knopf **Aktualisieren** im Sendeplan drückst, und nur von dwd.de und api.v2.sondehub.org.
 
-## 5. Testdaten (TestData/)
+## 5. Testaufnahmen
 
-- `TestData/EFR/dcf39_websdr_8k.wav`: Aufnahme `resources/sample.wav` aus https://github.com/mryndzionek/dcf39_decoder (MIT, Copyright 2025 mryndzionek; Text: `TestData/EFR/LICENSE_dcf39_decoder.txt`), aufgenommen über den WebSDR der Universität Twente, auf 8 kHz umgerechnet.
-- `TestData/Pager/dapnet_verbogen_48k.wav`: eigene Aufnahme (Funkruf auf 439,9875 MHz, DAPNET) mit den dabei gesendeten Meldungen, die auch Rufzeichen von Funkamateuren enthalten. DAPNET ist ein offenes Netz.
-- `TestData/testton_1kHz_L-12dB_R-32dB.wav`: selbst erzeugter Testton.
-- Weitere Aufnahmen, die in den Tests vorkommen (SSTV, DCF77, FT4, ALE, APRS, ACARS, HFDL und andere), liegen nur lokal und nicht im Repository, weil ihre Lizenz unklar ist.
+Aufnahmen und Beispielberichte, mit denen Digidec bei der Entwicklung geprüft wird, gehören **nicht** zum Repository und nicht zum Programm; sie liegen nur lokal beim Entwickler (Ordner `TestData/`, in `.gitignore`). Die Logiktests überspringen die Prüfungen, die sie brauchen, wenn sie fehlen. Im Quelltext der Tests stehen nur Zahlen- und Symbolfolgen aus den Testfällen von TAOSW.DSC_Decoder (MIT) und acars-decoder-typescript (MIT, siehe Abschnitt 3).
 
 ## 6. Systembestandteile und externe Programme
 
 - Apple-Frameworks (SwiftUI, MapKit, AVFoundation, CoreAudio, Accelerate und weitere) gehören zum Betriebssystem und werden nicht mitgeliefert.
 - **Hamlib** wird nicht eingebunden. Digidec spricht nur das Textprotokoll von `rigctld` (Hamlib, GPL/LGPL) über TCP, wenn du ein Funkgerät über einen rigctld einstellst. Gesendet werden nur `f`, `m` und auf Wunsch `F`, `M`.
-- Die Namen fldigi, WSJT-X, Hamlib, Dire Wolf, multimon-ng, SondeHub, OurAirports, DAPNET und weitere sind Namen oder Marken ihrer Inhaber; sie werden hier nur zur Herkunftsangabe genannt.
+- Die Namen fldigi, WSJT-X, Hamlib, Dire Wolf, multimon-ng, SondeHub, OurAirports und weitere sind Namen oder Marken ihrer Inhaber; sie werden hier nur zur Herkunftsangabe genannt.

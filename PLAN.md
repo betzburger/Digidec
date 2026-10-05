@@ -664,6 +664,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - Befehle an Funkgeräte: standardmäßig keine, der Decoder liest nur. Nur wenn der Nutzer den Schalter **QSY AUTO** einschaltet, sendet Digidec ausschließlich `F` (Frequenz) und `M` (Mode) an den rigctld des Commanders (Abschnitt 3.2), niemals PTT oder anderes.
 - Am Mac hängt ein Transceiver (CP2105, `/dev/cu.usbserial-01A22C9D*`) und der IC-PCR1500: Der Decoder öffnet **keine** seriellen Ports.
 - Sprache für UI, Doku und Kommentare: Deutsch (wie Commander).
+- **Testaufnahmen und Beispieldaten nur lokal** in `TestData/` (in `.gitignore`), nie im Repository; die Logiktests überspringen die Prüfungen mit echten Aufnahmen, wenn die Dateien fehlen. Die Aufnahmen aus den früheren Einträgen dieser Datei (EFR, DAPNET, DWD-Berichte) liegen dort.
 - Neue eigene Dateien (Swift, Shell, Python) beginnen mit `SPDX-License-Identifier: GPL-3.0-or-later` und der Copyright-Zeile (Logiktest prüft das). Neue Fremdquellen, Daten oder Testaufnahmen kommen mit Lizenz in `THIRD_PARTY.md` (auch das prüft ein Logiktest).
 
 - **Umbau 01.10.2026:** Die fldigi-Teile sind jetzt **ein** Target `Fldigi` (`Vendor/Fldigi`, Übersicht `Vendor/Fldigi/UPSTREAM.md`), Vorbereitung für NAVTEX/CW/WEFAX.
@@ -1188,7 +1189,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
     - **DWD-Sendepläne** (`Resources/Rtty`, `Resources/Wefax`): Nutzungsbedingungen des DWD (Quellenangabe) nicht geprüft.
     - **acars-decoder-typescript** (MIT, 65 Testfälle in den Logiktests): die Lizenzdatei des Projekts konnte nicht abgerufen werden; Lizenz nach Projektnotiz.
     - **Pawel Jalocha (MT63, Olivia)**: Die Quelltexte kommen über fldigi (GPL); die Kopfzeilen der Original-Header nennen keine eigene Lizenz.
-    - **`TestData/Pager/dapnet_verbogen_48k.wav`** enthält echte DAPNET-Meldungen mit Rufzeichen; im Zweifel durch eine synthetische Datei ersetzen.
+    - **Testaufnahmen** (`TestData/`: EFR, DAPNET mit echten Rufzeichen, Testton, DWD-Beispielberichte) sind ab 0.56.1 nicht mehr im Repository (`.gitignore`); sie stecken aber noch **im Verlauf** der früheren Commits. Vor der Veröffentlichung entweder den Verlauf bereinigen (z. B. `git filter-repo --path TestData --path Tools/LogicTests/Samples --invert-paths`, schreibt die Geschichte um) oder mit einem frischen Repository ohne Verlauf beginnen.
     - `PLAN.md` nennt den Projektordner `/Volumes/X9-Mac-mini/…`; die Commits tragen die Adresse `peter.betz@gmail.com` (bei Bedarf auf eine GitHub-„noreply“-Adresse umstellen, bevor das Repository öffentlich wird).
     - Eine `README.md` fehlt noch.
 - **Nächste Schritte:**
