@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "PACKET", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "PACKET", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -8446,6 +8446,184 @@ do {
     }
     try? Data("kein WAV".utf8).write(to: url)
     check((try? VoiceWAV.read(url)) == nil, "Sprache: keine WAV-Datei wird abgelehnt")
+}
+// MARK: - D-Star: Kopf, Rahmen, Langsamdaten, Empfänger
+do {
+    struct SplitMix: Sendable {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+    }
+    // Prüfsumme: Prüfwert von CRC-16/X-25 für „123456789“
+    check(DStarCRC.fcs(Array("123456789".utf8)) == 0x906E, "D-Star: CRC-16/X-25 (Prüfwert 0x906E)")
+    // Verwürfelungsfolge: die ersten 16 Byte der Spezifikation
+    let scrambleBytes = stride(from: 0, to: 128, by: 8).map { start in DStarHeaderCodec.scrambleSequence[start..<start + 8].reduce(UInt8(0)) { ($0 << 1) | $1 } }
+    check(scrambleBytes == [0x0E, 0xF2, 0xC9, 0x02, 0x26, 0x2E, 0xB6, 0x0C, 0xD4, 0xE7, 0xB4, 0x2A, 0xFA, 0x51, 0xB8, 0xFE], "D-Star: Verwürfelungsfolge (x⁷+x⁴+1) stimmt mit der Spezifikation")
+    check(DStarHeaderCodec.scrambleSequence[127..<137] == DStarHeaderCodec.scrambleSequence[0..<10], "D-Star: Verwürfelungsfolge hat die Periode 127")
+    check(Set(DStarHeaderCodec.interleave).count == 660 && DStarHeaderCodec.interleave.max() == 659, "D-Star: Verschachtelung ist eine Permutation von 660 Bits")
+    // Synchronmuster wie in der Spezifikation (Bytes mit dem niederwertigen Bit zuerst)
+    check(DStarBits.bytes(fromBits: DStarConstants.voiceSync24) == [0x55, 0x2D, 0x16] && DStarBits.bytes(fromBits: DStarConstants.endPattern48) == [0x55, 0x55, 0x55, 0x55, 0xC8, 0x7A], "D-Star: Synchron- und Endemuster")
+    check(DStarConstants.headerSync24.count == 24 && DStarConstants.frameSync15.count == 15, "D-Star: Kopfsynchronisation 24 Bit mit 15 Bit Rahmensynchronisation")
+
+    // Kopf: Hin- und Rückweg, Namen mit Auffüllung, Kennzeichen
+    let header = DStarHeader(flag1: 0x40, repeater2: "DB0XYZ G", repeater1: "DB0XYZ B", yourCall: "CQCQCQ", myCall: "dl1abc", myCall2: "Test")
+    check(header.bytes.count == 41 && Array(header.bytes[19..<27]) == Array("CQCQCQ  ".utf8) && Array(header.bytes[27..<35]) == Array("DL1ABC  ".utf8), "D-Star: Kopf hat 41 Byte, Rufzeichen aufgefüllt und groß geschrieben")
+    let parsed = DStarHeader.parse(header.bytes)
+    check(parsed?.crcOK == true && parsed?.crcSwapped == false && parsed?.header.myCall == "DL1ABC" && parsed?.header.myCall2 == "TEST" && parsed?.header.isRepeater == true && parsed?.header.isData == false, "D-Star: Kopf lesen, Prüfsumme und Kennzeichen")
+    var damaged = header.bytes; damaged[30] ^= 0x04
+    check(DStarHeader.parse(damaged)?.crcOK == false, "D-Star: veränderter Kopf fällt bei der Prüfsumme durch")
+    let sent = DStarHeaderCodec.encode(header)
+    check(sent.count == 660 && DStarHeaderCodec.decode(bits: sent)?.header == DStarHeader.parse(header.bytes)?.header, "D-Star: Kopf codieren und decodieren")
+    var rng = SplitMix(state: 4711)
+    var okByErrors: [Int: Int] = [:]
+    for errors in [8, 20] {
+        for _ in 0..<40 {
+            var rx = sent
+            var chosen = Set<Int>()
+            while chosen.count < errors { chosen.insert(Int(rng.next() % 660)) }
+            for i in chosen { rx[i] ^= 1 }
+            if let d = DStarHeaderCodec.decode(bits: rx), d.crcOK { okByErrors[errors, default: 0] += 1 }
+        }
+    }
+    check((okByErrors[8] ?? 0) == 40 && (okByErrors[20] ?? 0) >= 24, "D-Star: Fehlerkorrektur des Kopfes (8 Bitfehler 40/40, 20 Bitfehler ≥ 24/40 gelesen: \(okByErrors))")
+
+    // Langsamdaten: Text, Kopf-Wiederholung, Datenzeile
+    func feed(_ slow: inout DStarSlowData, blocks: [[UInt8]], superframes: Int) {
+        for _ in 0..<superframes {
+            for (n, block) in blocks.enumerated() {
+                slow.add(frameIndex: n * 2 + 1, bytes: Array(block[0..<3]))
+                slow.add(frameIndex: n * 2 + 2, bytes: Array(block[3..<6]))
+            }
+        }
+    }
+    var slowText = DStarSlowData()
+    feed(&slowText, blocks: DStarSignalGenerator.slowDataBlocks(.text("Gruss aus Wuerzburg"), header: header), superframes: 1)
+    check(slowText.message == "Gruss aus Wuerzburg", "D-Star: Textnachricht aus vier Blöcken (\(slowText.message ?? "-"))")
+    var slowHeader = DStarSlowData()
+    feed(&slowHeader, blocks: DStarSignalGenerator.slowDataBlocks(.headerCopy, header: header), superframes: 1)
+    check(slowHeader.header?.myCall == "DL1ABC" && slowHeader.header?.repeater1 == "DB0XYZ B", "D-Star: Kopf-Wiederholung in den Langsamdaten ergibt Rufzeichen und Repeater")
+    var slowData = DStarSlowData()
+    let line = Array("$$CRC1234,DL1ABC>API51:!4949.00N/00957.00E-\r".utf8)
+    var dataBlocks: [[UInt8]] = []
+    var offset = 0
+    while offset < line.count { let chunk = Array(line[offset..<min(offset + 5, line.count)]); var b = [UInt8(0x30 + chunk.count)] + chunk; while b.count < 6 { b.append(0x66) }; dataBlocks.append(b); offset += chunk.count }
+    while dataBlocks.count < 10 { dataBlocks.append([0x66, 0x66, 0x66, 0x66, 0x66, 0x66]) }
+    feed(&slowData, blocks: Array(dataBlocks.prefix(10)), superframes: 1)
+    check(slowData.dataLine == nil, "D-Star: Datenzeile mit falscher Prüfsumme wird verworfen")
+    // DPRS-Zeile mit richtiger Prüfsumme: Position
+    let dprsBody = "DL1ABC-7>API51,DSTAR*:/080933h4949.50N/00957.30E[192/000/A=000600Test"
+    let dprsLine = String(format: "$$CRC%04X,", DStarCRC.fcs(Array((dprsBody + "\r").utf8))) + dprsBody
+    check(DStarPosition.parse(dprsLine)?.callsign == "DL1ABC-7" && abs((DStarPosition.parse(dprsLine)?.latitude ?? 0) - 49.825) < 1e-6 && abs((DStarPosition.parse(dprsLine)?.longitude ?? 0) - 9.955) < 1e-6 && DStarPosition.parse(dprsLine)?.comment.hasSuffix("Test") == true,
+          "D-Star: DPRS-Zeile mit gültiger Prüfsumme ergibt Rufzeichen und Position")
+    check(DStarPosition.parse(dprsLine.replacingOccurrences(of: "4949.50N", with: "4949.51N")) == nil, "D-Star: DPRS-Zeile mit einem veränderten Zeichen wird abgelehnt")
+    var dprsSlow = DStarSlowData()
+    var dprsBlocks: [[UInt8]] = []
+    let dprsBytes = Array((dprsLine + "\r").utf8)
+    var at = 0
+    while at < dprsBytes.count { let chunk = Array(dprsBytes[at..<min(at + 5, dprsBytes.count)]); var b = [UInt8(0x30 + chunk.count)] + chunk; while b.count < 6 { b.append(0x66) }; dprsBlocks.append(b); at += chunk.count }
+    var dprsChanged = 0
+    for round in 0..<3 {
+        for pair in stride(from: 0, to: dprsBlocks.count, by: 10) {
+            var blocks = Array(dprsBlocks[pair..<min(pair + 10, dprsBlocks.count)])
+            while blocks.count < 10 { blocks.append([0x66, 0x66, 0x66, 0x66, 0x66, 0x66]) }
+            for (n, block) in blocks.enumerated() {
+                if dprsSlow.add(frameIndex: n * 2 + 1, bytes: Array(block[0..<3])) { dprsChanged += 1 }
+                if dprsSlow.add(frameIndex: n * 2 + 2, bytes: Array(block[3..<6])) { dprsChanged += 1 }
+            }
+        }
+        _ = round
+    }
+    check(dprsSlow.position?.callsign == "DL1ABC-7" && dprsChanged == 1, "D-Star: Position aus Langsamdaten, nur beim ersten Mal als Änderung gemeldet (\(dprsChanged))")
+
+    // Empfänger: Aussendung → GMSK-Audio → Bits → Rahmen
+    struct Run { var header: DStarHeader?; var crc = false; var frames: [DStarVoiceFrame] = []; var ends = 0; var lost = 0; var message: String?; var bad = 0 }
+    func receive(_ audio: [Float], rate: Double = 48000, slow: Bool = false) -> Run {
+        let slicer = DStarBitSlicer(sampleRate: rate), framer = DStarFramer()
+        var run = Run(), data = DStarSlowData()
+        framer.onEvent = { event in
+            switch event {
+            case .header(let h, let ok): if ok { run.header = h; run.crc = true; data.reset() } else { run.bad += 1 }
+            case .voice(let f): run.frames.append(f); if f.index > 0 { data.add(frameIndex: f.index, bytes: f.slowData) }
+            case .end: run.ends += 1
+            case .lost: run.lost += 1
+            }
+        }
+        slicer.onBit = { framer.push(bit: $0, soft: $1) }
+        var i = 0
+        while i < audio.count { let j = min(i + 1000, audio.count); slicer.process(Array(audio[i..<j])); i = j }
+        run.message = data.message
+        return run
+    }
+    var frameRng = SplitMix(state: 99)
+    let frames: [[UInt8]] = (0..<100).map { _ in (0..<9).map { _ in UInt8(truncatingIfNeeded: frameRng.next()) } }
+    let bits = DStarSignalGenerator.transmissionBits(header: header, frames: frames, slowData: .text("Test aus Wuerzburg73"))
+    func scenario(_ title: String, _ edit: (inout DStarSignalGenerator.Impairments) -> Void, rate: Double = 48000, minFrames: Int = 100, allCorrect: Bool = true) {
+        var im = DStarSignalGenerator.Impairments(); edit(&im)
+        let run = receive(DStarSignalGenerator.audio(bits: bits, sampleRate: rate, impairments: im), rate: rate)
+        let right = zip(run.frames, frames).filter { $0.0.ambe == $0.1 }.count
+        check(run.crc && run.header?.myCall == "DL1ABC" && run.frames.count >= minFrames && (!allCorrect || right == run.frames.count) && run.ends == 1 && run.lost == 0,
+              "D-Star-Empfänger \(title): Kopf, \(run.frames.count)/100 Rahmen (\(right) bitgleich), Ende \(run.ends)")
+    }
+    scenario("sauber", { _ in })
+    scenario("Pegel umgekehrt", { $0.inverted = true })
+    scenario("Gleichanteil 40 %", { $0.dc = 0.4 })
+    scenario("Takt +400 ppm", { $0.clockPPM = 400 })
+    scenario("Takt −800 ppm", { $0.clockPPM = -800 })
+    scenario("Rauschen 0,35", { $0.noise = 0.35; $0.seed = 3 })
+    scenario("Rauschen 0,6", { $0.noise = 0.6; $0.seed = 5 }, minFrames: 98, allCorrect: false)
+    scenario("Abtastrate 24 kHz", { _ in }, rate: 24000)
+    scenario("Abtastrate 96 kHz", { _ in }, rate: 96000)
+    let clean = receive(DStarSignalGenerator.audio(bits: bits, sampleRate: 48000))
+    check(clean.message == "Test aus Wuerzburg73" && clean.frames.first?.index == 0 && clean.frames.filter { $0.isSync }.count == 5, "D-Star-Empfänger: Textnachricht aus den Langsamdaten, Synchronrahmen alle 21 Rahmen")
+    // Später Einstieg: ohne Kopf, nur mit Kopf-Wiederholung
+    let lateBits = DStarSignalGenerator.transmissionBits(header: header, frames: frames, slowData: .headerCopy, withHeader: false)
+    let late = receive(DStarSignalGenerator.audio(bits: lateBits, sampleRate: 48000))
+    check(late.header == nil && late.frames.count >= 98 && late.frames.first?.index == 1 && late.ends == 1, "D-Star-Empfänger: später Einstieg ohne Kopf liefert die Rahmen ab dem Überrahmen (\(late.frames.count))")
+    // Echte Aufnahmen (Diskriminator-Audio, 48 kHz, von f4exb/dsdcc, Repeater F1ZIL): nur lokal vorhanden
+    func realDStar(_ name: String) -> [Float]? {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Voice/\(name)")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return data.withUnsafeBytes { raw in raw.bindMemory(to: Int16.self).map { Float(Int16(littleEndian: $0)) / 32768 } }
+    }
+    func realRun(_ audio: [Float]) -> (header: DStarHeader?, frames: Int, ends: Int, slow: DStarSlowData) {
+        let slicer = DStarBitSlicer(sampleRate: 48000), framer = DStarFramer()
+        var header: DStarHeader?, frames = 0, ends = 0, data = DStarSlowData()
+        framer.onEvent = { e in
+            switch e {
+            case .header(let h, let ok): if ok { header = h }
+            case .voice(let f): frames += 1; if f.index > 0 { data.add(frameIndex: f.index, bytes: f.slowData) }
+            case .end: ends += 1
+            case .lost: break
+            }
+        }
+        slicer.onBit = { framer.push(bit: $0, soft: $1) }
+        var i = 0
+        while i < audio.count { let j = min(i + 480, audio.count); slicer.process(Array(audio[i..<j])); i = j }
+        return (header, frames, ends, data)
+    }
+    if let audio = realDStar("dstar_f1zil_1.dis") {
+        let r = realRun(audio)
+        check(r.header?.repeater1 == "F1ZIL  B" && r.header?.yourCall == "CQCQCQ" && r.header?.myCall == "F1NSR" && r.header?.myCall2 == "ID51" && r.frames > 1000 && r.slow.message == "YANNICK ST RAPHAEL" && r.slow.header?.myCall == "F1NSR",
+              "D-Star echt (F1ZIL, ID-51): Kopf mit Prüfsumme, \(r.frames) Rahmen, Text und Kopf-Wiederholung")
+    } else { skip("D-Star echt: TestData/Voice/dstar_f1zil_1.dis liegt nicht lokal vor") }
+    if let audio = realDStar("dstar_f1zil_2.dis") {
+        let r = realRun(audio)
+        check(r.header == nil && r.frames >= 700 && r.ends == 1 && r.slow.position?.callsign == "ALBERTO-7" && abs((r.slow.position?.latitude ?? 0) - 43.3108) < 0.001 && abs((r.slow.position?.longitude ?? 0) - 6.685) < 0.001 && r.slow.header?.myCall == "ALBERTO",
+              "D-Star echt (ohne Kopf, später Einstieg): \(r.frames) Rahmen, Ende, DPRS-Position bei Toulon, Rufzeichen aus der Kopf-Wiederholung")
+    } else { skip("D-Star echt: TestData/Voice/dstar_f1zil_2.dis liegt nicht lokal vor") }
+    // Fehlalarme: Rauschen ergibt keine Rahmen
+    var noiseRng = SplitMix(state: 5)
+    let noiseOnly: [Float] = (0..<(48000 * 40)).map { _ in Float(Double(noiseRng.next() >> 11) / Double(1 << 53) - 0.5) * 0.8 }
+    let nothing = receive(noiseOnly)
+    check(nothing.frames.isEmpty && nothing.header == nil, "D-Star-Empfänger: 40 s Rauschen ergeben weder Kopf noch Rahmen")
+    // Kurz vor Ende abgeschnitten: Verlust wird gemeldet
+    let cut = Array(DStarSignalGenerator.audio(bits: bits, sampleRate: 48000).prefix(Int(48000 * 0.9)))
+    check(receive(cut + [Float](repeating: 0, count: 48000 * 3)).frames.count > 20, "D-Star-Empfänger: abgebrochene Aussendung liefert die bis dahin gesendeten Rahmen")
 }
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {

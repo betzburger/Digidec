@@ -72,6 +72,8 @@ Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): 
 
 - **Sprachstick (DVSI AMBE-3000R, `Modules/VoiceCore/Sources/VoiceCore/AMBE3000Stick.swift`)**: eigener Treiber für die serielle Paketschnittstelle des Chips (Paketaufbau, Felder, Konfigurationsfolge). Die Raten-Parameter für AMBE+ (D-Star) und AMBE+2 (DMR, YSF, NXDN) sowie die Reihenfolge der Konfigurationsfelder wurden den Quellen von **xlxd/ambed** (Jean-Luc Deltombe LX3JL und Mitwirkende, GPL-3.0, https://github.com/LX3JL/xlxd; nur gelesen, Zahlenwerte übernommen) entnommen. Der Chip selbst, seine Lizenz und die Dokumentation sind Sache von **DVSI Inc.**; Digidec enthält keinen Sprachcodec, die Wandlung geschieht im Chip des Nutzers.
 
+- **D-Star (Betriebsart DV, `Sources/Decoders/DStar/`)**: eigene Umsetzung nach der Beschreibung des Verfahrens (JARL-Spezifikation „D-STAR“, Vorträge und Beschreibungen der Amateurfunk-Gemeinde: Rahmenaufbau, Synchronmuster, Kopf mit Faltungscode, Verschachtelung und Verwürfelung, Langsamdaten, DPRS-Prüfsumme). Die Bitfolgen und Tabellen (Synchronmuster, Verschachtelung, Verwürfelung als Schieberegister x⁷ + x⁴ + 1) wurden gegen **dsd-fme** (lwvmobile, GPL-2.0, https://github.com/lwvmobile/dsd-fme; Kopfdecodierung nach on1arf/G4KLX) und **xlxd** gelesen und gegen echte Aufnahmen geprüft; es wurde kein Quelltext übernommen. Echte Aufnahmen für die Prüfung: **dsdcc** (Edouard Griffiths F4EXB, GPL-3.0, https://github.com/f4exb/dsdcc, Ordner `samples/`: `dstar_f1zil_1.dis`, `dstar_f1zil_2.dis`; Mitschnitte des Repeaters F1ZIL), nur lokal unter `TestData/Voice`.
+
 ## 4. Daten im Programm (Resources/)
 
 - **Flughäfen** (`Resources/Airports/airports.txt`): OurAirports (https://ourairports.com/data/), gemeinfrei, Stand 02.10.2026.

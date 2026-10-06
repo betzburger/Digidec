@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.62.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.63.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -24,6 +24,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 
 | Modul | Inhalt |
 |---|---|
+| **D-STAR** | Digitale Sprache (DV) im Amateurfunk: Kopf mit Rufzeichen, Gegenstation und Repeater, Textnachricht und GPS-Position aus den Langsamdaten, Verlauf der Aussendungen, später Einstieg ohne Kopf; der Ton kommt aus einem Sprachstick mit DVSI AMBE-3000R (in den Einstellungen wählen), ohne Stick bleibt es bei den Steuerdaten. Braucht das Diskriminator-Audio eines FM-Empfängers (4800 Bd) |
 | **AIS** | Schiffsverfolgung auf 161,975 und 162,025 MHz: Schiffsliste, Karte mit Kurs und Weg, beide Kanäle gleichzeitig; ein Klick auf ein Schiff öffnet ein Fenster mit Foto und technischen Daten aus dem Netz; Wetter-, Pegel-, Binnenschiff- und Gebietsmeldungen; NMEA-Log |
 | **ADS-B** | Flugzeuge auf 1090 MHz direkt vom SDR (HackRF, RTL-SDR, SDRplay direkt über die SDRplay-API oder über SDRconnect): Liste mit Kennung, Land, Höhe, Geschwindigkeit, Entfernung und Notlagen, Karte mit Weg und Farbe nach Höhe, Reichweitediagramm je Richtung, Meldungsprotokoll; Doppelklick auf ein Flugzeug öffnet ein Fenster mit Foto, Typ, Betreiber und planmäßiger Strecke (Start- und Zielflughafen, Fortschritt) |
 | APRS | 1200 Bd AX.25 mit Stationsliste, Nachrichten, Wetter und Karte |

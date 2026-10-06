@@ -75,6 +75,7 @@ swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     $S/Decoders/DCF77/DCF77Core.swift $S/Decoders/DCF77/DCF77SignalGenerator.swift $S/Decoders/DCF77/DCF77Module.swift \
     $S/Decoders/EFR/EFRCore.swift $S/Decoders/EFR/EFRSignalGenerator.swift $S/Decoders/EFR/EFRModule.swift \
     $S/Decoders/SSTV/SSTVMode.swift $S/Decoders/SSTV/SSTVCore.swift $S/Decoders/SSTV/SSTVSignalGenerator.swift $S/Decoders/SSTV/SSTVModule.swift \
+    $S/Decoders/DStar/DStarCore.swift $S/Decoders/DStar/DStarDemod.swift $S/Decoders/DStar/DStarSignalGenerator.swift \
     Modules/VoiceCore/Sources/VoiceCore/VoiceDecoder.swift Modules/VoiceCore/Sources/VoiceCore/VoiceAudio.swift \
     "$OUT"/fldigi/obj/*.o -lc++
 
