@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 // Nachgebauter rigctld für die Logiktests (macOS und Linux): hört auf 127.0.0.1, merkt sich Frequenz und Mode,
 // antwortet auf f, m, F, M und protokolliert alle Befehle. Nicht Teil der App.
+// `.gqrx` verhält sich wie GQRX Remote Control (am echten GQRX am 06.10.2026 gemessen): kennt nur AM, AMS, LSB, USB, CWL, CWU, FM, WFM, WFM_ST;
+// alles andere (RTTY, PKTUSB …) beantwortet es mit „RPRT 1“, Bandbreite 0 ergibt die Voreinstellung des Modes.
 import Foundation
 #if canImport(Darwin)
 import Darwin
@@ -10,16 +12,19 @@ import Glibc
 #endif
 
 final class FakeRigctld: @unchecked Sendable {
-    enum Behavior { case normal, silent }
+    enum Behavior { case normal, silent, gqrx }
 
     let port: UInt16
     private let listenFD: Int32
     private let lock = NSLock()
     private var received: [String] = []
     private var frequency = 14_074_000
-    private var mode = "USB"
-    private var passband = 2400
+    private var mode: String
+    private var passband: Int
     private let behavior: Behavior
+
+    static let gqrxModes: [String: Int] = ["AM": 5000, "AMS": 5000, "LSB": 2700, "USB": 2700, "CWL": 500, "CWU": 500,
+                                           "FM": 10_000, "WFM": 160_000, "WFM_ST": 160_000]
     private var connections = 0
 
     var commands: [String] { lock.withLock { received } }
@@ -29,6 +34,8 @@ final class FakeRigctld: @unchecked Sendable {
 
     init?(behavior: Behavior = .normal) {
         self.behavior = behavior
+        mode = behavior == .gqrx ? "FM" : "USB"
+        passband = behavior == .gqrx ? 10_000 : 2400
         #if os(Linux)
         let s = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
         #else
@@ -91,6 +98,12 @@ final class FakeRigctld: @unchecked Sendable {
                 return "RPRT 0\n"
             case "M":
                 guard parts.count == 3, let pb = Int(parts[2]) else { return "RPRT -1\n" }
+                if behavior == .gqrx {
+                    guard let standard = Self.gqrxModes[parts[1]] else { return "RPRT 1\n" }
+                    mode = parts[1]
+                    passband = pb == 0 ? standard : pb
+                    return "RPRT 0\n"
+                }
                 mode = parts[1]
                 passband = pb == 0 ? 2400 : pb
                 return "RPRT 0\n"

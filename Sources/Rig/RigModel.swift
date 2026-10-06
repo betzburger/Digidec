@@ -93,7 +93,8 @@ public final class RigModel: ObservableObject {
             return
         }
         tuneMessage = "Stimme Funkgerät ab: \(target.label) …"
-        client.tune(frequencyHz: target.dialHz, mode: target.mode, passbandHz: target.passbandHz) { [weak self] result in
+        client.tune(frequencyHz: target.dialHz, mode: target.mode, passbandHz: target.passbandHz,
+                    dialect: customProfile?.dialect ?? .hamlib) { [weak self] result in
             Task { @MainActor in
                 switch result {
                 case .ok: self?.tuneMessage = "Funkgerät → \(target.label)"

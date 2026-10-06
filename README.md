@@ -51,6 +51,7 @@ Das baut Digidec im Release-Modus, legt `Digidec.app` im Projektordner an (ad-ho
 ## Funkgerät und Abstimmung
 
 Digidec öffnet **keine seriellen Ports**. Frequenz und Betriebsart liest es über `rigctld` (Hamlib-Textprotokoll, TCP). Die zwei Commander-Programme des Autors (FT-991A und PCR-1500) bieten das an; im Dialog „Funkgerät“ lässt sich auch jeder andere `rigctld` mit Rechner und Port eintragen.
+Auch **GQRX** (SDR, z. B. HackRF) lässt sich so einbinden: In GQRX die Remote Control einschalten (Tools → Remote control, Port 7356), in Digidec im Dialog „Funkgerät“ **NEU: GQRX** wählen. Das Audio kommt nicht über diese Verbindung, sondern über das Ausgabegerät von GQRX (z. B. VALHost 2ch oder BlackHole) als Eingang von Digidec. Weil GQRX kein RTTY kennt, stellt Digidec dort USB ein (CW als CW-U, AIS als FM mit 25 kHz).
 Standardmäßig wird **nichts** an das Funkgerät gesendet. Schaltest du **QSY AUTO** ein, stimmt Digidec das Gerät beim Modul- oder Kanalwechsel ab und sendet dabei ausschließlich `F` (Frequenz) und `M` (Betriebsart), niemals PTT oder anderes.
 
 Ein Hauptprogramm kann Digidec auch per URL starten und einstellen, zum Beispiel:

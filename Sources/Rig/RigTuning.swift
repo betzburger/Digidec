@@ -123,11 +123,12 @@ public enum RigCommand {
         (10_000...10_000_000_000).contains(hz) ? "F \(hz)\n" : nil
     }
 
-    /// `M <Mode> <Bandbreite>` – Bandbreite 0 = Standard des Geräts
-    public static func mode(_ mode: String, passbandHz: Int?) -> String? {
+    /// `M <Mode> <Bandbreite>` – Bandbreite 0 = Standard des Geräts. Der Mode wird in den Namen der Gegenseite übersetzt
+    /// (GQRX: RTTY → USB, CW → CWU); gibt es ihn dort nicht, kommt kein Befehl.
+    public static func mode(_ mode: String, passbandHz: Int?, dialect: RigDialect = .hamlib) -> String? {
         let m = mode.uppercased()
-        guard allowedModes.contains(m) else { return nil }
+        guard allowedModes.contains(m), let name = dialect.modeName(for: m) else { return nil }
         let pb = max(0, min(passbandHz ?? 0, 50_000))
-        return "M \(m) \(pb)\n"
+        return "M \(name) \(pb)\n"
     }
 }
