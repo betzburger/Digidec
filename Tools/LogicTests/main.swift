@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "VDL2", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -9486,6 +9486,204 @@ do {
         check(r.syncShare > 0.9 && r.speech.count > 8000 * 30 && r.text.contains("vk2tpm Killarney Heights") && rmsOf(r.speech[...]) > 300 && r.snr > 3,
               "FreeDV echt (700D, vk2tpm): Synchronisation \(Int(r.syncShare * 100)) %, \(String(format: "%.0f", Double(r.speech.count) / 8000)) s Sprache, Text „\(r.text.prefix(32))“, S/N \(String(format: "%.1f", r.snr)) dB")
     } else { skip("FreeDV echt: TestData/Voice/freedv_700d_vk2tpm.wav liegt nicht lokal vor") }
+}
+// MARK: - VDL Mode 2: Kopf, Reed-Solomon, Rahmen, ACARS, Rundlauf über I/Q, echte Aufnahme
+do {
+    struct VRng { var s: UInt64
+        mutating func next() -> UInt64 { s = s &* 6364136223846793005 &+ 1442695040888963407; return s >> 33 }
+    }
+    var rng = VRng(s: 77)
+    // Kopf: Prüfbits, Korrektur jedes Einzelbitfehlers
+    var headerOK = true, singleOK = true
+    for len in [0, 1, 100, 594, 7386, 0x1FFF, 0x3FFF, 12345 & 0x3FFF] {
+        let word22 = VDL2.reverse(UInt32(len), bits: 17) << 5
+        let word = word22 | VDL2.headerCheck(word22)
+        guard let ok = VDL2.decodeHeader(word), ok.syndrome == 0, ok.word == word else { headerOK = false; continue }
+        for bit in 0..<22 {
+            if let c = VDL2.decodeHeader(word ^ (1 << UInt32(bit))), c.word == word, c.syndrome != 0 {} else { singleOK = false }
+        }
+    }
+    check(headerOK && singleOK, "VDL2: Kopf (17 Bit Länge, 5 Prüfbits) und Korrektur jedes Einzelbitfehlers")
+    // Verwürfelung ist ihre eigene Umkehrung
+    var bits = (0..<500).map { _ in UInt8(rng.next() & 1) }
+    let original = bits
+    var st = VDL2.scramblerStart
+    VDL2.scramble(&bits, from: 0, to: bits.count, state: &st)
+    st = VDL2.scramblerStart
+    let scrambled = bits
+    VDL2.scramble(&bits, from: 0, to: bits.count, state: &st)
+    check(bits == original && scrambled != original, "VDL2: Verwürfelung (x¹⁵ + x + 1, Startwert 0x6959) umkehrbar")
+    // Reed-Solomon (255,249)
+    let rs = ReedSolomon.shared
+    var rsOK = true, fixedOK = true, erasureOK = true
+    for trial in 0..<60 {
+        let data = (0..<249).map { _ in UInt8(rng.next() & 0xFF) }
+        let par = rs.parity(of: data)
+        var block = data + par
+        if rs.verify(&block, parityOctets: 6) != 0 { rsOK = false }
+        // bis zu 3 Fehler
+        let errors = 1 + trial % 3
+        var positions = Set<Int>()
+        while positions.count < errors { positions.insert(Int(rng.next() % 255)) }
+        for p in positions { block[p] ^= UInt8(1 + rng.next() % 255) }
+        let n = rs.verify(&block, parityOctets: 6)
+        if n != errors || block != data + par { fixedOK = false }
+        // verkürzte Prüfung (4 und 2 Prüfbytes = 2 bzw. 4 Auslöschungen) mit Fehlern
+        for fec in [4, 2] {
+            var b2 = data + par
+            for i in (249 + fec)..<255 { b2[i] = 0 }
+            let allowed = (6 - (6 - fec)) / 2                               // Fehler, die noch korrigierbar sind
+            var pos2 = Set<Int>()
+            while pos2.count < allowed { pos2.insert(Int(rng.next() % UInt64(249 + fec))) }
+            for p in pos2 { b2[p] ^= UInt8(1 + rng.next() % 255) }
+            if rs.verify(&b2, parityOctets: fec) < 0 || b2 != data + par { erasureOK = false }
+        }
+    }
+    check(rsOK && fixedOK, "VDL2: Reed-Solomon (255,249): fehlerfreier Block, 1 bis 3 Fehler korrigiert")
+    check(erasureOK, "VDL2: Reed-Solomon mit verkürzter Prüfung (Auslöschungen) und Fehlern")
+    var tooMany = (0..<249).map { _ in UInt8(rng.next() & 0xFF) }
+    tooMany += rs.parity(of: tooMany)
+    for p in [3, 40, 90, 140, 200, 230, 245] { tooMany[p] ^= 0x55 }
+    let manyResult = rs.verify(&tooMany, parityOctets: 6)
+    check(manyResult != 0, "VDL2: Reed-Solomon mit 7 Fehlern meldet keinen fehlerfreien Block (\(manyResult))")
+    // Adressen
+    let ac = VDL2Address(raw: UInt32(0x3C6444) | (1 << 24))
+    let gs = VDL2Address(raw: UInt32(0x123456) | (4 << 24) | (1 << 27))
+    check(VDL2Address.parse(ac.bytes(last: false)[...]) == ac && VDL2Address.parse(gs.bytes(last: true)[...]) == gs
+          && ac.text == "3C6444" && ac.isAircraft && gs.isGroundStation && gs.status == 1 && ac.bytes(last: true)[3] & 1 == 1 && ac.bytes(last: false)[3] & 1 == 0,
+          "VDL2: Adressen (24 Bit, Art, Zustand) hin und zurück")
+    // Rahmen
+    let up = VDL2SignalGenerator.informationFrame(destination: ac, source: gs, sendSeq: 3, recvSeq: 5, poll: true, payload: Array("HELLO".utf8))
+    let t0 = Date()
+    if let f = AVLC.parse(up, time: t0, frequency: 136_975_000, levelDB: -20, noiseDB: -50, ppm: 0, corrections: 0) {
+        check(f.kind == .information && f.command == "I" && f.poll && f.payload == Array("HELLO".utf8) && f.source == gs && f.destination == ac && f.acars == nil,
+              "VDL2: Informationsrahmen zerlegt")
+    } else { check(false, "VDL2: Informationsrahmen zerlegt") }
+    var bad = up; bad[bad.count - 3] ^= 0x01
+    check(AVLC.parse(bad, time: t0, frequency: 0, levelDB: 0, noiseDB: 0, ppm: 0, corrections: 0) == nil, "VDL2: Rahmen mit falscher Prüfsumme wird verworfen")
+    let rr = VDL2SignalGenerator.supervisoryFrame(destination: gs, source: ac, function: 2, recvSeq: 1, poll: false)
+    let xid = VDL2SignalGenerator.unnumberedFrame(destination: gs, source: ac, mfunc: 0x2B, poll: true, payload: [0x82, 0x00, 0x01])
+    let u1 = AVLC.parse(rr, time: t0, frequency: 0, levelDB: 0, noiseDB: 0, ppm: 0, corrections: 0)
+    let u2 = AVLC.parse(xid, time: t0, frequency: 0, levelDB: 0, noiseDB: 0, ppm: 0, corrections: 0)
+    check(u1?.kind == .supervisory && u1?.command == "REJ" && u2?.kind == .unnumbered && u2?.command == "XID" && u2?.poll == true && u2?.payload == [0x82, 0x00, 0x01],
+          "VDL2: Überwachungs- und nicht nummerierte Rahmen (REJ, XID)")
+    // ACARS im AVLC: Abwärts und Aufwärts
+    let down = VDL2SignalGenerator.acarsPayload(registration: "D-AIXC", label: "H1", blockID: "3", messageNumber: "M12A", flight: "LH1234", text: "POS N49123E009456\nFL350")
+    let upA = VDL2SignalGenerator.acarsPayload(mode: "2", registration: "D-AIXC", ack: "5", label: "Q0", blockID: "C", text: "")
+    let fd = AVLC.parse(VDL2SignalGenerator.informationFrame(destination: gs, source: ac, payload: down), time: t0, frequency: 0, levelDB: 0, noiseDB: 0, ppm: 0, corrections: 0)
+    let fu = AVLC.parse(VDL2SignalGenerator.informationFrame(destination: ac, source: gs, payload: upA), time: t0, frequency: 0, levelDB: 0, noiseDB: 0, ppm: 0, corrections: 0)
+    check(fd?.acars?.registration == "D-AIXC" && fd?.acars?.label == "H1" && fd?.acars?.isDownlink == true && fd?.acars?.flightID == "LH1234" && fd?.acars?.messageNumber == "M12A"
+          && fd?.acars?.text == "POS N49123E009456\nFL350" && fd?.acars?.blockID == "3", "VDL2: ACARS abwärts (Kennzeichen, Label, Flug, Text)")
+    check(fu?.acars?.isDownlink == false && fu?.acars?.label == "Q0" && fu?.acars?.ack == "5" && fu?.acars?.text.isEmpty == true, "VDL2: ACARS aufwärts ohne Text")
+    // Chebyshev-Tiefpass: Verstärkung 1 bei Gleichstrom, Sperrdämpfung
+    let cheb = Chebyshev.lowpass(cutoff: 8000 / 262_500, ripple: 0.5, poles: 2)
+    func gain(_ f: Double, fs: Double) -> Double {
+        let w = 2 * Double.pi * f / fs
+        let num = (0..<3).reduce((0.0, 0.0)) { ($0.0 + cheb.a[$1] * cos(Double($1) * w), $0.1 - cheb.a[$1] * sin(Double($1) * w)) }
+        let den = (1..<3).reduce((1.0, 0.0)) { ($0.0 - cheb.b[$1] * cos(Double($1) * w), $0.1 + cheb.b[$1] * sin(Double($1) * w)) }
+        return (num.0 * num.0 + num.1 * num.1).squareRoot() / (den.0 * den.0 + den.1 * den.1).squareRoot()
+    }
+    check(abs(gain(10, fs: 262_500) - 1) < 0.01 && gain(4000, fs: 262_500) > 0.9 && gain(40_000, fs: 262_500) < 0.1, "VDL2: Tschebyscheff-Tiefpass (Durchlass, Sperrung)")
+
+    // Rundlauf über I/Q: mehrere Rahmen in einem Burst, zwei Blöcke, Rauschen, Frequenzablage, Taktfehler, mehrere Kanäle gleichzeitig
+    let center = 136_850_000.0
+    func receive(_ bursts: [VDL2SignalGenerator.Burst], rate: Double, noise: Double, duration: Double, channels: [Double] = VDL2.europeanChannels) -> [Double: [AVLCFrame]] {
+        let (i, q) = VDL2SignalGenerator.render(bursts, sampleRate: rate, duration: duration, noise: noise, seed: 5)
+        var result: [Double: [AVLCFrame]] = [:]
+        for f in channels {
+            let ch = VDL2Channel(frequency: f, centerFrequency: center, sampleRate: rate)
+            nonisolated(unsafe) var found: [AVLCFrame] = []
+            ch.onBurst = { found += $0.frames }
+            i.withUnsafeBufferPointer { a in q.withUnsafeBufferPointer { b in
+                var p = 0
+                while p < a.count { let c = min(40_000, a.count - p); ch.process(i: UnsafeBufferPointer(rebasing: a[p..<(p + c)]), q: UnsafeBufferPointer(rebasing: b[p..<(p + c)])); p += c }
+            } }
+            result[f] = found
+        }
+        return result
+    }
+    let ch = VDL2.europeanChannels
+    let f1 = VDL2SignalGenerator.informationFrame(destination: gs, source: ac, sendSeq: 1, payload: VDL2SignalGenerator.acarsPayload(registration: "D-AIXC", label: "H1", blockID: "1", text: "TEST ONE"))
+    let f2 = VDL2SignalGenerator.supervisoryFrame(destination: gs, source: ac, function: 0, recvSeq: 2)
+    let bitsA = VDL2SignalGenerator.burstBits(frames: [f1, f2])
+    let r1 = receive([VDL2SignalGenerator.Burst(bits: bitsA, offsetHz: ch[4] - center)], rate: 2_000_000, noise: 0, duration: 0.1)
+    check(r1[ch[4]]?.count == 2 && r1[ch[4]]?[0].acars?.text == "TEST ONE" && r1[ch[4]]?[1].command == "RR" && ch.filter { $0 != ch[4] }.allSatisfy { r1[$0]?.isEmpty == true },
+          "VDL2 Rundlauf: ein Burst mit zwei Rahmen auf Kanal 136,925, die anderen fünf Kanäle bleiben leer")
+    let long = String(repeating: "ABCDEFGHIJ0123456789 ", count: 30)
+    let fLong = VDL2SignalGenerator.informationFrame(destination: ac, source: gs, sendSeq: 0, recvSeq: 0, poll: true, payload: VDL2SignalGenerator.acarsPayload(mode: "2", registration: "D-AIXC", ack: "!", label: "H1", blockID: "A", text: long))
+    let bitsL = VDL2SignalGenerator.burstBits(frames: [fLong])
+    let r2 = receive([VDL2SignalGenerator.Burst(bits: bitsL, offsetHz: ch[0] - center + 350, clockPPM: 15)], rate: 2_000_000, noise: 0.04, duration: 0.1 + Double(bitsL.count) / 31_500)
+    check(r2[ch[0]]?.first?.acars?.text == long, "VDL2 Rundlauf: langer Rahmen (über 600 Byte, mehrere Reed-Solomon-Blöcke) mit Rauschen, 350 Hz Ablage und 15 ppm Taktfehler")
+    // Zwei Bursts gleichzeitig auf verschiedenen Kanälen, 2,4 MS/s
+    let fB = VDL2SignalGenerator.informationFrame(destination: gs, source: VDL2Address(raw: UInt32(0xA1B2C3) | (1 << 24)), payload: VDL2SignalGenerator.acarsPayload(registration: "G-EUPT", label: "5Z", blockID: "2", flight: "BA0123", text: "SECOND"))
+    let r3 = receive([VDL2SignalGenerator.Burst(bits: bitsA, offsetHz: ch[1] - center, start: 0.003, phase: 1.0), VDL2SignalGenerator.Burst(bits: VDL2SignalGenerator.burstBits(frames: [fB]), offsetHz: ch[5] - center - 200, start: 0.004, phase: 2.0)],
+                     rate: 2_400_000, noise: 0.03, duration: 0.1)
+    check(r3[ch[1]]?.first?.acars?.text == "TEST ONE" && r3[ch[5]]?.first?.acars?.flightID == "BA0123" && r3[ch[5]]?.first?.acars?.registration == "G-EUPT",
+          "VDL2 Rundlauf: zwei Kanäle gleichzeitig bei 2,4 MS/s")
+    // Nur Rauschen: nichts
+    let r4 = receive([], rate: 2_000_000, noise: 0.1, duration: 0.5)
+    check(r4.values.allSatisfy { $0.isEmpty }, "VDL2: Rauschen allein erzeugt keine Rahmen")
+    // Sehr schwaches Signal: keine falschen Rahmen (höchstens fehlender Empfang)
+    let r5 = receive([VDL2SignalGenerator.Burst(bits: bitsA, offsetHz: ch[2] - center, amplitude: 0.05)], rate: 2_000_000, noise: 0.2, duration: 0.1)
+    check(r5.values.allSatisfy { $0.isEmpty }, "VDL2: sehr schwaches Signal im Rauschen liefert keine falschen Rahmen")
+
+    // Verwaltung: Flugzeuge, Bodenstationen, Protokoll
+    let box = VDL2Controller(settings: VDL2SettingsStore())
+    func frame(_ bytes: [UInt8], freq: Double = 136_975_000, level: Double = -25) -> AVLCFrame {
+        AVLC.parse(bytes, time: t0, frequency: freq, levelDB: level, noiseDB: -55, ppm: 1, corrections: 0)!
+    }
+    box.ingest(frame(VDL2SignalGenerator.informationFrame(destination: gs, source: ac, payload: down)), now: t0)
+    box.ingest(frame(VDL2SignalGenerator.informationFrame(destination: ac, source: gs, payload: upA), freq: 136_725_000), now: t0.addingTimeInterval(5))
+    box.ingest(frame(VDL2SignalGenerator.supervisoryFrame(destination: gs, source: VDL2Address(raw: UInt32(0xABCDEF) | (1 << 24)), function: 0)), now: t0.addingTimeInterval(6))
+    check(box.aircraft.count == 2 && box.aircraft[1].address == ac && box.aircraft[1].registration == "D-AIXC" && box.aircraft[1].flight == "LH1234" && box.aircraft[1].frames == 2
+          && box.aircraft[1].acarsMessages == 2 && box.aircraft[1].groundStation == "123456" && box.aircraft[1].lastText == "POS N49123E009456 FL350" && box.aircraft[0].frames == 1,
+          "VDL2: Flugzeugliste (Kennzeichen, Flug, Bodenstation, Text, Zähler)")
+    check(box.groundStations.count == 1 && box.groundStations[0].frames == 3 && box.groundStations[0].frequencies == [136_975_000, 136_725_000] && box.totalFrames == 3 && box.acarsCount == 2 && box.recent.count == 3,
+          "VDL2: Bodenstationen, Zähler und Protokoll")
+    check(VDL2Format.direction(box.recent[0].frame) == "FZ→BODEN" && VDL2Format.direction(box.recent[1].frame) == "BODEN→FZ"
+          && VDL2Controller.logLine(box.recent[0].frame, summary: box.recent[0].summary, time: t0).contains("3C6444 → 123456") && box.recent[0].summary.hasPrefix("ACARS D-AIXC H1 LH1234"),
+          "VDL2: Richtung, Protokollzeile und Zusammenfassung")
+    box.clear()
+    check(box.aircraft.isEmpty && box.recent.isEmpty && box.groundStations.isEmpty && box.totalFrames == 0, "VDL2: Listen leeren")
+    // Kanäle und Einstellungen
+    let store = VDL2SettingsStore()
+    store.channels = VDL2Channels.europe
+    check(store.centerFrequency == 136_850_000 && store.channelFrequencies.count == 6 && VDL2Channels.center(of: [136.975]) == 136_975_000 && VDL2Channels.title(136_975_000) == "136,975",
+          "VDL2: Mitte des Empfangsfensters aus den Kanälen")
+    store.channels = [136.975]
+    store.toggle(136.975)
+    check(store.channels == [136.975], "VDL2: der letzte Kanal lässt sich nicht abwählen")
+    store.channels = VDL2Channels.europe
+    check(DecoderModuleInfo.vdl2.band == .vhfUhf && !DecoderModuleInfo.vdl2.hasMap && DecoderModuleInfo.vdl2.displayName == "VDL2" && DecoderModuleInfo.vdl2.presetIDs == ["europa", "csc", "alle"],
+          "VDL2: Modul in der Liste")
+    check(VDL2FileSource.sampleRate(of: URL(fileURLWithPath: "/x/vdl2_model_16b_1050kHz.wav")) == 1_050_000 && VDL2FileSource.sampleRate(of: URL(fileURLWithPath: "/x/mitschnitt_2M.cu8")) == 2_000_000
+          && VDL2FileSource.sampleRate(of: URL(fileURLWithPath: "/x/gar_nix.cu8")) == nil, "VDL2: Abtastrate aus dem Dateinamen")
+
+    // Echte Aufnahme (dumpvdl2-Testdatei, 1,05 MS/s, 16 Bit; nur lokal): zwei Rahmen mit Wetterberichten
+    let realVDL2 = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/VDL2/vdl2_model_16b_1050kHz.wav")
+    if let data = try? Data(contentsOf: realVDL2), data.count > 44 {
+        let n = (data.count - 44) / 4
+        var re = [Float](repeating: 0, count: n), im = [Float](repeating: 0, count: n)
+        data.dropFirst(44).withUnsafeBytes { raw in
+            let s = raw.bindMemory(to: Int16.self)
+            for k in 0..<n { re[k] = Float(s[2 * k]) / 32768; im[k] = Float(s[2 * k + 1]) / 32768 }
+        }
+        let c = VDL2Channel(frequency: 136_975_000, centerFrequency: 136_975_000, sampleRate: 1_050_000)
+        nonisolated(unsafe) var frames: [AVLCFrame] = []
+        c.onBurst = { frames += $0.frames }
+        re.withUnsafeBufferPointer { a in im.withUnsafeBufferPointer { b in c.process(i: a, q: b) } }
+        let t = frames.map { VDL2Format.printable($0.payload, limit: 1000) }
+        check(frames.count == 2 && t[0].contains("-RA BR OVC005") && t[1].contains("SLP135") && frames[0].source.text == "345678" && frames[0].destination.text == "A23721",
+              "VDL2 echt (dumpvdl2-Testdatei): \(frames.count) Rahmen, TAF und METAR gelesen, Absender 345678")
+        // dieselbe Aufnahme auf 8 Bit gebracht (wie über die Dateiquelle)
+        let engine = VDL2Engine()
+        engine.configure(sampleRate: 1_050_000, centerFrequency: 136_975_000, frequencies: [136_975_000], countClipping: false)
+        let u8 = (0..<(2 * n)).map { k -> UInt8 in UInt8(max(0, min(255, (Int((k % 2 == 0 ? re[k / 2] : im[k / 2]) * 32768) + 32768 + 128) >> 8))) }
+        u8.withUnsafeBufferPointer { engine.feed($0, wait: true) }
+        Thread.sleep(forTimeInterval: 1.0)
+        let snap = engine.snapshot()
+        check(snap.bursts.flatMap(\.frames).count == 2, "VDL2 echt: dieselbe Aufnahme auf 8 Bit und über die Engine (\(snap.bursts.flatMap(\.frames).count) Rahmen)")
+    } else { skip("VDL2 echt: TestData/VDL2/vdl2_model_16b_1050kHz.wav liegt nicht lokal vor (aus dumpvdl2/test)") }
 }
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {
