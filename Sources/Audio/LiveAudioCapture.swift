@@ -34,6 +34,8 @@ public final class LiveAudioCapture: @unchecked Sendable {
     private var queue: AudioQueueRef?
     /// Nur im Audio-Callback benutzt
     private let mono = UnsafeMutablePointer<Float>.allocate(capacity: framesPerBuffer * 2)
+    private let monoLeft = UnsafeMutablePointer<Float>.allocate(capacity: framesPerBuffer * 2)
+    private let monoRight = UnsafeMutablePointer<Float>.allocate(capacity: framesPerBuffer * 2)
 
     public init(pipeline: AudioPipeline) {
         self.pipeline = pipeline
@@ -45,6 +47,8 @@ public final class LiveAudioCapture: @unchecked Sendable {
             AudioQueueDispose(q, true)
         }
         mono.deallocate()
+        monoLeft.deallocate()
+        monoRight.deallocate()
     }
 
     public var channelMode: ChannelMode {
@@ -114,6 +118,7 @@ public final class LiveAudioCapture: @unchecked Sendable {
             }
         }
 
+        pipeline.sourceChannels = Self.channels
         pipeline.start(inputRate: Self.captureSampleRate)
         let startStatus = AudioQueueStart(q, nil)
         guard startStatus == noErr else {
@@ -141,5 +146,10 @@ public final class LiveAudioCapture: @unchecked Sendable {
         let src = buffer.pointee.mAudioData.assumingMemoryBound(to: Float.self)
         ChannelMode.extract(interleaved: src, frames: frames, channels: Self.channels, mode: channelMode, into: mono)
         pipeline.ring.write(mono, count: frames)
+        if pipeline.wantsStereo {
+            ChannelMode.extract(interleaved: src, frames: frames, channels: Self.channels, mode: .left, into: monoLeft)
+            ChannelMode.extract(interleaved: src, frames: frames, channels: Self.channels, mode: .right, into: monoRight)
+            pipeline.writeStereo(left: monoLeft, right: monoRight, count: frames)
+        }
     }
 }
