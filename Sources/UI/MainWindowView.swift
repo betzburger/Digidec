@@ -33,6 +33,8 @@ public struct MainWindowView: View {
                                 ALEMessagePanel(controller: state.aleController)
                             } else if state.activeModule == .aprs {
                                 APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
+                            } else if state.activeModule == .packet {
+                                PacketMainPanel(controller: state.packetController, settings: state.packet)
                             } else if state.activeModule == .acars {
                                 ACARSMessagePanel(controller: state.acarsController, settings: state.acars)
                             } else if state.activeModule == .ais {
@@ -97,6 +99,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ale, audio: state.audio)
                             } else if state.activeModule == .aprs {
                                 WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
+                            } else if state.activeModule == .packet {
+                                WaterfallView(model: state.waterfall, rtty: state.packet, audio: state.audio)
                             } else if state.activeModule == .acars {
                                 WaterfallView(model: state.waterfall, rtty: state.acars, audio: state.audio)
                             } else if state.activeModule == .ais {
@@ -151,7 +155,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -183,6 +187,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             APRSSettingsPanel(settings: state.aprs)
                                 .radioCard(title: "APRS")
+                        } else if state.activeModule == .packet {
+                            PacketTuningPanel(controller: state.packetController, settings: state.packet)
+                                .radioCard(title: "Abstimmanzeige")
+                            PacketSettingsPanel(settings: state.packet)
+                                .radioCard(title: "PACKET")
                         } else if state.activeModule == .acars {
                             ACARSTuningPanel(controller: state.acarsController, settings: state.acars)
                                 .radioCard(title: "Abstimmanzeige")
@@ -304,7 +313,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -785,6 +794,8 @@ private struct StatusBar: View {
     @ObservedObject var dsc: DSCSettingsStore
     @ObservedObject var ale: ALESettingsStore
     @ObservedObject var aprs: APRSSettingsStore
+    @ObservedObject var packet: PacketSettingsStore
+    @ObservedObject var packetController: PacketController
     @ObservedObject var acars: ACARSSettingsStore
     @ObservedObject var ais: AISSettingsStore
     @ObservedObject var aisController: AISController
@@ -859,6 +870,7 @@ private struct StatusBar: View {
         case .hfdl: return "HFDL · \(HFDLChannels.label(hfdl.frequencyKHz)) kHz USB · PSK 1800 Bd · Träger 1440 Hz" + (hfdl.showUplink ? "" : " · nur Abwärts") + (hfdl.onlyContent ? " · nur Inhalt" : "")
         case .sonde: return sondeCurrent
         case .ais: return aisCurrent
+        case .packet: return packetCurrent
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")
         case .tones: return "TÖNE · " + ToneStandard.allCases.filter(tones.standards.contains).map(\.name).joined(separator: ", ")
         case .aprs: return "APRS · \(aprs.channel.label) MHz FM · AFSK 1200 Bd · Töne \(Int(aprs.centerHz - 500)) / \(Int(aprs.centerHz + 500)) Hz" + (aprs.repairBits ? " · Korrektur" : "") + (aprs.emphasis == .auto ? "" : aprs.emphasis == .on ? " · DE-EMPH." : " · FLACH")
@@ -902,6 +914,18 @@ private struct StatusBar: View {
         s += " · Schwelle \(Int(skimmer.thresholdDB)) dB"
         let live = skimmerController.stations.filter(\.isLive)
         s += " · \(live.count) Signale · \(live.filter { $0.call != nil }.count) mit Rufzeichen"
+        return s
+    }
+
+    /// „PACKET · 144,8125 MHz FM · AFSK 1200 Bd · 12 Stationen · 3 Verbindungen · 2 Nachrichten“
+    private var packetCurrent: String {
+        var s = "PACKET · \(packet.channel.label) MHz FM · AFSK 1200 Bd"
+        let c = packetController
+        if c.frameCount > 0 {
+            s += " · \(c.stations.count) Stationen"
+            if !c.sessions.isEmpty { s += " · \(c.sessions.count) Verbindung" + (c.sessions.count == 1 ? "" : "en") }
+            if !c.mail.isEmpty { s += " · \(c.mail.count) Nachricht" + (c.mail.count == 1 ? "" : "en") }
+        }
         return s
     }
 

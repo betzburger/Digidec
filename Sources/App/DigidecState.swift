@@ -58,6 +58,8 @@ public final class DigidecState: ObservableObject {
     public let aleController: ALEController
     public let aprs = APRSSettingsStore()
     public let aprsController: APRSController
+    public let packet = PacketSettingsStore()
+    public let packetController: PacketController
     public let acars = ACARSSettingsStore()
     public let acarsController: ACARSController
     public let ais = AISSettingsStore()
@@ -123,6 +125,7 @@ public final class DigidecState: ObservableObject {
         dscController = DSCController(pipeline: audio.pipeline, settings: dsc)
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
         aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
+        packetController = PacketController(pipeline: audio.pipeline, settings: packet)
         acarsController = ACARSController(pipeline: audio.pipeline, settings: acars)
         aisController = AISController(pipeline: audio.pipeline, settings: ais)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
@@ -181,6 +184,7 @@ public final class DigidecState: ObservableObject {
                 self?.dscController.setActive(module == .dsc)
                 self?.aleController.setActive(module == .ale)
                 self?.aprsController.setActive(module == .aprs)
+                self?.packetController.setActive(module == .packet)
                 self?.acarsController.setActive(module == .acars)
                 self?.aisController.setActive(module == .ais)
                 self?.hfdlController.setActive(module == .hfdl)
@@ -208,6 +212,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(skimmer.$mode)
         observeForTuning(dsc.$channel)
         observeForTuning(aprs.$channel)
+        observeForTuning(packet.$channel)
         observeForTuning(acars.$channel)
         observeForTuning(ais.$channel)
         observeForTuning(hfdl.$frequencyKHz)
@@ -266,6 +271,7 @@ public final class DigidecState: ObservableObject {
             dscController.rigDescription = rig.description
             aleController.rigDescription = rig.description
             aprsController.rigDescription = rig.description
+            packetController.rigDescription = rig.description
             acarsController.rigDescription = rig.description
             aisController.rigDescription = rig.description
             hfdlController.rigDescription = rig.description
@@ -303,6 +309,7 @@ public final class DigidecState: ObservableObject {
         case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
         case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
         case .aprs:   return .aprs(channel: aprs.channel)
+        case .packet: return .packet(channel: packet.channel)
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
@@ -410,6 +417,9 @@ public final class DigidecState: ObservableObject {
                 case .aprs:
                     if let preset = request.presetID, let c = APRSChannel(rawValue: preset) { aprs.channel = c }
                     if let center = request.centerHz { aprs.setCenter(center) }
+                case .packet:
+                    if let preset = request.presetID, let c = PacketChannel(rawValue: preset) { packet.channel = c }
+                    if let center = request.centerHz { packet.setCenter(center) }
                 case .acars:
                     if let preset = request.presetID, let c = ACARSChannel(rawValue: preset) { acars.channel = c }
                 case .ais:

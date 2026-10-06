@@ -65,6 +65,11 @@ public struct RigTuneTarget: Equatable, Sendable {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
     }
 
+    /// Packet-Kanal: FM auf der Kanalfrequenz (frei = nichts)
+    public static func packet(channel: PacketChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
+    }
+
     /// ACARS-Kanal: AM auf der Kanalfrequenz (frei = nichts)
     public static func acars(channel: ACARSChannel) -> RigTuneTarget? {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "AM") }

@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "AIS", "APRS", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "AIS", "APRS", "PACKET", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -7579,6 +7579,354 @@ aisBinaryTests()
     check(AISAreaNotice.noticeText(18) == "Fahrwasser gesperrt" && AISAreaNotice.noticeText(104) == "Seekarte: Fahrwasserhindernis" && AISAreaNotice.noticeText(127) == "Gebietsmeldung" && AISAreaNotice.noticeText(46) == "Gebietsmeldung 46", "AIS: Meldungsarten")
 }
 aisMoreBinaryTests()
+
+// MARK: - Packet-Radio: Steuerfeld, Monitor, Verbindungen, NET/ROM, Winlink
+@MainActor func packetTests() {
+    func utf(_ s: String) -> [UInt8] { Array(s.utf8) }
+    func frame(_ src: String, _ dst: String, _ ctl: UInt8, cmd: Bool? = true, pid: UInt8? = nil, info: [UInt8] = [], via: [String] = []) -> AX25Frame {
+        var d = AX25Address(text: dst)!, s = AX25Address(text: src)!
+        if let cmd { d.repeated = cmd; s.repeated = !cmd }
+        let digis = via.map { v -> AX25Address in
+            var a = AX25Address(text: v.replacingOccurrences(of: "*", with: ""))!
+            a.repeated = v.hasSuffix("*")
+            return a
+        }
+        return AX25Frame(dest: d, source: s, digis: digis, control: ctl, pid: pid, info: info)
+    }
+    func ctlByte(ns: Int? = nil, nr: Int = 0, pf: Bool = false, base: UInt8 = 0) -> UInt8 {
+        if let ns { return UInt8(nr << 5 | (pf ? 0x10 : 0) | ns << 1) }
+        return base | UInt8(nr << 5) | (pf ? 0x10 : 0)
+    }
+
+    // --- Steuerfeld ---
+    do {
+        func c(_ b: UInt8) -> AX25Control { AX25Control(byte: b) }
+        check(c(0x3F).type == .connect && c(0x3F).pollFinal && c(0x2F).type == .connect && !c(0x2F).pollFinal, "Packet: SABM mit und ohne P")
+        check(c(0x73).type == .acknowledge && c(0x1F).type == .disconnectedMode && c(0x53).type == .disconnect && c(0x03).type == .unnumberedInfo, "Packet: UA, DM, DISC, UI")
+        check(c(0x6F).type == .connectExtended && c(0x87).type == .frameReject && c(0xAF).type == .exchangeID && c(0xE3).type == .test, "Packet: SABME, FRMR, XID, TEST")
+        let i = c(0x4A)
+        check(i.type == .information && i.ns == 5 && i.nr == 2 && !i.pollFinal, "Packet: I-Rahmen N(S)=5 N(R)=2")
+        check(c(0x5A).pollFinal && c(0x5A).ns == 5, "Packet: Poll-Bit im I-Rahmen")
+        check(c(0x61).type == .receiveReady && c(0x61).nr == 3 && c(0x25).type == .receiveNotReady && c(0x25).nr == 1
+              && c(0x89).type == .reject && c(0x89).nr == 4 && c(0x0D).type == .selectiveReject, "Packet: RR, RNR, REJ, SREJ mit N(R)")
+        check(frame("A", "B", 0x3F, cmd: true).role == .command && frame("A", "B", 0x73, cmd: false).role == .response && frame("A", "B", 0x03, cmd: nil).role == .legacy, "Packet: Befehl, Antwort, alte Fassung aus den C-Bits")
+    }
+
+    // --- Monitor-Zeilen, Sender und Weg ---
+    do {
+        let sabm = frame("DL1ABC", "DB0XYZ", 0x3F, via: ["DB0ABC*"])
+        check(sabm.monitorLine == "DL1ABC>DB0XYZ,DB0ABC* <SABM C P>", "Packet: Monitorzeile SABM: \(sabm.monitorLine)")
+        check(frame("DB0XYZ", "DL1ABC", 0x73, cmd: false).monitorLine == "DB0XYZ>DL1ABC <UA R F>", "Packet: Monitorzeile UA")
+        let info = frame("DL1ABC", "DB0XYZ", ctlByte(ns: 3, nr: 5, pf: true), pid: 0xF0, info: utf("Hallo\rWelt"))
+        check(info.monitorLine == "DL1ABC>DB0XYZ <I C S3 R5 P> Hallo⏎Welt", "Packet: Monitorzeile I-Rahmen: \(info.monitorLine)")
+        check(frame("A", "B", 0x61, cmd: false).monitorLine == "A>B <RR R R3>", "Packet: Monitorzeile RR")
+        check(frame("A", "B", 0x03, cmd: true, pid: 0xCC, info: [0x45, 0, 0, 120, 0, 0, 0, 0, 64, 6, 0, 0, 44, 130, 1, 5, 44, 130, 7, 2]).monitorLine.hasSuffix("IP 44.130.1.5 → 44.130.7.2 · TCP · 120 Byte"), "Packet: IP im Packet-Radio")
+        let via = frame("DL1ABC", "CQ", 0x03, pid: 0xF0, via: ["DB0ABC*", "DB0DEF*", "WIDE2-1"])
+        check(via.transmitter.text == "DB0DEF" && !via.isDirect && via.repeaters.map(\.text) == ["DB0ABC", "DB0DEF"], "Packet: gehörter Sender ist der letzte Digipeater mit H-Bit")
+        check(frame("DL1ABC", "CQ", 0x03, pid: 0xF0).transmitter.text == "DL1ABC" && frame("DL1ABC", "CQ", 0x03, pid: 0xF0, via: ["DB0ABC"]).isDirect, "Packet: direkt gehört ohne H-Bit")
+        // Kodieren und Lesen mit den C-Bits
+        let wire = AX25Frame.parse(sabm.encode())
+        check(wire == sabm && wire?.role == .command, "Packet: Rahmen kodieren und lesen behält die C-Bits")
+    }
+
+    // --- Verbindung: Aufbau, Daten, Wiederholung, Lücke, Abbau ---
+    do {
+        var an = PacketAnalyzer()
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        func t(_ s: Double) -> Date { t0.addingTimeInterval(s) }
+        an.ingest(frame("DL1ABC", "DB0XYZ", 0x3F, via: ["DB0ABC*"]), at: t(0))
+        check(an.sessions.count == 1 && an.sessions[0].state == .connecting && an.sessions[0].via == ["DB0ABC"], "Packet: Verbindungswunsch")
+        an.ingest(frame("DB0XYZ", "DL1ABC", 0x73, cmd: false, via: ["DB0ABC"]), at: t(1))
+        check(an.sessions[0].state == .connected, "Packet: UA bestätigt die Verbindung")
+        an.ingest(frame("DB0XYZ", "DL1ABC", ctlByte(ns: 0, nr: 0), pid: 0xF0, info: utf("Willkommen\rCmd:")), at: t(2))
+        an.ingest(frame("DL1ABC", "DB0XYZ", ctlByte(ns: 0, nr: 1), pid: 0xF0, info: utf("H\r")), at: t(3))
+        an.ingest(frame("DB0XYZ", "DL1ABC", ctlByte(ns: 1, nr: 1), pid: 0xF0, info: utf("Hilfe...\r")), at: t(4))
+        an.ingest(frame("DB0XYZ", "DL1ABC", ctlByte(ns: 1, nr: 1), pid: 0xF0, info: utf("Hilfe...\r")), at: t(5))      // Wiederholung
+        an.ingest(frame("DL1ABC", "DB0XYZ", ctlByte(nr: 2, base: 0x01), cmd: false), at: t(6))                         // RR
+        an.ingest(frame("DB0XYZ", "DL1ABC", ctlByte(ns: 3, nr: 1), pid: 0xF0, info: utf("Ende\r")), at: t(7))          // 2 fehlt
+        var s = an.sessions[0]
+        check(s.infoFrames == 5 && s.retransmissions == 1 && s.gaps == 1, "Packet: Datenrahmen \(s.infoFrames), Wiederholungen \(s.retransmissions), Lücken \(s.gaps)")
+        let text = s.lines.filter { $0.kind == .text }.map(\.text)
+        check(text == ["Willkommen", "Cmd:", "H", "Hilfe...", "Ende"], "Packet: Gesprächsverlauf \(text)")
+        check(s.lines.filter { $0.kind == .text }.map(\.direction) == [1, 1, 0, 1, 1], "Packet: Richtungen der Zeilen")
+        check(s.lines.contains { $0.kind == .note && $0.text.contains("Lücke") }, "Packet: Lücke im Verlauf vermerkt")
+        check(s.bytes[0] == 2 && s.bytes[1] == 15 + 9 + 5, "Packet: Nutzbytes je Richtung \(s.bytes)")
+        an.ingest(frame("DL1ABC", "DB0XYZ", 0x53), at: t(8))
+        check(an.sessions[0].isOpen, "Packet: nach DISC noch offen, bis UA kommt")
+        an.ingest(frame("DB0XYZ", "DL1ABC", 0x73, cmd: false), at: t(9))
+        s = an.sessions[0]
+        check(s.state == .closed && s.ended == t(9) && !s.isOpen && s.kind == .text, "Packet: UA nach DISC beendet die Verbindung")
+        // Zweite Verbindung derselben Stationen ist eine neue Sitzung
+        an.ingest(frame("DL1ABC", "DB0XYZ", 0x3F), at: t(100))
+        check(an.sessions.count == 2 && an.sessions[1].state == .connecting && an.sessions[1].id == 2, "Packet: neue Verbindung nach dem Abbau")
+        an.ingest(frame("DB0XYZ", "DL1ABC", 0x1F, cmd: false), at: t(101))
+        check(an.sessions[1].state == .refused, "Packet: DM lehnt den Verbindungswunsch ab")
+        // Rahmen ohne gehörten Aufbau: mitgehörte Sitzung, geratener Anrufer
+        an.ingest(frame("DB0QRZ", "DL9XYZ", ctlByte(ns: 4, nr: 2), pid: 0xF0, info: utf("mitten drin\r")), at: t(200))
+        check(an.sessions.count == 3 && an.sessions[2].state == .observed && an.sessions[2].lines.contains { $0.text == "mitten drin" }, "Packet: mitten in einer Verbindung eingeschaltet")
+        // Reine Quittungen ohne Sitzung legen keine an
+        let before = an.sessions.count
+        an.ingest(frame("DL5AAA", "DL6BBB", ctlByte(nr: 1, base: 0x01), cmd: false), at: t(201))
+        check(an.sessions.count == before, "Packet: RR ohne bekannte Verbindung legt keine an")
+        // Verbindung ohne Ende
+        an.ingest(frame("DL1ABC", "DB0XYZ", 0x3F), at: t(300))
+        an.housekeeping(now: t(300 + PacketAnalyzer.idleTimeout + 10))
+        check(an.sessions.allSatisfy { !$0.isOpen }, "Packet: Verbindung ohne weitere Rahmen gilt nach 30 min als beendet")
+        // Reparierte Rahmen kommen nicht in Stationen und Sitzungen
+        var an2 = PacketAnalyzer()
+        an2.ingest(frame("DL7REP", "CQ", 0x03, pid: 0xF0, info: utf("x")), at: t(0), repaired: true)
+        check(an2.frameCount == 1 && an2.stations.isEmpty, "Packet: reparierter Rahmen nur in den Zählern")
+    }
+
+    // --- Stationen, Digipeater, Bake ---
+    do {
+        var an = PacketAnalyzer()
+        let now = Date()
+        an.ingest(frame("DB0MAI", "BEACON", 0x03, pid: 0xF0, info: utf("DB0MAI Mailbox, Wuerzburg")), at: now)
+        an.ingest(frame("DL1ABC", "CQ", 0x03, pid: 0xF0, info: utf("CQ CQ"), via: ["DB0ABC*", "DB0DEF*", "WIDE2-1"]), at: now)
+        an.ingest(frame("DL2XYZ", "CQ", 0x03, pid: 0xF0, info: utf("QRZ"), via: ["DB0DEF*", "WIDE1*"]), at: now)
+        check(an.stations["DB0MAI"]?.lastText == "DB0MAI Mailbox, Wuerzburg" && an.stations["DB0MAI"]?.direct == true, "Packet: Bake und direkt gehört")
+        check(an.stations["DL1ABC"]?.direct == false && an.stations["DL1ABC"]?.lastPath == ["DB0ABC*", "DB0DEF*", "WIDE2-1"], "Packet: Weg einer Station")
+        check(an.digipeaters["DB0DEF"]?.heard == 2 && an.digipeaters["DB0DEF"]?.inPath == 2 && an.digipeaters["DB0DEF"]?.sources == ["DL1ABC", "DL2XYZ"], "Packet: Digipeater DB0DEF zweimal gehört, zwei Stationen")
+        check(an.digipeaters["DB0ABC"]?.heard == 0 && an.digipeaters["DB0ABC"]?.inPath == 1 && an.stations["DB0ABC"]?.isDigipeater == true, "Packet: DB0ABC nur im Weg")
+        check(an.digipeaters["WIDE1"] == nil && an.digipeaters["WIDE2-1"] == nil, "Packet: allgemeine Weg-Namen sind keine Digipeater")
+        check(PacketAnalyzer.isGenericAlias("WIDE2-2") && PacketAnalyzer.isGenericAlias("RELAY") && PacketAnalyzer.isGenericAlias("TCPIP") && !PacketAnalyzer.isGenericAlias("DB0ABC"), "Packet: Erkennung allgemeiner Weg-Namen")
+    }
+
+    // --- NET/ROM ---
+    do {
+        func shifted(_ call: String, _ ssid: Int) -> [UInt8] {
+            var b = Array(call.utf8.prefix(6)).map { $0 << 1 }
+            while b.count < 6 { b.append(0x40) }
+            return b + [UInt8(0x60 | ssid << 1)]
+        }
+        func alias(_ a: String) -> [UInt8] { Array(a.utf8) + [UInt8](repeating: 0x20, count: 6 - a.utf8.count) }
+        let entry1 = shifted("DB0AAA", 3) + alias("AAA") + shifted("DB0NBR", 0) + [200]
+        let entry2 = shifted("DB0BBB", 0) + alias("BBB") + shifted("DB0NBR", 0) + [120]
+        let body: [UInt8] = [0xFF] + alias("XYZ") + entry1 + entry2
+        let ui = frame("DB0XYZ", "NODES", 0x03, pid: 0xCF, info: body)
+        let list = NetRom.parseNodes(body)
+        check(list?.sender == "XYZ" && list?.nodes.count == 2 && list?.nodes[0] == NetRomNode(call: "DB0AAA-3", alias: "AAA", neighbour: "DB0NBR", quality: 200), "Packet: NET/ROM-Knotenliste lesen")
+        check(NetRom.parseNodes([0xFF] + alias("XYZ") + [1, 2, 3]) == nil && NetRom.parseNodes([0x01] + alias("XYZ")) == nil, "Packet: NET/ROM: falsche Länge und Kennbyte werden abgelehnt")
+        check(ui.monitorLine.contains("Knotenliste von XYZ: 2 Ziele"), "Packet: NET/ROM im Monitor: \(ui.monitorLine)")
+        var an = PacketAnalyzer()
+        an.ingest(ui, at: Date())
+        check(an.nodes["DB0AAA-3"]?.quality == 200 && an.nodes["DB0BBB"]?.heardFrom == "DB0XYZ" && an.stations["DB0XYZ"]?.alias == "XYZ", "Packet: Knotentabelle und Name des Absenders")
+        let l3 = [UInt8](shifted("DL1ABC", 0) + shifted("DB0AAA", 3) + [15, 3, 4, 0, 0, 5]) + utf("Hi")
+        let n3 = NetRom.parseLayer3(l3)
+        check(n3?.origin == "DL1ABC" && n3?.destination == "DB0AAA-3" && n3?.ttl == 15 && n3?.opcodeName == "Daten" && n3?.payload == utf("Hi"), "Packet: NET/ROM-Netzwerkkopf")
+    }
+
+    // --- LZHUF ---
+    do {
+        // Rundlauf mit dem Literal-Kodierer (zufällige und wiederholte Daten)
+        var seed: UInt64 = 12345
+        func rnd() -> UInt8 { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return UInt8(truncatingIfNeeded: seed >> 33) }
+        let random = (0..<3000).map { _ in rnd() }
+        let text = utf(String(repeating: "Dies ist ein Test der Nachrichten-Kompression. ", count: 80))
+        for (name, data) in [("zufällig", random), ("Text", text), ("leer", [UInt8]())] {
+            let packed = LZHUF.encodeLiterals(data)
+            let r = LZHUF.decode(packed)
+            check(r?.data == data && r?.checksumOK == true && r?.complete == true, "LZHUF: Rundlauf \(name)")
+        }
+        var bad = LZHUF.encodeLiterals(text)
+        bad[bad.count / 2] ^= 0x10
+        check(LZHUF.decode(bad)?.checksumOK == false, "LZHUF: veränderte Daten erkennt die Prüfsumme")
+        check(LZHUF.decode(Array(LZHUF.encodeLiterals(text).prefix(40)))?.complete == false, "LZHUF: abgeschnittene Daten sind unvollständig")
+        check(LZHUF.decode([1, 2, 3]) == nil, "LZHUF: zu kurzer Kopf")
+        // Echte Dateien (Pat/wl2k-go, nur lokal)
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Winlink")
+        for name in ["gettysburg.txt", "e.txt", "LPE5NXDVLVSQ.b2f"] {
+            if let packed = try? Data(contentsOf: dir.appendingPathComponent(name + ".lzh")), let plain = try? Data(contentsOf: dir.appendingPathComponent(name)) {
+                let r = LZHUF.decode([UInt8](packed))
+                check(r?.data == [UInt8](plain) && r?.checksumOK == true && r?.complete == true, "LZHUF: echte Datei \(name) bitgleich entpackt")
+            } else {
+                skip("LZHUF \(name): TestData/Winlink/\(name).lzh liegt nicht lokal vor")
+            }
+        }
+        if let plain = try? Data(contentsOf: dir.appendingPathComponent("LPE5NXDVLVSQ.b2f")) {
+            let m = WinlinkParser.parseMessage([UInt8](plain), compressedSize: 31209)
+            check(m?.mid == "LPE5NXDVLVSQ" && m?.from == "LA5NTA" && m?.to == ["LA4TTA"] && m?.subject == "73 fra Brekke" && m?.type == "Private" && m?.mbo == "LA5NTA", "Winlink: echte Nachricht, Kopfzeilen")
+            check(m?.date == "2016/07/20 19:21" && m?.body.hasPrefix("Hei!") == true && m?.body.utf8.count != nil, "Winlink: echte Nachricht, Datum und Text: \(m?.body.prefix(20) ?? "-")")
+            check(m?.attachments.count == 1 && m?.attachments[0].name == "1469042410710.jpg" && m?.attachments[0].size == 31028 && m?.attachments[0].data.count == 31028
+                  && m?.attachments[0].data.prefix(2) == [0xFF, 0xD8], "Winlink: echte Nachricht, Anhang (JPEG, 31028 Byte)")
+            check(m?.body.contains("pr\u{F8}ver") == true, "Winlink: Text in ISO-8859-1 richtig gelesen (ø)")
+        } else {
+            skip("Winlink: TestData/Winlink/LPE5NXDVLVSQ.b2f liegt nicht lokal vor")
+        }
+    }
+
+    // --- Winlink: Kopfzeilen, RFC-2047-Wörter, SID ---
+    do {
+        check(WinlinkParser.decodeWords("=?utf-8?Q?F=C3=BCr_Sie?=") == "Für Sie" && WinlinkParser.decodeWords("=?iso-8859-1?Q?Gr=FC=DFe?=") == "Grüße", "Winlink: Wörter nach RFC 2047 (Q)")
+        check(WinlinkParser.decodeWords("=?utf-8?B?RsO8ciBTaWU=?=") == "Für Sie" && WinlinkParser.decodeWords("Hallo =?utf-8?Q?Welt?= !") == "Hallo Welt !" && WinlinkParser.decodeWords("kein Wort") == "kein Wort", "Winlink: Wörter (Base64), gemischt, unverändert")
+        let sid = MailSID(line: "[WL2K-5.0-B2FWIHJM$]")
+        check(sid?.software == "WL2K" && sid?.version == "5.0" && sid?.flags == "B2FWIHJM" && sid?.isWinlink == true, "Winlink: Kennung WL2K")
+        let sid2 = MailSID(line: "[RMS Express-1.6.4.0-B2FHM$]")
+        check(sid2?.software == "RMS Express" && sid2?.version == "1.6.4.0" && sid2?.isWinlink == true, "Winlink: Kennung RMS Express")
+        let sid3 = MailSID(line: "[LinFBB-7.0.11-AB1FHMRX$]")
+        check(sid3?.isWinlink == false && sid3?.flags == "AB1FHMRX", "Winlink: Kennung einer Mailbox (LinFBB) ist kein Winlink")
+        check(MailSID(line: "Hallo [Welt]") == nil && MailSID(line: "[nur Text]") == nil && !MailSID.isSID("[x$]"), "Winlink: Nicht-Kennungen")
+    }
+
+    // --- Winlink: ganze Sitzung (Gateway liefert eine Nachricht mit Anhang) ---
+    do {
+        let body = "Lagebericht 1\r\nAlles ruhig, 73 de DL1ABC"
+        let attachment = (0..<700).map { UInt8(($0 * 7 + 3) & 0xFF) }
+        var raw = utf("Mid: ABCDEFGH1234\r\nBody: \(body.utf8.count)\r\nContent-Transfer-Encoding: 8bit\r\nContent-Type: text/plain; charset=UTF-8\r\nDate: 2026/10/06 08:15\r\nFile: \(attachment.count) daten.bin\r\nFrom: DL1ABC\r\nMbo: DB0XYZ\r\nSubject: =?utf-8?Q?F=C3=BCr_alle?=\r\nTo: DL2DEF\r\nTo: DL3GHI\r\nType: Private\r\n\r\n")
+        raw += utf(body) + utf("\r\n") + attachment + utf("\r\n")
+        let packed = LZHUF.encodeLiterals(raw)
+        func blocks(_ title: String, _ data: [UInt8]) -> [UInt8] {
+            var out: [UInt8] = [0x01, UInt8(title.utf8.count + 3)] + utf(title) + [0] + utf("0") + [0]
+            var sum = 0
+            var i = 0
+            while i < data.count {
+                let n = min(250, data.count - i)
+                out += [0x02, UInt8(n)] + data[i..<(i + n)]
+                for b in data[i..<(i + n)] { sum += Int(b) }
+                i += n
+            }
+            return out + [0x04, UInt8((-sum) & 0xFF)]
+        }
+        func fcChecksum(_ lines: [String]) -> String {
+            var sum = 0
+            for l in lines { sum += l.utf8.reduce(0) { $0 + Int($1) } + 0x0D }
+            return String(format: "%02X", (-sum) & 0xFF)
+        }
+        let fc = "FC EM ABCDEFGH1234 \(raw.count) \(packed.count) 0"
+        let gateway = "DB0XYZ-10", client = "DL1ABC"
+        func session(decode: Bool = true, dropFrameInData: Bool = false, answer: String = "FS +") -> PacketAnalyzer {
+            var an = PacketAnalyzer()
+            an.decodeMessages = decode
+            let t0 = Date(timeIntervalSince1970: 1_800_100_000)
+            var n = 0.0
+            func at() -> Date { n += 1; return t0.addingTimeInterval(n) }
+            var nsGateway = 0, nsClient = 0
+            func g(_ bytes: [UInt8], drop: Bool = false) {
+                let f = frame(gateway, client, ctlByte(ns: nsGateway & 7, nr: nsClient & 7), pid: 0xF0, info: bytes)
+                nsGateway += 1
+                if !drop { an.ingest(f, at: at()) }
+            }
+            func c(_ text: String) {
+                an.ingest(frame(client, gateway, ctlByte(ns: nsClient & 7, nr: nsGateway & 7), pid: 0xF0, info: utf(text)), at: at())
+                nsClient += 1
+            }
+            an.ingest(frame(client, gateway, 0x3F, via: ["DB0REL*"]), at: at())
+            an.ingest(frame(gateway, client, 0x73, cmd: false, via: ["DB0REL"]), at: at())
+            g(utf("[WL2K-5.0-B2FWIHJM$]\r;PQ: 12345678\rCMS via \(gateway) >\r"))
+            c("[Pat-0.15-B2FHM$]\r;PR: 98765432\r; \(gateway) DE \(client) (JN49WS)\r")
+            g(utf(fc + "\rF> " + fcChecksum([fc]) + "\r"))
+            c(answer + "\r")
+            // Datenblöcke in Rahmen zu je 128 Byte
+            let stream = blocks("F\u{FC}r alle", packed)
+            var i = 0
+            var k = 0
+            while i < stream.count {
+                let n2 = min(128, stream.count - i)
+                g(Array(stream[i..<(i + n2)]), drop: dropFrameInData && k == 3)
+                i += n2
+                k += 1
+            }
+            c("FF\r")
+            g(utf("FQ\r"))
+            an.ingest(frame(client, gateway, 0x53), at: at())
+            an.ingest(frame(gateway, client, 0x73, cmd: false), at: at())
+            return an
+        }
+        let an = session()
+        let s = an.sessions[0]
+        check(s.state == .closed && s.kind == .winlink && s.mail.sids[0]?.software == "Pat" && s.mail.sids[1]?.software == "WL2K" && s.mail.secureChallenge, "Winlink: Sitzung als Winlink erkannt, beide Kennungen, gesicherte Anmeldung")
+        check(s.mail.proposals[1].count == 1 && s.mail.proposals[1][0].mid == "ABCDEFGH1234" && s.mail.proposals[1][0].size == raw.count && s.mail.proposals[1][0].answer == "+" && s.mail.proposals[1][0].delivered, "Winlink: Vorschlag, Antwort „+“ und Zustellung")
+        check(s.mail.checksumErrors == 0 && s.mail.notes.isEmpty, "Winlink: Prüfsumme der Vorschläge stimmt (\(s.mail.notes))")
+        if let m = s.mail.messages.first {
+            check(s.mail.messages.count == 1 && m.mid == "ABCDEFGH1234" && m.from == "DL1ABC" && m.to == ["DL2DEF", "DL3GHI"] && m.subject == "Für alle" && m.mbo == "DB0XYZ", "Winlink: Nachricht, Kopfzeilen (\(m.to) \(m.subject))")
+            check(m.body == body && m.attachments.count == 1 && m.attachments[0].name == "daten.bin" && m.attachments[0].data == attachment && m.size == raw.count, "Winlink: Nachricht, Text und Anhang bitgleich")
+            check(m.received > Date(timeIntervalSince1970: 1_800_100_000), "Winlink: Empfangszeit gesetzt")
+        } else {
+            check(false, "Winlink: keine Nachricht entpackt (\(s.mail.notes))")
+        }
+        check(s.lines.contains { $0.kind == .binary && $0.text.contains("Nachrichtendaten") } && !s.transcript.contains("\u{1}"), "Winlink: Datenblöcke erscheinen im Verlauf nur als Zeile mit Byteanzahl")
+        check(s.lines.contains { $0.text == "FQ" } && s.lines.contains { $0.text.hasPrefix("FC EM ABCDEFGH1234") }, "Winlink: Text vor und nach den Daten bleibt lesbar")
+        check(an.stations[gateway]?.sid?.isWinlink == true && an.stations[gateway]?.role == "Winlink" && an.messages.count == 1, "Packet: Station als Winlink-Gateway, Nachrichtenliste")
+        // Antwort „FS −“: keine Daten erwartet, keine Nachricht
+        let rejected = session(answer: "FS -")
+        check(rejected.sessions[0].mail.proposals[1][0].answer == "-" && rejected.sessions[0].mail.messages.isEmpty, "Winlink: abgelehnter Vorschlag liefert keine Nachricht")
+        // Lesen aus: nur zählen
+        let off = session(decode: false)
+        check(off.sessions[0].mail.messages.isEmpty && off.sessions[0].mail.notes.contains { $0.contains("abgeschaltet") }, "Winlink: Entpacken abgeschaltet")
+        // Ein Rahmen mitten in den Daten fehlt: keine falsche Nachricht
+        let broken = session(dropFrameInData: true)
+        check(broken.sessions[0].gaps == 1 && broken.sessions[0].mail.messages.isEmpty && broken.sessions[0].mail.notes.contains { $0.contains("fehlte") }, "Winlink: fehlender Rahmen in den Daten ergibt keine (falsche) Nachricht")
+    }
+
+    // --- Mailbox-Weiterleitung (FBB): Vorschläge als Text ---
+    do {
+        var t = MailTracker()
+        let l1 = "FB P DL1ABC DB0XYZ DL2DEF DL2DEF 12345_DB0XYZ 456"
+        var sum = l1.utf8.reduce(0) { $0 + Int($1) } + 0x0D
+        sum = (-sum) & 0xFF
+        t.feed(0, utf("[LinFBB-7.0.11-AB1FHMRX$]\r" + l1 + "\rF> " + String(format: "%02X", sum) + "\r"))
+        t.feed(1, utf("FS +\r"))
+        check(t.sids[0]?.software == "LinFBB" && !t.isWinlink && t.proposals[0].count == 1 && t.proposals[0][0].mid == "12345_DB0XYZ" && t.proposals[0][0].size == 456
+              && t.proposals[0][0].answer == "+" && t.checksumErrors == 0, "Mailbox: Kennung und Vorschlag (FB) gelesen")
+        t.feed(0, utf("FB P A B C D E 1\rF> 00\r"))
+        check(t.checksumErrors == 1, "Mailbox: falsche Prüfsumme der Vorschläge wird gemeldet")
+    }
+
+    // --- Weg über das Audiosignal: Verbindung und Weiterleitung durch Modulator und Empfänger ---
+    do {
+        let frames: [AX25Frame] = [
+            frame("DL1ABC", "DB0XYZ", 0x3F),
+            frame("DB0XYZ", "DL1ABC", 0x73, cmd: false),
+            frame("DB0XYZ", "DL1ABC", ctlByte(ns: 0, nr: 0), pid: 0xF0, info: utf("[FBB-7.0-FHM$]\rWillkommen bei DB0XYZ\r>\r")),
+            frame("DL1ABC", "DB0XYZ", ctlByte(ns: 0, nr: 1), pid: 0xF0, info: utf("B\r")),
+            frame("DB0XYZ", "DL1ABC", ctlByte(nr: 1, base: 0x01), cmd: false),
+            frame("DL1ABC", "DB0XYZ", 0x53),
+            frame("DB0XYZ", "DL1ABC", 0x73, cmd: false),
+        ]
+        let audio = AFSKModulator.modulate(frames: frames.map { $0.encode() }, sampleRate: 12_000) + [Float](repeating: 0, count: 6_000)
+        let rx = AFSKReceiver(sampleRate: 12_000)
+        var raws: [APRSRawFrame] = []
+        var i = 0
+        while i < audio.count {
+            let e = min(i + 240, audio.count)
+            audio[i..<e].withUnsafeBufferPointer { rx.process($0) { raws.append($0) } }
+            i = e
+        }
+        check(raws.count == frames.count && zip(raws, frames).allSatisfy { AX25Frame.parse($0.bytes) == $1 }, "Packet: \(raws.count) von \(frames.count) Rahmen (SABM, UA, I, RR, DISC) über Audio, auch die C-Bits stimmen")
+        let c = PacketController(pipeline: AudioPipeline(), settings: PacketSettingsStore())
+        c.logEnabled = false
+        for r in raws { c.ingest(r, at: Date()) }
+        check(c.monitor.count == frames.count && c.sessions.count == 1 && c.sessions[0].state == .closed && c.sessions[0].kind == .mailbox, "Packet-Controller: Monitor \(c.monitor.count), Verbindung beendet, Mailbox erkannt")
+        check(c.stations.first(where: { $0.call == "DB0XYZ" })?.sid?.software == "FBB" && c.frameCount == frames.count, "Packet-Controller: Station mit Kennung")
+        c.clear()
+        check(c.monitor.isEmpty && c.sessions.isEmpty && c.stations.isEmpty, "Packet-Controller: Listen leeren")
+    }
+
+    // --- Demo-Signal des Prüfstands (MakeSignal): Rahmen durch die Auswertung ---
+    do {
+        let frames = PacketSignalGenerator.demoFrames()
+        var an = PacketAnalyzer()
+        let t0 = Date()
+        for (i, f) in frames.enumerated() { an.ingest(AX25Frame.parse(f.encode())!, at: t0.addingTimeInterval(Double(i))) }
+        check(an.sessions.count == 2 && an.sessions.allSatisfy { $0.state == .closed } && an.sessions.contains { $0.kind == .winlink } && an.sessions.contains { $0.kind == .mailbox }, "Packet-Demo: zwei beendete Verbindungen (Winlink, Mailbox)")
+        check(an.messages.count == 1 && an.messages[0].message.subject == "Lagemeldung Hochwasser" && an.messages[0].message.attachments.first?.size == 600, "Packet-Demo: Winlink-Nachricht mit Anhang gelesen")
+        check(an.nodes.count == 3 && an.digipeaters["DB0DEF"]?.sources.count == 2 && an.stations["DB0MAI-1"]?.sid?.software == "LinFBB", "Packet-Demo: Knoten, Digipeater, Mailbox-Kennung")
+    }
+
+    // --- Kanäle, Modul, URL, Funkgerät ---
+    do {
+        check(PacketChannel.v8125.frequencyHz == 144_812_500 && PacketChannel.u650.frequencyHz == 433_650_000 && PacketChannel.free.frequencyHz == nil, "Packet: Kanalfrequenzen")
+        check(PacketChannel.v8125.label == "144,8125" && PacketChannel.u625.label == "433,625" && PacketChannel.free.label == "frei", "Packet: Kanalbeschriftung \(PacketChannel.u625.label)")
+        check(PacketChannel.allCases.filter(\.isUHF).count == 7 && PacketChannel.allCases.filter { !$0.isUHF && $0 != .free }.count == 8, "Packet: 8 Kanäle auf 2 m, 7 auf 70 cm")
+        let rig = RigTuneTarget.packet(channel: .u650)
+        check(rig?.dialHz == 433_650_000 && rig?.mode == "FM" && RigTuneTarget.packet(channel: .free) == nil, "Packet: Abstimmziel FM auf der Kanalfrequenz")
+        check(DecoderModuleInfo.packet.isAvailable && DecoderModuleInfo.packet.band == .vhfUhf && !DecoderModuleInfo.packet.hasMap && DecoderModuleInfo.packet.displayName == "PACKET", "Packet: Modul in der Liste")
+        check(parse("digidec://decode?mode=packet&preset=u650") == .success(DecodeRequest(module: .packet, presetID: "u650")) && parse("digidec://decode?mode=packet") == .success(DecodeRequest(module: .packet, presetID: "v8125")), "Packet: URL-Aufruf")
+        check({ if case .failure = parse("digidec://decode?mode=packet&preset=nope") { return true } else { return false } }(), "Packet: unbekannter Kanal wird abgelehnt")
+    }
+}
+packetTests()
 
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

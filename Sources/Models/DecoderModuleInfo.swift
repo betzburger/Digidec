@@ -18,6 +18,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case dsc
     case ale
     case aprs
+    case packet
     case acars
     case ais
     case hfdl
@@ -48,6 +49,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dsc:    return "DSC"
         case .ale:    return "ALE"
         case .aprs:   return "APRS"
+        case .packet: return "PACKET"
         case .acars:  return "ACARS"
         case .ais:    return "AIS"
         case .hfdl:   return "HFDL"
@@ -95,7 +97,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var band: Band {
         switch self {
-        case .acars, .ais, .aprs, .pager, .sonde, .tones: return .vhfUhf
+        case .acars, .ais, .aprs, .packet, .pager, .sonde, .tones: return .vhfUhf
         case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
@@ -103,14 +105,14 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     /// Hat das Modul eine Kartenanzeige? (Ohne Ortsdaten nicht: Bilder, Funkruf, Tonfolgen, ALE)
     public var hasMap: Bool {
         switch self {
-        case .sstv, .ale, .pager, .tones, .hell: return false
+        case .sstv, .ale, .pager, .tones, .hell, .packet: return false
         default: return true
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .acars, .ais, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .packet, .acars, .ais, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -127,6 +129,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
                          "contestia-8-500", "contestia-4-250", "contestia-4-500", "contestia-8-250", "contestia-16-500", "contestia-16-1000", "contestia-32-1000", "contestia-64-1000"]   // = FldigiOliviaCore.Options.presetID
         case .ale: return ["ale"]
         case .aprs: return ["eu", "na", "iss", "au", "jp", "free"]   // = APRSChannel.rawValue
+        case .packet: return PacketChannel.allCases.map(\.rawValue)   // = PacketChannel.rawValue
         case .acars: return ["f131550", "f131725", "f131525", "f130025", "f136900", "free"]   // = ACARSChannel.rawValue
         case .ais: return ["a", "b", "both"]   // = AISChannel.rawValue (ohne „frei“)
         case .hfdl: return HFDLChannels.allPresetIDs   // = HFDLChannels.presetID(kHz), Standard 8942 kHz
