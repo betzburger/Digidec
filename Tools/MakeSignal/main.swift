@@ -6,6 +6,7 @@
 //   sonde - <aus.wav>          RS41-Flug als FM-Diskriminator-Audio (48 kHz), ein Telegramm je Sekunde. Optionen:
 //                              --serial N1234567 --lat 49.79 --lon 9.95 --alt 180 --climb 5 --burst 28000 --wind 2,8 --seconds 600
 //                              --start <s> (Beginn im Flug) --freq 403500 (kHz) --temp 15 (Bodentemperatur °C) --offset <Spannung> --ppm <Taktabweichung>
+//   packet - <aus.wav>         Packet-Radio-Demo (12 kHz): Bake, Knotenliste, Digipeater, Mailbox-Verbindung, Winlink-Sitzung mit Nachricht und Anhang
 //   Optionen: --noise <Amplitude>   Rauschen dazu (Standard 0)
 import Foundation
 
@@ -31,7 +32,7 @@ var args = Array(CommandLine.arguments.dropFirst())
 var noise: Float = 0
 if let i = args.firstIndex(of: "--noise"), i + 1 < args.count { noise = Float(args[i + 1]) ?? 0; args.removeSubrange(i...(i + 1)) }
 guard args.count >= 3, args[0] != "--help" else {
-    print("Aufruf: make_signal.sh acars <skript.txt> <aus.wav> [--noise <Amplitude>]\n        make_signal.sh sonde - <aus.wav> [--serial …] [--lat …] [--lon …] [--alt …] [--climb …] [--burst …] [--seconds …] (siehe Kopf von main.swift)")
+    print("Aufruf: make_signal.sh acars <skript.txt> <aus.wav> [--noise <Amplitude>]\n        make_signal.sh packet - <aus.wav> [--noise <Amplitude>]\n        make_signal.sh sonde - <aus.wav> [--serial …] [--lat …] [--lon …] [--alt …] [--climb …] [--burst …] [--seconds …] (siehe Kopf von main.swift)")
     exit(args.first == "--help" ? 0 : 2)
 }
 
@@ -93,6 +94,13 @@ case "sonde":
     if noise > 0 { for i in out.indices { out[i] += noise * Float.random(in: -1...1) } }
     try writeWAV(out, rate: 48_000, to: args[2])
     print("\(frames.count) Telegramme, \(String(format: "%.0f", Double(out.count) / 48_000)) s, letzte Höhe \(Int(last.alt)) m bei \(String(format: "%.4f %.4f", last.lat, last.lon)) → \(args[2])")
+case "packet":
+    let frames = PacketSignalGenerator.demoFrames()
+    var out = AFSKModulator.modulate(frames: frames.map { $0.encode() }, sampleRate: 12_000, preambleFlags: 25, gapSeconds: 0.5, amplitude: 0.5)
+    out += [Float](repeating: 0, count: 12_000)
+    if noise > 0 { for i in out.indices { out[i] += noise * Float.random(in: -1...1) } }
+    try writeWAV(out, rate: 12_000, to: args[2])
+    print("\(frames.count) Rahmen, \(String(format: "%.0f", Double(out.count) / 12_000)) s → \(args[2])")
 default:
     print("Unbekannte Art: \(args[0])")
     exit(2)

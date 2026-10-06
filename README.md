@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.57.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.59.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -26,6 +26,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 |---|---|
 | **AIS** | Schiffsverfolgung auf 161,975 und 162,025 MHz: Schiffsliste, Karte mit Kurs und Weg, beide Kanäle gleichzeitig; ein Klick auf ein Schiff öffnet ein Fenster mit Foto und technischen Daten aus dem Netz; Wetter-, Pegel-, Binnenschiff- und Gebietsmeldungen; NMEA-Log |
 | APRS | 1200 Bd AX.25 mit Stationsliste, Nachrichten, Wetter und Karte |
+| PACKET | Packet-Radio 1200 Bd: Monitor aller AX.25-Rahmen, Stationen und Digipeater, Verbindungen mit Gesprächsverlauf, Mailbox-Weiterleitung und **Winlink** (Nachrichten werden entpackt und gelesen, Anhänge speicherbar), NET/ROM-Knoten. Nachrichten anderer bitte vertraulich behandeln |
 | ACARS | Flugzeugmeldungen mit Positionen, OOOI-Berichten und Flughäfen |
 | PAGER | Funkruf POCSAG und FLEX (z. B. DAPNET) |
 | SONDE | Radiosonden Vaisala RS41 mit Flugweg, Landeprognose, Startorten und Sendeplan |
