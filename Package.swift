@@ -1,7 +1,12 @@
 // swift-tools-version: 6.0
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
+import Foundation
 import PackageDescription
+
+// Optionale lokale Erweiterung für digitale Sprache (Software-Decoder): liegt unter Local/ (nicht im Repository) und wird nur gebaut, wenn der Ordner existiert.
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let hasLocalVocoder = FileManager.default.fileExists(atPath: packageRoot + "/Local/Vocoder/Sources")
 
 let package = Package(
     name: "Digidec",
@@ -72,11 +77,27 @@ let package = Package(
                 .unsafeFlags(["-w", "-O3"])
             ]
         ),
+        // Gemeinsame Schnittstelle für digitale Sprache (Decoder eintragen, Ton ausgeben)
+        .target(
+            name: "VoiceCore",
+            path: "Modules/VoiceCore/Sources/VoiceCore"
+        ),
+        // Prüfstand für Sprachdecoder (Stick): Sprache codieren, zurückwandeln, als WAV ausgeben
+        .executableTarget(
+            name: "voice-selftest",
+            dependencies: ["VoiceCore"],
+            path: "Tools/VoiceSelfTest"
+        ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["Fldigi", "FT8", "Wspr"],
-            path: "Sources"
+            dependencies: ["Fldigi", "FT8", "Wspr", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
+            path: "Sources",
+            swiftSettings: hasLocalVocoder ? [.define("DIGIDEC_LOCAL_VOCODER")] : []
         )
     ],
     cxxLanguageStandard: .cxx17
 )
+
+if hasLocalVocoder {
+    package.targets.append(.target(name: "LocalVocoder", dependencies: ["VoiceCore"], path: "Local/Vocoder/Sources"))
+}

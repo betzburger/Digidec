@@ -7,7 +7,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
 echo "=== 1. Building Digidec (Release) ==="
-swift build -c release
+swift build -c release --manifest-cache none   # Package.swift prüft, ob Local/ existiert; ein alter Zwischenspeicher wüsste das nicht
 
 APP_NAME="Digidec"
 APP_BUNDLE="$DIR/$APP_NAME.app"

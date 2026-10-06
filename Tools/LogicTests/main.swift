@@ -8401,6 +8401,52 @@ adsbTests()
         check(st.webLookup && !st.autoLookup && !st.openInfoOnClick, "ADS-B: Netz-Suche an, Hintergrundabfrage und Fenster bei Klick aus (Standard)")
     }
 }
+// MARK: - Digitale Sprache: Schnittstelle (Decoder-Sammlung, Rahmen, WAV)
+do {
+    struct FakeDecoder: VoiceDecoder {
+        let name: String
+        let isHardware: Bool
+        let profiles: Set<VoiceProfile>
+        func supports(_ profile: VoiceProfile) -> Bool { profiles.contains(profile) }
+        func decode(_ frame: VoiceFrame, profile: VoiceProfile) throws -> [Int16] {
+            guard profiles.contains(profile) else { throw VoiceError.unsupported(profile) }
+            return [Int16](repeating: Int16(frame.bytes[0]), count: VoiceFrame.samplesPerFrame)
+        }
+    }
+    let registry = VoiceRegistry()
+    check(registry.preferred(for: .dmr) == nil && registry.decoders.isEmpty, "Sprache: ohne Decoder gibt es keinen Ton, nur Steuerdaten")
+    registry.register(FakeDecoder(name: "Software", isHardware: false, profiles: [.dstar, .dmr]))
+    check(registry.preferred(for: .dmr)?.name == "Software", "Sprache: ein Software-Decoder wird gewählt, wenn er allein ist")
+    registry.register(FakeDecoder(name: "Gerät", isHardware: true, profiles: [.dmr]))
+    check(registry.preferred(for: .dmr)?.name == "Gerät", "Sprache: ein Gerät hat Vorrang vor Software")
+    check(registry.preferred(for: .dstar)?.name == "Software", "Sprache: das Gerät wird nur für Verfahren gewählt, die es kann")
+    registry.removeAll()
+    check(registry.decoders.isEmpty, "Sprache: Sammlung leeren")
+
+    check(VoiceFrame(bytes: [UInt8](repeating: 0, count: 8)) == nil && VoiceFrame(bytes: [UInt8](repeating: 0, count: 10)) == nil, "Sprache: ein Rahmen hat genau 9 Bytes (72 Bit)")
+    let frame = VoiceFrame(bytes: [7, 0, 0, 0, 0, 0, 0, 0, 0])!
+    let pcm = (try? FakeDecoder(name: "x", isHardware: false, profiles: [.dmr]).decode(frame, profile: .dmr)) ?? []
+    check(pcm.count == VoiceFrame.samplesPerFrame && pcm.allSatisfy { $0 == 7 }, "Sprache: ein Rahmen ergibt 160 Abtastwerte (20 ms bei 8 kHz)")
+    var rejected = false
+    do { _ = try FakeDecoder(name: "x", isHardware: false, profiles: [.dmr]).decode(frame, profile: .dstar) } catch { rejected = (error as? VoiceError) == .unsupported(.dstar) }
+    check(rejected, "Sprache: nicht unterstütztes Verfahren wird gemeldet")
+
+    // WAV: Hin- und Rückweg, fremde Zusatzblöcke werden übersprungen
+    let tone = (0..<800).map { Int16(10000 * sin(2 * Double.pi * 400 * Double($0) / 8000)) }
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice_test_\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try? VoiceWAV.write(tone, to: url)
+    let back = try? VoiceWAV.read(url)
+    check(back?.samples == tone && back?.sampleRate == 8000, "Sprache: WAV schreiben und lesen ergibt dieselben Abtastwerte")
+    if var raw = try? Data(contentsOf: url) {
+        let list = Data("LIST".utf8) + Data([4, 0, 0, 0]) + Data("INFO".utf8)
+        raw.insert(contentsOf: list, at: 36)
+        try? raw.write(to: url)
+        check((try? VoiceWAV.read(url))?.samples == tone, "Sprache: WAV mit LIST-Block vor den Daten wird gelesen")
+    }
+    try? Data("kein WAV".utf8).write(to: url)
+    check((try? VoiceWAV.read(url)) == nil, "Sprache: keine WAV-Datei wird abgelehnt")
+}
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {
     final class Flag: @unchecked Sendable { var done = false }
