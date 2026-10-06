@@ -70,6 +70,8 @@ In diesen Fällen steht **kein Fremdcode** im Digidec-Quelltext. Die Programme w
 
 Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): ITU-R M.493, ITU-R M.1371-5 und IEC 61162-1 (AIS), IMO SN/Circ.236 und SN.1/Circ.289 (binäre AIS-Nachrichten), Inland-AIS-Standard (DAC 200), MIL-STD-188-141, ARINC 618 und 635, APRS Protocol Reference (APRS101), DIN 19244 / IEC 60870-5, WMO FM 12/13/18 (SYNOP, SHIP, BUOY), IMO NAVTEX-Handbuch.
 
+- **Sprachstick (DVSI AMBE-3000R, `Modules/VoiceCore/Sources/VoiceCore/AMBE3000Stick.swift`)**: eigener Treiber für die serielle Paketschnittstelle des Chips (Paketaufbau, Felder, Konfigurationsfolge). Die Raten-Parameter für AMBE+ (D-Star) und AMBE+2 (DMR, YSF, NXDN) sowie die Reihenfolge der Konfigurationsfelder wurden den Quellen von **xlxd/ambed** (Jean-Luc Deltombe LX3JL und Mitwirkende, GPL-3.0, https://github.com/LX3JL/xlxd; nur gelesen, Zahlenwerte übernommen) entnommen. Der Chip selbst, seine Lizenz und die Dokumentation sind Sache von **DVSI Inc.**; Digidec enthält keinen Sprachcodec, die Wandlung geschieht im Chip des Nutzers.
+
 ## 4. Daten im Programm (Resources/)
 
 - **Flughäfen** (`Resources/Airports/airports.txt`): OurAirports (https://ourairports.com/data/), gemeinfrei, Stand 02.10.2026.

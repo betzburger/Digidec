@@ -4,7 +4,7 @@
 import Foundation
 import PackageDescription
 
-// Optionale lokale Erweiterung für digitale Sprache: liegt unter Local/ (nicht im Repository) und wird nur gebaut, wenn der Ordner existiert.
+// Optionale lokale Erweiterung für digitale Sprache (Software-Decoder): liegt unter Local/ (nicht im Repository) und wird nur gebaut, wenn der Ordner existiert.
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let hasLocalVocoder = FileManager.default.fileExists(atPath: packageRoot + "/Local/Vocoder/Sources")
 
@@ -82,6 +82,12 @@ let package = Package(
             name: "VoiceCore",
             path: "Modules/VoiceCore/Sources/VoiceCore"
         ),
+        // Prüfstand für Sprachdecoder (Stick): Sprache codieren, zurückwandeln, als WAV ausgeben
+        .executableTarget(
+            name: "voice-selftest",
+            dependencies: ["VoiceCore"],
+            path: "Tools/VoiceSelfTest"
+        ),
         .executableTarget(
             name: "Digidec",
             dependencies: ["Fldigi", "FT8", "Wspr", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
@@ -94,5 +100,4 @@ let package = Package(
 
 if hasLocalVocoder {
     package.targets.append(.target(name: "LocalVocoder", dependencies: ["VoiceCore"], path: "Local/Vocoder/Sources"))
-    package.targets.append(.executableTarget(name: "voice-selftest", dependencies: ["VoiceCore", "LocalVocoder"], path: "Local/Tools/VoiceSelfTest"))
 }
