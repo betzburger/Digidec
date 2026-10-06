@@ -11,6 +11,7 @@
 | `ADSBTracker.swift` | Flugzeugliste: Paarung gerader und ungerader Rahmen (10 s), danach Einzelrahmen relativ zur letzten Position, Plausibilität (höchstens 1500 kn zwischen Positionen, höchstens 1000 km vom Empfänger), Weg, Reichweite je 10°-Sektor |
 | `ADSBTables.swift` | Staat aus der ICAO-Adresse (`Resources/ADSB/icao_ranges.csv`, Landesname deutsch aus dem System), Flugzeugkategorien, Notlagen |
 | `ADSBSources.swift` | Quellen: Datei (rohe 8-Bit-I/Q), RTL-SDR (`librtlsdr`), HackRF (`libhackrf`). Die Bibliotheken werden per `dlopen` zur Laufzeit gesucht (`/opt/homebrew/lib`, `/usr/local/lib`), der HackRF liefert vorzeichenbehaftet und wird umgesetzt |
+| `SDRplayAPISource.swift` | SDRplay direkt über `libsdrplay_api` 3.15 (dlopen, Eigenentwicklung gegen die veröffentlichte Schnittstelle; Bibliothek und Header gehören SDRplay Ltd. und werden nicht mitgeliefert) |
 | `SDRconnectSource.swift` | SDRplay (RSP1B, RSPdx, RSPduo …) über die WebSocket-Schnittstelle von SDRconnect (Binärkennung 2 = 16-Bit-I/Q) |
 | `ADSBModule.swift` | Einstellungen, Engine (eigener Faden, Rückstau mit Verwerfen), Controller (Quelle starten und stoppen, nur im aktiven Modul), Kartenaufbereitung (Farbe nach Höhe) |
 | `ADSBSignalGenerator.swift` | Erzeugt Meldungen und I/Q-Daten für Tests und `make_signal.sh adsb` |
@@ -26,7 +27,7 @@ Die Abfrage geschieht nur für angeklickte Flugzeuge, es sei denn, AUTO-INFO ist
 - **Gegenprobe mit dump1090** an dessen Beispielaufnahme `modes1.bin` (713 736 Byte): dump1090 findet 217 Meldungen (111 verschiedene), Digidec findet **alle** davon und dazu weitere gültige (284 Meldungen, 145 verschiedene; die Prüfsumme ist bei jeder erfüllt, 5 mit einem korrigierten Bit), unabhängig von der Blockgröße (2048 Byte bis 100 MB identisch).
 - **Testvektoren** aus der Literatur (Rufzeichen KLM1023, Geschwindigkeit 159 kn / 182,88° / −832 ft/min, Höhe 38000 ft, CPR-Paar → 52,2572 / 3,91937, Bodenposition 17 kn / 92,8125°).
 - **Rundlauf** Erzeuger → I/Q (mit Rauschen, Phasenversatz, schwachem Signal) → Demodulator → Tracker → Karte; Rauschen allein ergibt keine Meldung.
-- **Nicht geprüft:** der Datenstrom von HackRF, RTL-SDR und SDRconnect an echter Hardware beim Schreiben (der HackRF war von GQRX belegt, RTL-SDR und RSPduo nicht angeschlossen). Die Bibliotheken werden gefunden und das Öffnen meldet „belegt“ bzw. „kein Gerät“ richtig.
+- **Geprüft am echten RSPduo (0.62.0):** SDRplay-API direkt, siehe PLAN.md. **Nicht geprüft:** der Datenstrom von RTL-SDR und SDRconnect an echter Hardware beim Schreiben (der HackRF war von GQRX belegt, RTL-SDR und RSPduo nicht angeschlossen). Die Bibliotheken werden gefunden und das Öffnen meldet „belegt“ bzw. „kein Gerät“ richtig.
 
 ## Grenzen
 

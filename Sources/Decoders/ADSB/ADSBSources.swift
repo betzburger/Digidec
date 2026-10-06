@@ -6,7 +6,7 @@ import Foundation
 
 /// Woher die I/Q-Daten für ADS-B kommen
 public enum ADSBSourceKind: String, CaseIterable, Identifiable, Codable, Sendable {
-    case hackrf, rtlsdr, sdrplay, file
+    case hackrf, rtlsdr, sdrplay, sdrconnect, file
 
     public var id: String { rawValue }
 
@@ -15,6 +15,7 @@ public enum ADSBSourceKind: String, CaseIterable, Identifiable, Codable, Sendabl
         case .hackrf: return "HackRF"
         case .rtlsdr: return "RTL-SDR"
         case .sdrplay: return "SDRplay"
+        case .sdrconnect: return "SDRconnect"
         case .file: return "Datei"
         }
     }
@@ -23,7 +24,8 @@ public enum ADSBSourceKind: String, CaseIterable, Identifiable, Codable, Sendabl
         switch self {
         case .hackrf: return "HackRF One über libhackrf (Homebrew). GQRX und andere Programme müssen das Gerät freigeben."
         case .rtlsdr: return "RTL-SDR-Stick über librtlsdr (Homebrew)."
-        case .sdrplay: return "SDRplay (RSP1B, RSPdx, RSPduo …) über SDRconnect: dort Server einschalten (WebSocket, Port 5454). Noch nicht am Gerät geprüft."
+        case .sdrplay: return "SDRplay (RSP1A, RSP1B, RSPdx, RSPduo …) direkt über die SDRplay-API 3.15 (Installer von sdrplay.com/api). SDRconnect und andere Programme müssen das Gerät freigeben."
+        case .sdrconnect: return "SDRplay über SDRconnect: dort Server einschalten (WebSocket, Port 5454). Nur nötig, wenn SDRconnect das Gerät behalten soll. Noch nicht am Gerät geprüft."
         case .file: return "Aufnahme: 8-Bit-I/Q (vorzeichenlos, 2 MS/s), wie von dump1090 und rtl_sdr gespeichert."
         }
     }
@@ -37,6 +39,7 @@ public enum ADSBSourceError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
+        case .libraryMissing("libsdrplay_api"): return "SDRplay-API nicht gefunden: bitte „Hardware API MacOS“ von https://www.sdrplay.com/api/ installieren"
         case .libraryMissing(let n): return "\(n) nicht gefunden: bitte installieren (brew install \(n == "libhackrf" ? "hackrf" : "librtlsdr"))"
         case .deviceNotFound(let n): return "\(n): kein Gerät gefunden"
         case .busy(let n): return "\(n): Gerät belegt oder Zugriff verweigert (läuft ein anderes Programm, z. B. GQRX?)"
@@ -64,10 +67,18 @@ public struct ADSBGainSettings: Equatable, Sendable {
     public var rtlGainDB: Double? = 49.6
     public var rtlBias = false
     public var rtlPPM = 0
+    // SDRplay: LNA-Stufe gilt für die API und für SDRconnect, der Rest nur für die API
+    public var sdrplayLNAState = 0
+    /// Tuner des RSPduo: 0 = A, 1 = B
+    public var sdrplayTuner = 0
+    /// ZF-Verstärkungsminderung in dB (20 … 59; weniger = mehr Verstärkung)
+    public var sdrplayIFGainReduction = 40
+    public var sdrplayAGC = false
+    public var sdrplayBias = false
+    public var sdrplayPPM = 0
     // SDRplay über SDRconnect
     public var sdrconnectHost = "127.0.0.1"
     public var sdrconnectPort = 5454
-    public var sdrplayLNAState = 0
 
     public init() {}
 }

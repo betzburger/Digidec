@@ -20,6 +20,11 @@ public final class ADSBSettingsStore: ObservableObject {
     @Published public var sdrconnectHost: String { didSet { UserDefaults.standard.set(sdrconnectHost, forKey: "adsbSdrHost") } }
     @Published public var sdrconnectPort: Int { didSet { UserDefaults.standard.set(sdrconnectPort, forKey: "adsbSdrPort") } }
     @Published public var sdrplayLNAState: Int { didSet { UserDefaults.standard.set(sdrplayLNAState, forKey: "adsbSdrLNA") } }
+    @Published public var sdrplayTuner: Int { didSet { UserDefaults.standard.set(sdrplayTuner, forKey: "adsbSdrTuner") } }
+    @Published public var sdrplayIFGain: Int { didSet { UserDefaults.standard.set(sdrplayIFGain, forKey: "adsbSdrIFGain") } }
+    @Published public var sdrplayAGC: Bool { didSet { UserDefaults.standard.set(sdrplayAGC, forKey: "adsbSdrAGC") } }
+    @Published public var sdrplayBias: Bool { didSet { UserDefaults.standard.set(sdrplayBias, forKey: "adsbSdrBias") } }
+    @Published public var sdrplayPPM: Int { didSet { UserDefaults.standard.set(sdrplayPPM, forKey: "adsbSdrPPM") } }
     /// Flugzeuge nach dieser Zeit ohne Meldung aus der Liste nehmen (Minuten)
     @Published public var expireMinutes: Int { didSet { UserDefaults.standard.set(expireMinutes, forKey: "adsbExpireMinutes") } }
     /// Nur Flugzeuge mit Position in der Liste
@@ -46,6 +51,11 @@ public final class ADSBSettingsStore: ObservableObject {
         sdrconnectHost = d.string(forKey: "adsbSdrHost") ?? "127.0.0.1"
         sdrconnectPort = d.object(forKey: "adsbSdrPort") as? Int ?? 5454
         sdrplayLNAState = d.object(forKey: "adsbSdrLNA") as? Int ?? 0
+        sdrplayTuner = d.object(forKey: "adsbSdrTuner") as? Int ?? 0
+        sdrplayIFGain = d.object(forKey: "adsbSdrIFGain") as? Int ?? 40
+        sdrplayAGC = d.object(forKey: "adsbSdrAGC") as? Bool ?? false
+        sdrplayBias = d.object(forKey: "adsbSdrBias") as? Bool ?? false
+        sdrplayPPM = d.object(forKey: "adsbSdrPPM") as? Int ?? 0
         expireMinutes = d.object(forKey: "adsbExpireMinutes") as? Int ?? 5
         onlyWithPosition = d.object(forKey: "adsbOnlyPosition") as? Bool ?? false
         showTracks = d.object(forKey: "adsbShowTracks") as? Bool ?? true
@@ -66,6 +76,11 @@ public final class ADSBSettingsStore: ObservableObject {
         g.sdrconnectHost = sdrconnectHost
         g.sdrconnectPort = sdrconnectPort
         g.sdrplayLNAState = sdrplayLNAState
+        g.sdrplayTuner = sdrplayTuner
+        g.sdrplayIFGainReduction = sdrplayIFGain
+        g.sdrplayAGC = sdrplayAGC
+        g.sdrplayBias = sdrplayBias
+        g.sdrplayPPM = sdrplayPPM
         return g
     }
 }
@@ -304,6 +319,11 @@ public final class ADSBController: ObservableObject {
             settings.$rtlBias.map { _ in () }.eraseToAnyPublisher(),
             settings.$rtlPPM.map { _ in () }.eraseToAnyPublisher(),
             settings.$sdrplayLNAState.map { _ in () }.eraseToAnyPublisher(),
+            settings.$sdrplayTuner.map { _ in () }.eraseToAnyPublisher(),
+            settings.$sdrplayIFGain.map { _ in () }.eraseToAnyPublisher(),
+            settings.$sdrplayAGC.map { _ in () }.eraseToAnyPublisher(),
+            settings.$sdrplayBias.map { _ in () }.eraseToAnyPublisher(),
+            settings.$sdrplayPPM.map { _ in () }.eraseToAnyPublisher(),
         ]
         Publishers.MergeMany(restartTriggers)
             .dropFirst(restartTriggers.count)
@@ -349,7 +369,8 @@ public final class ADSBController: ObservableObject {
             switch settings.source {
             case .hackrf: src = HackRFSource(settings: settings.gain)
             case .rtlsdr: src = RTLSDRSource(settings: settings.gain)
-            case .sdrplay: src = SDRconnectSource(settings: settings.gain)
+            case .sdrplay: src = SDRplayAPISource(settings: settings.gain)
+            case .sdrconnect: src = SDRconnectSource(settings: settings.gain)
             case .file:
                 status = .error("Keine Aufnahme gewählt (Knopf ÖFFNEN)")
                 return

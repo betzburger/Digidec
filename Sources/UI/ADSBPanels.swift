@@ -482,9 +482,9 @@ struct ADSBSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {
                 ForEach(ADSBSourceKind.allCases) { k in
-                    Button { settings.source = k } label: { Text(k.title).lineLimit(1).minimumScaleFactor(0.7) }
+                    Button { settings.source = k } label: { Text(k.title).lineLimit(1).minimumScaleFactor(0.5) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
                         .help(k.detail)
                 }
@@ -563,6 +563,38 @@ struct ADSBSettingsPanel: View {
                 }
             }
         case .sdrplay:
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("TUNER")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundColor(RadioTheme.textDim)
+                    Button("A") { settings.sdrplayTuner = 0 }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
+                        .help("RSPduo: Tuner A (50-Ω-Anschluss). Andere Modelle haben nur einen Tuner.")
+                    Button("B") { settings.sdrplayTuner = 1 }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
+                        .help("RSPduo: Tuner B (zweiter SMA-Anschluss)")
+                    Button("AGC") { settings.sdrplayAGC.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                        .help("Automatische Verstärkungsregelung (ZF). Aus = feste ZF-Verstärkung, meist besser für kurze Pulse.")
+                    Button("BIAS-T") { settings.sdrplayBias.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                        .help("Speisespannung am Antennenanschluss (RSPduo) für einen Antennenverstärker. Nur einschalten, wenn die Antenne sie braucht.")
+                }
+                stepper("LNA-STUFE", "\(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) },
+                        plus: { settings.sdrplayLNAState = min(9, settings.sdrplayLNAState + 1) },
+                        help: "Stufe des rauscharmen Vorverstärkers (0 = höchste Verstärkung, größere Zahl = weniger; bei 1090 MHz hat der RSPduo die Stufen 0 bis 8)")
+                stepper("ZF-MINDERUNG", "\(settings.sdrplayIFGain) dB", minus: { settings.sdrplayIFGain = max(20, settings.sdrplayIFGain - 2) },
+                        plus: { settings.sdrplayIFGain = min(59, settings.sdrplayIFGain + 2) },
+                        help: "Verstärkungsminderung im Zwischenfrequenzteil, 20 bis 59 dB (kleiner = mehr Verstärkung). Wirkt nur bei ausgeschalteter AGC.")
+                stepper("PPM", "\(settings.sdrplayPPM)", minus: { settings.sdrplayPPM -= 1 }, plus: { settings.sdrplayPPM += 1 }, help: "Frequenzkorrektur des Quarzes")
+                if !SDRplayAPISource.isInstalled() {
+                    Text("Die SDRplay-API fehlt: „Hardware API MacOS“ von sdrplay.com/api installieren.")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(RadioTheme.textMuted)
+                }
+            }
+        case .sdrconnect:
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     TextField("Rechner", text: $settings.sdrconnectHost)

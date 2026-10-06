@@ -16,8 +16,7 @@ public final class SDRconnectSource: ADSBIQSource, @unchecked Sendable {
     private var onData: (@Sendable (UnsafeBufferPointer<UInt8>) -> Void)?
     private var onStop: (@Sendable (String?) -> Void)?
     private var out = [UInt8]()
-    /// Spitzenwert der letzten Daten (langsam abklingend) für die Umsetzung von 16 auf 8 Bit
-    private var peak = 4096.0
+    private var scaler = IQ16Scaler()
     public private(set) var deviceDescription = "SDRconnect"
 
     public init(settings: ADSBGainSettings) { self.settings = settings }
@@ -96,14 +95,9 @@ public final class SDRconnectSource: ADSBIQSource, @unchecked Sendable {
         d.withUnsafeBytes { raw in
             let p = raw.baseAddress!.advanced(by: 2).assumingMemoryBound(to: Int16.self)
             for i in 0..<count { maxAbs = max(maxAbs, abs(Int(Int16(littleEndian: p[i])))) }
-            // Spitzenwert nachführen: schnell nach oben, langsam nach unten, nie unter 2000 (kein Rauschen aufblasen)
-            peak = max(2000, max(Double(maxAbs), peak * 0.98))
-            let scale = 110.0 / peak
+            let factor = scaler.factor(maxAbs: maxAbs)
             out.withUnsafeMutableBufferPointer { o in
-                for i in 0..<count {
-                    let v = Double(Int16(littleEndian: p[i])) * scale + 127
-                    o[i] = UInt8(max(0, min(255, v.rounded())))
-                }
+                for i in 0..<count { o[i] = IQ16Scaler.byte(Int16(littleEndian: p[i]), factor: factor) }
             }
         }
         out.withUnsafeBufferPointer { onData?(UnsafeBufferPointer(start: $0.baseAddress, count: count)) }

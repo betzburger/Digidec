@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.61.1). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.62.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -25,7 +25,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 | Modul | Inhalt |
 |---|---|
 | **AIS** | Schiffsverfolgung auf 161,975 und 162,025 MHz: Schiffsliste, Karte mit Kurs und Weg, beide Kanäle gleichzeitig; ein Klick auf ein Schiff öffnet ein Fenster mit Foto und technischen Daten aus dem Netz; Wetter-, Pegel-, Binnenschiff- und Gebietsmeldungen; NMEA-Log |
-| **ADS-B** | Flugzeuge auf 1090 MHz direkt vom SDR (HackRF, RTL-SDR, SDRplay über SDRconnect): Liste mit Kennung, Land, Höhe, Geschwindigkeit, Entfernung und Notlagen, Karte mit Weg und Farbe nach Höhe, Reichweitediagramm je Richtung, Meldungsprotokoll; Doppelklick auf ein Flugzeug öffnet ein Fenster mit Foto, Typ, Betreiber und planmäßiger Strecke (Start- und Zielflughafen, Fortschritt) |
+| **ADS-B** | Flugzeuge auf 1090 MHz direkt vom SDR (HackRF, RTL-SDR, SDRplay direkt über die SDRplay-API oder über SDRconnect): Liste mit Kennung, Land, Höhe, Geschwindigkeit, Entfernung und Notlagen, Karte mit Weg und Farbe nach Höhe, Reichweitediagramm je Richtung, Meldungsprotokoll; Doppelklick auf ein Flugzeug öffnet ein Fenster mit Foto, Typ, Betreiber und planmäßiger Strecke (Start- und Zielflughafen, Fortschritt) |
 | APRS | 1200 Bd AX.25 mit Stationsliste, Nachrichten, Wetter und Karte |
 | PACKET | Packet-Radio 1200 Bd: Monitor aller AX.25-Rahmen, Stationen und Digipeater, Verbindungen mit Gesprächsverlauf, Mailbox-Weiterleitung und **Winlink** (Nachrichten werden entpackt und gelesen, Anhänge speicherbar), NET/ROM-Knoten. Nachrichten anderer bitte vertraulich behandeln |
 | ACARS | Flugzeugmeldungen mit Positionen, OOOI-Berichten und Flughäfen |
@@ -41,7 +41,7 @@ Weitere Merkmale: Sendepläne mit automatischer Aufnahme (Wetterfax, RTTY, NAVTE
 - **Xcode** (oder die Command Line Tools) mit **Swift 6** zum Bauen.
 - Eine Audioquelle mit dem **Empfangsaudio**: der USB-Audio-Codec eines Funkgeräts (IC-PCR1500 und FT-991A werden automatisch erkannt) oder eine virtuelle Soundkarte wie BlackHole oder VALHost, in die ein SDR-Programm das Audio schreibt. Für AIS und Radiosonden braucht es das **Diskriminator-Audio eines FM-Empfängers** (FM, ausreichend breit, ohne De-Emphase, ohne Rauschsperre).
 - Beim ersten Start fragt macOS nach dem Zugriff auf das Mikrofon (nötig für den Audioeingang).
-- Nur für **ADS-B**: ein SDR mit Antenne für 1090 MHz. Digidec liest die I/Q-Daten selbst (kein Audio). HackRF: `brew install hackrf`, RTL-SDR: `brew install librtlsdr`; die Bibliotheken werden erst zur Laufzeit gesucht, Digidec baut und läuft auch ohne sie. SDRplay (RSP1B, RSPdx, RSPduo): über SDRconnect (WebSocket-Server einschalten). Solange das Modul offen ist, gehört das Gerät Digidec; GQRX und andere Programme müssen es freigeben.
+- Nur für **ADS-B**: ein SDR mit Antenne für 1090 MHz. Digidec liest die I/Q-Daten selbst (kein Audio). HackRF: `brew install hackrf`, RTL-SDR: `brew install librtlsdr`; die Bibliotheken werden erst zur Laufzeit gesucht, Digidec baut und läuft auch ohne sie. SDRplay (RSP1A, RSP1B, RSPdx, RSPduo): direkt über die SDRplay-API 3.15 (Installer „Hardware API MacOS“ von https://www.sdrplay.com/api/, Digidec lädt sie erst zur Laufzeit; SDRconnect muss beendet sein) oder alternativ über SDRconnect (WebSocket-Server einschalten). Solange das Modul offen ist, gehört das Gerät Digidec; GQRX und andere Programme müssen es freigeben.
 
 ## Bauen und starten
 

@@ -8246,6 +8246,21 @@ packetTests()
         check(converted.count == 4 && converted[0] == 127 && converted[1] > 200 && converted[2] < 60 && abs(Int(converted[3]) - 127 - (Int(converted[1]) - 127) / 2) <= 2, "ADS-B: SDRconnect 16-Bit → 8-Bit \(converted)")
         sdr.handleBinary(Data([1, 0, 1, 2, 3, 4, 5, 6]))
         check(converted.count == 4, "ADS-B: SDRconnect ignoriert Audio-Nachrichten")
+        // SDRplay-API: Umsetzung der getrennten I/Q-Felder (xi, xq) auf verschränkte 8-Bit-Daten, ohne Gerät
+        let api = SDRplayAPISource(settings: ADSBGainSettings())
+        nonisolated(unsafe) var apiOut: [UInt8] = []
+        api.setTestHandler { apiOut += Array($0) }
+        var xi: [Int16] = [0, 4000, -4000], xq: [Int16] = [2000, 0, 4000]
+        xi.withUnsafeMutableBufferPointer { pi in xq.withUnsafeMutableBufferPointer { pq in api.handle(xi: pi.baseAddress!, xq: pq.baseAddress!, count: 3) } }
+        check(apiOut.count == 6 && apiOut[0] == 127 && apiOut[2] > 200 && apiOut[4] < 60 && apiOut[1] > 127 && apiOut[5] > 200, "ADS-B: SDRplay-API 16-Bit (xi, xq) → 8-Bit verschränkt \(apiOut)")
+        var scaler = IQ16Scaler()
+        let f1 = scaler.factor(maxAbs: 100)           // Rauschen: Untergrenze 2000, nicht aufblasen
+        check(abs(f1 - 110.0 / 4096 * 0.98) < 0.01 || f1 <= 110.0 / 2000 + 1e-9, "ADS-B: Umsetzer bläst Rauschen nicht auf (\(f1))")
+        check(IQ16Scaler.byte(32767, factor: 1) == 255 && IQ16Scaler.byte(-32768, factor: 1) == 0 && IQ16Scaler.byte(0, factor: 1) == 127, "ADS-B: Umsetzer begrenzt auf 0 … 255")
+        check(SDRplayAPISource.Layout.deviceSize == 96 && SDRplayAPISource.Layout.callbackSize == 24 && !SDRplayAPISource.candidates().isEmpty, "ADS-B: SDRplay-API Grunddaten")
+        check(ADSBSourceError.libraryMissing("libsdrplay_api").errorDescription?.contains("sdrplay.com/api") == true, "ADS-B: Fehlertext fehlende SDRplay-API")
+        check(ADSBSourceKind.allCases.map(\.rawValue) == ["hackrf", "rtlsdr", "sdrplay", "sdrconnect", "file"] && DecoderModuleInfo.adsb.presetIDs.contains("sdrconnect"), "ADS-B: Quellenarten mit SDRplay (API) und SDRconnect")
+        check(parse("digidec://decode?mode=adsb&preset=sdrplay") == .success(DecodeRequest(module: .adsb, presetID: "sdrplay")) && parse("digidec://decode?mode=adsb&preset=sdrconnect") == .success(DecodeRequest(module: .adsb, presetID: "sdrconnect")), "ADS-B: URL-Aufruf SDRplay")
         // Gerätefehler lesbar
         check(ADSBSourceError.libraryMissing("libhackrf").errorDescription?.contains("brew install hackrf") == true && ADSBSourceError.busy("HackRF").errorDescription?.contains("GQRX") == true, "ADS-B: Fehlertexte")
         // Modul, URL
@@ -8254,6 +8269,10 @@ packetTests()
         let st = ADSBSettingsStore()
         st.rtlGain = 0
         check(st.gain.rtlGainDB == nil && ADSBSettingsStore().gain.hackrfLNA == st.gain.hackrfLNA, "ADS-B: Einstellungen (AGC = keine feste Verstärkung)")
+        st.sdrplayTuner = 1; st.sdrplayIFGain = 33; st.sdrplayAGC = true; st.sdrplayBias = true; st.sdrplayLNAState = 3; st.sdrplayPPM = -2
+        let g = st.gain
+        check(g.sdrplayTuner == 1 && g.sdrplayIFGainReduction == 33 && g.sdrplayAGC && g.sdrplayBias && g.sdrplayLNAState == 3 && g.sdrplayPPM == -2, "ADS-B: Einstellungen SDRplay (Tuner, ZF-Minderung, AGC, Bias-T, LNA, PPM)")
+        st.sdrplayTuner = 0; st.sdrplayIFGain = 40; st.sdrplayAGC = false; st.sdrplayBias = false; st.sdrplayLNAState = 0; st.sdrplayPPM = 0
         st.rtlGain = 49.6
     }
 }
