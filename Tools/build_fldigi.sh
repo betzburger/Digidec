@@ -1,9 +1,9 @@
 #!/bin/zsh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Peter Betz und Mitwirkende
-# Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C) und Vendor/FT8 (ft8mon) und Vendor/Wspr (wsprd) außerhalb von SwiftPM für Logiktests und Werkzeuge.
+# Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C), Vendor/FT8 (ft8mon), Vendor/Wspr (wsprd) und Vendor/Codec2 außerhalb von SwiftPM für Logiktests und Werkzeuge.
 # Aufruf: Tools/build_fldigi.sh <ausgabeordner>
-# Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“, „FT8“ und „Wspr“ wie im Package)
+# Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“, „FT8“, „Wspr“ und „Codec2“ wie im Package)
 set -euo pipefail
 ROOT="${0:A:h:h}"
 OUT="$1"
@@ -28,6 +28,13 @@ done
 for c in $W/src/*.c; do
     cc -O3 -w -ffast-math -I$W/include -I$W/src -I$W/inc -c "$c" -o "$OUT/obj/wsprc_${c:t:r}.o"
 done
+C2="$ROOT/Vendor/Codec2"
+C2NAMES=(kiss_fft kiss_fftr kiss_fftri kiss_fft_alloc kiss_fftr_alloc kiss_fft_stride kiss_fft_cleanup kiss_fft_next_fast_size encode)
+C2DEFS=(-DGIT_HASH=\"310777b\")
+for n in $C2NAMES; do C2DEFS+=(-D$n=c2_$n); done
+for c in $C2/src/*.c; do
+    cc -O3 -w -I$C2/src -I$C2/include $C2DEFS -c "$c" -o "$OUT/obj/codec2_${c:t:r}.o"
+done
 cat > "$OUT/module/module.modulemap" <<MAP
 module Fldigi {
     header "$F/include/fldigi_rtty.h"
@@ -48,6 +55,10 @@ module FT8 {
 }
 module Wspr {
     header "$W/include/wspr_digidec.h"
+    export *
+}
+module Codec2 {
+    header "$C2/include/codec2_digidec.h"
     export *
 }
 MAP

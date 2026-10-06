@@ -59,6 +59,30 @@ let package = Package(
                 .unsafeFlags(["-w", "-O3"])
             ]
         ),
+        // Codec2 und FreeDV (David Rowe, LGPL-2.1): Sprachcodec und Modems für FreeDV und M17.
+        // Herkunft und Abweichungen: Vendor/Codec2/UPSTREAM_CODEC2.md
+        .target(
+            name: "Codec2",
+            path: "Vendor/Codec2",
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("src"),
+                .headerSearchPath("include"),
+                .define("GIT_HASH", to: "\"310777b\""),          // Commit der Quelle (Vendor/Codec2/UPSTREAM_CODEC2.md)
+                // Namen, die auch fldigi oder FT8 liefern: für Codec2 umbenannt, damit der Linker keine doppelten Symbole findet
+                .define("kiss_fft", to: "c2_kiss_fft"),
+                .define("kiss_fftr", to: "c2_kiss_fftr"),
+                .define("kiss_fftri", to: "c2_kiss_fftri"),
+                .define("kiss_fft_alloc", to: "c2_kiss_fft_alloc"),
+                .define("kiss_fftr_alloc", to: "c2_kiss_fftr_alloc"),
+                .define("kiss_fft_stride", to: "c2_kiss_fft_stride"),
+                .define("kiss_fft_cleanup", to: "c2_kiss_fft_cleanup"),
+                .define("kiss_fft_next_fast_size", to: "c2_kiss_fft_next_fast_size"),
+                .define("encode", to: "c2_encode"),
+                .unsafeFlags(["-w", "-O3"])
+            ]
+        ),
         // WSPR-Decoder wsprd aus WSJT-X 3.0 (K1JT, K9AN u. a., GPLv3) mit pocketfft (BSD) statt FFTW.
         // Herkunft und Abweichungen: Vendor/Wspr/UPSTREAM_WSPR.md
         .target(
@@ -90,7 +114,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["Fldigi", "FT8", "Wspr", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
+            dependencies: ["Fldigi", "FT8", "Wspr", "Codec2", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
             path: "Sources",
             swiftSettings: hasLocalVocoder ? [.define("DIGIDEC_LOCAL_VOCODER")] : []
         )
