@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // MARK: - HFDL-Protokoll: SPDU, MPDU, LPDU, HFNPDU, ACARS (ARINC 635, 618)

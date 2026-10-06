@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 import os, re, sys
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../_upstream/fldigi-4.2.13/src/navtex/navtex.cxx')

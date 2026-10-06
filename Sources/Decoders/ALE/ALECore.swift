@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // ALE (Automatic Link Establishment, 2G) nach MIL-STD-188-141A/B Anhang A: 8-FSK, 125 Baud, Töne 750 … 2500 Hz im Abstand

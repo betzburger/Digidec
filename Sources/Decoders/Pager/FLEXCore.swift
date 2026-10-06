@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // MARK: - FLEX (Motorola, 1600/3200 Baud, 2 oder 4 Pegel)

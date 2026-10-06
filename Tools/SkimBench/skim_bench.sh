@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Misst den Skimmer (CW, BPSK31/63) an synthetischen Mischungen und Aufnahmen. Baut bei Bedarf nach .build/skim_bench.
 set -euo pipefail
 ROOT="${0:A:h:h:h}"

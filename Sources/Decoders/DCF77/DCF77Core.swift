@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Kern des DCF77-Decoders (77,5 kHz, AM-Impulsbreiten-Modulation).

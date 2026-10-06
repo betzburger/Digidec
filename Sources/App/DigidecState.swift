@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 import SwiftUI
 import AVFoundation
@@ -26,6 +28,12 @@ public final class DigidecState: ObservableObject {
     public let waterfall: WaterfallModel
     public let rttyController: RTTYController
     public let rig = RigModel()
+    /// Gespeicherte freie Funkgeräte (rigctld auf beliebigem Rechner und Port)
+    public let rigProfiles = RigProfileStore()
+    /// Dialog „Funkgerät“ offen?
+    @Published public var showRigSettings = false
+    /// Info-Fenster (Version, Lizenz, Quellen) offen?
+    @Published public var showAbout = false
     /// Eigener Standort für alle Karten und Entfernungen
     public let home = HomeLocation()
     public let navtex = NavtexSettingsStore()
@@ -52,6 +60,8 @@ public final class DigidecState: ObservableObject {
     public let aprsController: APRSController
     public let acars = ACARSSettingsStore()
     public let acarsController: ACARSController
+    public let ais = AISSettingsStore()
+    public let aisController: AISController
     public let hfdl = HFDLSettingsStore()
     public let hfdlController: HFDLController
     public let sonde = SondeSettingsStore()
@@ -114,6 +124,7 @@ public final class DigidecState: ObservableObject {
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
         aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
         acarsController = ACARSController(pipeline: audio.pipeline, settings: acars)
+        aisController = AISController(pipeline: audio.pipeline, settings: ais)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
         sondeController = SondeController(pipeline: audio.pipeline, settings: sonde)
         pagerController = PagerController(pipeline: audio.pipeline, settings: pager)
@@ -130,9 +141,13 @@ public final class DigidecState: ObservableObject {
         // Suchlauf nach Sonden: stimmt über die Abstimmung des Moduls (QSY AUTO, rigctld) Frequenz für Frequenz ab
         sondeScanner = SondeScanner(
             settings: sonde, controller: sondeController,
-            rigReady: { [unowned self] in self.rigControlEnabled && self.rig.radio != nil && self.rig.state.connected },
+            rigReady: { [unowned self] in self.rigControlEnabled && self.rig.hasRig && self.rig.state.connected },
             isActive: { [unowned self] in self.activeModule == .sonde },
             knownFrequencies: { [unowned self] in self.sondePlan.knownFrequencies(home: self.home.point) + self.sondeController.heardFrequencies })
+
+        // Standort für die AIS-Entfernungen (weitester Empfang)
+        aisController.homePoint = home.point
+        home.$locator.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in self?.aisController.homePoint = self?.home.point }.store(in: &cancellables)
 
         // Ein Standort für alle: der Locator der Karte gilt auch für Entfernungen in FT8, FT4, WSPR und die NAVTEX-Stationssuche
         let syncLocators: @MainActor (String) -> Void = { [weak self] loc in
@@ -167,6 +182,7 @@ public final class DigidecState: ObservableObject {
                 self?.aleController.setActive(module == .ale)
                 self?.aprsController.setActive(module == .aprs)
                 self?.acarsController.setActive(module == .acars)
+                self?.aisController.setActive(module == .ais)
                 self?.hfdlController.setActive(module == .hfdl)
                 self?.sondeController.setActive(module == .sonde)
                 self?.pagerController.setActive(module == .pager)
@@ -193,6 +209,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(dsc.$channel)
         observeForTuning(aprs.$channel)
         observeForTuning(acars.$channel)
+        observeForTuning(ais.$channel)
         observeForTuning(hfdl.$frequencyKHz)
         observeForTuning(sonde.$frequencyKHz)
         observeForTuning(sonde.$filterKHz)
@@ -209,6 +226,17 @@ public final class DigidecState: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] input, kind in
                 self?.rig.follow(radio: kind == .live ? input?.radio : nil)
+            }
+            .store(in: &cancellables)
+        // Freies Funkgerät aus den Einstellungen: gilt ab Start und bei jeder Änderung der Liste
+        rig.use(profile: rigProfiles.active)
+        rigProfiles.$list
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] list in
+                guard let self else { return }
+                // Nur neu setzen, wenn sich das wirksame Gerät ändert (z. B. nicht beim Tippen im Namensfeld eines anderen Geräts)
+                if self.rig.customProfile != list.active || self.rig.overriddenByRequest { self.rig.use(profile: list.active) }
             }
             .store(in: &cancellables)
         rig.onChange = { [weak self] state in
@@ -239,6 +267,7 @@ public final class DigidecState: ObservableObject {
             aleController.rigDescription = rig.description
             aprsController.rigDescription = rig.description
             acarsController.rigDescription = rig.description
+            aisController.rigDescription = rig.description
             hfdlController.rigDescription = rig.description
             sondeController.rigDescription = rig.description
             pagerController.rigDescription = rig.description
@@ -275,6 +304,7 @@ public final class DigidecState: ObservableObject {
         case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
         case .aprs:   return .aprs(channel: aprs.channel)
         case .acars:  return .acars(channel: acars.channel)
+        case .ais:    return .ais(channel: ais.channel)
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
@@ -291,17 +321,29 @@ public final class DigidecState: ObservableObject {
         return hz.map { RigTuneTarget.rtty(frequencyHz: $0, centerHz: rtty.centerHz) }
     }
 
+    /// Gerät im Dialog „Funkgerät“ wählen (nil = Automatik über den USB-Codec der Commander). Gehört zum Gerät ein Audio-Eingang,
+    /// wird er mit gewählt: zuerst über die UID, sonst über den Namen (die UID von USB-Geräten ändert sich beim Umstecken).
+    public func activateRigProfile(id: String?) {
+        rigProfiles.setActive(id: id)
+        rig.use(profile: rigProfiles.active)
+        guard let profile = rigProfiles.active, profile.audioUID != nil || profile.audioName != nil else { return }
+        audio.refreshDevices()
+        let device = audio.devices.first { $0.id == profile.audioUID }
+            ?? audio.devices.first { $0.name == profile.audioName }
+        if let device { audio.select(device: device) }
+    }
+
     /// Stimmt das Funkgerät auf ein Ziel ab (geplante Aufnahme) – nur mit Freigabe (QSY AUTO) und Verbindung.
     /// Die Abstimmung nach Modul-/Voreinstellungswechsel wird kurz unterdrückt, damit nicht doppelt gesendet wird.
     public func tuneRig(to target: RigTuneTarget) {
-        guard rigControlEnabled, rig.radio != nil else { return }
+        guard rigControlEnabled, rig.hasRig else { return }
         suppressRigTuneUntil = Date().addingTimeInterval(3.0)
         rig.tune(to: target)
     }
 
     /// Stellt das Funkgerät auf das Ziel des aktiven Moduls – nur mit Freigabe und Verbindung
     public func tuneRigForActiveModule() {
-        guard rigControlEnabled, Date() >= suppressRigTuneUntil, rig.radio != nil,
+        guard rigControlEnabled, Date() >= suppressRigTuneUntil, rig.hasRig,
               let target = rigTargetForActiveModule else { return }
         rig.tune(to: target)
     }
@@ -317,6 +359,13 @@ public final class DigidecState: ObservableObject {
             // spielt eine Datei statt des Live-Eingangs ab
             if let id = ProcessInfo.processInfo.environment["DIGIDEC_MODULE"], let module = DecoderModuleInfo(rawValue: id) {
                 state.activeModule = module
+            }
+            // Entwicklungshilfe: DIGIDEC_AIS_NMEA=/Pfad/sätze.nmea nimmt AIS-Sätze (!AIVDM) wie empfangen auf (Schnappschüsse ohne Funksignal)
+            if let path = ProcessInfo.processInfo.environment["DIGIDEC_AIS_NMEA"], let text = try? String(contentsOfFile: path, encoding: .utf8) {
+                var asm = AISNMEA.Assembler()
+                for line in text.split(whereSeparator: \.isNewline) {
+                    if let s = AISNMEA.parse(String(line)), let bits = asm.add(s) { state.aisController.ingest(bits: bits) }
+                }
             }
             if let path = ProcessInfo.processInfo.environment["DIGIDEC_PLAY_FILE"] {
                 state.audio.openFile(URL(fileURLWithPath: path))
@@ -363,6 +412,8 @@ public final class DigidecState: ObservableObject {
                     if let center = request.centerHz { aprs.setCenter(center) }
                 case .acars:
                     if let preset = request.presetID, let c = ACARSChannel(rawValue: preset) { acars.channel = c }
+                case .ais:
+                    if let preset = request.presetID, let c = AISChannel(rawValue: preset) { ais.channel = c }
                 case .hfdl:
                     if let preset = request.presetID, let f = HFDLChannels.kHz(presetID: preset) { hfdl.frequencyKHz = f }
                 case .sonde:

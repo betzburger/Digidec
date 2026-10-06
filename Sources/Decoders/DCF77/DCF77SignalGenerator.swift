@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Erzeugt synthetische DCF77-Audiosignale (8 kHz) für automatische Tests und Offline-Prüfungen.

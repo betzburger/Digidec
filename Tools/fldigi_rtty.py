@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """fldigi (4.2.13) per XML-RPC für den Vergleich mit Digidec vorbereiten und Empfangstext abholen (PLAN.md, M6).
 
 fldigi muss laufen (XML-RPC-Server Standard: 127.0.0.1:7362). Die Wiedergabe der Aufnahme startet man in fldigi

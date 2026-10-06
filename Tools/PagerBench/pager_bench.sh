@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Misst den POCSAG-Empfang unter nachgebildeten Funkbedingungen (siehe main.swift). Baut das Werkzeug bei Bedarf nach .build/pager_bench.
 set -euo pipefail
 ROOT="${0:A:h:h:h}"

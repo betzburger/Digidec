@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Baut und startet die Logiktests (reine Rechenlogik, ohne Audio, ohne App-Start).
 # Aufruf aus beliebigem Verzeichnis:  Tools/LogicTests/run_logic_tests.sh [Ausgabeverzeichnis]
 # Ohne Argument landet der Build in einem temporären Verzeichnis, das danach gelöscht wird.
@@ -34,7 +36,8 @@ Tools/build_fldigi.sh "$OUT/fldigi"
 # 3. Testprogramm mit den getesteten Quellen bauen
 swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     -I "$OUT/fldigi/module" \
-    Tools/LogicTests/main.swift \
+    Tools/LogicTests/main.swift Tools/LogicTests/FakeRigctld.swift \
+    $S/Models/RigProfile.swift $S/Rig/RigModel.swift $S/Models/LicenseDocuments.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift $S/Models/DXCC.swift \
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \
     $S/Audio/AudioPipeline.swift $S/Audio/WAVFileSource.swift \
@@ -50,11 +53,13 @@ swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     $S/Models/TextModeController.swift $S/Decoders/PSK/FldigiPSKCore.swift $S/Decoders/PSK/PSKModule.swift \
     $S/Decoders/ALE/ALECore.swift $S/Decoders/ALE/ALEModule.swift \
     $S/Decoders/ACARS/ACARSCore.swift $S/Decoders/ACARS/ACARSPosition.swift $S/Decoders/ACARS/ACARSModule.swift \
+    $S/Decoders/AIS/AISCore.swift $S/Decoders/AIS/AISMessage.swift $S/Decoders/AIS/AISBinary.swift $S/Decoders/AIS/AISBinaryMore.swift $S/Decoders/AIS/AISDemod.swift $S/Decoders/AIS/AISSignalGenerator.swift $S/Decoders/AIS/AISModule.swift $S/Models/ShipInfoService.swift \
     $S/Decoders/HFDL/HFDLCore.swift $S/Decoders/HFDL/HFDLProtocol.swift $S/Decoders/HFDL/HFDLStations.swift $S/Decoders/HFDL/HFDLSignalGenerator.swift $S/Decoders/HFDL/HFDLModule.swift \
     $S/Decoders/Sonde/RS41Core.swift $S/Decoders/Sonde/RS41Demod.swift $S/Decoders/Sonde/RS41Signal.swift $S/Decoders/Sonde/SondeModule.swift \
     $S/Decoders/Skimmer/SkimmerTables.swift $S/Decoders/Skimmer/SkimmerSpectrum.swift $S/Decoders/Skimmer/SkimmerChannels.swift $S/Decoders/Skimmer/SkimmerEngine.swift $S/Decoders/Skimmer/SkimmerSignals.swift $S/Decoders/Skimmer/SkimmerModule.swift \
     $S/Decoders/Pager/POCSAGCore.swift $S/Decoders/Pager/POCSAGEqualizer.swift $S/Decoders/Pager/PagerChannelModel.swift $S/Decoders/Pager/FLEXCore.swift $S/Decoders/Pager/ToneCore.swift $S/Decoders/Pager/PagerModule.swift $S/Decoders/Pager/TonesModule.swift \
     $S/Decoders/APRS/APRSPacket.swift $S/Decoders/APRS/AFSKModem.swift $S/Decoders/APRS/APRSModule.swift $S/Models/Geo.swift $S/Models/ModuleMaps.swift $S/Models/SeaWeather.swift \
+    $S/Models/WeatherField.swift $S/Models/SynopAnalysis.swift $S/Models/SynopExport.swift $S/Models/ReceiveTextFilter.swift $S/Models/SynopRawLocator.swift \
     $S/Decoders/DSC/DSCCore.swift $S/Decoders/DSC/DSCVHF.swift $S/Decoders/DSC/DSCModule.swift \
     $S/Decoders/Olivia/FldigiOliviaCore.swift $S/Decoders/Olivia/OliviaModule.swift \
     $S/Decoders/MFSK/FldigiMFSKCore.swift $S/Decoders/MFSK/MFSKModule.swift \

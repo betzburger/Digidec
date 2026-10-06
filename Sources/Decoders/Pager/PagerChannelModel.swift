@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // Nachbildung eines UKW-Funkkanals und Testmeldungen für Funkruf (POCSAG): nur für Logiktests und Tools/PagerBench.

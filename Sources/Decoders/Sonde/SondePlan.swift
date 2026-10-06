@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // Startorte der Wettersonden aus der SondeHub-Datenbank (https://api.v2.sondehub.org/sites, CC BY-SA 2.0).

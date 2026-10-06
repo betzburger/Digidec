@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Abstimmziel für das Funkgerät: **Dial**-Frequenz (nicht Sendefrequenz) und Mode.
@@ -51,6 +53,11 @@ public struct RigTuneTarget: Equatable, Sendable {
     /// Radiosonde: FM auf der Sondenfrequenz (kHz) mit dem gewählten ZF-Filter (15 oder 50 kHz)
     public static func sonde(frequencyKHz: Int, filterKHz: Int) -> RigTuneTarget {
         RigTuneTarget(dialHz: Int64(frequencyKHz) * 1000, mode: "FM", passbandHz: filterKHz * 1000)
+    }
+
+    /// AIS-Kanal: FM auf 161,975 oder 162,025 MHz, 25 kHz Bandbreite (die GMSK-Aussendung braucht etwa ±8 kHz)
+    public static func ais(channel: AISChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM", passbandHz: 25_000) }
     }
 
     /// APRS-Kanal: FM auf der Region-Frequenz (frei = nichts)

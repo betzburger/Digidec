@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Prüfstand für den RS41-Empfänger: eine IQ-Aufnahme durch nachgebildete Funkbedingungen schicken und mitzählen, wie viele Rahmen Digidec liest
 # (Vergleich: rs41mod von zilog80, wenn als drittes Argument angegeben).
 # Aufruf: python3 Tools/SondeBench/sweep.py <rs41_96k_float.bin> [Sekunden=60] [pfad/zu/rs41mod]

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // make_signal: erzeugt Testsignale (WAV, 16 Bit mono) aus Skriptdateien.
 //
 //   acars <skript> <aus.wav>   Zeilen: <Sekunde>|<Kennzeichen>|<Flug>|<Label>|<Text>   (\n im Text = Zeilenumbruch, # = Kommentar)

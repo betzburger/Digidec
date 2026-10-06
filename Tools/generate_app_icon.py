@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Erstellt aus Resources/AppIcon-1024.png ein macOS-konformes AppIcon.icns für Digidec.
 
 Das Icon folgt den macOS Human Interface Guidelines:

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // MARK: - ACARS (ARINC 618): 2400 Bd MSK auf 1200/2400 Hz im AM-Audio

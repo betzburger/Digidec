@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // Digidec offline: decodiert eine Aufnahme mit dem RTTY- oder CW-Kern (fldigi 4.2.13) und wertet sie aus.
 // Aufruf über Tools/DecodeFile/decode_file.sh – Hilfe mit --help.
 import Foundation

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Übernimmt den FT8-Decoder ft8mon (Robert Morris AB1HL, MIT) und pocketfft (BSD) nach Vendor/FT8.
 
 Die Dateien werden wortgleich kopiert. Einziger Eingriff: in util.cc sind readwav/writewav (libsndfile)

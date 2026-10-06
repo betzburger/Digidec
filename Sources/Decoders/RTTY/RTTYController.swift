@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 import Combine
 import SwiftUI
@@ -20,21 +22,39 @@ public final class ReceiveTextModel: ObservableObject {
     /// Rufzeichen im Text suchen (aus bei NAVTEX)
     public var scansCallsigns = true
 
-    /// `decoded`: Klartext einer SYNOP-Meldung (andere Farbe)
-    func append(_ s: String, decoded: Bool = false) {
+    /// Von der Textansicht gesetzt: sucht die Station im angezeigten Text, hebt die Meldung hervor und meldet, ob sie gefunden wurde
+    var onReveal: ((String) -> Bool)?
+
+    /// `decoded`: Klartext einer SYNOP-Meldung (andere Farbe).
+    /// `shown`: was die Anzeige bekommt, wenn ein Textfilter etwas weglässt (nil = alles); die Auswertung für die Karten
+    /// bekommt immer den ganzen Text `s`.
+    func append(_ s: String, decoded: Bool = false, shown: String? = nil) {
         guard !s.isEmpty else { return }
         if scansCallsigns && !decoded { calls.feed(s) }
         synop.feed(s, decoded: decoded)
         sea.feed(s, decoded: decoded)
-        text += s
+        show(shown ?? s, decoded: decoded)
+    }
+
+    /// Nur anzeigen, nicht auswerten (zurückgehaltener Rest des Filters: die Auswertung kennt ihn schon)
+    func show(_ display: String, decoded: Bool = false) {
+        guard !display.isEmpty else { return }
+        text += display
         if text.count > Self.maxCharacters {
             text = String(text.suffix(Self.maxCharacters * 3 / 4))
             onClear?()
             onAppend?(text, false)
         } else {
-            onAppend?(s, decoded)
+            onAppend?(display, decoded)
         }
         characterCount = text.count
+    }
+
+    /// Die Rohmeldung der Station (WMO-Nummer bzw. Kennung) im Text finden und in der Ansicht hervorheben.
+    /// Rückgabe false, wenn sie nicht (mehr) im Text steht, etwa weil der Filter sie ausgelassen hat.
+    @discardableResult
+    func reveal(station id: String) -> Bool {
+        onReveal?(id) ?? false
     }
 
     public func clear() {
@@ -70,6 +90,21 @@ public final class RTTYController: ObservableObject {
             if logEnabled { markSession() } else { logger.close() }
         }
     }
+    /// Meldungen als CSV ablegen (`SYNOP-JJJJ-MM-TT.csv` neben dem Log)
+    @Published public var csvEnabled: Bool {
+        didSet { UserDefaults.standard.set(csvEnabled, forKey: "rttySynopCSVEnabled") }
+    }
+    public let csvWriter = SynopCSVWriter()
+    /// Textfilter für Anzeige und Log (die Karten bekommen den ganzen Text)
+    @Published public var textFilter: ReceiveTextFilter {
+        didSet {
+            guard textFilter != oldValue else { return }
+            if let data = try? JSONEncoder().encode(textFilter) { UserDefaults.standard.set(data, forKey: "rttyTextFilter") }
+            filterRunner.configure(textFilter)
+        }
+    }
+    private var filterRunner = ReceiveTextFilterRunner()
+    private var lastTextAt = Date.distantPast
 
     private let settings: RTTYSettingsStore
     private var timer: Timer?
@@ -89,6 +124,17 @@ public final class RTTYController: ObservableObject {
         decoder = RTTYDecoder(pipeline: pipeline)
         recorder = InputRecorder(pipeline: pipeline)
         logEnabled = UserDefaults.standard.object(forKey: "rttyLogEnabled") as? Bool ?? true
+        csvEnabled = UserDefaults.standard.object(forKey: "rttySynopCSVEnabled") as? Bool ?? true
+        let savedFilter = UserDefaults.standard.data(forKey: "rttyTextFilter").flatMap { try? JSONDecoder().decode(ReceiveTextFilter.self, from: $0) }
+        textFilter = savedFilter ?? ReceiveTextFilter()
+        filterRunner.configure(textFilter)
+        textModel.synop.onObservationClosed = { [weak self] obs in
+            // Aufrufe kommen aus der Textauswertung auf dem Hauptthread
+            MainActor.assumeIsolated {
+                guard let self, self.csvEnabled else { return }
+                self.csvWriter.append(obs)
+            }
+        }
 
         decoder.configure(parameters: settings.decoderParameters, options: settings.options, centerHz: settings.centerHz)
         markSession()
@@ -129,9 +175,20 @@ public final class RTTYController: ObservableObject {
         for seg in out.segments {
             let clean = seg.decoded ? Self.displayDecoded(seg.text) : Self.displayText(seg.text)
             guard !clean.isEmpty else { continue }
-            textModel.append(clean, decoded: seg.decoded)
-            if logEnabled { logger.append(clean) }
+            // Der Filter bestimmt, was angezeigt und geloggt wird; die Auswertung (Karten, CSV) sieht alles
+            let shown = seg.decoded ? (filterRunner.allowsDecoded() ? clean : "") : filterRunner.process(clean)
+            textModel.append(clean, decoded: seg.decoded, shown: shown)
+            if logEnabled { logger.append(shown) }
             if !seg.decoded { lastCharacterDate = Date() }
+            lastTextAt = Date()
+        }
+        // Ein vom Filter zurückgehaltener Rest („RY“ am Ende) erscheint, wenn eine Weile nichts mehr kommt
+        if textFilter.enabled, Date().timeIntervalSince(lastTextAt) > 1.5 {
+            let rest = filterRunner.flush()
+            if !rest.isEmpty {
+                textModel.show(rest)
+                if logEnabled { logger.append(rest) }
+            }
         }
         if let s = out.status {
             status = s

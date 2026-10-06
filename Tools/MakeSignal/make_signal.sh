@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Erzeugt Testsignale als WAV-Datei (für Schnappschüsse der Oberfläche und Gegenproben ohne Funkgerät).
 # Aufruf: Tools/MakeSignal/make_signal.sh <art> <skript.txt> <ausgabe.wav> [Optionen]   (Hilfe: --help)
 # Baut das Werkzeug bei Bedarf nach .build/make_signal (nur die Generatoren, ohne Oberfläche und fldigi).

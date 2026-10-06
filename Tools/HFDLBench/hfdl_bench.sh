@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Baut den HFDL-Prüfstand und decodiert eine WAV-Aufnahme (USB-Audio, 12 kHz, mono).
 # Aufruf:  Tools/HFDLBench/hfdl_bench.sh <aufnahme.wav> [--trace] [--noeq]
 set -euo pipefail

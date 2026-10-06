@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 import AppKit
 
@@ -26,6 +28,7 @@ struct ReceiveTextView: NSViewRepresentable {
         coordinator.scrollView = scroll
         model.onAppend = { [weak coordinator] s, decoded in coordinator?.append(s, decoded: decoded) }
         model.onClear = { [weak coordinator] in coordinator?.clear() }
+        model.onReveal = { [weak coordinator] id in coordinator?.reveal(station: id) ?? false }
         return scroll
     }
 
@@ -58,6 +61,15 @@ struct ReceiveTextView: NSViewRepresentable {
 
         func clear() {
             textView?.string = ""
+        }
+
+        /// Die Rohmeldung der Station im angezeigten Text markieren und ins Bild holen
+        func reveal(station id: String) -> Bool {
+            guard let tv = textView, let range = SynopRawLocator.find(id: id, in: tv.string) else { return false }
+            tv.setSelectedRange(range)
+            tv.scrollRangeToVisible(range)
+            tv.showFindIndicator(for: range)
+            return true
         }
 
         private var isScrolledToEnd: Bool {

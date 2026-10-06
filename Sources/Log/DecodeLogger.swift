@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Schreibt decodierten Text in Tagesdateien: `~/Documents/Digidec/Logs/RTTY-2026-09-30.txt` (UTC-Datum).

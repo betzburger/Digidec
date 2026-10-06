@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 import AppKit
 
@@ -7,6 +9,7 @@ struct ReceivePanel: View {
     @ObservedObject var controller: RTTYController
     @ObservedObject var textModel: ReceiveTextModel
     @ObservedObject var settings: RTTYSettingsStore
+    @State private var showFilter = false
 
     init(controller: RTTYController, settings: RTTYSettingsStore) {
         self.controller = controller
@@ -39,6 +42,22 @@ struct ReceivePanel: View {
                 }
                 .buttonStyle(ModeButtonStyle(isSelected: settings.options.synopDecoding))
                 .help("Wettermeldungen (SYNOP/SHIP/BUOY) erkennen und als Klartext in Amber darunter anzeigen (fldigi-Decoder)")
+                Button {
+                    showFilter.toggle()
+                } label: {
+                    Label("FILTER", systemImage: "line.3.horizontal.decrease")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: controller.textFilter.enabled))
+                .help("Textfilter für Anzeige und Log: nur zwischen Start- und Stopptext ausgeben, RYRY-Füllzeichen weglassen. "
+                      + "Aktuell: \(controller.textFilter.summary). Karten und SYNOP-Auswertung sehen weiter den ganzen Text.")
+                .popover(isPresented: $showFilter) { filterEditor }
+                Button {
+                    controller.csvEnabled.toggle()
+                } label: {
+                    Text("CSV")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: controller.csvEnabled))
+                .help("Jede vollständig decodierte Wettermeldung als Zeile in eine Tabelle (CSV) schreiben: \(controller.csvWriter.fileURL().path)")
                 Button {
                     controller.logEnabled.toggle()
                 } label: {
@@ -79,6 +98,45 @@ struct ReceivePanel: View {
 }
 
 extension ReceivePanel {
+    /// Einstellungen des Textfilters
+    var filterEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("TEXTFILTER")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+            Toggle("Filter einschalten", isOn: $controller.textFilter.enabled)
+                .toggleStyle(.switch)
+            HStack {
+                Text("Ausgabe ab")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .frame(width: 84, alignment: .leading)
+                TextField("z. B. BBXX", text: $controller.textFilter.start)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(width: 150)
+            }
+            HStack {
+                Text("bis")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .frame(width: 84, alignment: .leading)
+                TextField("z. B. NNNN", text: $controller.textFilter.stop)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(width: 150)
+            }
+            Toggle("RYRY-Füllzeichen weglassen", isOn: $controller.textFilter.hideFiller)
+            Text("Der Text beginnt bei „ab“ und endet nach „bis“, danach wird wieder auf „ab“ gewartet. "
+                 + "Groß-/Kleinschreibung egal. „bis“ wirkt nur zusammen mit „ab“. "
+                 + "Anzeige und Log werden gefiltert, die Karten und die SYNOP-Auswertung bekommen weiter den ganzen Text.")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(RadioTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(width: 330)
+        .background(RadioTheme.bgCard)
+    }
+
     static func duration(_ t: TimeInterval) -> String {
         let s = Int(t)
         return String(format: "%d:%02d", s / 60, s % 60)

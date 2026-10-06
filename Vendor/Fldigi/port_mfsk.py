@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Erzeugt den MFSK-Empfänger für Digidec aus fldigi 4.2.13 (src/mfsk/mfsk.cxx, include/mfsk.h). Die Empfangsfunktionen
 werden wörtlich herausgezogen (Klammerzählung), ebenso die Sendefunktionen für das Testsignal; Bildfenster, Mailserver-S/N und
 die Sendesteuerung (tx_process) entfallen. fldigis Einstellungen und Anzeigen stellt src/mfsk/mfsk_compat.h unter denselben

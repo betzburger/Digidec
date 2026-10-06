@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C) und Vendor/FT8 (ft8mon) und Vendor/Wspr (wsprd) außerhalb von SwiftPM für Logiktests und Werkzeuge.
 # Aufruf: Tools/build_fldigi.sh <ausgabeordner>
 # Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“, „FT8“ und „Wspr“ wie im Package)

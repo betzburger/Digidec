@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 import AppKit
 
 public struct MainWindowView: View {
     @ObservedObject public var state: DigidecState
     @State private var showRTTYSettings = false
+    @Environment(\.openWindow) private var openWindow
 
     public init(state: DigidecState) {
         self.state = state
@@ -32,6 +35,8 @@ public struct MainWindowView: View {
                                 APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
                             } else if state.activeModule == .acars {
                                 ACARSMessagePanel(controller: state.acarsController, settings: state.acars)
+                            } else if state.activeModule == .ais {
+                                AISMainPanel(controller: state.aisController, settings: state.ais, home: state.home)
                             } else if state.activeModule == .hfdl {
                                 HFDLMessagePanel(controller: state.hfdlController, settings: state.hfdl)
                             } else if state.activeModule == .sonde {
@@ -94,6 +99,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
                             } else if state.activeModule == .acars {
                                 WaterfallView(model: state.waterfall, rtty: state.acars, audio: state.audio)
+                            } else if state.activeModule == .ais {
+                                WaterfallView(model: state.waterfall, rtty: state.ais, audio: state.audio)
                             } else if state.activeModule == .hfdl {
                                 WaterfallView(model: state.waterfall, rtty: state.hfdl, audio: state.audio)
                             } else if state.activeModule == .sonde {
@@ -144,7 +151,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -181,6 +188,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             ACARSSettingsPanel(settings: state.acars)
                                 .radioCard(title: "ACARS")
+                        } else if state.activeModule == .ais {
+                            AISTuningPanel(controller: state.aisController, settings: state.ais, home: state.home)
+                                .radioCard(title: "Abstimmanzeige")
+                            AISSettingsPanel(settings: state.ais)
+                                .radioCard(title: "AIS")
                         } else if state.activeModule == .hfdl {
                             HFDLTuningPanel(controller: state.hfdlController, settings: state.hfdl)
                                 .radioCard(title: "Abstimmanzeige")
@@ -292,16 +304,30 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
         .frame(minWidth: 1060, minHeight: 730)
+        .task {
+            // Entwicklungshilfe: DIGIDEC_AIS_INFO=<MMSI> öffnet das Fenster „Schiffsdaten“ nach 5 s (für Schnappschüsse)
+            if let v = ProcessInfo.processInfo.environment["DIGIDEC_AIS_INFO"], let mmsi = UInt32(v) {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                state.aisController.showInfo(for: mmsi)
+                openWindow(id: "ship-info")
+            }
+        }
         .sheet(isPresented: $showRTTYSettings) {
             RTTYSettingsSheet(settings: state.rtty)
         }
         .sheet(item: $state.scheduleSheet) { service in
             ScheduleSheet(state: state, tab: service)
+        }
+        .sheet(isPresented: $state.showRigSettings) {
+            RigSettingsSheet(state: state)
+        }
+        .sheet(isPresented: $state.showAbout) {
+            AboutSheet()
         }
     }
 }
@@ -345,7 +371,8 @@ private struct HeaderBar: View {
             MapToggleButton(state: state)
             ScheduleButton(state: state, auto: state.autoRecorder)
             RigControlToggle(state: state, rig: state.rig)
-            RigBadge(rig: state.rig, audio: state.audio)
+            RigBadge(rig: state.rig, audio: state.audio, onTap: { state.showRigSettings = true })
+            AboutButton(onTap: { state.showAbout = true })
             UTCClock()
         }
         .padding(.horizontal, 14)
@@ -442,12 +469,12 @@ private struct RigControlToggle: View {
             .cornerRadius(4)
         }
         .buttonStyle(.plain)
-        .disabled(rig.radio == nil)
+        .disabled(!rig.hasRig)
         .help(help)
     }
 
     private var help: String {
-        if rig.radio == nil { return "Kein Funkgerät angeschlossen" }
+        if !rig.hasRig { return "Kein Funkgerät gewählt (Klick auf die Funkgeräte-Anzeige oben rechts)" }
         var s = state.rigControlEnabled
             ? "Digidec stimmt das Funkgerät über den rigctld des Commanders ab (nur Frequenz F und Mode M, nie PTT), wenn Modul, Band, Kanal oder Sender gewechselt wird. Klicken zum Ausschalten."
             : "Digidec liest nur Frequenz und Mode. Klicken, damit es das Funkgerät auf Band, Kanal oder Sender des Moduls abstimmt."
@@ -456,50 +483,73 @@ private struct RigControlToggle: View {
     }
 }
 
-/// Funkgerät, Frequenz und Mode laut rigctld des Commanders
+/// Funkgerät, Frequenz und Mode laut rigctld; ein Klick öffnet den Dialog „Funkgerät“
 private struct RigBadge: View {
     @ObservedObject var rig: RigModel
     @ObservedObject var audio: AudioInputManager
+    var onTap: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text(label)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(color)
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+                Text(label)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(color)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RadioTheme.bgDeep)
+            .cornerRadius(4)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(RadioTheme.bgDeep)
-        .cornerRadius(4)
+        .buttonStyle(.plain)
         .help(help)
     }
 
     private var color: Color {
-        if rig.radio == nil { return RadioTheme.textDim }
+        if !rig.hasRig { return RadioTheme.textDim }
         return rig.state.connected ? RadioTheme.vfdGreen : RadioTheme.ledYellow
     }
 
     private var label: String {
         if audio.sourceKind == .file { return "DATEI" }
-        guard let radio = rig.radio else {
+        guard let name = rig.rigName else {
             return (audio.activeInput?.device.name ?? "KEIN EINGANG").uppercased()
         }
-        guard rig.state.connected else { return "\(radio.displayName) · RIGCTLD ?" }
-        var s = radio.displayName.uppercased()
+        guard rig.state.connected else { return "\(name) · RIGCTLD ?" }
+        var s = name.uppercased()
         if let f = rig.state.frequencyText { s += " · \(f)" }
         if let m = rig.state.mode { s += " · \(m)" }
         return s
     }
 
     private var help: String {
-        guard let radio = rig.radio else { return "Kein Funkgerät – Frequenz und Mode unbekannt" }
-        let port = rig.state.port.map { String($0) } ?? "?"
-        return rig.state.connected
-            ? "\(radio.displayName): Frequenz und Mode vom Commander (rigctld \(port))" + (rig.tuneMessage.map { "\n\($0)" } ?? "")
-            : "\(radio.displayName): rigctld \(port) nicht erreichbar – läuft der Commander mit aktivem rigctld-Server?"
+        let click = "\nKlick: Funkgerät einstellen (rigctld auf beliebigem Rechner und Port)"
+        guard let name = rig.rigName else { return "Kein Funkgerät – Frequenz und Mode unbekannt" + click }
+        let target = rig.state.host.map { h in "\(h):\(rig.state.port.map(String.init) ?? "?")" } ?? (rig.state.port.map { "Port \($0)" } ?? "?")
+        let source = rig.customProfile != nil ? "rigctld" : "Commander, rigctld"
+        return (rig.state.connected
+            ? "\(name): Frequenz und Mode (\(source) \(target))" + (rig.tuneMessage.map { "\n\($0)" } ?? "")
+            : "\(name): rigctld \(target) nicht erreichbar – läuft er?") + click
+    }
+}
+
+/// Info-Knopf in der Kopfzeile: Version, Lizenz, Quellen
+private struct AboutButton: View {
+    var onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(RadioTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 3)
+        }
+        .buttonStyle(.plain)
+        .help("Info: Version, Lizenz (GPL-3.0-or-later), Quelltext, verwendete Quellen und Drittanbieter-Software")
     }
 }
 
@@ -736,6 +786,8 @@ private struct StatusBar: View {
     @ObservedObject var ale: ALESettingsStore
     @ObservedObject var aprs: APRSSettingsStore
     @ObservedObject var acars: ACARSSettingsStore
+    @ObservedObject var ais: AISSettingsStore
+    @ObservedObject var aisController: AISController
     @ObservedObject var hfdl: HFDLSettingsStore
     @ObservedObject var sonde: SondeSettingsStore
     @ObservedObject var sondeController: SondeController
@@ -806,6 +858,7 @@ private struct StatusBar: View {
         case .acars: return "ACARS · \(acars.channel.label) MHz AM · MSK 2400 Bd" + (acars.hideEmpty ? " · ohne leere" : "") + (acars.showUplink ? "" : " · nur Abwärts")
         case .hfdl: return "HFDL · \(HFDLChannels.label(hfdl.frequencyKHz)) kHz USB · PSK 1800 Bd · Träger 1440 Hz" + (hfdl.showUplink ? "" : " · nur Abwärts") + (hfdl.onlyContent ? " · nur Inhalt" : "")
         case .sonde: return sondeCurrent
+        case .ais: return aisCurrent
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")
         case .tones: return "TÖNE · " + ToneStandard.allCases.filter(tones.standards.contains).map(\.name).joined(separator: ", ")
         case .aprs: return "APRS · \(aprs.channel.label) MHz FM · AFSK 1200 Bd · Töne \(Int(aprs.centerHz - 500)) / \(Int(aprs.centerHz + 500)) Hz" + (aprs.repairBits ? " · Korrektur" : "") + (aprs.emphasis == .auto ? "" : aprs.emphasis == .on ? " · DE-EMPH." : " · FLACH")
@@ -849,6 +902,15 @@ private struct StatusBar: View {
         s += " · Schwelle \(Int(skimmer.thresholdDB)) dB"
         let live = skimmerController.stations.filter(\.isLive)
         s += " · \(live.count) Signale · \(live.filter { $0.call != nil }.count) mit Rufzeichen"
+        return s
+    }
+
+    /// „AIS · 161,975 MHz FM · GMSK 9600 Bd · 14 Schiffe · 212 Meldungen“
+    private var aisCurrent: String {
+        var s = "AIS · \(ais.channel.label) MHz FM · GMSK 9600 Bd"
+        let n = aisController.ships.filter { $0.kind != .aid && $0.kind != .base }.count
+        if n > 0 { s += " · \(n) Schiff" + (n == 1 ? "" : "e") }
+        s += " · \(aisController.messageCount) Meldungen"
         return s
     }
 

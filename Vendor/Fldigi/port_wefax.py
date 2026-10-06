@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Erzeugt den WEFAX-Empfänger für Digidec aus fldigi 4.2.13 (src/wefax/wefax.cxx).
 
 Übernommen wird wörtlich der Block von den Empfangsfiltern bis vor die Sendefunktionen (Hilfsklassen,

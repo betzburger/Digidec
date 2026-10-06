@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // Logiktests für Digidec (reine Rechenlogik, ohne Audio).
 // Nicht Teil des Swift-Packages (Package.swift baut nur "Sources").
 // Ausführen im Projektverzeichnis:
@@ -12,6 +14,12 @@ import AVFoundation
 
 var failures = 0
 var checks = 0
+/// Prüfungen mit echten Aufnahmen, die nur lokal liegen (TestData/ ist nicht im Repository)
+var skipped = 0
+@MainActor func skip(_ msg: String) {
+    skipped += 1
+    print("ÜBERSPRUNGEN: \(msg)")
+}
 @MainActor func check(_ cond: @autoclosure () -> Bool, _ msg: String, file: String = #file, line: Int = #line) {
     checks += 1
     if !cond() {
@@ -125,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "APRS", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "AIS", "APRS", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -2306,7 +2314,7 @@ do {
         check(c.getStatus().markHz < c.getStatus().spaceHz, "EFR: Mark liegt unter Space (\(Int(c.getStatus().markHz)) < \(Int(c.getStatus().spaceHz)) Hz)")
     }
 
-    // --- EFR: echte Aufnahme (DCF39 über WebSDR, MIT, siehe TestData/EFR/README.md) ---
+    // --- EFR: echte Aufnahme (DCF39 über WebSDR, nur lokal in TestData/EFR, siehe dort README.md) ---
     let efrWav = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("TestData/EFR/dcf39_websdr_8k.wav")
     if let file = try? AVAudioFile(forReading: efrWav),
@@ -2328,6 +2336,8 @@ do {
               "EFR echt: Mi 16.04.2025 17:10:32 und 17:10:42 MESZ (\(got.map(\.summary)))")
         check(got.first?.rawHex == "68 0A 0A 68 37 00 00 00 80 0A 91 70 04 19 DF 16", "EFR echt: Rohbytes wie im Fremddecoder")
         check(real.polarityInverted == false, "EFR echt: normale Polarität (Mark = untere Frequenz, USB)")
+    } else if !FileManager.default.fileExists(atPath: efrWav.path) {
+        skip("EFR echt: TestData/EFR/dcf39_websdr_8k.wav liegt nicht lokal vor")
     } else {
         check(false, "EFR echt: TestData/EFR/dcf39_websdr_8k.wav nicht lesbar")
     }
@@ -4454,6 +4464,7 @@ do {
         case .pressure: check(withPoint.count == 2 && withPoint.allSatisfy { $0.valueText == "1031" }, "Karte Luftdruck: \(withPoint.map { $0.valueText ?? "-" })")
         case .wind: check(withPoint.contains { $0.headingDeg != nil && $0.valueText == "2" }, "Karte Wind: Pfeil und Knoten (\(withPoint.map { $0.valueText ?? "-" }))")
         case .visibility: check(withPoint.contains { $0.valueText == "13" }, "Karte Sicht: \(withPoint.map { $0.valueText ?? "-" })")
+        case .humidity, .precipitation: check(withPoint.allSatisfy { $0.valueText != nil && $0.valueLevel != nil && $0.symbol == nil }, "Karte \(layer.title): nur Stationen mit Wert, als Zahl (\(withPoint.count))")
         case .sea: break
         }
     }
@@ -4471,110 +4482,113 @@ do {
 
 // MARK: - Seewetterberichte des DWD (FQEN70, FQEN71, WODL45) für die Karte – echte Berichte vom 02.10.2026
 do {
-    let samples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Samples")
+    let samples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/DWD")
     func sample(_ name: String) -> String { (try? String(contentsOf: samples.appendingPathComponent(name), encoding: .utf8)) ?? "" }
     let fq70 = sample("DWD_FQEN70_20261002_1700.txt"), fq71 = sample("DWD_FQEN71_20261002_1700.txt"), wodl = sample("DWD_WODL45_20261002_1800.txt")
-    check(!fq70.isEmpty && !fq71.isEmpty && !wodl.isEmpty, "Beispielberichte gelesen (\(samples.path))")
+    if fq70.isEmpty || fq71.isEmpty || wodl.isEmpty {
+        skip("Seewetterberichte: Beispielberichte liegen nicht lokal vor (\(samples.path))")
+    } else {
 
-    let r = SeaBulletinParser.parse(fq70)
-    check(r.issued?.contains("02.10.2026") == true && r.issued?.contains("1700") == true, "Ausgabezeit: \(r.issued ?? "-")")
-    check(r.forecasts.count == 18 && r.days == ["friday", "saturday"], "FQEN70: 9 Gebiete an 2 Tagen (\(r.forecasts.count), \(r.days))")
-    let gb = r.forecasts.first { $0.areaID == "germanbight" && $0.day == "friday" }
-    check(gb?.wind == "southwest to south about 3, increasing about 4." && gb?.maxBeaufort == 4 && gb?.windFromDeg == 225, "Deutsche Bucht Freitag: Wind \(gb?.wind ?? "-")")
-    check(gb?.weather.contains("coastal fog patches") == true && gb?.sea.contains("1,5 meter") == true, "Deutsche Bucht: Sicht/Wetter und Seegang (\(gb?.weather ?? "-"), \(gb?.sea ?? "-"))")
-    let fi = r.forecasts.first { $0.areaID == "fischer" && $0.day == "friday" }
-    check(fi?.maxBeaufort == 5, "Fischer Freitag: Windstärke 5 (\(String(describing: fi?.maxBeaufort)))")
-    let bs = r.forecasts.first { $0.areaID == "belts" && $0.day == "saturday" }
-    check(bs?.wind.hasPrefix("first light and variable winds") == true && bs?.wind.contains("slowly shifting southwest to west") == true && bs?.maxBeaufort == 4, "Belte und Sund Samstag: Wind über zwei Zeilen (\(bs?.wind ?? "-"))")
-    let wb = r.forecasts.first { $0.areaID == "westbaltic" && $0.day == "friday" }
-    check(wb?.weather.contains("later coastal fog patches") == true && wb?.weather.contains("rain with poor visibility") == true, "Westliche Ostsee: Sicht/Wetter über zwei Zeilen (\(wb?.weather ?? "-"))")
-    check(r.forecasts.first { $0.areaID == "kattegat" && $0.day == "friday" }?.windFromDeg == 270, "Kattegat: Wind aus West")
-    check(r.forecasts.first { $0.areaID == "belts" && $0.day == "friday" }?.windFromDeg == nil, "Belte und Sund Freitag: leichter Wind ohne Richtung")
+        let r = SeaBulletinParser.parse(fq70)
+        check(r.issued?.contains("02.10.2026") == true && r.issued?.contains("1700") == true, "Ausgabezeit: \(r.issued ?? "-")")
+        check(r.forecasts.count == 18 && r.days == ["friday", "saturday"], "FQEN70: 9 Gebiete an 2 Tagen (\(r.forecasts.count), \(r.days))")
+        let gb = r.forecasts.first { $0.areaID == "germanbight" && $0.day == "friday" }
+        check(gb?.wind == "southwest to south about 3, increasing about 4." && gb?.maxBeaufort == 4 && gb?.windFromDeg == 225, "Deutsche Bucht Freitag: Wind \(gb?.wind ?? "-")")
+        check(gb?.weather.contains("coastal fog patches") == true && gb?.sea.contains("1,5 meter") == true, "Deutsche Bucht: Sicht/Wetter und Seegang (\(gb?.weather ?? "-"), \(gb?.sea ?? "-"))")
+        let fi = r.forecasts.first { $0.areaID == "fischer" && $0.day == "friday" }
+        check(fi?.maxBeaufort == 5, "Fischer Freitag: Windstärke 5 (\(String(describing: fi?.maxBeaufort)))")
+        let bs = r.forecasts.first { $0.areaID == "belts" && $0.day == "saturday" }
+        check(bs?.wind.hasPrefix("first light and variable winds") == true && bs?.wind.contains("slowly shifting southwest to west") == true && bs?.maxBeaufort == 4, "Belte und Sund Samstag: Wind über zwei Zeilen (\(bs?.wind ?? "-"))")
+        let wb = r.forecasts.first { $0.areaID == "westbaltic" && $0.day == "friday" }
+        check(wb?.weather.contains("later coastal fog patches") == true && wb?.weather.contains("rain with poor visibility") == true, "Westliche Ostsee: Sicht/Wetter über zwei Zeilen (\(wb?.weather ?? "-"))")
+        check(r.forecasts.first { $0.areaID == "kattegat" && $0.day == "friday" }?.windFromDeg == 270, "Kattegat: Wind aus West")
+        check(r.forecasts.first { $0.areaID == "belts" && $0.day == "friday" }?.windFromDeg == nil, "Belte und Sund Freitag: leichter Wind ohne Richtung")
 
-    // Wetterlage
-    check(r.synopsis.hasPrefix("A high 1037 Belarus moves to Romania."), "Wetterlage gelesen")
-    check(r.systems.count == 4, "Wetterlage: vier Druckgebiete (\(r.systems.map { "\($0.kind.rawValue) \($0.pressure ?? 0)" }))")
-    if r.systems.count == 4 {
-        let h1 = r.systems[0], t1 = r.systems[1], t2 = r.systems[2], h2 = r.systems[3]
-        check(h1.kind == .high && h1.pressure == 1037 && h1.position.map { abs($0.lat - 53.7) < 0.5 && abs($0.lon - 28.0) < 0.5 } == true, "Hoch 1037 über Belarus")
-        check(h1.destination.map { abs($0.lat - 45.9) < 0.5 && abs($0.lon - 25.0) < 0.5 } == true, "… zieht nach Rumänien")
-        check(t1.kind == .low && t1.pressure == 987 && t1.position.map { $0.lon < -30 && $0.lat > 55 } == true && t1.destination == nil, "Tief 987 über der Irminger See (zieht nicht)")
-        check(t2.kind == .low && t2.name == "secondary low" && t2.pressure == 1011 && t2.position.map { abs($0.lat - 56.8) < 0.5 && abs($0.lon + 4.2) < 0.5 } == true, "Randtief 1011 erreicht Schottland")
-        check(t2.destination.map { $0.lat > 62 && $0.lon < 10 } == true, "… zieht zur Norwegischen See")
-        check(h2.kind == .high && h2.pressure == 1032 && h2.position.map { $0.lat > 51 && $0.lat < 55 && $0.lon > 8 && $0.lon < 14 } == true, "Hoch 1032 über Norddeutschland (nördlicher als die Landesmitte)")
-        check(h2.destination.map { $0.lat > 54 && $0.lon > 14 && $0.lon < 21 } == true, "… zieht zur Südlichen Ostsee")
+        // Wetterlage
+        check(r.synopsis.hasPrefix("A high 1037 Belarus moves to Romania."), "Wetterlage gelesen")
+        check(r.systems.count == 4, "Wetterlage: vier Druckgebiete (\(r.systems.map { "\($0.kind.rawValue) \($0.pressure ?? 0)" }))")
+        if r.systems.count == 4 {
+            let h1 = r.systems[0], t1 = r.systems[1], t2 = r.systems[2], h2 = r.systems[3]
+            check(h1.kind == .high && h1.pressure == 1037 && h1.position.map { abs($0.lat - 53.7) < 0.5 && abs($0.lon - 28.0) < 0.5 } == true, "Hoch 1037 über Belarus")
+            check(h1.destination.map { abs($0.lat - 45.9) < 0.5 && abs($0.lon - 25.0) < 0.5 } == true, "… zieht nach Rumänien")
+            check(t1.kind == .low && t1.pressure == 987 && t1.position.map { $0.lon < -30 && $0.lat > 55 } == true && t1.destination == nil, "Tief 987 über der Irminger See (zieht nicht)")
+            check(t2.kind == .low && t2.name == "secondary low" && t2.pressure == 1011 && t2.position.map { abs($0.lat - 56.8) < 0.5 && abs($0.lon + 4.2) < 0.5 } == true, "Randtief 1011 erreicht Schottland")
+            check(t2.destination.map { $0.lat > 62 && $0.lon < 10 } == true, "… zieht zur Norwegischen See")
+            check(h2.kind == .high && h2.pressure == 1032 && h2.position.map { $0.lat > 51 && $0.lat < 55 && $0.lon > 8 && $0.lon < 14 } == true, "Hoch 1032 über Norddeutschland (nördlicher als die Landesmitte)")
+            check(h2.destination.map { $0.lat > 54 && $0.lon > 14 && $0.lon < 21 } == true, "… zieht zur Südlichen Ostsee")
+        }
+        check(r.fronts.count == 1 && r.fronts[0].kind == .cold && r.fronts[0].points.count == 2, "Kaltfront von Südschweden nach Ostdeutschland (\(r.fronts.map { $0.points.count }))")
+        if let f = r.fronts.first, f.points.count == 2 {
+            check(f.points[0].lat > 57 && f.points[1].lat < 53 && f.points[1].lon > 10, "Front: Südschweden (\(f.points[0].lat)) – Ostdeutschland (\(f.points[1].lat), \(f.points[1].lon))")
+        }
+
+        // Küstenabschnitte
+        let c = SeaBulletinParser.parse(fq71)
+        check(c.forecasts.count == 8 && Set(c.forecasts.map(\.areaID)) == Set(SeaArea.all.filter { $0.kind == .coast }.map(\.id)), "FQEN71: 8 Küstenabschnitte (\(c.forecasts.count))")
+        check(c.forecasts.first { $0.areaID == "helgoland" }?.wind == "southwest about 3, shifting south to southeast." && c.forecasts.allSatisfy { $0.day == "friday" }, "Helgoland: Wind, Tag Freitag")
+        check(c.forecasts.first { $0.areaID == "bodden" }?.weather.contains("moderate visibility") == true, "Boddengewässer: Sicht/Wetter über zwei Zeilen")
+        check(c.systems.count == 4, "FQEN71 enthält dieselbe Wetterlage")
+
+        // Sturmwarnungen
+        let w = SeaBulletinParser.parse(wodl)
+        check(w.warnings.count == 3 && w.warnings.allSatisfy { $0.level == 0 } && Set(w.warnings.map(\.areaID)) == ["germanbight", "westbaltic", "southbaltic"], "WODL45: drei Gebiete ohne Warnung (\(w.warnings.map { "\($0.areaID) \($0.level)" }))")
+        let storm = SeaBulletinParser.parse("STRONG WIND, GALE AND STORM WARNINGS FOR SEA AREAS:\nGERMAN BIGHT, WESTERN AND SOUTHERN BALTIC.\n\nGERMAN BIGHT:\nSTORM WARNING SOUTHWEST 9 TO 10.\n\nWESTERN BALTIC:\nGALE WARNING NORTHWEST.\n\nSOUTHERN BALTIC:\nno warning.\n\nCOASTAL AREA WARNINGS:\n")
+        check(storm.warnings.first { $0.areaID == "germanbight" }?.level == 10 && storm.warnings.first { $0.areaID == "westbaltic" }?.level == 8 && storm.warnings.first { $0.areaID == "southbaltic" }?.level == 0,
+              "Warnstufen aus dem Text (\(storm.warnings.map { "\($0.areaID) \($0.level)" }))")
+
+        // Funkfernschreiben: Großbuchstaben, Zeilenende CR/LF, Fehler
+        let rtty = fq70.uppercased().replacingOccurrences(of: "\n", with: "\r\n").replacingOccurrences(of: "GERMAN BIGHT:", with: "GERMAN BIGHI:").replacingOccurrences(of: "FORECAST SATURDAY:", with: "FORECAST SATURDAY:")
+        let rr = SeaBulletinParser.parse(rtty)
+        check(rr.forecasts.count == 18 && rr.forecasts.first { $0.areaID == "germanbight" && $0.day == "friday" }?.maxBeaufort == 4, "Großbuchstaben, CR/LF und ein Zeichenfehler im Gebietsnamen (\(rr.forecasts.count))")
+        check(rr.systems.count == 4 && rr.fronts.count == 1, "Wetterlage auch in Großbuchstaben (\(rr.systems.count), \(rr.fronts.count))")
+        // Empfang mitten im Bericht: ohne Tagesüberschrift
+        let mid = SeaBulletinParser.parse("SKAGERRAK:\nWIND: SOUTHWESTERLY WINDS 4 TO 5, FIRST LOCALLY 6.\nVISIBILITY/WEATHER: GOOD VISIBILITY.\nSEA: 1,5 METER.\nKATTEGAT:\nWIND: WEST 3 TO 4,\nSHIFTING SLOWLY SOUTHWEST.\nSEA: NORTHERN PART 1 METER.\n")
+        check(mid.forecasts.count == 2 && mid.forecasts[0].day == "forecast" && mid.forecasts[0].maxBeaufort == 6 && mid.forecasts[1].wind == "WEST 3 TO 4, SHIFTING SLOWLY SOUTHWEST.", "Empfang mitten im Bericht: Vorhersage ohne Tag (\(mid.forecasts.map(\.wind)))")
+        check(SeaBulletinParser.parse("CQ CQ CQ DE DDK2 DDH7 DDK9\r\nFREQUENCIES 4583 KHZ\r\nRYRYRY\r\n").isEmpty, "Testbild des DWD ergibt keinen Bericht")
+
+        // Gebiete
+        check(SeaArea.match("German Bight")?.id == "germanbight" && SeaArea.match("DEUTSCHE BUCHT")?.id == "germanbight" && SeaArea.match("German Bighz")?.id == "germanbight", "Gebietsname: englisch, deutsch, ein Fehler")
+        check(SeaArea.match("Southern Baltic")?.id == "southbaltic" && SeaArea.match("Southeastern Baltic")?.id == "sebaltic" && SeaArea.match("Wind") == nil && SeaArea.match("Coastal areas of German North Sea") == nil, "ähnliche Namen bleiben getrennt")
+        check(Set(SeaArea.all.map(\.id)).count == SeaArea.all.count && SeaArea.all.allSatisfy { $0.center.isValid && $0.radiusKm > 0 }, "Gebietsliste: eindeutig, gültige Lagen")
+
+        // Ortsnamen
+        let ger = Gazetteer.locate("germany")!, north = Gazetteer.locate("northern Germany")!, east = Gazetteer.locate("eastern Germany")!
+        check(north.lat > ger.lat && abs(north.lon - ger.lon) < 0.01 && east.lon > ger.lon, "Gazetteer: nördliches und östliches Deutschland")
+        let ice = Gazetteer.locate("Iceland")!, swIce = Gazetteer.locate("close to the southwest of Iceland")!
+        check(swIce.lat < ice.lat - 1.5 && swIce.lon < ice.lon - 3, "Gazetteer: „southwest of Iceland“ liegt außerhalb südwestlich")
+        check(Gazetteer.locate("the northeastern part of the Irminger Sea").map { $0.lat > 61.5 && $0.lon > -35 } == true && Gazetteer.locate("Atlantis") == nil, "Gazetteer: Teil eines Meeres, Unbekanntes → nil")
+        check(Gazetteer.locate("area St. Petersburg").map { abs($0.lat - 59.9) < 0.1 } == true, "Gazetteer: „area St. Petersburg“")
+
+        // Übersetzung
+        check(SeaPhrase.german("southwest to south about 3, increasing about 4.") == "Südwest bis Süd um 3, zunehmend um 4.", "Übersetzung Wind: \(SeaPhrase.german("southwest to south about 3, increasing about 4."))")
+        check(SeaPhrase.german("later coastal fog patches.") == "Später Küstennebelfelder.", "Übersetzung Nebel: \(SeaPhrase.german("later coastal fog patches."))")
+        check(SeaPhrase.german("northwestern part later 1,5 meter.") == "Nordwestteil später 1,5 Meter.", "Übersetzung Seegang: \(SeaPhrase.german("northwestern part later 1,5 meter."))")
+        check(SeaPhrase.german("light and variable winds") == "Schwache umlaufende Winde" && SeaPhrase.germanDay("friday") == "Freitag", "Übersetzung: schwache Winde, Wochentag")
+
+        // Log und Karte
+        let log = SeaLog()
+        log.feed(fq70, decoded: false)
+        log.feed("RYRYRYRY\r\n", decoded: false)
+        log.feed("Latitude=51.4\n", decoded: true)          // Klartext zählt nicht
+        check(log.report.forecasts.count == 18, "SeaLog: Bericht (\(log.report.forecasts.count))")
+        log.feed(fq71, decoded: false)
+        log.feed("\u{03}\r\nNNNN\r\n", decoded: false)      // Steuerzeichen und Telegrammende zwischen den Berichten
+        log.feed(storm.warnings.isEmpty ? "" : "STRONG WIND, GALE AND STORM WARNINGS FOR SEA AREAS:\nGERMAN BIGHT:\nSTORM WARNING SOUTHWEST 9.\nWESTERN BALTIC:\nno warning.\n", decoded: false)
+        let home = GeoPoint(lat: 49.77, lon: 9.95)
+        let content = log.content(home: home, now: Date())
+        let areaMarkers = content.markers.filter { $0.id.hasPrefix("sea-") }
+        check(areaMarkers.count == 17, "Karte: 9 Seegebiete und 8 Küstenabschnitte (\(areaMarkers.count))")
+        let bight = content.markers.first { $0.id == "sea-germanbight" }
+        check(bight?.valueText == "4" && bight?.title == "Deutsche Bucht" && bight?.radiusKm == 110 && bight?.headingDeg == 45, "Karte Deutsche Bucht: Windstärke 4, Pfeil nach Nordost (\(String(describing: bight?.headingDeg)))")
+        check(bight?.details.contains { $0.hasPrefix("Freitag: Wind Südwest bis Süd um 3, zunehmend um 4.") } == true && bight?.details.contains { $0.contains("Seegang: Nordwestteil später 1,5 Meter.") } == true, "Popup: deutsche Fassung je Tag")
+        check(content.markers.contains { $0.id == "warn-germanbight" && $0.tone == .alert } && !content.markers.contains { $0.id == "warn-westbaltic" }, "Karte: Warnung nur für die Deutsche Bucht")
+        check(content.markers.filter { $0.id.hasPrefix("system-") }.count == 4 && content.lines.contains { $0.id == "system-move-0" } && content.lines.contains { $0.id == "front-0" }, "Karte: Hochs, Tiefs, Zugrichtung und Front")
+        let h = content.markers.first { $0.id == "system-0" }
+        check(h?.valueText == "H 1037" && h?.title == "Hoch 1037 hPa", "Karte: Hoch 1037 (\(h?.valueText ?? "-"))")
+        check(SeaLog().content(home: home, now: Date()).markers.isEmpty, "Karte ohne Bericht: leer")
+        log.clear()
+        check(log.report.isEmpty, "SeaLog geleert")
     }
-    check(r.fronts.count == 1 && r.fronts[0].kind == .cold && r.fronts[0].points.count == 2, "Kaltfront von Südschweden nach Ostdeutschland (\(r.fronts.map { $0.points.count }))")
-    if let f = r.fronts.first, f.points.count == 2 {
-        check(f.points[0].lat > 57 && f.points[1].lat < 53 && f.points[1].lon > 10, "Front: Südschweden (\(f.points[0].lat)) – Ostdeutschland (\(f.points[1].lat), \(f.points[1].lon))")
-    }
-
-    // Küstenabschnitte
-    let c = SeaBulletinParser.parse(fq71)
-    check(c.forecasts.count == 8 && Set(c.forecasts.map(\.areaID)) == Set(SeaArea.all.filter { $0.kind == .coast }.map(\.id)), "FQEN71: 8 Küstenabschnitte (\(c.forecasts.count))")
-    check(c.forecasts.first { $0.areaID == "helgoland" }?.wind == "southwest about 3, shifting south to southeast." && c.forecasts.allSatisfy { $0.day == "friday" }, "Helgoland: Wind, Tag Freitag")
-    check(c.forecasts.first { $0.areaID == "bodden" }?.weather.contains("moderate visibility") == true, "Boddengewässer: Sicht/Wetter über zwei Zeilen")
-    check(c.systems.count == 4, "FQEN71 enthält dieselbe Wetterlage")
-
-    // Sturmwarnungen
-    let w = SeaBulletinParser.parse(wodl)
-    check(w.warnings.count == 3 && w.warnings.allSatisfy { $0.level == 0 } && Set(w.warnings.map(\.areaID)) == ["germanbight", "westbaltic", "southbaltic"], "WODL45: drei Gebiete ohne Warnung (\(w.warnings.map { "\($0.areaID) \($0.level)" }))")
-    let storm = SeaBulletinParser.parse("STRONG WIND, GALE AND STORM WARNINGS FOR SEA AREAS:\nGERMAN BIGHT, WESTERN AND SOUTHERN BALTIC.\n\nGERMAN BIGHT:\nSTORM WARNING SOUTHWEST 9 TO 10.\n\nWESTERN BALTIC:\nGALE WARNING NORTHWEST.\n\nSOUTHERN BALTIC:\nno warning.\n\nCOASTAL AREA WARNINGS:\n")
-    check(storm.warnings.first { $0.areaID == "germanbight" }?.level == 10 && storm.warnings.first { $0.areaID == "westbaltic" }?.level == 8 && storm.warnings.first { $0.areaID == "southbaltic" }?.level == 0,
-          "Warnstufen aus dem Text (\(storm.warnings.map { "\($0.areaID) \($0.level)" }))")
-
-    // Funkfernschreiben: Großbuchstaben, Zeilenende CR/LF, Fehler
-    let rtty = fq70.uppercased().replacingOccurrences(of: "\n", with: "\r\n").replacingOccurrences(of: "GERMAN BIGHT:", with: "GERMAN BIGHI:").replacingOccurrences(of: "FORECAST SATURDAY:", with: "FORECAST SATURDAY:")
-    let rr = SeaBulletinParser.parse(rtty)
-    check(rr.forecasts.count == 18 && rr.forecasts.first { $0.areaID == "germanbight" && $0.day == "friday" }?.maxBeaufort == 4, "Großbuchstaben, CR/LF und ein Zeichenfehler im Gebietsnamen (\(rr.forecasts.count))")
-    check(rr.systems.count == 4 && rr.fronts.count == 1, "Wetterlage auch in Großbuchstaben (\(rr.systems.count), \(rr.fronts.count))")
-    // Empfang mitten im Bericht: ohne Tagesüberschrift
-    let mid = SeaBulletinParser.parse("SKAGERRAK:\nWIND: SOUTHWESTERLY WINDS 4 TO 5, FIRST LOCALLY 6.\nVISIBILITY/WEATHER: GOOD VISIBILITY.\nSEA: 1,5 METER.\nKATTEGAT:\nWIND: WEST 3 TO 4,\nSHIFTING SLOWLY SOUTHWEST.\nSEA: NORTHERN PART 1 METER.\n")
-    check(mid.forecasts.count == 2 && mid.forecasts[0].day == "forecast" && mid.forecasts[0].maxBeaufort == 6 && mid.forecasts[1].wind == "WEST 3 TO 4, SHIFTING SLOWLY SOUTHWEST.", "Empfang mitten im Bericht: Vorhersage ohne Tag (\(mid.forecasts.map(\.wind)))")
-    check(SeaBulletinParser.parse("CQ CQ CQ DE DDK2 DDH7 DDK9\r\nFREQUENCIES 4583 KHZ\r\nRYRYRY\r\n").isEmpty, "Testbild des DWD ergibt keinen Bericht")
-
-    // Gebiete
-    check(SeaArea.match("German Bight")?.id == "germanbight" && SeaArea.match("DEUTSCHE BUCHT")?.id == "germanbight" && SeaArea.match("German Bighz")?.id == "germanbight", "Gebietsname: englisch, deutsch, ein Fehler")
-    check(SeaArea.match("Southern Baltic")?.id == "southbaltic" && SeaArea.match("Southeastern Baltic")?.id == "sebaltic" && SeaArea.match("Wind") == nil && SeaArea.match("Coastal areas of German North Sea") == nil, "ähnliche Namen bleiben getrennt")
-    check(Set(SeaArea.all.map(\.id)).count == SeaArea.all.count && SeaArea.all.allSatisfy { $0.center.isValid && $0.radiusKm > 0 }, "Gebietsliste: eindeutig, gültige Lagen")
-
-    // Ortsnamen
-    let ger = Gazetteer.locate("germany")!, north = Gazetteer.locate("northern Germany")!, east = Gazetteer.locate("eastern Germany")!
-    check(north.lat > ger.lat && abs(north.lon - ger.lon) < 0.01 && east.lon > ger.lon, "Gazetteer: nördliches und östliches Deutschland")
-    let ice = Gazetteer.locate("Iceland")!, swIce = Gazetteer.locate("close to the southwest of Iceland")!
-    check(swIce.lat < ice.lat - 1.5 && swIce.lon < ice.lon - 3, "Gazetteer: „southwest of Iceland“ liegt außerhalb südwestlich")
-    check(Gazetteer.locate("the northeastern part of the Irminger Sea").map { $0.lat > 61.5 && $0.lon > -35 } == true && Gazetteer.locate("Atlantis") == nil, "Gazetteer: Teil eines Meeres, Unbekanntes → nil")
-    check(Gazetteer.locate("area St. Petersburg").map { abs($0.lat - 59.9) < 0.1 } == true, "Gazetteer: „area St. Petersburg“")
-
-    // Übersetzung
-    check(SeaPhrase.german("southwest to south about 3, increasing about 4.") == "Südwest bis Süd um 3, zunehmend um 4.", "Übersetzung Wind: \(SeaPhrase.german("southwest to south about 3, increasing about 4."))")
-    check(SeaPhrase.german("later coastal fog patches.") == "Später Küstennebelfelder.", "Übersetzung Nebel: \(SeaPhrase.german("later coastal fog patches."))")
-    check(SeaPhrase.german("northwestern part later 1,5 meter.") == "Nordwestteil später 1,5 Meter.", "Übersetzung Seegang: \(SeaPhrase.german("northwestern part later 1,5 meter."))")
-    check(SeaPhrase.german("light and variable winds") == "Schwache umlaufende Winde" && SeaPhrase.germanDay("friday") == "Freitag", "Übersetzung: schwache Winde, Wochentag")
-
-    // Log und Karte
-    let log = SeaLog()
-    log.feed(fq70, decoded: false)
-    log.feed("RYRYRYRY\r\n", decoded: false)
-    log.feed("Latitude=51.4\n", decoded: true)          // Klartext zählt nicht
-    check(log.report.forecasts.count == 18, "SeaLog: Bericht (\(log.report.forecasts.count))")
-    log.feed(fq71, decoded: false)
-    log.feed("\u{03}\r\nNNNN\r\n", decoded: false)      // Steuerzeichen und Telegrammende zwischen den Berichten
-    log.feed(storm.warnings.isEmpty ? "" : "STRONG WIND, GALE AND STORM WARNINGS FOR SEA AREAS:\nGERMAN BIGHT:\nSTORM WARNING SOUTHWEST 9.\nWESTERN BALTIC:\nno warning.\n", decoded: false)
-    let home = GeoPoint(lat: 49.77, lon: 9.95)
-    let content = log.content(home: home, now: Date())
-    let areaMarkers = content.markers.filter { $0.id.hasPrefix("sea-") }
-    check(areaMarkers.count == 17, "Karte: 9 Seegebiete und 8 Küstenabschnitte (\(areaMarkers.count))")
-    let bight = content.markers.first { $0.id == "sea-germanbight" }
-    check(bight?.valueText == "4" && bight?.title == "Deutsche Bucht" && bight?.radiusKm == 110 && bight?.headingDeg == 45, "Karte Deutsche Bucht: Windstärke 4, Pfeil nach Nordost (\(String(describing: bight?.headingDeg)))")
-    check(bight?.details.contains { $0.hasPrefix("Freitag: Wind Südwest bis Süd um 3, zunehmend um 4.") } == true && bight?.details.contains { $0.contains("Seegang: Nordwestteil später 1,5 Meter.") } == true, "Popup: deutsche Fassung je Tag")
-    check(content.markers.contains { $0.id == "warn-germanbight" && $0.tone == .alert } && !content.markers.contains { $0.id == "warn-westbaltic" }, "Karte: Warnung nur für die Deutsche Bucht")
-    check(content.markers.filter { $0.id.hasPrefix("system-") }.count == 4 && content.lines.contains { $0.id == "system-move-0" } && content.lines.contains { $0.id == "front-0" }, "Karte: Hochs, Tiefs, Zugrichtung und Front")
-    let h = content.markers.first { $0.id == "system-0" }
-    check(h?.valueText == "H 1037" && h?.title == "Hoch 1037 hPa", "Karte: Hoch 1037 (\(h?.valueText ?? "-"))")
-    check(SeaLog().content(home: home, now: Date()).markers.isEmpty, "Karte ohne Bericht: leer")
-    log.clear()
-    check(log.report.isEmpty, "SeaLog geleert")
 }
 
 // MARK: - DWD Seewetter 5-Tage-Punktvorhersagen (FQEN75-79) mit SST und RTTY-Mittenfrequenz
@@ -4903,6 +4917,8 @@ do {
         check(alpha(1004).hasPrefix("3634.0 ON3RUM"), "Entzerrer echt: Rufnummer 1004 „\(alpha(1004))“")
         check(alpha(2000).hasPrefix("#ZEIT=063504"), "Entzerrer echt: Rufnummer 2000 „\(alpha(2000))“")
         check(got.filter { $0.detail == "entzerrt" }.count >= 4, "Entzerrer echt: mindestens vier Meldungen vom Entzerrer (\(got.map(\.address)))")
+    } else if !FileManager.default.fileExists(atPath: pagerWav.path) {
+        skip("Entzerrer echt: TestData/Pager/dapnet_verbogen_48k.wav liegt nicht lokal vor")
     } else {
         check(false, "Entzerrer echt: TestData/Pager/dapnet_verbogen_48k.wav nicht lesbar")
     }
@@ -6573,6 +6589,925 @@ func hfdlDecode(_ audio: [Float], chunk: Int = 1200) -> [HFDLRawFrame] {
     check(s.stationsOnChannel.count >= 3 && s.centerHz == 1440, "HFDL: Stationen auf 13276 kHz, NF-Mitte 1440 Hz")
 }
 hfdlTests()
+
+
+// MARK: - Wetterauswertung (0.54.0): Feuchte, Gitter, Isobaren, Hoch/Tief, Farbfläche
+do {
+    // Relative Luftfeuchte (Magnus-Formel)
+    check(WeatherMath.relativeHumidity(temperatureC: 20, dewpointC: 10).map { abs($0 - 52.5) < 1 } == true, "Feuchte: 20 °C / Taupunkt 10 °C ≈ 52,5 %")
+    check(WeatherMath.relativeHumidity(temperatureC: 5, dewpointC: 5) == 100, "Feuchte: Taupunkt = Temperatur → 100 %")
+    check(WeatherMath.relativeHumidity(temperatureC: 10, dewpointC: 12) == nil && WeatherMath.relativeHumidity(temperatureC: nil, dewpointC: 5) == nil, "Feuchte: unplausibel oder fehlend → nil")
+
+    // Stationsraster mit Hoch bei 48°N 4°O (1035) und Tief bei 57°N 20°O (982); fest, ohne Zufall
+    func pressureAt(_ lat: Double, _ lon: Double) -> Double {
+        let h = 25 * exp(-(pow((lat - 48) / 6, 2) + pow((lon - 4) / 9, 2)))
+        let t = -28 * exp(-(pow((lat - 57) / 5, 2) + pow((lon - 20) / 8, 2)))
+        return 1010 + h + t
+    }
+    var raster: [(lat: Double, lon: Double, p: Double)] = []
+    for i in 0..<15 {
+        for j in 0..<15 {
+            let lat = ((40 + 24 * (Double(i) + 0.5) / 15 + 0.5 * cos(Double(5 * i + 2 * j))) * 1000).rounded() / 1000
+            let lon = ((-8 + 40 * (Double(j) + 0.5) / 15 + 0.7 * sin(Double(7 * i + 3 * j))) * 1000).rounded() / 1000
+            raster.append((lat, lon, (pressureAt(lat, lon) * 10).rounded() / 10))
+        }
+    }
+    let samples = raster.map { FieldSample(point: GeoPoint(lat: $0.lat, lon: $0.lon), value: $0.p) }
+    check(WeatherField.grid(samples: Array(samples.prefix(4))) == nil, "Gitter: unter 5 Werte → keines")
+    check(WeatherField.grid(samples: [FieldSample(point: GeoPoint(lat: 0, lon: -100), value: 1), FieldSample(point: GeoPoint(lat: 1, lon: 100), value: 2)] + samples.prefix(4)) == nil, "Gitter: über 180° Breite → keines")
+    if let g = WeatherField.grid(samples: samples) {
+        let r = g.range
+        check(r != nil && r!.min > 981 && r!.min < 986 && r!.max > 1031 && r!.max < 1036, "Gitter: Wertebereich folgt dem Feld (\(String(describing: r)))")
+        // Hoch und Tief an der richtigen Stelle, nichts sonst
+        let ex = WeatherField.extrema(of: g)
+        let highs = ex.filter { $0.isHigh }, lows = ex.filter { !$0.isHigh }
+        check(highs.count == 1 && abs(highs[0].point.lat - 48) < 2.5 && abs(highs[0].point.lon - 4) < 3.5 && highs[0].value > 1031 && highs[0].value < 1036, "Hoch bei 48°N 4°O: \(highs)")
+        check(lows.count == 1 && abs(lows[0].point.lat - 57) < 2.5 && abs(lows[0].point.lon - 20) < 3.5 && lows[0].value > 981 && lows[0].value < 986, "Tief bei 57°N 20°O: \(lows)")
+        // Isobaren: um Hoch und Tief geschlossene Ringe, nach außen offene Linien
+        let ring1024 = WeatherField.contours(of: g, level: 1024)
+        check(ring1024.count == 1 && ring1024[0].isClosed && ring1024[0].points.count > 8, "Isobare 1024 hPa: ein geschlossener Ring um das Hoch (\(ring1024.count))")
+        let ring992 = WeatherField.contours(of: g, level: 992)
+        check(ring992.count == 1 && ring992[0].isClosed, "Isobare 992 hPa: ein geschlossener Ring um das Tief")
+        let open1008 = WeatherField.contours(of: g, level: 1008)
+        check(!open1008.isEmpty && open1008.allSatisfy { !$0.isClosed }, "Isobare 1008 hPa: offene Linien zwischen Hoch und Tief")
+        let all = WeatherField.contourLines(of: g, step: 4)
+        let levels = Set(all.map { Int($0.level) })
+        check(levels.contains(1024) && levels.contains(992) && levels.allSatisfy { $0 % 4 == 0 }, "Isobaren alle 4 hPa: \(levels.sorted())")
+        check(all.allSatisfy { line in line.points.allSatisfy { $0.isValid } }, "Isobaren: alle Punkte gültig")
+        // Abgerundet: Anfang und Ende offener Linien bleiben, geschlossene bleiben geschlossen
+        if let open = open1008.first {
+            let rounded = WeatherField.rounded(open)
+            check(rounded.points.first == open.points.first && rounded.points.last == open.points.last && rounded.points.count > open.points.count, "Chaikin: Enden bleiben, mehr Punkte")
+        }
+        let r2 = WeatherField.rounded(ring1024[0])
+        check(r2.isClosed && r2.points.first == r2.points.last, "Chaikin: geschlossene Linie bleibt geschlossen")
+        check(WeatherField.contourLines(of: g, step: 0).isEmpty, "Isobaren: Abstand 0 → keine")
+    } else {
+        check(false, "Gitter aus 225 Stationen")
+    }
+
+    // Marching Squares auf Hand-Gittern
+    func handGrid(_ rows: Int, _ cols: Int, _ f: (Int, Int) -> Double) -> WeatherGrid {
+        var v: [Double] = []
+        for r in 0..<rows { for c in 0..<cols { v.append(f(r, c)) } }
+        return WeatherGrid(latMin: 50, lonMin: 8, dLat: 1, dLon: 1, rows: rows, cols: cols, values: v)
+    }
+    let ramp = handGrid(4, 4) { r, _ in Double(r) }
+    let rampLines = WeatherField.contours(of: ramp, level: 1.5)
+    check(rampLines.count == 1 && rampLines[0].points.count == 4 && !rampLines[0].isClosed && rampLines[0].points.allSatisfy { abs($0.lat - 51.5) < 1e-9 }, "Rampe: eine waagerechte offene Linie bei 51,5°N (\(rampLines.count))")
+    let peak = handGrid(5, 5) { r, c in r == 2 && c == 2 ? 10 : 0 }
+    let peakLines = WeatherField.contours(of: peak, level: 5)
+    check(peakLines.count == 1 && peakLines[0].isClosed && peakLines[0].points.count == 5, "Gipfel: ein geschlossener Ring aus 4 Stücken (\(peakLines.map { $0.points.count }))")
+    let saddle = handGrid(2, 2) { r, c in (r + c) % 2 == 0 ? 10 : 0 }
+    check(WeatherField.contours(of: saddle, level: 5).count == 2 && WeatherField.contours(of: saddle, level: 6).count == 2, "Sattel: zwei getrennte Linien, wie der Mittelwert auch fällt")
+    check(WeatherField.contours(of: ramp, level: 99).isEmpty && WeatherField.contours(of: ramp, level: -1).isEmpty, "Linie außerhalb des Wertebereichs: keine")
+    var holey = handGrid(4, 4) { r, _ in Double(r) }
+    holey.values[1 * 4 + 1] = .nan
+    let holeyLines = WeatherField.contours(of: holey, level: 1.5)
+    check(holeyLines.allSatisfy { $0.points.count >= 2 } && holeyLines.reduce(0, { $0 + $1.points.count }) < 4 + 4, "Leerer Eckpunkt: Zellen daneben fallen aus")
+
+    // Farbflächen: waagerechte Nachbarn gleicher Stufe werden zu einem Rechteck
+    let flat = handGrid(3, 6) { _, _ in 10 }
+    let flatPatches = WeatherField.patches(of: flat, bandWidth: 2.5) { ($0 + 20) / 55 }
+    check(flatPatches.count == 3 && flatPatches.allSatisfy { $0.corners.count == 4 && abs($0.level - (11.25 + 20) / 55) < 1e-9 }, "Flächen: je Zeile ein Rechteck, Stufenmitte 11,25 °C (\(flatPatches.count))")
+    let stepped = handGrid(1, 6) { _, c in c < 3 ? 1 : 11 }
+    check(WeatherField.patches(of: stepped, bandWidth: 2.5) { $0 }.count == 2, "Flächen: zwei Stufen nebeneinander → zwei Rechtecke")
+    let gapped = handGrid(1, 6) { _, c in c == 3 ? .nan : 5 }
+    check(WeatherField.patches(of: gapped, bandWidth: 2.5) { $0 }.count == 2, "Flächen: leere Zelle trennt")
+}
+
+// MARK: - Wetterauswertung: Extremwerte, Ebenen, Überlagerung, CSV (Klartext wie vom SYNOP-Decoder)
+do {
+    let now = Date()
+    func klar(_ id: String, lat: Double, lon: Double, t: Double? = nil, td: Double? = nil, p: Double? = nil, rain: Double? = nil, wind: Int? = nil) -> String {
+        var s = "\tShip/Buoy identifier=\(id)\n\tLatitude=\(lat)\n\tLongitude=\(lon)\n"
+        if let t { s += "\tTemperature=\(t) °C\n" }
+        if let td { s += "\tDewpoint temperature=\(td) °C\n" }
+        if let p { s += "\tSea level pressure=\(p) hPa\n" }
+        if let wind { s += "\tWind speed=\(wind) knots\n" }
+        if let rain { s += "\tPrecipitation amount=\(rain) mm\n\tPrecipitation duration=6 hours\n" }
+        return s
+    }
+    let log = SynopLog()
+    log.feed(klar("DBAA", lat: 54.0, lon: 8.0, t: 30.5, td: 10.0, p: 1020.4, rain: 12.0)
+             + klar("DBBB", lat: 55.0, lon: 9.0, t: -5.0, td: -8.0, p: 995.0, rain: 0.0, wind: 40)
+             + klar("DBCC", lat: 53.0, lon: 7.0, t: 12.0, td: 11.0, p: 1013.0)
+             + klar("DBDD", lat: 52.0, lon: 6.0, t: 21.0, td: 9.0, rain: 3.2)
+             + klar("DBEE", lat: 51.0, lon: 5.0, t: 8.0), decoded: true, at: now)
+    log.feed("X", decoded: false, at: now)
+    log.flush(at: now)
+    check(log.observations.count == 5, "Auswertung: fünf Stationen (\(log.observations.count))")
+    let a = log.observations["DBAA"]
+    check(a?.dewpointC == 10 && a?.seaLevelPressureHPa == 1020.4 && a?.precipitationMm == 12 && a?.precipitationHours == 6, "Beobachtung: Taupunkt, Meeresdruck, Niederschlag und Zeitraum")
+    check(a?.humidityPct.map { $0 > 25 && $0 < 33 } == true && log.observations["DBEE"]?.humidityPct == nil, "Feuchte aus Temperatur und Taupunkt, ohne Taupunkt keine (\(String(describing: a?.humidityPct)))")
+    check(log.observations["DBDD"]?.seaLevelPressureHPa == nil, "Ohne Druck auf Meereshöhe bleibt das Feld leer")
+
+    // Extremwerte
+    let t = log.extremes(layer: .temperature, count: 2, now: now)
+    check(t?.highest.map(\.id) == ["synop-DBAA", "synop-DBDD"] && t?.lowest.map(\.id) == ["synop-DBBB", "synop-DBEE"] && t?.stations == 5, "Extremwerte Temperatur: höchste und niedrigste (\(String(describing: t?.highest.map(\.id))), \(String(describing: t?.lowest.map(\.id))))")
+    check(t?.highest.first?.text == "30,5 °C" && t?.lowest.first?.text == "-5,0 °C", "Extremwerte: Text mit Komma und Einheit (\(String(describing: t?.highest.first?.text)))")
+    check(log.extremes(layer: .humidity, count: 1, now: now)?.highest.first?.id == "synop-DBCC", "Extremwerte Feuchte: DBCC mit 99 %")
+    let rain = log.extremes(layer: .precipitation, count: 3, now: now)
+    check(rain?.highest.first?.id == "synop-DBAA" && rain?.lowest.isEmpty == true && rain?.stations == 3, "Extremwerte Niederschlag: nur höchste, 3 Stationen")
+    check(log.extremes(layer: .wind, count: 3, now: now)?.highest.map(\.id) == ["synop-DBBB"] && log.extremes(layer: .wind, count: 3, now: now)?.lowest.isEmpty == true, "Extremwerte Wind: eine Station, keine niedrigsten")
+    check(log.extremes(layer: .visibility, now: now) == nil && log.extremes(layer: .symbol, now: now) == nil && log.extremes(layer: .sea, now: now) == nil, "Extremwerte: ohne Daten oder ohne Messwert-Ebene nil")
+
+    // Ebenen auf der Karte
+    let hum = log.content(home: nil, now: now, layer: .humidity).markers.filter { $0.id.hasPrefix("synop-") }
+    check(hum.count == 4 && hum.allSatisfy { $0.valueText != nil && $0.valueLevel != nil }, "Karte Feuchte: vier Stationen mit Taupunkt (\(hum.count))")
+    let reg = log.content(home: nil, now: now, layer: .precipitation).markers.filter { $0.id.hasPrefix("synop-") }
+    check(reg.count == 3 && reg.contains { $0.valueText == "12" } && reg.contains { $0.valueText == "3,2" }, "Karte Niederschlag: \(reg.map { $0.valueText ?? "-" })")
+    let details = log.content(home: nil, now: now, layer: .symbol).markers.first { $0.id == "synop-DBAA" }?.details ?? []
+    check(details.contains { $0.hasPrefix("Feuchte") } && details.contains { $0.contains("Niederschlag 12 mm in 6 h") }, "Auswahl nennt Feuchte und Niederschlag: \(details)")
+    check(SynopLog.Layer.allCases.filter { $0 != .symbol && $0 != .sea }.allSatisfy { SynopLog.Layer.measured.contains($0) }, "Alle Messwert-Ebenen sind aufgeführt")
+    check(SynopLog.Layer.temperature.text(-5) == "-5,0 °C" && SynopLog.Layer.pressure.text(1013) == "1013 hPa" && SynopLog.Layer.pressure.text(1013.4) == "1013,4 hPa" && SynopLog.Layer.visibility.text(4.5) == "4,5 km" && SynopLog.Layer.humidity.text(52.4) == "52 %", "Werttexte je Ebene")
+
+    // Abschluss-Rückruf: jede Meldung einmal, erst wenn vollständig
+    let em = SynopLog()
+    var emitted: [String] = []
+    em.onObservationClosed = { emitted.append($0.id) }
+    em.feed(klar("DBAA", lat: 54.0, lon: 8.0, t: 10), decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted.isEmpty, "Abschluss: die laufende Meldung ist noch nicht fertig")
+    em.feed(klar("DBBB", lat: 55.0, lon: 9.0, t: 11), decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted == ["DBAA"], "Abschluss: die nächste Meldung schließt die vorige ab (\(emitted))")
+    em.feed("\tBulletin end\n", decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted == ["DBAA", "DBBB"], "Abschluss: „Bulletin end“ schließt die letzte ab (\(emitted))")
+    // Wiederholt der Sender den Block, kommt nichts doppelt; die unfertige Meldung nach „Bulletin end“ wird nicht vorzeitig gemeldet
+    em.feed(klar("DBAA", lat: 54.0, lon: 8.0, t: 10), decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    em.feed("\tTemperature=", decoded: true, at: now)
+    em.feed("X", decoded: false, at: now)
+    check(emitted == ["DBAA", "DBBB"], "Abschluss: keine Doppelten, keine unfertige Meldung (\(emitted))")
+    let revBefore = em.revision
+    em.flush(at: now.addingTimeInterval(5))
+    em.flush(at: now.addingTimeInterval(10))
+    check(em.revision == revBefore, "Wiederholtes Auswerten derselben offenen Meldung ändert die Revision nicht")
+
+    // CSV
+    let fields = SynopCSV.row(a!).components(separatedBy: ";")
+    check(fields.count == SynopCSV.columns.count && SynopCSV.header.components(separatedBy: ";").count == SynopCSV.columns.count, "CSV: Zeile und Kopf haben \(SynopCSV.columns.count) Spalten (\(fields.count))")
+    check(fields[0].hasPrefix("20") && fields[0].hasSuffix("Z") && fields[2] == "DBAA" && fields[4] == "54.000" && fields[7] == "30.5" && fields[8] == "10.0" && fields[10] == "1020.4" && fields[11] == "Meereshoehe" && fields[16] == "12.0" && fields[17] == "6", "CSV: Werte mit Dezimalpunkt (\(fields))")
+    let noRain = SynopCSV.row(log.observations["DBEE"]!).components(separatedBy: ";")
+    check(noRain[8] == "" && noRain[9] == "" && noRain[10] == "" && noRain[11] == "" && noRain[16] == "", "CSV: fehlende Werte bleiben leer (\(noRain))")
+    check(SynopCSV.text("a;b") == "\"a;b\"" && SynopCSV.text("x\"y") == "\"x\"\"y\"" && SynopCSV.text("plain") == "plain", "CSV: Anführungszeichen bei Semikolon und Anführungszeichen")
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("digidec-csv-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let writer = SynopCSVWriter(directory: dir)
+    check(writer.append(a!) && writer.append(log.observations["DBBB"]!), "CSV-Datei: schreiben")
+    let fileText = (try? String(contentsOf: writer.fileURL(for: a!.received), encoding: .utf8)) ?? ""
+    let lines = fileText.split(separator: "\n").map(String.init)
+    check(lines.count == 3 && lines[0] == SynopCSV.header && lines[1].contains(";DBAA;") && lines[2].contains(";DBBB;"), "CSV-Datei: Kopfzeile einmal, dann je Meldung eine Zeile (\(lines.count))")
+    check(writer.fileURL(for: a!.received).lastPathComponent.hasPrefix("SYNOP-20") && writer.fileURL(for: a!.received).pathExtension == "csv", "CSV-Datei: Name SYNOP-JJJJ-MM-TT.csv")
+}
+
+// MARK: - Isobaren und Temperaturfläche aus den SYNOP-Beobachtungen (mit Zwischenspeicher)
+do {
+    let now = Date()
+    func pressureAt(_ lat: Double, _ lon: Double) -> Double {
+        let h = 25 * exp(-(pow((lat - 48) / 6, 2) + pow((lon - 4) / 9, 2)))
+        let t = -28 * exp(-(pow((lat - 57) / 5, 2) + pow((lon - 20) / 8, 2)))
+        return 1010 + h + t
+    }
+    var text = ""
+    for i in 0..<15 {
+        for j in 0..<15 {
+            let lat = ((40 + 24 * (Double(i) + 0.5) / 15 + 0.5 * cos(Double(5 * i + 2 * j))) * 1000).rounded() / 1000
+            let lon = ((-8 + 40 * (Double(j) + 0.5) / 15 + 0.7 * sin(Double(7 * i + 3 * j))) * 1000).rounded() / 1000
+            let p = (pressureAt(lat, lon) * 10).rounded() / 10
+            let temp = ((25 - 0.8 * (lat - 40)) * 10).rounded() / 10
+            text += "\tShip/Buoy identifier=ST\(i)X\(j)\n\tLatitude=\(lat)\n\tLongitude=\(lon)\n\tTemperature=\(temp) °C\n\tSea level pressure=\(p) hPa\n"
+        }
+    }
+    let log = SynopLog()
+    log.feed(text, decoded: true, at: now)
+    log.feed("X", decoded: false, at: now)
+    log.flush(at: now)
+    check(log.observations.count == 225, "Überlagerung: 225 Stationen (\(log.observations.count))")
+
+    check(!SynopOverlayOptions.off.isActive && SynopOverlayOptions(isobarStepHPa: 4).isActive && SynopOverlayOptions(temperatureField: true).isActive, "Überlagerung: aktiv nur mit Isobaren oder Fläche")
+    let none = log.content(home: nil, now: now, layer: .temperature)
+    check(none.contours.isEmpty && none.patches.isEmpty && none.note == nil, "Ohne Überlagerung bleibt die Karte wie bisher")
+
+    let iso = log.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now)
+    let levels = Set(iso.contours.map { Int($0.level) })
+    check(iso.contours.count >= 8 && levels.contains(1024) && levels.contains(992) && iso.patches.isEmpty && iso.note == nil, "Isobaren aus Stationen: \(iso.contours.count) Linien, Ebenen \(levels.sorted())")
+    check(iso.contours.contains { $0.label == "1024" && $0.labelPoint != nil } && Set(iso.contours.map(\.id)).count == iso.contours.count, "Isobaren: beschriftet, Kennungen eindeutig")
+    let hl = iso.centers.sorted { $0.title < $1.title }
+    check(hl.count == 2 && hl[0].title == "Hoch" && hl[1].title == "Tief" && hl[0].valueText?.hasPrefix("H 103") == true && hl[1].valueText?.hasPrefix("T 98") == true, "Hoch und Tief als Punkte: \(hl.map { $0.valueText ?? "-" })")
+    let iso2 = log.overlay(options: SynopOverlayOptions(isobarStepHPa: 2), now: now)
+    check(iso2.contours.count > iso.contours.count, "Isobaren alle 2 hPa: mehr Linien als alle 4 hPa (\(iso2.contours.count) / \(iso.contours.count))")
+    check(log.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now).contours.count == iso.contours.count, "Überlagerung aus dem Zwischenspeicher: gleiches Ergebnis")
+
+    let tf = log.overlay(options: SynopOverlayOptions(temperatureField: true), now: now)
+    check(tf.contours.isEmpty && tf.patches.count > 20 && tf.patches.allSatisfy { $0.level >= 0 && $0.level <= 1 && $0.corners.count == 4 }, "Temperaturfläche: \(tf.patches.count) Rechtecke")
+    // Wärmer im Süden: der südlichste Streifen hat einen höheren Farbwert als der nördlichste
+    let south = tf.patches.min { ($0.corners[0].lat) < ($1.corners[0].lat) }
+    let north = tf.patches.max { ($0.corners[0].lat) < ($1.corners[0].lat) }
+    check(south != nil && north != nil && south!.level > north!.level, "Temperaturfläche: Süden wärmer als Norden")
+
+    let both = log.content(home: nil, now: now, layer: .temperature, overlay: SynopOverlayOptions(isobarStepHPa: 4, temperatureField: true))
+    check(!both.contours.isEmpty && !both.patches.isEmpty && both.markers.contains { $0.id.hasPrefix("hl-") } && both.markers.contains { $0.id.hasPrefix("synop-") }, "Karteninhalt: Stationen, Hoch/Tief, Isobaren und Fläche zusammen")
+
+    // Zu wenige Stationen: Hinweis statt Linien
+    let few = SynopLog()
+    few.feed("\tShip/Buoy identifier=A1\n\tLatitude=50\n\tLongitude=8\n\tSea level pressure=1010 hPa\n\tTemperature=10 °C\n"
+             + "\tShip/Buoy identifier=A2\n\tLatitude=51\n\tLongitude=9\n\tSea level pressure=1011 hPa\n\tTemperature=11 °C\n", decoded: true, at: now)
+    few.feed("X", decoded: false, at: now)
+    let fewOverlay = few.overlay(options: SynopOverlayOptions(isobarStepHPa: 4, temperatureField: true), now: now)
+    check(fewOverlay.contours.isEmpty && fewOverlay.patches.isEmpty && fewOverlay.note?.contains("mindestens 5") == true, "Zu wenige Stationen: Hinweis (\(fewOverlay.note ?? "-"))")
+    // Alte Meldungen fließen nicht ein
+    check(log.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now.addingTimeInterval(SynopLog.overlayMaxAge + 3600)).contours.isEmpty, "Meldungen älter als 9 Stunden zählen nicht für Isobaren")
+    // Stationsdruck ohne Meereshöhe: keine Isobaren (Höhenfehler)
+    let stationOnly = SynopLog()
+    var stText = ""
+    for i in 0..<8 { stText += "\tShip/Buoy identifier=S\(i)\n\tLatitude=\(48 + Double(i) * 0.7)\n\tLongitude=\(8 + Double(i % 3))\n\tStation pressure=\(900 + i * 3) hPa\n" }
+    stationOnly.feed(stText, decoded: true, at: now)
+    stationOnly.feed("X", decoded: false, at: now)
+    check(stationOnly.overlay(options: SynopOverlayOptions(isobarStepHPa: 4), now: now).contours.isEmpty, "Nur Stationsdruck: keine Isobaren")
+}
+
+// MARK: - Textfilter für den Empfangstext
+do {
+    func run(_ f: ReceiveTextFilter, _ text: String, chunk: Int) -> String {
+        var runner = ReceiveTextFilterRunner(filter: f)
+        var out = ""
+        var i = text.startIndex
+        while i < text.endIndex {
+            let j = text.index(i, offsetBy: chunk, limitedBy: text.endIndex) ?? text.endIndex
+            out += runner.process(String(text[i..<j]))
+            i = j
+        }
+        return out + runner.flush()
+    }
+    let stream = "RYRYRYRYRYRY\r\nZCZC ABC\r\nBBXX DBCR 22064 99543\r\n=\r\nNNNN\r\nRYRYRYRYRY\r\nxx bbxx AAAA 1=\r\nNNNN rest"
+    let window = ReceiveTextFilter(enabled: true, start: "bbxx", stop: "nnnn", hideFiller: true)
+    let expected = "BBXX DBCR 22064 99543\r\n=\r\nNNNN\nbbxx AAAA 1=\r\nNNNN"
+    for n in [1, 2, 3, 5, 7, 100] {
+        let out = run(window, stream, chunk: n)
+        check(out == expected, "Filter ab/bis, Stücke zu \(n): \(out.debugDescription)")
+    }
+    // Nur Füllzeichen weglassen, auch über Stückgrenzen
+    let fillerOnly = ReceiveTextFilter(enabled: true, start: "", stop: "", hideFiller: true)
+    for n in [1, 4, 100] {
+        check(run(fillerOnly, stream, chunk: n) == "\r\nZCZC ABC\r\nBBXX DBCR 22064 99543\r\n=\r\nNNNN\r\n\r\nxx bbxx AAAA 1=\r\nNNNN rest", "Nur RYRY weg, Stücke zu \(n)")
+    }
+    // Ausgeschaltet: alles unverändert, auch wenn Start und Stopp gesetzt sind
+    check(run(ReceiveTextFilter(enabled: false, start: "bbxx", stop: "nnnn"), stream, chunk: 3) == stream, "Filter aus: Text unverändert")
+    // Stopp ohne Start wirkt nicht
+    check(run(ReceiveTextFilter(enabled: true, start: "", stop: "nnnn", hideFiller: false), stream, chunk: 7) == stream, "Stopp ohne Start: alles bleibt")
+    // Wörter, die auf RY enden, gehen nicht verloren
+    let words = "WEATHER FORECAST SECONDARY PRIMARY\r\n"
+    check(run(ReceiveTextFilter(enabled: true, hideFiller: true), words, chunk: 1) == words, "Wörter mit …RY am Ende bleiben erhalten")
+    // Klartext der SYNOP-Auswertung folgt dem Zustand
+    var runner = ReceiveTextFilterRunner(filter: window)
+    check(!runner.allowsDecoded(), "Filter zu: Klartext wird nicht angezeigt")
+    _ = runner.process("BBXX ")
+    check(runner.allowsDecoded(), "Filter offen: Klartext wird angezeigt")
+    _ = runner.process("DBCR=NNNN")
+    check(!runner.allowsDecoded(), "Nach dem Stopptext wieder zu")
+    runner.configure(ReceiveTextFilter(enabled: false))
+    check(runner.allowsDecoded(), "Filter aus: Klartext immer")
+    check(ReceiveTextFilter().summary == "aus" && window.summary == "ab „bbxx“ bis „nnnn“ ohne RYRY" && ReceiveTextFilter(enabled: true, hideFiller: false).summary == "an", "Filter: Kurzbeschreibung")
+    let coded = try? JSONDecoder().decode(ReceiveTextFilter.self, from: JSONEncoder().encode(window))
+    check(coded == window, "Filter: Speicherformat Rundreise")
+}
+
+// MARK: - Rohmeldung einer Station im Text finden (Sprung von der Karte)
+do {
+    let text = "AAXX 05061\r\n10655 12970 82205 10123 20103 10655 40113=\r\n10015 NIL=\r\n\tWMO Station=10655\r\n\tWMO station=Wuerzburg\r\nBBXX DBCR 05064 99543 10655 11111=\r\nNNNN\r\n"
+    func part(_ id: String) -> String? {
+        SynopRawLocator.find(id: id, in: text).map { (text as NSString).substring(with: $0) }
+    }
+    check(part("10655") == "10655 12970 82205 10123 20103 10655 40113=", "Rohmeldung: Anfang am Zeilenanfang, bis zum „=“; Zahl mitten in der Meldung und Klartext zählen nicht (\(String(describing: part("10655"))))")
+    check(part("DBCR") == "DBCR 05064 99543 10655 11111=", "Rohmeldung: Schiff hinter BBXX (\(String(describing: part("DBCR"))))")
+    check(part("10015") == "10015 NIL=", "Rohmeldung: Station nach „=“")
+    check(part("99999") == nil && SynopRawLocator.find(id: "", in: text) == nil && SynopRawLocator.find(id: "10655", in: "") == nil, "Rohmeldung: unbekannt oder leer → nil")
+    // Nur freistehendes Vorkommen mitten in einer Zeile: notfalls dieses
+    check(SynopRawLocator.find(id: "4321", in: "foo bar 4321 baz") == NSRange(location: 8, length: 8), "Rohmeldung: ohne Meldungsanfang das letzte freistehende Vorkommen")
+    // Teil einer längeren Zahl zählt nicht
+    check(SynopRawLocator.find(id: "655", in: text) == nil && SynopRawLocator.find(id: "1065", in: text) == nil, "Rohmeldung: Teil einer längeren Kennung zählt nicht")
+    // Das letzte Vorkommen gewinnt (Meldung wurde wiederholt)
+    let twice = "10655 12970 1=\r\n10655 12980 2=\r\n"
+    check(SynopRawLocator.find(id: "10655", in: twice).map { (twice as NSString).substring(with: $0) } == "10655 12980 2=", "Rohmeldung: bei Wiederholung die jüngste")
+}
+
+
+// MARK: - Freies Funkgerät: Endpunkt, Profile, Verbindung zu beliebigem Rechner (rigctld nachgebaut)
+do {
+    // Endpunkt: Rechner und Port prüfen
+    check(RigEndpoint(host: "127.0.0.1", port: 4532)?.text == "127.0.0.1:4532" && RigEndpoint(host: " radio.local ", port: 4533)?.host == "radio.local", "Endpunkt: IP und Name, Leerzeichen am Rand fallen weg")
+    check(RigEndpoint(host: "::1", port: 4532)?.text == "[::1]:4532" && RigEndpoint(host: "fe80::1", port: 1)?.text == "[fe80::1]:1", "Endpunkt: IPv6 in eckigen Klammern")
+    check(RigEndpoint(host: "", port: 4532) == nil && RigEndpoint(host: "a b", port: 4532) == nil && RigEndpoint(host: "röntgen", port: 4532) == nil && RigEndpoint(host: "host;rm", port: 4532) == nil, "Endpunkt: leer, Leerzeichen, Umlaute, Sonderzeichen ungültig")
+    check(RigEndpoint(host: "x", port: 0) == nil && RigEndpoint(host: "x", port: 65536) == nil && RigEndpoint(host: "x", port: 65535) != nil && RigEndpoint(host: "x", port: 1) != nil, "Endpunkt: Port 1 … 65535")
+    check(RigEndpoint(host: String(repeating: "a", count: 254), port: 1) == nil && RigEndpoint(host: String(repeating: "a", count: 253), port: 1) != nil, "Endpunkt: höchstens 253 Zeichen")
+    check(RigEndpoint.loopback(port: 4532).isLoopback && RigEndpoint(host: "localhost", port: 1)!.isLoopback && RigEndpoint(host: "127.1.2.3", port: 1)!.isLoopback && RigEndpoint(host: "::1", port: 1)!.isLoopback
+          && !RigEndpoint(host: "192.168.1.20", port: 1)!.isLoopback && !RigEndpoint(host: "shack.example.org", port: 1)!.isLoopback, "Endpunkt: Loopback erkannt")
+
+    // Profil
+    var p = RigProfile(name: "IC-7300")
+    check(p.host == "127.0.0.1" && p.port == 4532 && p.endpoint == RigEndpoint.loopback(port: 4532) && p.problem == nil && p.displayName == "IC-7300", "Profil: Voreinstellungen 127.0.0.1:4532")
+    p.host = "bad host"
+    check(p.endpoint == nil && p.problem?.hasPrefix("Rechner") == true, "Profil: ungültiger Rechner wird gemeldet")
+    p.host = "pi.local"; p.port = 70000
+    check(p.endpoint == nil && p.problem?.hasPrefix("Port") == true, "Profil: ungültiger Port wird gemeldet")
+    check(RigProfile(name: "  ", host: "pi.local", port: 4534).displayName == "rigctld pi.local:4534", "Profil: ohne Namen Rechner und Port als Anzeige")
+
+    // Liste
+    var list = RigProfileList()
+    let a = list.add(RigProfile(name: "")), b = list.add(RigProfile(name: "FDM-DUO", host: "192.168.1.5", port: 4540, audioUID: "UID-1", audioName: "USB Audio"))
+    check(a.name == "Funkgerät 1" && list.profiles.count == 2 && list.active == nil, "Liste: leerer Name wird „Funkgerät 1“, ohne Wahl gilt die Automatik")
+    list.activeID = b.id
+    check(list.active?.name == "FDM-DUO" && list.profile(id: a.id)?.id == a.id, "Liste: gewähltes Gerät")
+    var changed = b; changed.name = "FDM-DUO (Shack)"
+    list.update(changed)
+    check(list.profiles[1].name == "FDM-DUO (Shack)" && list.profiles.count == 2, "Liste: Eintrag ersetzt")
+    list.update(RigProfile(id: "unbekannt", name: "x"))
+    check(list.profiles.count == 2, "Liste: unbekannte Kennung ändert nichts")
+    let restored = RigProfileList.decoded(from: list.encoded())
+    check(restored == list && restored.active?.audioUID == "UID-1", "Liste: Speichern und Laden")
+    check(RigProfileList.decoded(from: nil) == RigProfileList() && RigProfileList.decoded(from: Data("kaputt".utf8)) == RigProfileList(), "Liste: Unlesbares → leer")
+    list.remove(id: b.id)
+    check(list.profiles.count == 1 && list.activeID == nil && list.active == nil, "Liste: gelöschtes gewähltes Gerät → Automatik")
+    check(RigProfileList(profiles: [], activeID: "weg").active == nil, "Liste: Wahl ohne Eintrag → Automatik")
+
+    // Verbindung über Rechnernamen („localhost“ probiert ::1 und 127.0.0.1) zu einem nachgebauten rigctld
+    final class Box: @unchecked Sendable { let lock = NSLock(); var last = RigState(); var count = 0 }
+    if let fake = FakeRigctld() {
+        let box = Box()
+        let client = RigctlClient { s in box.lock.withLock { box.last = s; box.count += 1 } }
+        client.setEndpoint(RigEndpoint(host: "localhost", port: Int(fake.port)))
+        var waited = 0.0
+        while waited < 4, box.lock.withLock({ box.last.frequencyHz }) == nil { Thread.sleep(forTimeInterval: 0.1); waited += 0.1 }
+        let s = box.lock.withLock { box.last }
+        check(s.connected && s.frequencyHz == 14_074_000 && s.mode == "USB" && s.host == "localhost" && s.port == fake.port, "Verbindung über „localhost“ (Name aufgelöst, IPv6 → IPv4): \(s)")
+        // Abstimmen über denselben Weg: nur F und M, danach liefert die Abfrage die neue Frequenz
+        let tuned = Box()
+        client.tune(frequencyHz: 7_074_000, mode: "LSB", passbandHz: 2700) { r in tuned.lock.withLock { tuned.count = r == .ok ? 1 : -1 } }
+        waited = 0
+        while waited < 3, box.lock.withLock({ box.last.frequencyHz }) != 7_074_000 { Thread.sleep(forTimeInterval: 0.1); waited += 0.1 }
+        check(tuned.lock.withLock { tuned.count } == 1 && fake.currentFrequency == 7_074_000 && fake.currentMode == "LSB", "Abstimmen: F und M kommen an")
+        check(box.lock.withLock { box.last.frequencyHz } == 7_074_000 && box.lock.withLock { box.last.mode } == "LSB", "Nach dem Abstimmen zeigt die Abfrage die neue Frequenz")
+        check(fake.commands.allSatisfy { ["f", "m"].contains($0) || $0.hasPrefix("F ") || $0.hasPrefix("M ") } && !fake.commands.contains { $0.hasPrefix("T") }, "Nur f, m, F, M gesendet, nie PTT: \(Set(fake.commands))")
+        // Umschalten auf einen anderen Endpunkt trennt zuerst
+        client.setEndpoint(nil)
+        Thread.sleep(forTimeInterval: 0.3)
+        check(!box.lock.withLock { box.last.connected } && box.lock.withLock { box.last.host } == nil, "Trennen setzt den Zustand zurück")
+
+        // Test-Knopf: einmalige Abfrage
+        let done = DispatchSemaphore(value: 0)
+        let probed = Box()
+        RigctlClient.probe(RigEndpoint(host: "127.0.0.1", port: Int(fake.port))!) { r in
+            if case .ok(let st) = r { probed.lock.withLock { probed.last = st } }
+            done.signal()
+        }
+        check(done.wait(timeout: .now() + 4) == .success && probed.lock.withLock { probed.last.frequencyHz } == 7_074_000 && probed.lock.withLock { probed.last.mode } == "LSB", "Test-Knopf: Frequenz und Mode gelesen")
+        check(RigProbeResult.ok(probed.last).message.hasPrefix("Verbunden · 7.074,000 kHz · LSB"), "Test-Knopf: Meldung \(RigProbeResult.ok(probed.last).message)")
+    } else {
+        check(false, "Test-rigctld konnte nicht starten")
+    }
+
+    // Kein Server: nicht erreichbar; Server, der nicht antwortet: keine Antwort; beides ohne Absturz
+    let none = DispatchSemaphore(value: 0)
+    let outcome = Box()
+    RigctlClient.probe(RigEndpoint(host: "127.0.0.1", port: 1)!) { r in outcome.lock.withLock { outcome.count = r == .unreachable ? 1 : -1 }; none.signal() }
+    check(none.wait(timeout: .now() + 4) == .success && outcome.lock.withLock { outcome.count } == 1, "Test-Knopf: nichts auf dem Port → „nicht erreichbar“")
+    if let mute = FakeRigctld(behavior: .silent) {
+        let silent = DispatchSemaphore(value: 0)
+        RigctlClient.probe(RigEndpoint(host: "127.0.0.1", port: Int(mute.port))!) { r in outcome.lock.withLock { outcome.count = r == .noAnswer ? 2 : -2 }; silent.signal() }
+        check(silent.wait(timeout: .now() + 4) == .success && outcome.lock.withLock { outcome.count } == 2, "Test-Knopf: Server schweigt → „keine Antwort“")
+    }
+    check(RigProbeResult.unreachable.message.contains("rigctld") && RigProbeResult.noAnswer.message.contains("keine Antwort"), "Test-Knopf: Meldungen")
+    // Nicht auflösbarer Name: kein Absturz, kein Hängen
+    let t0 = Date()
+    let unresolved = DispatchSemaphore(value: 0)
+    RigctlClient.probe(RigEndpoint(host: "gibt-es-nicht.invalid", port: 4532)!) { r in outcome.lock.withLock { outcome.count = r == .unreachable ? 3 : -3 }; unresolved.signal() }
+    check(unresolved.wait(timeout: .now() + 8) == .success && outcome.lock.withLock { outcome.count } == 3 && Date().timeIntervalSince(t0) < 8, "Nicht auflösbarer Rechnername: „nicht erreichbar“ in endlicher Zeit")
+}
+
+
+// MARK: - Funkgerät wählen: Automatik, freies Gerät, Auftrag per URL (RigModel)
+do {
+    let m = RigModel()
+    check(!m.hasRig && m.rigName == nil && m.description == nil && !m.overriddenByRequest, "RigModel: am Anfang kein Funkgerät")
+    m.follow(radio: .pcr1500)
+    check(m.hasRig && m.rigName == "IC-PCR1500" && m.customProfile == nil, "RigModel: Automatik folgt dem Codec (PCR-1500)")
+    m.use(profile: RigProfile(name: "IC-7300", host: "127.0.0.1", port: 4540))
+    check(m.rigName == "IC-7300" && m.customProfile?.port == 4540 && !m.overriddenByRequest, "RigModel: freies Gerät hat Vorrang vor der Automatik")
+    m.follow(radio: nil)
+    check(m.hasRig && m.rigName == "IC-7300", "RigModel: freies Gerät gilt auch ohne Commander-Codec (beliebiges Audiogerät)")
+    m.apply(request: DecodeRequest(source: "ft991a", rigctlPort: 4533))
+    check(m.customProfile == nil && m.overriddenByRequest && !m.hasRig, "RigModel: Auftrag eines Commanders → Automatik für diese Sitzung")
+    m.apply(request: DecodeRequest(source: "WSJT-X", rigctlPort: 4580))
+    check(m.customProfile?.host == "127.0.0.1" && m.customProfile?.port == 4580 && m.rigName == "WSJT-X" && m.overriddenByRequest, "RigModel: unbekannte Quelle mit Port → Gerät auf 127.0.0.1")
+    m.apply(request: DecodeRequest(source: "WSJT-X"))
+    m.apply(request: DecodeRequest(rigctlPort: 4590))
+    check(m.rigName == "WSJT-X" && m.customProfile?.port == 4580, "RigModel: Auftrag ohne Quelle oder ohne Port ändert nichts")
+    m.use(profile: nil)
+    check(!m.overriddenByRequest && m.customProfile == nil && !m.hasRig, "RigModel: Wahl in den Einstellungen hebt die Übersteuerung auf")
+    m.follow(radio: .ft991a)
+    check(m.rigName == "FT-991A" && m.description == "FT-991A", "RigModel: Beschreibung ohne Verbindung nur der Name")
+}
+
+
+// MARK: - Lizenz und Quellen: Dokumente, Markdown-Leser, Vollständigkeit (Projektordner = aktuelles Verzeichnis)
+do {
+    // Markdown-Leser
+    let md = "# Titel\n\nErster Absatz\nzweite Zeile\n\n- Punkt eins\n  - Unterpunkt\n- Punkt zwei\n  weiter\n## Abschnitt\n### Unter\nText\n#kein-Titel\n#### zu tief\n"
+    check(MarkdownLite.parse(md) == [.heading(level: 1, text: "Titel"), .paragraph("Erster Absatz zweite Zeile"), .bullet(level: 0, text: "Punkt eins"),
+                                     .bullet(level: 1, text: "Unterpunkt"), .bullet(level: 0, text: "Punkt zwei weiter"), .heading(level: 2, text: "Abschnitt"),
+                                     .heading(level: 3, text: "Unter"), .paragraph("Text #kein-Titel #### zu tief")], "Markdown: Überschriften, Absätze, Listen, Fortsetzung")
+    check(MarkdownLite.parse("") == [] && MarkdownLite.parse("\n\n  \n") == [], "Markdown: leer")
+
+    // Orte der Dokumente: zuerst das App-Bundle, dann der Projektordner
+    let a = URL(fileURLWithPath: "/app/Resources"), b = URL(fileURLWithPath: "/src")
+    check(LicenseDocument.license.candidates(bundleResources: a, projectRoot: b).map(\.path) == ["/app/Resources/LICENSE", "/src/LICENSE"]
+          && LicenseDocument.thirdParty.candidates(bundleResources: nil, projectRoot: b).map(\.path) == ["/src/THIRD_PARTY.md"], "Dokumente: Suchreihenfolge")
+    check(LicenseDocument.license.load(bundleResources: nil, projectRoot: nil) == nil, "Dokumente: nichts gefunden → nil")
+
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    if let licenseText = LicenseDocument.license.load(bundleResources: nil, projectRoot: root),
+       let thirdParty = LicenseDocument.thirdParty.load(bundleResources: nil, projectRoot: root) {
+    check(licenseText.contains("GNU GENERAL PUBLIC LICENSE") && licenseText.contains("Version 3, 29 June 2007") && licenseText.contains("END OF TERMS AND CONDITIONS")
+          && licenseText.contains("How to Apply These Terms to Your New Programs"), "LICENSE: vollständiger GPL-3-Text")
+    let blocks = MarkdownLite.parse(thirdParty)
+    check(blocks.first == .heading(level: 1, text: "Lizenz, Quellen und Drittanbieter-Software"), "THIRD_PARTY.md: Titel")
+    check(blocks.filter { if case .heading(2, _) = $0 { return true } else { return false } }.count == 6 && blocks.filter { if case .bullet = $0 { return true } else { return false } }.count > 30, "THIRD_PARTY.md: sechs Abschnitte mit Listenpunkten")
+    check(thirdParty.contains("GPL-3.0-or-later") && thirdParty.contains("`LICENSE`") && thirdParty.contains("https://github.com/betzburger/Digidec"), "THIRD_PARTY.md: Lizenz, LICENSE, Quelltext-Adresse")
+
+    // Jede Lizenzdatei im Repository ist in THIRD_PARTY.md genannt
+    func files(under dir: String, where match: (String) -> Bool) -> [String] {
+        guard let e = FileManager.default.enumerator(atPath: root.appendingPathComponent(dir).path) else { return [] }
+        return (e.allObjects as? [String] ?? []).filter { match(($0 as NSString).lastPathComponent) }
+    }
+    let licenseFiles = files(under: "Vendor", where: { $0.hasPrefix("LICENSE_") }).filter { !$0.contains("_upstream") }.map { ($0 as NSString).lastPathComponent }
+    check(licenseFiles.count >= 10 && licenseFiles.allSatisfy { thirdParty.contains($0) }, "Jede LICENSE_*-Datei steht in THIRD_PARTY.md (fehlt: \(licenseFiles.filter { !thirdParty.contains($0) }))")
+    // Jede Datei in Resources (außer Symbolen) ist genannt, mit Dateiname oder Ordner
+    let resourceFiles = files(under: "Resources", where: { !$0.hasPrefix("AppIcon") && !$0.hasPrefix(".") })
+    let unnamed = resourceFiles.filter { path in
+        let name = (path as NSString).lastPathComponent
+        let folder = (path as NSString).deletingLastPathComponent
+        return !thirdParty.contains(name) && !(folder.isEmpty ? false : thirdParty.contains("Resources/\(folder)/"))
+    }
+    check(!resourceFiles.isEmpty && unnamed.isEmpty, "Jede Datei in Resources ist in THIRD_PARTY.md genannt (fehlt: \(unnamed))")
+    // Jedes Vendor-Verzeichnis ist genannt: der Ordner selbst oder das Vorbild
+    let referenceByModule = ["Acars": "acarsdec", "Ais": "AIS-catcher", "Ale": "openALE", "Aprs": "Dire Wolf", "Dsc": "TAOSW", "Pager": "multimon-ng", "Skimmer": "KZ4AP", "Sonde": "rs41mod"]
+    let vendorDirs = ((try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Vendor").path)) ?? []).filter { !$0.hasPrefix("_") && !$0.hasPrefix(".") }
+    let missing = vendorDirs.filter { dir in !(thirdParty.contains("Vendor/\(dir)/") || (referenceByModule[dir].map { thirdParty.contains($0) } ?? false)) }
+    check(vendorDirs.count >= 10 && missing.isEmpty, "Jedes Vendor-Verzeichnis ist in THIRD_PARTY.md genannt (fehlt: \(missing))")
+    // Neue eigene Dateien brauchen die SPDX-Kennzeichnung
+    var swiftFiles = 0
+    var withoutHeader: [String] = []
+    for dir in ["Sources", "Tools"] {
+        for relative in files(under: dir, where: { $0.hasSuffix(".swift") }) {
+            swiftFiles += 1
+            let url = root.appendingPathComponent(dir).appendingPathComponent(relative)
+            let head = ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n", maxSplits: 4, omittingEmptySubsequences: false).prefix(4)
+            if !head.contains(where: { $0.contains("SPDX-License-Identifier: GPL-3.0-or-later") }) { withoutHeader.append(dir + "/" + relative) }
+        }
+    }
+    check(swiftFiles > 150 && withoutHeader.isEmpty, "Jede Swift-Datei trägt „SPDX-License-Identifier: GPL-3.0-or-later“ (fehlt: \(withoutHeader.prefix(5)))")
+    } else {
+        check(false, "LICENSE und THIRD_PARTY.md im Projektordner \(root.path)")
+    }
+}
+print("\(checks) Prüfungen, \(failures) Fehler" + (skipped > 0 ? ", \(skipped) übersprungen (Aufnahmen fehlen: TestData/ ist nur lokal)" : ""))
+// MARK: - AIS (Automatic Identification System)
+
+/// Aufnehmen einer Nachricht aus einem !AIVDM-Satz (einteilig)
+@MainActor func aisBits(_ sentence: String) -> AISBits? {
+    guard let s = AISNMEA.parse(sentence), let b = AISArmor.decode(s.payload, fill: s.fill) else { return nil }
+    return AISBits(b)
+}
+
+@MainActor func aisTests() {
+    // NMEA: Prüfsumme, Panzerung, mehrteilige Sätze (Beispiele aus der gpsd-Sammlung)
+    let s1 = "!AIVDM,1,1,,A,15RTgt0PAso;90TKcjM8h6g208CQ,0*4A"
+    check(AISNMEA.parse(s1) != nil, "AIS: NMEA-Satz mit gültiger Prüfsumme")
+    check(AISNMEA.parse(s1.replacingOccurrences(of: "4A", with: "4B")) == nil, "AIS: falsche Prüfsumme wird abgelehnt")
+    if let b = aisBits(s1), let m = AISMessage.decode(b) {
+        check(m.type == 1 && m.mmsi == 371_798_000, "AIS Typ 1: MMSI \(m.mmsi)")
+        check(abs((m.longitude ?? 0) - (-123.3953833)) < 1e-6 && abs((m.latitude ?? 0) - 48.38163333) < 1e-6, "AIS Typ 1: Position \(String(describing: m.longitude)), \(String(describing: m.latitude))")
+        check(abs((m.sog ?? 0) - 12.3) < 1e-9 && abs((m.cog ?? 0) - 224.0) < 1e-9 && m.heading == 215 && m.navStatus == 0 && m.timestampSecond == 33, "AIS Typ 1: Fahrt, Kurs, Steven, Status, Sekunde")
+        // Rundreise: Bits → Satz → Bits
+        let again = AISNMEA.sentences(for: b.bits, channel: "A")
+        check(again.count == 1 && AISNMEA.parse(again[0])?.payload == "15RTgt0PAso;90TKcjM8h6g208CQ", "AIS: Panzerung Rundreise")
+    } else { check(false, "AIS: Satz Typ 1 nicht lesbar") }
+    // Typ 5 (zweiteilig): Stamm- und Reisedaten
+    var asm = AISNMEA.Assembler()
+    let t5a = "!AIVDM,2,1,1,A,55?MbV02>H97ac<H4eEK6W@D4P4N5oQ5:@AI<T400000000HEP00000000,0*10"
+    let t5b = "!AIVDM,2,2,1,A,00000000000,2*2A"
+    _ = t5a; _ = t5b
+    // eigene Vorlage über den Sender: Typ 5 bauen, in zwei Sätze teilen, zusammensetzen, lesen
+    let p5 = AISSignalGenerator.staticVoyage(mmsi: 351_759_000, imo: 9_134_270, callsign: "3FOF8", name: "EVER DIADEM", shipType: 70, bow: 225, stern: 70, port: 1, starboard: 31,
+                                             draught: 12.2, destination: "NEW YORK", etaMonth: 5, etaDay: 15, etaHour: 14, etaMinute: 0)
+    let parts = AISNMEA.sentences(for: p5, channel: "B", sequence: 3)
+    check(parts.count == 2 && parts.allSatisfy { $0.count <= 82 }, "AIS: Typ 5 wird in zwei Sätze geteilt (\(parts.count))")
+    var joined: [UInt8]?
+    for p in parts { if let s = AISNMEA.parse(p) { joined = asm.add(s) } }
+    check(joined == p5, "AIS: mehrteilige Sätze setzen sich wieder zusammen")
+    if let m = AISMessage.decode(AISBits(p5)) {
+        check(m.name == "EVER DIADEM" && m.callsign == "3FOF8" && m.imo == 9_134_270 && m.shipType == 70 && m.destination == "NEW YORK", "AIS Typ 5: Name, Rufzeichen, IMO, Typ, Ziel")
+        check(m.length == 295 && m.beam == 32 && m.draught == 12.2 && m.etaMonth == 5 && m.etaDay == 15 && m.etaHour == 14 && m.etaMinute == 0, "AIS Typ 5: Maße, Tiefgang, ETA")
+    } else { check(false, "AIS Typ 5 nicht lesbar") }
+    // gpsd-Satz der Klasse B (Typ 18) und Seezeichen (Typ 21)
+    let t18 = AISSignalGenerator.classBPosition(mmsi: 338_087_471, lat: 40.6841, lon: -74.0738, sog: 0.1, cog: 79.6, heading: 49, second: 49)
+    if let m = AISMessage.decode(AISBits(t18)) {
+        check(m.type == 18 && m.classB && abs((m.latitude ?? 0) - 40.6841) < 1e-5 && abs((m.longitude ?? 0) + 74.0738) < 1e-5 && m.heading == 49, "AIS Typ 18: Klasse B Position")
+        check(AISMessage.kind(mmsi: m.mmsi, type: 18) == .shipB, "AIS: Klasse B erkannt")
+    } else { check(false, "AIS Typ 18 nicht lesbar") }
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.aidToNavigation(mmsi: 992_110_005, type: 20, name: "HELGOLAND TONNE", lat: 54.1, lon: 7.9))) {
+        check(m.type == 21 && m.name == "HELGOLAND TONNE" && m.atonType == 20 && m.kind == .aid && AISAtonType.text(20).contains("Nordkardinal"), "AIS Typ 21: Seezeichen")
+    } else { check(false, "AIS Typ 21 nicht lesbar") }
+    // Klasse-B-Stammdaten in zwei Teilen (Typ 24 A und B) werden zusammengeführt
+    var vessel = AISVessel(mmsi: 211_000_001, now: Date(timeIntervalSince1970: 0))
+    if let a = AISMessage.decode(AISBits(AISSignalGenerator.classBStaticA(mmsi: 211_000_001, name: "SEGELFIX"))),
+       let b = AISMessage.decode(AISBits(AISSignalGenerator.classBStaticB(mmsi: 211_000_001, shipType: 36, callsign: "DJ1234", bow: 6, stern: 4, port: 1, starboard: 2))),
+       let p = AISMessage.decode(AISBits(AISSignalGenerator.classBPosition(mmsi: 211_000_001, lat: 54.5, lon: 10.2, sog: 5.5, cog: 100))) {
+        vessel.ingest(a, at: Date(timeIntervalSince1970: 1))
+        vessel.ingest(b, at: Date(timeIntervalSince1970: 2))
+        vessel.ingest(p, at: Date(timeIntervalSince1970: 3))
+        check(vessel.name == "SEGELFIX" && vessel.callsign == "DJ1234" && vessel.shipType == 36 && vessel.length == 10 && vessel.beam == 3 && vessel.isClassB && vessel.kind == .shipB, "AIS: Typ 24 Teil A und B ergeben ein Schiff")
+        check(vessel.point != nil && vessel.sog == 5.5 && vessel.messages == 3 && vessel.track.count == 1, "AIS: Position und Zähler")
+    } else { check(false, "AIS Typ 24 nicht lesbar") }
+    // Länge der Nachrichten und MMSI-Prüfung
+    check(AISMessage.isPlausible(AISBits(AISSignalGenerator.positionReport(mmsi: 211_000_001, lat: 54, lon: 10))), "AIS: Typ 1 mit 168 Bit ist plausibel")
+    check(!AISMessage.isPlausible(AISBits(Array(AISSignalGenerator.positionReport(mmsi: 211_000_001, lat: 54, lon: 10).prefix(160)))), "AIS: Typ 1 mit falscher Länge wird verworfen")
+    check(AISMessage.isPlausible(AISBits(AISSignalGenerator.positionReport(mmsi: 222_222_222, lat: 54, lon: 10))), "AIS: Platzhalter-MMSI 222222222 gilt beim ersten Versuch")
+    check(!AISMessage.isPlausible(AISBits(AISSignalGenerator.positionReport(mmsi: 222_222_222, lat: 54, lon: 10)), strictMMSI: true), "AIS: Platzhalter-MMSI gilt nicht für korrigierte Rahmen")
+    check(AISCountry.isValidMMSI(211_000_001) && AISCountry.isValidMMSI(970_123_456) && AISCountry.isValidMMSI(992_110_000) && !AISCountry.isValidMMSI(14_046_703) && !AISCountry.isValidMMSI(1_500_000_000), "AIS: MMSI-Formen")
+    // Länder: MID und Flagge
+    check(AISCountry.iso(ofMMSI: 211_234_567) == "DE" && AISCountry.iso(ofMMSI: 244_000_000) == "NL" && AISCountry.iso(ofMMSI: 992_110_000) == "DE" && AISCountry.iso(ofMMSI: 2_110_000) == "DE", "AIS: MID → Land (Schiff, Seezeichen 99MID, Küstenstation 00MID)")
+    check(AISCountry.flag(ofISO: "DE") == "🇩🇪" && AISCountry.name(ofMMSI: 211_234_567) == "Deutschland", "AIS: Flagge und Landesname (\(AISCountry.name(ofMMSI: 211_234_567) ?? "–"))")
+    check(AISMessage.kind(mmsi: 970_123_456) == .sart && AISMessage.kind(mmsi: 992_110_000) == .aid && AISMessage.kind(mmsi: 2_110_000) == .base, "AIS: Art der Funkstelle nach MMSI")
+    check(AISShipType.text(70) == "Frachtschiff" && AISShipType.text(81).contains("Gefahrgut A") && AISShipType.group(60) == .passenger && AISShipType.short(80) == "Tanker", "AIS: Schiffstypen")
+
+    // Rahmenbildung: Bit-Stopfen, CRC, Leitungsbitfolge (Byteordnung)
+    let payload = AISSignalGenerator.positionReport(mmsi: 211_000_001, lat: 54.5, lon: 10.2, sog: 3, cog: 90)
+    var wire = AISFraming.wireBits(payload: payload)
+    // nach den Pegelwechseln (NRZI) wieder zu Bits
+    var d = AISDeframer()
+    var got: AISDeframer.Frame?
+    for b in wire { if let f = d.push(b) { got = f } }
+    check(got?.bits == payload, "AIS: Rahmenbildung gibt die Nutzbits zurück (Bytefolge MSB-zuerst der Nachricht)")
+    // fünf Einsen am Stück: eine Null wird gestopft; Nutzlast mit vielen Einsen übersteht den Weg
+    var ones = AISBitWriter()
+    ones.u(1, 6); ones.u(0, 2); ones.u(0x3FFFFFFF & 211_000_001, 30)
+    for _ in 0..<12 { ones.u(0xFF, 8) }
+    ones.pad(to: 168)
+    wire = AISFraming.wireBits(payload: ones.bits)
+    var d2 = AISDeframer()
+    var got2: AISDeframer.Frame?
+    for b in wire { if let f = d2.push(b) { got2 = f } }
+    check(got2?.bits == ones.bits, "AIS: Bit-Stopfen bei langen Einserfolgen")
+    // ein verfälschtes Bit lässt die Prüfsumme scheitern, die Korrektur findet es wieder
+    var bad = AISBitOrder.swapBytes(payload) + AISCRC.checksumBits(AISBitOrder.swapBytes(payload))
+    check(AISCRC.residue(bad) == AISCRC.goodResidue, "AIS: CRC-16 der Leitungsbits stimmt (Rest 0xF0B8)")
+    bad[77] ^= 1
+    check(AISCRC.residue(bad) != AISCRC.goodResidue, "AIS: CRC erkennt einen Bitfehler")
+    let fixed = AISDeframer.repair(bad, confidence: [Float](repeating: 1, count: bad.count)) { AISMessage.isPlausible(AISBits($0), strictMMSI: true) }
+    check(fixed == payload, "AIS: Korrektur eines einzelnen Bitfehlers")
+    bad[120] ^= 1
+    var conf = [Float](repeating: 1, count: bad.count)
+    conf[77] = 0.1; conf[120] = 0.2
+    check(AISDeframer.repair(bad, confidence: conf, accept: { AISMessage.isPlausible(AISBits($0), strictMMSI: true) }) == payload, "AIS: Korrektur zweier unsicherer Bits")
+
+    // Empfänger Ende-zu-Ende: Burst-Folge als Diskriminator-Audio mit Frequenzablage, Taktfehler und beiden Polaritäten
+    var rng = AISSignalGenerator.RNG(seed: 11)
+    var payloads: [[UInt8]] = []
+    var bursts: [AISSignalGenerator.Burst] = []
+    for k in 0..<24 {
+        let mmsi = UInt32(211_000_000 + k * 1_000 + 7)
+        let p: [UInt8]
+        switch k % 4 {
+        case 0: p = AISSignalGenerator.positionReport(mmsi: mmsi, lat: 50 + rng.uniform() * 8, lon: 5 + rng.uniform() * 10, sog: rng.uniform() * 20, cog: rng.uniform() * 359, heading: 100, second: k)
+        case 1: p = AISSignalGenerator.staticVoyage(mmsi: mmsi, imo: 9_000_000 + UInt32(k), callsign: "DA\(k)", name: "SCHIFF \(k)", shipType: 70, bow: 100, stern: 20, port: 8, starboard: 9, draught: 6.3, destination: "KIEL")
+        case 2: p = AISSignalGenerator.classBPosition(mmsi: mmsi, lat: 54 + rng.uniform(), lon: 10 + rng.uniform(), sog: 4, cog: 30)
+        default: p = AISSignalGenerator.aidToNavigation(mmsi: 992_110_000 + UInt32(k), type: 11, name: "TONNE \(k)", lat: 54.3, lon: 10.1)
+        }
+        payloads.append(p)
+        bursts.append(.init(payload: p, start: 0.15 + Double(k) * 0.11, offset: Float((rng.uniform() - 0.5) * 0.12), polarity: k % 2 == 0 ? 1 : -1, ppm: (rng.uniform() - 0.5) * 160))
+    }
+    func receive(_ audio: [Float]) -> (set: Set<[UInt8]>, stats: AISStats) {
+        let rx = AISReceiver(sampleRate: 48_000)
+        var out = Set<[UInt8]>()
+        rx.onFrame = { out.insert($0.bits) }
+        var i = 0
+        while i < audio.count {
+            let n = min(960, audio.count - i)
+            audio.withUnsafeBufferPointer { rx.process(UnsafeBufferPointer(start: $0.baseAddress! + i, count: n)) }
+            i += n
+        }
+        return (out, rx.stats)
+    }
+    let clean = receive(AISSignalGenerator.audio(bursts: bursts, duration: 3.0, noise: 0))
+    check(clean.set == Set(payloads), "AIS-Empfänger: alle 24 Bursts fehlerfrei gelesen (\(clean.set.intersection(Set(payloads)).count) von 24, \(clean.set.count) Rahmen)")
+    check(clean.stats.frames == 24 && clean.stats.implausible == 0, "AIS-Empfänger: Zähler \(clean.stats)")
+    let noisy = receive(AISSignalGenerator.audio(bursts: bursts, duration: 3.0, noise: 0.04, seed: 5))
+    check(noisy.set.intersection(Set(payloads)).count >= 23 && noisy.set.subtracting(Set(payloads)).isEmpty, "AIS-Empfänger: mit Rauschen (\(noisy.set.intersection(Set(payloads)).count) von 24, unerwartet \(noisy.set.subtracting(Set(payloads)).count))")
+    // anderes Pegelverhältnis des SDR-Programms (Audio leiser und lauter)
+    let quiet = receive(AISSignalGenerator.audio(bursts: bursts, duration: 3.0, swing: 0.05, noise: 0))
+    let loud = receive(AISSignalGenerator.audio(bursts: bursts, duration: 3.0, swing: 0.8, noise: 0))
+    check(quiet.set == Set(payloads) && loud.set == Set(payloads), "AIS-Empfänger: Audiopegel 0,05 und 0,8 (\(quiet.set.count), \(loud.set.count) von 24)")
+    // nur Rauschen: keine Zufallstreffer
+    let silence = receive(AISSignalGenerator.audio(bursts: [], duration: 40, noise: 0.25, seed: 9))
+    check(silence.set.isEmpty, "AIS-Empfänger: 40 s reines Rauschen ohne Rahmen (\(silence.set.count))")
+
+    // Controller: Schiffe aus Rahmen, Zusammenführen, Filter, Karte, Log
+    let settings = AISSettingsStore()
+    let c = AISController(pipeline: AudioPipeline(), settings: settings)
+    c.logEnabled = false
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    c.homePoint = Maidenhead.point("JN49WS")
+    c.ingest(bits: AISSignalGenerator.positionReport(mmsi: 211_234_567, lat: 53.55, lon: 9.97, sog: 11.2, cog: 275, heading: 274), at: t0)
+    c.ingest(bits: p5, at: t0.addingTimeInterval(1))
+    c.ingest(bits: AISSignalGenerator.positionReport(mmsi: 351_759_000, lat: 53.9, lon: 8.7, sog: 14.1, cog: 100, heading: 101), at: t0.addingTimeInterval(2))
+    c.ingest(bits: AISSignalGenerator.aidToNavigation(mmsi: 992_110_005, type: 20, name: "ELBE 1", lat: 54.0, lon: 8.1), at: t0.addingTimeInterval(3))
+    c.ingest(bits: AISSignalGenerator.baseStation(mmsi: 2_111_240, lat: 53.54, lon: 9.96, year: 2026, month: 10, day: 4, hour: 12, minute: 0, second: 0), at: t0.addingTimeInterval(4))
+    c.ingest(bits: AISSignalGenerator.positionReport(mmsi: 211_234_567, lat: 53.551, lon: 9.95, sog: 11.0, cog: 275, heading: 274), at: t0.addingTimeInterval(10))
+    check(c.messageCount == 6 && c.typeCounts[1] == 3 && c.typeCounts[5] == 1 && c.typeCounts[21] == 1 && c.typeCounts[4] == 1, "AIS-Controller: Meldungen nach Typ \(c.typeCounts)")
+    let ever = c.vessel(351_759_000)
+    check(ever?.name == "EVER DIADEM" && ever?.imo == 9_134_270 && ever?.point != nil && ever?.kind == .shipA, "AIS-Controller: Stammdaten (Typ 5) und Position (Typ 1) im selben Schiff")
+    check(c.vessel(211_234_567)?.track.count == 2 && c.vessel(211_234_567)?.positions == 2, "AIS-Controller: zweite Position verlängert den Weg")
+    check(c.vessel(992_110_005)?.kind == .aid && c.vessel(2_111_240)?.kind == .base, "AIS-Controller: Seezeichen und Küstenstation")
+    let km = Geo.distanceKm(Maidenhead.point("JN49WS")!, GeoPoint(lat: 53.9, lon: 8.7))
+    check((c.farthest?.km ?? 0) > 400 && (c.farthest?.km ?? 0) < km + 150, "AIS-Controller: weitester Empfang \(String(format: "%.0f", c.farthest?.km ?? 0)) km")
+    let all = AISMapBuilder.Filter()
+    let vs = [c.vessel(211_234_567)!, c.vessel(351_759_000)!, c.vessel(992_110_005)!, c.vessel(2_111_240)!]
+    let map = AISMapBuilder.content(vs, home: c.homePoint, now: t0.addingTimeInterval(20), filter: all, selection: nil)
+    check(map.markers.count == 4 && map.markers.contains { $0.id == "ais-351759000" && $0.title == "EVER DIADEM" && $0.headingDeg == 101 }, "AIS-Karte: 4 Punkte, Schiff mit Name und Kurs")
+    check(map.markers.first { $0.id == "ais-211234567" }?.track.count == 2, "AIS-Karte: Weg des fahrenden Schiffs")
+    check(AISMapBuilder.content(vs, home: nil, now: t0, filter: .init(ships: true, aids: false, base: false), selection: nil).markers.count == 2, "AIS-Karte: Filter ohne Seezeichen und Stationen")
+    check(AISMapBuilder.mmsi(fromID: "ais-351759000") == 351_759_000 && AISMapBuilder.mmsi(fromID: "ac-1") == nil, "AIS-Karte: Punktkennung ↔ MMSI")
+    let det = AISMapBuilder.details(ever!, home: c.homePoint, age: 12).joined(separator: "\n")
+    check(det.contains("IMO 9134270") && det.contains("NEW YORK") && det.contains("295 × 32 m") && det.contains("Tiefgang 12,2 m") && det.contains("Panama"), "AIS-Karte: Einzelheiten \(det)")
+    check(AISFormat.age(30) == "30 s" && AISFormat.age(600) == "10 min" && AISFormat.age(7200) == "2 h" && AISFormat.seaMiles(km: 18.52) == "10,0 sm", "AIS: Formate")
+    // alte Schiffe fallen heraus: Einstellung „Behalten“ (Seezeichen länger)
+    check(settings.keepMinutes >= 5, "AIS: Voreinstellung Behalten")
+
+    // Einstellungen, Abstimmung, Modulliste, URL
+    check(DecoderModuleInfo.ais.isAvailable && DecoderModuleInfo.ais.band == .vhfUhf && DecoderModuleInfo.ais.displayName == "AIS" && DecoderModuleInfo.ais.hasMap, "AIS: Modul in der Liste (UKW, mit Karte)")
+    check(DecoderModuleInfo.ais.presetIDs == ["a", "b", "both"] && AISChannel(rawValue: "b")?.frequencyHz == 162_025_000 && AISChannel.a.frequencyHz == 161_975_000, "AIS: Kanäle 161,975 und 162,025 MHz")
+    check(RigTuneTarget.ais(channel: .a) == RigTuneTarget(dialHz: 161_975_000, mode: "FM", passbandHz: 25_000) && RigTuneTarget.ais(channel: .free) == nil, "AIS: Abstimmung FM auf 161,975 MHz")
+    if case .success(let r) = DecodeRequestParser.parse(URL(string: "digidec://decode?mode=ais&preset=b")!) {
+        check(r.module == .ais && r.presetID == "b", "AIS: URL-Auftrag mit Kanal B")
+    } else { check(false, "AIS: URL-Auftrag abgelehnt") }
+    check(AISDiagnosis.assess(inputDB: -100, stats: AISStats()).severity == .problem && AISDiagnosis.assess(inputDB: -30, stats: AISStats()).severity == .waiting, "AIS: Diagnose kein Audio / Suche")
+    var st = AISStats(); st.frames = 5; st.bursts = 6
+    check(AISDiagnosis.assess(inputDB: -30, stats: st).severity == .ok, "AIS: Diagnose Empfang gut")
+
+    // Netzabfrage: Verweise (ohne Netz)
+    let q = ShipQuery(mmsi: 211_234_567, imo: 9_241_061, callsign: "DABC", name: "TEST SCHIFF")
+    let links = ShipLinks.links(for: q).map { $0.url.absoluteString }
+    check(links.contains("https://www.marinetraffic.com/en/ais/details/ships/mmsi:211234567") && links.contains("https://www.vesselfinder.com/vessels/details/9241061") && links.contains { $0.contains("shipspotting.com/photos/gallery?imo=9241061") }, "AIS: Verweise zu Schiffsdatenbanken (\(links.count))")
+    check(ShipLinks.links(for: ShipQuery(mmsi: 211_000_001)).contains { $0.url.absoluteString.contains("vesselfinder.com/vessels?name=211000001") }, "AIS: Verweise ohne IMO-Nummer")
+    check(ShipQuery(mmsi: 5, imo: 9).cacheKey == "5-9" && ShipWebInfo().isEmpty, "AIS: Abfrage-Schlüssel")
+}
+aisTests()
+
+
+// MARK: - AIS: binäre Nachrichten und zwei Kanäle
+
+@MainActor func aisBinaryTests() {
+    // Wetter nach IMO SN/Circ.236 (FI 11): Messstation Irland aus der gpsd-Sammlung, Werte der Auswertung des Kanaton-Geräts
+    if let s = AISNMEA.parse("!AIVDO,1,1,4,B,8>jR06@0Bk3:wOli;<`WPhh<1rqVBQf2V@Pdt0J82avIM2b<<Rv1t<ot=@1,2*54"), let b = AISArmor.decode(s.payload, fill: s.fill),
+       let m = AISMessage.decode(AISBits(b)), case .meteo(let w)? = m.binary {
+        check(m.type == 8 && m.dac == 1 && m.fid == 11 && m.mmsi == 992_509_977 && m.kind == .aid, "AIS Binär: Typ 8, DAC 1, FI 11 von 992509977")
+        check(abs((w.latitude ?? 0) - 53.29488) < 1e-4 && abs((w.longitude ?? 0) + 6.13398) < 1e-4, "AIS FI 11: Ort \(String(describing: w.latitude)), \(String(describing: w.longitude))")
+        check(w.windKn == 3 && w.gustKn == 6 && w.windDir == 12 && w.gustDir == 15 && w.day == 18 && w.hour == 17 && w.minute == 15, "AIS FI 11: Wind und Zeit")
+        check(w.airTemp == 14.2 && w.humidity == 50 && abs((w.dewPoint ?? 0) - 12.3) < 1e-9 && w.pressure == 1024 && w.pressureTendency == 2, "AIS FI 11: Luft (14,2 °C, 50 %, Taupunkt 12,3, 1024 hPa, steigend)")
+        check(abs((w.visibilityNM ?? 0) - 15.3) < 1e-9 && abs((w.waterLevel ?? 0) + 8.4) < 1e-9 && w.levelTrend == 1 && abs((w.currentKn ?? 0) - 10.3) < 1e-9 && w.currentDir == 256, "AIS FI 11: Sicht, Wasserstand, Strom")
+        check(abs((w.waveHeight ?? 0) - 4.2) < 1e-9 && w.wavePeriod == 35 && w.waveDir == 25 && abs((w.swellHeight ?? 0) - 2.3) < 1e-9 && w.swellPeriod == 48 && w.swellDir == 124 && w.seaState == 3, "AIS FI 11: Wellen, Dünung, Seegang")
+        check(abs((w.waterTemp ?? 0) - 12.3) < 1e-9 && abs((w.salinity ?? 0) - 5.3) < 1e-9 && w.ice == false && w.precipitation == nil, "AIS FI 11: Wassertemperatur, Salzgehalt, Eis, Niederschlag „6“ unbekannt")
+        check(w.lines.contains { $0.hasPrefix("Wind 3 kn aus NNO (12°)") } && w.lines.contains { $0.contains("Seegang 3 Bft: schwache Brise") } && w.summary.contains("1024 hPa"), "AIS FI 11: Anzeigetext \(w.lines.first ?? "")")
+    } else { check(false, "AIS FI 11 nicht lesbar") }
+    // Finnische Küstenstation (00230…): Kälte, Hochdruck
+    if let b = aisBits("!AIVDM,1,1,,A,8@2<HW@0BkdhF0dcH59=RiRRDqnJ7wfRwwwwwwwwwwwwwwwwwwwwwwwwwt0,2*7D"), let m = AISMessage.decode(b), case .meteo(let w)? = m.binary {
+        check(abs((w.latitude ?? 0) - 64.65) < 1e-6 && abs((w.longitude ?? 0) - 24.4) < 1e-6 && w.windKn == 11 && w.windDir == 162 && w.airTemp == -12.7 && w.pressure == 1032 && w.humidity == 80, "AIS FI 11: Finnland (64,65 N 24,4 O, 11 kn, −12,7 °C, 1032 hPa)")
+        check(w.waterLevel == nil && w.waveHeight == nil && w.dewPoint == nil && w.visibilityNM == nil, "AIS FI 11: nicht verfügbare Werte bleiben leer")
+    } else { check(false, "AIS FI 11 Finnland nicht lesbar") }
+    // Binnenschiff (DAC 200, FI 10) aus der Sammlung: ENI, Maße, Fahrzeugart
+    if let b = aisBits("!AIVDM,1,1,,B,83aDChPj2d<dL<uM=hhhI?a@6HP0,0*40"), let m = AISMessage.decode(b), case .inland(let i)? = m.binary {
+        check(m.dac == 200 && m.fid == 10 && i.eni == "02103547" && i.length == 39.0 && i.beam == 5.0 && i.shipTypeCode == 8010 && i.draught == 2.04 && i.loaded == 1, "AIS DAC 200/10: Binnenschiff \(i)")
+        check(i.shipTypeText == "Motorgüterschiff" && i.hazardText == "kein blaues Licht" && i.loadedText == "unbeladen", "AIS DAC 200/10: Texte")
+    } else { check(false, "AIS 200/10 nicht lesbar") }
+    // Erzeuger und Leser: FI 31, 200/10, 200/24, 1/29
+    let g31 = AISSignalGenerator.meteo31(mmsi: 992_110_005, lat: 54.17, lon: 7.89, windKn: 22, gustKn: 31, windDir: 285, airTemp: -3.5, humidity: 88, pressure: 1003, waterLevel: 1.25, waveHeight: 2.4, waterTemp: 9.5)
+    if let m = AISMessage.decode(AISBits(g31)), case .meteo(let w)? = m.binary {
+        check(g31.count == 360 && m.fid == 31 && w.isNewFormat && abs((w.latitude ?? 0) - 54.17) < 1e-4 && abs((w.longitude ?? 0) - 7.89) < 1e-4, "AIS FI 31: Ort")
+        check(w.windKn == 22 && w.gustKn == 31 && w.windDir == 285 && w.airTemp == -3.5 && w.humidity == 88 && w.pressure == 1003 && abs((w.waterLevel ?? 0) - 1.25) < 1e-9 && abs((w.waveHeight ?? 0) - 2.4) < 1e-9 && abs((w.waterTemp ?? 0) - 9.5) < 1e-9, "AIS FI 31: Werte")
+        check(w.gustDir == nil && w.dewPoint == nil && w.pressureTendency == nil && w.visibilityNM == nil && w.salinity == nil && w.seaState == nil, "AIS FI 31: nicht verfügbare Werte")
+    } else { check(false, "AIS FI 31 nicht lesbar") }
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.inlandStatic(mmsi: 211_500_100, eni: "04810360", length: 110.0, beam: 11.4, eriType: 8030, hazardCones: 2, draught: 3.15, loaded: 2))), case .inland(let i)? = m.binary {
+        check(i.eni == "04810360" && i.length == 110.0 && i.beam == 11.4 && i.shipTypeText == "Containerschiff" && i.hazardText == "2 blaue Lichter" && i.draught == 3.15 && i.loadedText == "beladen", "AIS 200/10: Erzeuger und Leser")
+    } else { check(false, "AIS 200/10 (Erzeuger) nicht lesbar") }
+    // falscher Treffer: DAC 200 FI 10 mit einer Kennung ohne Ziffern ist keine Binnenschiff-Meldung
+    let badInland = AISSignalGenerator.inlandStatic(mmsi: 211_500_100, eni: "ABCDEFGH", length: 110, beam: 11, eriType: 8030, hazardCones: 0, draught: 3, loaded: 1)
+    if let m = AISMessage.decode(AISBits(badInland)) { check(m.binary == .other, "AIS 200/10: Kennung ohne Ziffern wird nicht als Binnenschiff gedeutet") }
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.waterLevels(mmsi: 2_111_000, country: "DE", gauges: [(101, 215), (102, -40)]))), case .waterLevels(let w)? = m.binary {
+        check(w.country == "DE" && w.gauges == [.init(id: 101, levelCM: 215), .init(id: 102, levelCM: -40)] && w.summary == "Pegel 101: 215 cm · Pegel 102: -40 cm", "AIS 200/24: Pegelstände")
+    } else { check(false, "AIS 200/24 nicht lesbar") }
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.textBroadcast(mmsi: 2_111_000, linkage: 77, text: "FAIRWAY CLOSED AT KM 12"))), case .text(let l, let t)? = m.binary {
+        check(l == 77 && t == "FAIRWAY CLOSED AT KM 12" && m.text == t, "AIS 1/29: Text mit Verknüpfung")
+    } else { check(false, "AIS 1/29 nicht lesbar") }
+    // Telegramm mit lauter Nullen (Station ohne Messwerte) und unbekannte Kennung
+    var zero = AISBitWriter()
+    zero.u(8, 6); zero.u(0, 2); zero.u(2_766_080, 30); zero.u(0, 2); zero.u(1, 10); zero.u(11, 6)
+    zero.set(58 * 60_000, at: 56, 24); zero.set(23 * 60_000, at: 80, 25); zero.set(20, at: 105, 5); zero.set(18, at: 110, 5); zero.set(30, at: 115, 6)
+    zero.pad(to: 352)
+    check(AISMessage.decode(AISBits(zero.bits))?.binary == .other, "AIS FI 11: nur Nullen ist kein Wettertelegramm")
+    var unknown = AISBitWriter()
+    unknown.u(8, 6); unknown.u(0, 2); unknown.u(366_999_712, 30); unknown.u(0, 2); unknown.u(366, 10); unknown.u(56, 6); unknown.pad(to: 312)
+    let um = AISMessage.decode(AISBits(unknown.bits))
+    check(um?.dac == 366 && um?.fid == 56 && um?.binary == .other && AISMessage.isPlausible(AISBits(unknown.bits)), "AIS: unbekanntes Binärtelegramm DAC 366 FI 56 wird zugeordnet")
+
+    // Controller: Messstation auf der Karte, Binnenschiff mit ENI, Pegel, Ziele der Verkehrszentrale
+    let c = AISController(pipeline: AudioPipeline(), settings: AISSettingsStore())
+    c.logEnabled = false
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    c.ingest(bits: g31, at: t0)
+    c.ingest(bits: AISSignalGenerator.inlandStatic(mmsi: 211_500_100, eni: "04810360", length: 110, beam: 11.4, eriType: 8030, hazardCones: 2, draught: 3.15, loaded: 2), at: t0.addingTimeInterval(1))
+    c.ingest(bits: AISSignalGenerator.positionReport(mmsi: 211_500_100, lat: 49.8, lon: 9.9, sog: 9.5, cog: 250), at: t0.addingTimeInterval(2))
+    c.ingest(bits: AISSignalGenerator.waterLevels(mmsi: 2_111_000, country: "DE", gauges: [(101, 215)]), at: t0.addingTimeInterval(3))
+    check(c.binaryCounts == ["1/31": 1, "200/10": 1, "200/24": 1], "AIS-Controller: Binärtelegramme gezählt \(c.binaryCounts)")
+    let station = c.vessel(992_110_005)
+    check(station?.kind == .aid && station?.meteo?.windKn == 22 && station?.point != nil, "AIS-Controller: Messstation mit Wetter und Position")
+    let sMarker = AISMapBuilder.content([station!], home: nil, now: t0.addingTimeInterval(60), filter: .init(), selection: nil).markers.first
+    check(sMarker?.valueText == "22" && sMarker?.symbol == "wind" && sMarker?.tone == .weather && sMarker?.headingDeg == 105 && sMarker?.details.contains { $0.hasPrefix("Wind 22 kn aus WNW (285°)") } == true, "AIS-Karte: Messstation mit Windstärke, Pfeil und Wetterzeilen (\(sMarker?.details.prefix(3).joined(separator: " | ") ?? ""))")
+    let barge = c.vessel(211_500_100)
+    check(barge?.inland?.eni == "04810360" && barge?.point != nil && barge?.kind == .shipA, "AIS-Controller: Binnenschiff mit ENI und Position")
+    let bMarker = AISMapBuilder.content([barge!], home: nil, now: t0.addingTimeInterval(60), filter: .init(), selection: nil).markers.first
+    check(bMarker?.details.contains { $0.hasPrefix("ENI 04810360 · Containerschiff · 110,0 × 11,4 m") } == true && bMarker?.details.contains { $0.contains("2 blaue Lichter") && $0.contains("beladen") } == true, "AIS-Karte: Binnenschiff-Zeilen")
+    check(c.vessel(2_111_000)?.waterLevels?.gauges.first?.levelCM == 215, "AIS-Controller: Pegelstand")
+    // künstliche Ziele (FI 17): zwei Ziele, eines mit MMSI, eines mit IMO-Nummer
+    var vts = AISBitWriter()
+    vts.u(8, 6); vts.u(0, 2); vts.u(2_111_000, 30); vts.u(0, 2); vts.u(1, 10); vts.u(17, 6)
+    vts.set(0, at: 56, 2); vts.set(244_123_456, at: 58, 42); vts.set(Int(52.01 * 60_000), at: 56 + 48, 24); vts.set(Int(4.1 * 60_000), at: 56 + 72, 25); vts.set(90, at: 56 + 97, 9); vts.set(30, at: 56 + 106, 6); vts.set(12, at: 56 + 112, 8)
+    vts.set(1, at: 176, 2); vts.set(9_241_061, at: 178, 42); vts.set(Int(52.02 * 60_000), at: 176 + 48, 24); vts.set(Int(4.12 * 60_000), at: 176 + 72, 25); vts.set(360, at: 176 + 97, 9); vts.set(255, at: 176 + 112, 8)
+    vts.pad(to: 296)
+    c.ingest(bits: vts.bits, at: t0.addingTimeInterval(10))
+    let tv = c.vessel(244_123_456)
+    check(tv?.isSynthetic == true && abs((tv?.latitude ?? 0) - 52.01) < 1e-4 && tv?.sog == 12 && tv?.cog == 90 && c.vessel(2_111_000) != nil, "AIS FI 17: Ziel mit MMSI wird zum Schiff (künstliches Ziel)")
+    c.ingest(bits: AISSignalGenerator.positionReport(mmsi: 244_123_456, lat: 52.0105, lon: 4.1005, sog: 12, cog: 90), at: t0.addingTimeInterval(20))
+    check(c.vessel(244_123_456)?.isSynthetic == false, "AIS FI 17: eigenes AIS-Signal ersetzt das künstliche Ziel")
+    c.ingest(bits: vts.bits, at: t0.addingTimeInterval(30))
+    check(c.vessel(244_123_456)?.isSynthetic == false && c.vessel(244_123_456)?.positions == 2, "AIS FI 17: künstliche Ziele überschreiben kein gehörtes Schiff")
+
+    // Zwei Kanäle: links Kanal A, rechts Kanal B über die Pipeline (48 kHz und 96 kHz Quelle)
+    var rng = AISSignalGenerator.RNG(seed: 21)
+    func burstSet(base: UInt32, count: Int) -> (payloads: [[UInt8]], bursts: [AISSignalGenerator.Burst]) {
+        var p: [[UInt8]] = [], b: [AISSignalGenerator.Burst] = []
+        for k in 0..<count {
+            let pay = AISSignalGenerator.positionReport(mmsi: base + UInt32(k), lat: 54 + rng.uniform(), lon: 8 + rng.uniform(), sog: 5, cog: Double(k * 20))
+            p.append(pay)
+            b.append(.init(payload: pay, start: 0.1 + Double(k) * 0.2, offset: Float((rng.uniform() - 0.5) * 0.1), polarity: k % 2 == 0 ? 1 : -1, ppm: (rng.uniform() - 0.5) * 100))
+        }
+        return (p, b)
+    }
+    let setA = burstSet(base: 211_000_100, count: 6), setB = burstSet(base: 244_000_200, count: 6)
+    for inputRate in [48_000.0, 96_000.0] {
+        let audioA = AISSignalGenerator.audio(bursts: setA.bursts, duration: 1.8, sampleRate: inputRate)
+        let audioB = AISSignalGenerator.audio(bursts: setB.bursts, duration: 1.8, sampleRate: inputRate)
+        for swap in [false, true] {
+            let pipeline = AudioPipeline()
+            let decoder = AISDecoder(pipeline: pipeline)
+            decoder.configure(enabled: true, channel: .both, swap: swap)
+            pipeline.start(inputRate: inputRate)
+            Thread.sleep(forTimeInterval: 0.05)
+            check(pipeline.wantsStereo, "AIS A+B: Pipeline liefert beide Kanäle getrennt")
+            var i = 0
+            let block = 2_048
+            while i < audioA.count {
+                let n = min(block, audioA.count - i)
+                audioA.withUnsafeBufferPointer { l in audioB.withUnsafeBufferPointer { r in pipeline.writeStereo(left: l.baseAddress! + i, right: r.baseAddress! + i, count: n) } }
+                i += n
+                Thread.sleep(forTimeInterval: 0.012)
+            }
+            Thread.sleep(forTimeInterval: 0.6)
+            let out = decoder.takeOutput()
+            let a = Set(out.frames.filter { $0.letter == (swap ? "B" : "A") }.map(\.bits)), b = Set(out.frames.filter { $0.letter == (swap ? "A" : "B") }.map(\.bits))
+            check(a == Set(setA.payloads) && b == Set(setB.payloads), "AIS A+B (\(Int(inputRate / 1000)) kHz, \(swap ? "vertauscht" : "links A"))): links \(a.count) von 6, rechts \(b.count) von 6")
+            check(out.channels.count == 2 && out.channels[0].stats.frames == 6 && out.channels[1].stats.frames == 6 && out.channels[0].inputDB > -60, "AIS A+B: Zähler je Kanal \(out.channels.map { $0.stats.frames })")
+            decoder.configure(enabled: false, channel: .a, swap: false)
+            Thread.sleep(forTimeInterval: 0.05)
+            check(!pipeline.wantsStereo, "AIS A+B: nach dem Ausschalten keine getrennten Kanäle mehr")
+            pipeline.stop()
+        }
+    }
+    // Diagnose je Kanal
+    let silent = [AISChannelInfo(letter: "A", stats: AISStats(), level: 0.1, inputDB: -25), AISChannelInfo(letter: "B", stats: AISStats(), level: 0, inputDB: -120)]
+    check(AISDiagnosis.assess(channels: silent).title == "KANAL B OHNE AUDIO", "AIS-Diagnose: Kanal B ohne Audio")
+    var good = AISStats(); good.frames = 4; good.bursts = 4
+    check(AISDiagnosis.assess(channels: [.init(letter: "A", stats: good, level: 0.1, inputDB: -25), .init(letter: "B", stats: good, level: 0.1, inputDB: -25)]).severity == .ok, "AIS-Diagnose: beide Kanäle gut")
+    check(AISChannel.both.isDual && AISChannel.both.frequencyHz == nil && RigTuneTarget.ais(channel: .both) == nil && DecoderModuleInfo.ais.presetIDs == ["a", "b", "both"], "AIS: Kanalwahl A+B ohne Abstimmziel")
+}
+aisBinaryTests()
+
+
+// MARK: - AIS: Gebietsmeldungen, Schifffahrtszeichen, Schiffswetter, erweiterte Reisedaten, Personen, Seezeichen-Überwachung
+
+@MainActor func aisMoreBinaryTests() {
+    // Überwachung eines Seezeichens (GLA, DAC 235 FI 10) aus der gpsd-Sammlung: Versorgung 13,7 V, RACON in Betrieb, Licht aus, Zustand gut
+    if let b = aisBits("!AIVDM,1,1,4,B,6>jR0600V:C0>da4P106P00,2*02"), let m = AISMessage.decode(b), case .atonMonitoring(let a)? = m.binary {
+        check(m.type == 6 && m.dac == 235 && m.fid == 10 && m.destinationMMSI == 2_500_912 && abs((a.supplyVolts ?? 0) - 13.7) < 1e-9 && a.racon == 2 && a.light == 2 && !a.alarm && !a.offPosition, "AIS 235/10: Überwachung eines Seezeichens \(a)")
+        check(a.lines.last == "Licht aus · RACON in Betrieb · Zustand gut" && a.lines.first?.hasPrefix("Versorgung 13,70 V") == true, "AIS 235/10: Anzeigetext \(a.lines)")
+    } else { check(false, "AIS 235/10 nicht lesbar") }
+
+    // Gebietsmeldung: Kreis (Sperrgebiet, 2 km), Rechteck, Vieleck hinter einem Kreis, Sektor, Text
+    let t0 = Date(timeIntervalSince1970: 1_791_100_000)      // 04.10.2026 ca. 07:46 UTC
+    let area1 = AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 17, notice: 37, hour: 9, minute: 0, durationMinutes: 180, shapes: [
+        .circle(lat: 54.30, lon: 7.80, radius: 2000, scale: 0),
+        .rectangle(lat: 54.20, lon: 7.60, east: 40, north: 30, orientation: 90, scale: 2),
+        .circle(lat: 54.10, lon: 7.50, radius: 0, scale: 0),
+        .polygon(legs: [(0, 5), (90, 5), (180, 5)], scale: 3),
+        .sector(lat: 54.00, lon: 7.40, radius: 5, left: 350, right: 40, scale: 3),
+        .text("SCHIESSEN BSH")])
+    if let m = AISMessage.decode(AISBits(area1)), case .area(var a)? = m.binary {
+        a.receivedAt = t0
+        check(m.dac == 1 && m.fid == 22 && a.mmsi == 2_111_000 && a.linkage == 17 && a.notice == 37 && a.title == "Sperrgebiet: Schießgebiet" && a.category == .restricted, "AIS 1/22: Kopf (\(a.title))")
+        check(a.shapes.count == 6 && a.durationMinutes == 180 && a.embeddedText == "SCHIESSEN BSH", "AIS 1/22: sechs Teilgebiete, Dauer, Text \(a.embeddedText)")
+        if case .circle(let c, let r) = a.shapes[0] { check(abs(c.lat - 54.30) < 1e-4 && abs(c.lon - 7.80) < 1e-4 && r == 2000, "AIS 1/22: Kreis") } else { check(false, "AIS 1/22: Kreis fehlt") }
+        if case .rectangle(let p) = a.shapes[1] {
+            let e = Geo.distanceKm(p[0], p[1]), n = Geo.distanceKm(p[0], p[3])
+            check(p.count == 4 && abs(e - 4.0) < 0.05 && abs(n - 3.0) < 0.05 && abs(Geo.bearing(from: p[0], to: p[1]) - 180) < 0.2, "AIS 1/22: Rechteck 4 × 3 km, um 90° gedreht (Ost wird Süd; \(e), \(n))")
+        } else { check(false, "AIS 1/22: Rechteck fehlt") }
+        if case .polygon(let p) = a.shapes[3] {
+            check(p.count == 4 && abs(Geo.distanceKm(p[0], p[1]) - 5.0) < 0.05 && abs(Geo.bearing(from: p[0], to: p[1])) < 0.2 && abs(Geo.bearing(from: p[1], to: p[2]) - 90) < 0.3, "AIS 1/22: Vieleck ab dem Kreismittelpunkt (5 km Nord, 5 km Ost, 5 km Süd)")
+            check(abs(p[0].lat - 54.10) < 1e-4 && abs(p[0].lon - 7.50) < 1e-4, "AIS 1/22: Vieleck beginnt am Punkt davor")
+        } else { check(false, "AIS 1/22: Vieleck fehlt") }
+        if case .sector(let c, let r, let l, let rt) = a.shapes[4] { check(abs(c.lat - 54.0) < 1e-4 && r == 5000 && l == 350 && rt == 40, "AIS 1/22: Sektor 350° bis 40°") } else { check(false, "AIS 1/22: Sektor fehlt") }
+        check(a.start != nil && Calendar(identifier: .gregorian).component(.year, from: a.start!) == 2026 && abs(a.end!.timeIntervalSince(a.start!) - 3 * 3600) < 1, "AIS 1/22: Beginn 04.10. 09:00 UTC im Jahr des Empfangs, Ende 3 h später")
+        check(a.isActive(at: t0) && !a.isActive(at: t0.addingTimeInterval(5 * 3600)) && a.points.count >= 8, "AIS 1/22: gilt bis zum Ende")
+    } else { check(false, "AIS 1/22 nicht lesbar") }
+    // Zufallsbits sind keine Gebietsmeldung (falsche Form)
+    var junk = AISBitWriter()
+    junk.u(8, 6); junk.u(0, 2); junk.u(2_111_000, 30); junk.u(0, 2); junk.u(1, 10); junk.u(22, 6)
+    for k in 0..<200 { junk.bits.append(UInt8((k * 7 + 3) % 2)) }
+    while junk.bits.count % 8 != 0 { junk.bits.append(1) }
+    check(AISMessage.decode(AISBits(junk.bits))?.binary == .other, "AIS 1/22: Unsinn wird nicht als Gebietsmeldung gedeutet")
+
+    // Schifffahrtszeichen
+    let sig = AISSignalGenerator.trafficSignal(mmsi: 2_111_300, linkage: 5, station: "SCHLEUSE BRUNSBUETTEL", lat: 53.89, lon: 9.13, status: 1, signal: 4, nextSignal: 2, hour: 14, minute: 30)
+    if let m = AISMessage.decode(AISBits(sig)), case .trafficSignal(let s)? = m.binary {
+        check(s.station == "SCHLEUSE BRUNSBUETTEL".prefix(20) + "" && s.signal == 4 && s.nextSignal == 2 && s.status == 1 && s.hour == 14 && s.minute == 30, "AIS 1/19: Signalstelle \(s.station)")
+        check(abs((m.latitude ?? 0) - 53.89) < 1e-4 && abs((m.longitude ?? 0) - 9.13) < 1e-4 && m.name == s.station, "AIS 1/19: Ort und Name der Signalstelle")
+        check(s.lines == ["Signal 4: Fahrt frei, Gegenverkehr (regulärer Betrieb)", "Nächstes: Signal 2: Einfahrt und Ausfahrt verboten ab 14:30 UTC"], "AIS 1/19: Anzeigetext \(s.lines)")
+    } else { check(false, "AIS 1/19 nicht lesbar") }
+
+    // Wetterbeobachtung vom Schiff
+    let sw = AISSignalGenerator.shipWeather(mmsi: 211_333_000, location: "DEUTSCHE BUCHT", lat: 54.5, lon: 7.2, windKn: 28, windDir: 250, airTemp: 11.4, pressure: 998, waterTemp: 13.2, waveHeight: 2.8, weatherCode: 2)
+    if let m = AISMessage.decode(AISBits(sw)), case .meteo(let w)? = m.binary {
+        check(w.fromShip && w.locationName == "DEUTSCHE BUCHT" && w.presentWeather == "Regen" && abs((m.latitude ?? 0) - 54.5) < 1e-4, "AIS 1/21: Ort und Wetter")
+        check(w.windKn == 28 && w.windDir == 250 && w.airTemp == 11.4 && w.pressure == 998 && w.waterTemp == 13.2 && abs((w.waveHeight ?? 0) - 2.8) < 1e-9 && w.humidity == nil && w.visibilityNM == 9.5, "AIS 1/21: Werte \(w.lines)")
+        check(w.lines.first == "Wetterbeobachtung vom Schiff bei DEUTSCHE BUCHT: Regen", "AIS 1/21: Kopfzeile")
+    } else { check(false, "AIS 1/21 nicht lesbar") }
+
+    // Erweiterte Reisedaten
+    let ex = AISSignalGenerator.extendedShip(mmsi: 211_333_000, airDraught: 47.25, lastPort: "DEHAM", nextPort: "NLRTM", tonnage: 51_200, laden: 1, persons: 23, failedEquipmentIndex: 5)
+    if let m = AISMessage.decode(AISBits(ex)), case .extended(let e)? = m.binary {
+        check(e.airDraught == 47.25 && e.lastPort == "DEHAM" && e.nextPort == "NLRTM" && e.secondPort == nil && e.tonnage == 51_200 && e.lading == 1 && e.persons == 23, "AIS 1/24: Luftzug, Häfen, Tonnage, Beladung, Personen")
+        check(e.failedEquipment == ["Echolot"] && e.operationalCount == 24 && e.iceClass == nil && e.horsepower == nil, "AIS 1/24: ausgefallenes Echolot")
+        check(e.lines.contains("Luftzug 47,25 m · 51200 BRZ · beladen · 23 Personen") && e.lines.contains("Ausgefallen: Echolot"), "AIS 1/24: Anzeigetext \(e.lines)")
+    } else { check(false, "AIS 1/24 nicht lesbar") }
+
+    // Personen an Bord
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.personsInland(mmsi: 211_512_340, destination: 2_111_000, crew: 4, passengers: 118, personnel: 255))), case .persons(let p)? = m.binary {
+        check(p.crew == 4 && p.passengers == 118 && p.personnel == nil && p.text == "4 Besatzung · 118 Fahrgäste an Bord", "AIS 200/55: Personen \(p.text)")
+    } else { check(false, "AIS 200/55 nicht lesbar") }
+    var pob = AISBitWriter()
+    pob.u(8, 6); pob.u(0, 2); pob.u(211_000_001, 30); pob.u(0, 2); pob.u(1, 10); pob.u(16, 6); pob.set(87, at: 56, 14); pob.pad(to: 72)
+    if let m = AISMessage.decode(AISBits(pob.bits)), case .persons(let p)? = m.binary { check(p.total == 87 && p.text == "87 Personen an Bord", "AIS 1/16: Personen an Bord") } else { check(false, "AIS 1/16 nicht lesbar") }
+
+    // Controller: Gebietsmeldungen, Text mit gleicher Verknüpfung, Aufhebung, Karte
+    let c = AISController(pipeline: AudioPipeline(), settings: AISSettingsStore())
+    c.logEnabled = false
+    c.homePoint = Maidenhead.point("JN49WS")
+    let now = Date()
+    c.ingest(bits: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 17, notice: 37, hour: 24, minute: 60, durationMinutes: 262_143, shapes: [.circle(lat: 54.30, lon: 7.80, radius: 2000, scale: 0), .polyline(legs: [(90, 3)], scale: 3)]), at: now)
+    c.ingest(bits: AISSignalGenerator.textBroadcast(mmsi: 2_111_000, linkage: 17, text: "SCHIESSEN BIS 12 UHR"), at: now.addingTimeInterval(1))
+    var utc = Calendar(identifier: .gregorian)
+    utc.timeZone = TimeZone(identifier: "UTC")!
+    let nc = utc.dateComponents([.month, .day, .hour, .minute], from: now)       // Beginn jetzt (nicht an einem festen Tag, sonst läuft der Test ab)
+    c.ingest(bits: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 18, notice: 74, month: nc.month!, day: nc.day!, hour: nc.hour!, minute: nc.minute!, durationMinutes: 600,
+                                                 shapes: [.circle(lat: 54.0, lon: 8.0, radius: 500, scale: 0)]), at: now.addingTimeInterval(2))
+    // poll() läuft im Zeitgeber; hier direkt die Tabelle über die Karte lesen
+    check(c.binaryCounts["1/22"] == 2 && c.binaryCounts["1/29"] == 1, "AIS-Controller: Zähler 1/22 und 1/29 \(c.binaryCounts)")
+    let areas = c.areasForTesting(at: now.addingTimeInterval(3))
+    check(areas.count == 2 && areas.first { $0.linkage == 17 }?.displayText == "SCHIESSEN BIS 12 UHR", "AIS-Controller: zwei Gebiete, Text zur Meldung 17 verknüpft")
+    let mc = AISMapBuilder.content([], home: c.homePoint, now: now.addingTimeInterval(3), filter: .init(), selection: nil, areas: areas)
+    check(mc.markers.contains { $0.id == "ais-area-2111000-17" && $0.symbol == "exclamationmark.triangle.fill" && $0.tone == .alert } && mc.markers.contains { $0.id == "ais-area-2111000-18" && $0.symbol == "lifepreserver.fill" }, "AIS-Karte: Warnzeichen je Gebiet, Seenot mit Rettungsring")
+    check(mc.markers.contains { $0.id == "ais-area-2111000-17-s0" && abs($0.radiusKm - 2.0) < 1e-9 } && mc.lines.contains { $0.id == "ais-area-2111000-17-s1" && $0.points.count == 2 }, "AIS-Karte: Kreis mit Radius 2 km, Linie")
+    check(mc.markers.first { $0.id == "ais-area-2111000-17" }?.details.contains { $0.contains("SCHIESSEN BIS 12 UHR") } == true, "AIS-Karte: Einzelheiten mit Text")
+    check(AISMapBuilder.content([], home: nil, now: now, filter: .init(areas: false), selection: nil, areas: areas).markers.isEmpty, "AIS-Karte: Gebiete abschaltbar")
+    // Aufhebung durch Kennung 126
+    c.ingest(bits: AISSignalGenerator.areaNotice(mmsi: 2_111_000, linkage: 17, notice: 126, shapes: [.circle(lat: 54.30, lon: 7.80, radius: 2000, scale: 0)]), at: now.addingTimeInterval(4))
+    check(c.areasForTesting(at: now.addingTimeInterval(5)).map(\.linkage) == [18], "AIS-Controller: Meldung 17 aufgehoben")
+    // Zeichenbibliothek
+    check(AISAreaNotice.noticeText(18) == "Fahrwasser gesperrt" && AISAreaNotice.noticeText(104) == "Seekarte: Fahrwasserhindernis" && AISAreaNotice.noticeText(127) == "Gebietsmeldung" && AISAreaNotice.noticeText(46) == "Gebietsmeldung 46", "AIS: Meldungsarten")
+}
+aisMoreBinaryTests()
 
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

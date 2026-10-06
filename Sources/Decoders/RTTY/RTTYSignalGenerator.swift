@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Erzeugt RTTY-AFSK mit bekanntem Text – für Logiktests und den Qualitätsvergleich mit fldigi (PLAN.md, Abschnitt 8).

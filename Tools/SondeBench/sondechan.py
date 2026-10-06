@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 # Nachbildung des Funkweges für RS41-Aufnahmen: IQ (96 kHz, complex64) -> Rauschen -> ZF-Filter -> FM-Demodulator -> NF-Kette -> WAV (48 kHz)
 # Aufruf: python3 sondechan.py <iq.bin> <aus.wav> [--seconds 60] [--ifbw 15000] [--cn 10] [--offset 2000] [--deemph 75] [--hp 300] [--lp 3000] [--ppm 100]
 # Braucht numpy und scipy. IQ-Beispiel: https://rfhead.net/sondes/sonde_samples.tar.gz (rs41_96k_float.bin, aus dem Projekt radiosonde_auto_rx)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Suchlauf nach Sonden: stimmt Frequenz für Frequenz ab und prüft, ob dort ein RS41-Rahmen lesbar ist.

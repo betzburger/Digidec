@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
 """Erzeugt den PSK-Empfänger (BPSK/QPSK) für Digidec aus fldigi 4.2.13 (src/psk/psk.cxx, include/psk.h und
 Hilfsteile: pskcoeff, pskvaricode, viterbi, interleave, mfskvaricode). Die Empfangsfunktionen werden wörtlich
 herausgezogen (Klammerzählung); Senden, Mehrkanal-Ansicht (viewpsk) und Signalsuche über den Wasserfall

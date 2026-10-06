@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 import AppKit
 
@@ -54,8 +56,17 @@ struct DigidecApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
+        // Schiffsdaten aus dem Netz (Foto, Baujahr, technische Daten) zum Schiff, das in der AIS-Karte oder -Liste gewählt wurde
+        Window("Schiffsdaten", id: "ship-info") {
+            ShipInfoWindow(controller: state.aisController, settings: state.ais, home: state.home)
+        }
+        .defaultSize(width: 560, height: 780)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appInfo) {
+                Button("Über Digidec") { state.showAbout = true }
+            }
             CommandGroup(replacing: .appTermination) {
                 Button("Digidec beenden") {
                     state.cleanup()
@@ -103,9 +114,10 @@ enum SnapshotHelper {
     }
 
     static func capture(to path: String) {
-        guard let window = NSApplication.shared.windows.first(where: { $0.contentView != nil && $0.canBecomeMain }) else { return }
+        let wanted = ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_WINDOW"]
+        guard let window = NSApplication.shared.windows.first(where: { $0.contentView != nil && $0.canBecomeMain && (wanted == nil || $0.title == wanted) }) else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
-        window.setContentSize(NSSize(width: 1400, height: 900))
+        if wanted == nil { window.setContentSize(NSSize(width: 1400, height: 900)) }
         window.orderFrontRegardless()
         let id = CGWindowID(window.windowNumber)
         if let img = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]), img.width > 1000 {

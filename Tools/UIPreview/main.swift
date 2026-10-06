@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // Digidec UI-Vorschau: rendert Karten offscreen als PNG (ohne App-Start, ohne Audio, ohne Mikrofon-Freigabe).
 // Aufruf: Tools/UIPreview/render.sh <ausgabeordner>
 import SwiftUI

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 // MARK: - Seegebiete und Küstenabschnitte des DWD
@@ -865,7 +867,7 @@ public final class SeaLog {
                 } else {
                     continue
                 }
-            case .pressure, .visibility:
+            case .pressure, .visibility, .humidity, .precipitation:
                 continue
             case .sea:
                 m.symbol = "water.waves"

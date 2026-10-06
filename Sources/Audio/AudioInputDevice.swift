@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 
 /// Ein Audiogerät mit Eingangskanälen (z. B. Codec eines Funkgeräts, „VALHost 2ch“, „BlackHole 16ch“).

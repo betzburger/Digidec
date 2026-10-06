@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
 // HFDL-Prüfstand: liest eine WAV-Aufnahme (16 Bit, mono, 12 kHz, USB-Audio) und gibt die decodierten Rahmen aus.
 import Foundation
 
