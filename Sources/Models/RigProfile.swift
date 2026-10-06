@@ -55,12 +55,15 @@ public enum RigDialect: String, Codable, CaseIterable, Sendable {
     case hamlib
     /// GQRX „Remote control“ (Standardport 7356): AM, AMS, LSB, USB, CWL, CWU, FM, WFM … Es kennt weder RTTY noch PKTUSB.
     case gqrx
+    /// SDRconnect (SDRplay) über seine WebSocket-Schnittstelle (Standardport 5454): AM, SAM, USB, LSB, CW, NFM, WFM
+    case sdrconnect
 
     /// Name im Dialog
     public var title: String {
         switch self {
         case .hamlib: return "Hamlib rigctld"
         case .gqrx: return "GQRX Remote Control"
+        case .sdrconnect: return "SDRconnect WebSocket"
         }
     }
 
@@ -69,6 +72,7 @@ public enum RigDialect: String, Codable, CaseIterable, Sendable {
         switch self {
         case .hamlib: return 4532
         case .gqrx: return 7356
+        case .sdrconnect: return 5454
         }
     }
 
@@ -88,6 +92,8 @@ public enum RigDialect: String, Codable, CaseIterable, Sendable {
             case "AM", "FM": return m
             default: return nil
             }
+        case .sdrconnect:
+            return SDRconnectModes.name(forHamlib: m)
         }
     }
 }
@@ -125,6 +131,11 @@ public struct RigProfile: Codable, Equatable, Identifiable, Sendable {
         RigProfile(name: "GQRX", port: RigDialect.gqrx.defaultPort, audioUID: audioUID, audioName: audioName, dialect: .gqrx)
     }
 
+    /// Vorlage für SDRconnect auf diesem Rechner (WebSocket-Server, Standardport 5454)
+    public static func sdrconnect(audioUID: String? = nil, audioName: String? = nil) -> RigProfile {
+        RigProfile(name: "SDRconnect", port: RigDialect.sdrconnect.defaultPort, audioUID: audioUID, audioName: audioName, dialect: .sdrconnect)
+    }
+
     // Früher gespeicherte Geräte kennen kein `dialect`: sie sind Hamlib
     private enum CodingKeys: String, CodingKey { case id, name, host, port, audioUID, audioName, dialect }
 
@@ -145,7 +156,7 @@ public struct RigProfile: Codable, Equatable, Identifiable, Sendable {
     /// Name für die Anzeige (leerer Name → Rechner und Port)
     public var displayName: String {
         let n = name.trimmingCharacters(in: .whitespaces)
-        return n.isEmpty ? "rigctld \(host):\(port)" : n
+        return n.isEmpty ? "\(dialect == .sdrconnect ? "SDRconnect" : "rigctld") \(host):\(port)" : n
     }
 
     /// Was an den Eingaben falsch ist (für die Anzeige im Dialog); nil = in Ordnung

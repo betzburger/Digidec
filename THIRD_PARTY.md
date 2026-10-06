@@ -86,6 +86,8 @@ Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): 
 
 - **Funksensoren (`Sources/Decoders/Sensors433/`)**: eigene Umsetzung nach **rtl_433** (Benjamin Larsson, Tommy Vestermark, Christian W. Zuckschwerdt und Mitwirkende, GPL-2.0-oder-später, https://github.com/merbanan/rtl_433; nur gelesen: `baseband.c`, `pulse_detect.c`, `pulse_detect_fsk.c`, `pulse_slicer.c`, `bitbuffer.c`, `bit_util.c` und die Gerätedecoder `devices/*.c` für Nexus, Prologue, Fine Offset, Bresser, Hideki, LaCrosse, Oregon Scientific, Acurite, TFA, Ecowitt, inFactory): übernommen wurden die Abläufe, Zahlenwerte und Telegrammaufbauten (Pegelschätzung, Schwellen, Zeitgrenzen der Slicer, Prüfsummen, Bitfelder der Telegramme); der Code ist eigen, in Swift. Die Aufnahmen und erwarteten Ausgaben für die Logiktests stammen aus https://github.com/merbanan/rtl_433_tests (GPL-2.0-oder-später), nur lokal unter `TestData/Sensors` (Skript `Tools/Sensors433Bench/fetch_testdata.sh`).
 
+- **SDRconnect-Steuerung (`Sources/Rig/SDRconnectRig.swift`, `Sources/Decoders/ADSB/SDRconnectSource.swift`)**: eigene Umsetzung nach der öffentlichen Beschreibung der WebSocket-Schnittstelle von SDRconnect, Version 1.0.3 (SDRplay Limited, https://sdrplay.com/websocket-api/; nur Eigenschaftsnamen, Nachrichtenform und Wertebereiche, kein Quelltext). Digidec enthält nichts von SDRconnect; das Programm läuft getrennt.
+
 ## 4. Daten im Programm (Resources/)
 
 - **Flughäfen** (`Resources/Airports/airports.txt`): OurAirports (https://ourairports.com/data/), gemeinfrei, Stand 02.10.2026.

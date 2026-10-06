@@ -367,6 +367,8 @@ public struct MainWindowView: View {
                             .radioCard(title: "Preset")
                         }
 
+                        SDRconnectControlHost(rig: state.rig)
+
                         if state.activeModule == .adsb {
                             ADSBReceiverCard(controller: state.adsbController)
                                 .radioCard(title: "Empfänger")

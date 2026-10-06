@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.68.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.69.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -61,6 +61,8 @@ Das baut Digidec im Release-Modus, legt `Digidec.app` im Projektordner an (ad-ho
 
 Digidec öffnet **keine seriellen Ports**. Frequenz und Betriebsart liest es über `rigctld` (Hamlib-Textprotokoll, TCP). Die zwei Commander-Programme des Autors (FT-991A und PCR-1500) bieten das an; im Dialog „Funkgerät“ lässt sich auch jeder andere `rigctld` mit Rechner und Port eintragen.
 Auch **GQRX** (SDR, z. B. HackRF) lässt sich so einbinden: In GQRX die Remote Control einschalten (Tools → Remote control, Port 7356), in Digidec im Dialog „Funkgerät“ **NEU: GQRX** wählen. Das Audio kommt nicht über diese Verbindung, sondern über das Ausgabegerät von GQRX (z. B. VALHost 2ch oder BlackHole) als Eingang von Digidec. Weil GQRX kein RTTY kennt, stellt Digidec dort USB ein (CW als CW-U, AIS als FM mit 25 kHz).
+
+Ebenso **SDRconnect** (SDRplay): dort den WebSocket-Server einschalten (Port 5454), in Digidec im Dialog „Funkgerät“ **NEU: SDRCONNECT** wählen. Digidec liest Frequenz, Mode, Bandbreite und Zustand und stellt auf Wunsch (QSY AUTO oder die Karte „SDRconnect“ im Hauptfenster) Frequenz, Mode, Bandbreite, Verstärkungsstufe und den Gerätestrom ein. Das Audio kommt wie bei GQRX über eine virtuelle Soundkarte. Es werden nur Eigenschaften gesetzt, nie Aufnahmen gestartet.
 Standardmäßig wird **nichts** an das Funkgerät gesendet. Schaltest du **QSY AUTO** ein, stimmt Digidec das Gerät beim Modul- oder Kanalwechsel ab und sendet dabei ausschließlich `F` (Frequenz) und `M` (Betriebsart), niemals PTT oder anderes.
 
 Ein Hauptprogramm kann Digidec auch per URL starten und einstellen, zum Beispiel:

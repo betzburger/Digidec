@@ -9304,6 +9304,73 @@ do {
         check(total > 300 && ok == total, "Sensoren echt: \(ok) von \(total) Aufnahmen der Referenz stimmen in Modell, Kennung und allen Messwerten überein" + (failed.isEmpty ? "" : " (Abweichung: \(failed.prefix(3).joined(separator: ", ")))"))
     } else { skip("Sensoren echt: TestData/Sensors liegt nicht lokal vor (Tools/Sensors433Bench/fetch_testdata.sh)") }
 }
+// MARK: - SDRconnect als Funkgerät (WebSocket-Schnittstelle)
+do {
+    var st = SDRconnectStatus()
+    st.apply(property: "device_vfo_frequency", value: "101000000")
+    st.apply(property: "demodulator", value: "nfm")
+    st.apply(property: "filter_bandwidth", value: "12500")
+    st.apply(property: "lna_state", value: "3")
+    st.apply(property: "valid_devices", value: "RSPdx 1, RSPduo 2")
+    check(st.rigState.frequencyHz == 101_000_000 && st.rigState.mode == "FM" && st.rigState.passbandHz == 12_500 && st.lnaState == 3 && st.validDevices == ["RSPdx 1", "RSPduo 2"],
+          "SDRconnect: Eigenschaften lesen, NFM = Hamlib FM")
+    check(SDRconnectStatus.hamlibMode(forDemodulator: "SAM") == "AM" && SDRconnectStatus.hamlibMode(forDemodulator: "wfm") == "WFM" && st.vfoText == "101,000 MHz", "SDRconnect: Mode-Namen und Frequenztext")
+    check(["USB": "USB", "PKTUSB": "USB", "RTTY": "USB", "LSB": "LSB", "PKTLSB": "LSB", "CW": "CW", "CWR": "CW", "AM": "AM", "FM": "NFM", "WFM": "WFM"].allSatisfy { SDRconnectModes.name(forHamlib: $0.key) == $0.value }
+          && SDRconnectModes.name(forHamlib: "XYZ") == nil && RigDialect.sdrconnect.defaultPort == 5454 && RigDialect.sdrconnect.modeName(for: "RTTY") == "USB", "SDRconnect: Mode-Abbildung (RTTY und Paketbetrieb → USB, FM → NFM)")
+    check(RigProfile.sdrconnect().dialect == .sdrconnect && RigProfile.sdrconnect().port == 5454 && RigProfile(name: "", dialect: .sdrconnect).displayName == "SDRconnect 127.0.0.1:4532", "SDRconnect: Vorlage und Name")
+    let rt = RigProfileList.decoded(from: RigProfileList(profiles: [RigProfile.sdrconnect()], activeID: nil).encoded())
+    check(rt.profiles.first?.dialect == .sdrconnect, "SDRconnect: Vorlage übersteht Speichern und Laden")
+
+    if let fake = FakeSDRconnect() {
+        func wait(_ seconds: Double = 5, _ condition: () -> Bool) -> Bool {
+            let end = Date().addingTimeInterval(seconds)
+            while !condition() && Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+            return condition()
+        }
+        let rig = RigModel()
+        rig.use(profile: RigProfile(name: "SDRconnect", port: Int(fake.port), dialect: .sdrconnect))
+        check(wait { rig.sdrconnect.connected && rig.sdrconnect.vfoHz != nil && rig.sdrconnect.lnaMax != nil && rig.sdrconnect.deviceName != nil },
+              "SDRconnect: Verbindung und Zustand (\(rig.sdrconnect.vfoText ?? "–"), \(rig.sdrconnect.demodulator ?? "–"))")
+        check(rig.state.connected && rig.state.frequencyHz == 7_074_000 && rig.state.mode == "USB" && rig.sdrconnect.bandwidthHz == 2700 && rig.sdrconnect.lnaState == 4 && rig.sdrconnect.lnaMax == 9
+              && rig.sdrconnect.deviceName == "RSPdx 1234" && rig.sdrconnect.started == true && rig.sdrconnect.apiVersion == "1.0.3" && rig.sdrconnect.signalPowerDB == -80.5 && rig.sdrconnect.canControl == true,
+              "SDRconnect: Frequenz, Mode, Bandbreite, Stufe, Gerät, Pegel und Version im Rig-Zustand")
+        // Abstimmen innerhalb des Empfangsbereichs: nur VFO, Mode und Bandbreite
+        rig.tune(to: RigTuneTarget(dialHz: 7_100_000, mode: "LSB", passbandHz: 2400))
+        check(wait { rig.state.frequencyHz == 7_100_000 && rig.state.mode == "LSB" && rig.sdrconnect.bandwidthHz == 2400 }, "SDRconnect: Abstimmen auf 7,100 MHz LSB mit 2,4 kHz")
+        check(fake.received == ["set device_vfo_frequency=7100000", "set demodulator=LSB", "set filter_bandwidth=2400"] && fake.property("device_center_frequency") == "7074000",
+              "SDRconnect: im Bereich bleibt die Mitte (\(fake.received))")
+        // Weit weg: erst die Mitte, dann VFO; FM heißt dort NFM, RTTY wird USB
+        rig.tune(to: RigTuneTarget(dialHz: 145_500_000, mode: "FM", passbandHz: 12_500))
+        check(wait { rig.state.frequencyHz == 145_500_000 && rig.state.mode == "FM" }
+              && fake.received.suffix(4) == ["set device_center_frequency=145500000", "set device_vfo_frequency=145500000", "set demodulator=NFM", "set filter_bandwidth=12500"],
+              "SDRconnect: weit entfernte Frequenz setzt zuerst die Mitte (\(fake.received.suffix(4)))")
+        rig.tune(to: RigTuneTarget(dialHz: 7_040_000, mode: "RTTY", passbandHz: 500))
+        check(wait { fake.property("demodulator") == "USB" && rig.state.frequencyHz == 7_040_000 }, "SDRconnect: RTTY läuft als USB")
+        let before = fake.received.count
+        rig.tune(to: RigTuneTarget(dialHz: 7_040_000, mode: "BOGUS"))
+        check(wait { rig.tuneMessage?.contains("lehnt ab") == true } && fake.received.count == before, "SDRconnect: unbekannter Mode wird abgelehnt, nichts gesendet (\(rig.tuneMessage ?? ""))")
+        // Verstärkungsstufe und Gerätestrom
+        rig.sdrconnectSet("lna_state", "6")
+        check(wait { rig.sdrconnect.lnaState == 6 } && fake.property("lna_state") == "6", "SDRconnect: Verstärkungsstufe setzen")
+        rig.sdrconnectStream(false)
+        check(wait { rig.sdrconnect.started == false } && fake.received.contains("stream false"), "SDRconnect: Gerätestrom anhalten")
+        // Andere Gerätearten lassen SDRconnect unberührt
+        rig.use(profile: nil)
+        check(wait { rig.sdrconnect == SDRconnectStatus() }, "SDRconnect: nach dem Wechsel des Geräts ist der Zustand leer")
+        let probe = ProbeBox()
+        SDRconnectRigClient.probe(RigEndpoint.loopback(port: fake.port)) { probe.result = $0 }
+        check(wait(8) { probe.result != nil } && { if case .ok(let s)? = probe.result { return s.frequencyHz != nil && s.mode != nil } else { return false } }(), "SDRconnect: Verbindungstest meldet Frequenz und Mode")
+        fake.stop()
+    } else { skip("SDRconnect: der nachgebaute Server ließ sich nicht starten") }
+    // Nicht erreichbar
+    final class Closed: @unchecked Sendable { var result: RigProbeResult? }
+    let closed = Closed()
+    SDRconnectRigClient.probe(RigEndpoint.loopback(port: 1)) { closed.result = $0 }
+    let endClosed = Date().addingTimeInterval(8)
+    while closed.result == nil && Date() < endClosed { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+    check(closed.result == .unreachable, "SDRconnect: nicht erreichbarer Server → keine Verbindung")
+}
+final class ProbeBox: @unchecked Sendable { var result: RigProbeResult? }
 // MARK: - FreeDV (Codec2): Modem, Rundlauf, Textkanal, echte Aufnahme
 do {
     struct FRng: Sendable {
