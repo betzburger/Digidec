@@ -36,8 +36,8 @@ public final class SDRconnectSource: ADSBIQSource, @unchecked Sendable {
         lock.withLock { running = true }
         t.resume()
         deviceDescription = "SDRconnect \(settings.sdrconnectHost):\(settings.sdrconnectPort)"
-        // Einstellungen: 1090 MHz, 2 MS/s, Verstärkungsstufe, dann I/Q-Strom einschalten
-        send("set_property", "device_center_frequency", "1090000000")
+        // Einstellungen: Frequenz aus den Einstellungen, 2 MS/s, Verstärkungsstufe, dann I/Q-Strom einschalten
+        send("set_property", "device_center_frequency", String(Int(settings.centerFrequencyHz.rounded())))
         send("set_property", "device_sample_rate", "2000000")
         send("set_property", "lna_state", "\(settings.sdrplayLNAState)")
         send("get_property", "device_sample_rate", "")

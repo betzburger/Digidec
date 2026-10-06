@@ -255,12 +255,6 @@ public final class ADSBEngine: @unchecked Sendable {
 
 // MARK: - Controller
 
-public enum ADSBStatus: Equatable, Sendable {
-    case idle
-    case running(String)
-    case error(String)
-}
-
 @MainActor
 public final class ADSBController: ObservableObject {
     public let engine = ADSBEngine()

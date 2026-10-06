@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -9136,6 +9136,173 @@ do {
               "M17 Sprache Codec2 \(name): \(got.payloads.count) Rahmen übertragen und decodiert (\(pcm.count / 8000) s, Effektivwert \(Int((power / Double(max(1, pcm.count))).squareRoot())))")
         if !full { check(got.payloads.first.map { Array($0[8..<16]) } == Array("M17 Test".utf8), "M17 Sprache 1600: freie Daten (8 Byte) im Rahmen") }
     }
+}
+// MARK: - Funksensoren (433/868 MHz): Bitpuffer, Slicer, Decoder, Empfangskette, Aufnahmen
+do {
+    // Hilfsfunktionen und Prüfsummen (Prüfwerte der Referenz: CRC-8 mit Polynom 0x31 über „123456789“ = 0xA2, CRC-8 0x07 = 0xF4)
+    let nine = Array("123456789".utf8)
+    check(SensorBits.crc8(nine, poly: 0x31, initial: 0) == 0xA2 && SensorBits.crc8(nine, poly: 0x07, initial: 0) == 0xF4, "Sensoren: CRC-8 (Polynome 0x31 und 0x07) gegen die Prüfwerte")
+    check(SensorBits.crc16(nine, poly: 0x1021, initial: 0xFFFF) == 0x29B1 && SensorBits.reverse8(0x01) == 0x80 && SensorBits.reflect4(0x6) == 0x6 && SensorBits.reflect4(0x1) == 0x8,
+          "Sensoren: CRC-16 (CCITT) und Bitumkehr")
+    // Bitpuffer
+    var bb = BitBuffer()
+    for b in [1, 0, 1, 1, 0, 0, 1, 0, 1] { bb.addBit(b) }
+    bb.addRow()
+    for b in [1, 1, 1] { bb.addBit(b) }
+    check(bb.numRows == 2 && bb.bitsPerRow == [9, 3] && bb.rows[0] == [0xB2, 0x80] && bb.rows[1] == [0xE0], "Sensoren: Bitpuffer (Bits, Zeilen)")
+    check(bb.extractBytes(row: 0, pos: 1, len: 8) == [0x65] && bb.search(row: 0, start: 0, pattern: [0xC0], patternBits: 2) == 2, "Sensoren: Bitpuffer (Auszug, Suche)")
+    var inv = bb; inv.invert()
+    check(inv.rows[0] == [0x4D, 0x00] && inv.rows[1] == [0x00], "Sensoren: Bitpuffer invertieren (ungenutzte Bits bleiben null)")
+    let parsed = BitBuffer.parse("{12} 0xabc {4} f")
+    check(parsed.bitsPerRow == [12, 4] && parsed.rows[0] == [0xAB, 0xC0] && parsed.rows[1] == [0xF0], "Sensoren: Bitfolge im Textformat des Vorbilds")
+    var man = BitBuffer(); for b in [0, 1, 1, 0, 0, 1, 1, 0] { man.addBit(b) }
+    var dec = BitBuffer(); _ = man.manchesterDecode(row: 0, start: 0, into: &dec)
+    check(dec.bitsPerRow == [4] && dec.rows[0] == [0xA0], "Sensoren: Manchester-Dekodierung")
+    let rep = BitBuffer.parse("{8} aa / {8} aa / {8} 55 / {8} aa")
+    check(rep.findRepeatedRow(minRepeats: 3, minBits: 8) == 0 && rep.findRepeatedRow(minRepeats: 4, minBits: 8) == -1, "Sensoren: wiederholte Zeilen")
+
+    // Einheiten und Zusammenfassung
+    var r = SensorReading(model: "Test"); r.add("id", 7); r.add("channel", 2); r.add("battery_ok", 0); r.add("temperature_C", 19.04); r.add("humidity", 71); r.add("wind_avg_m_s", 3.26)
+    check(SensorFormat.summary(r) == "19,0 °C · 71 % · Wind 3,3 m/s · Batterie schwach" && r.deviceKey == "Test/7/2" && r.batteryOK == false, "Sensoren: Zusammenfassung („\(SensorFormat.summary(r))“)")
+    check(SensorsController.sampleRate(inFileName: "g001_433.92M_250k.cu8") == 250_000 && SensorsController.sampleRate(inFileName: "x_868.3M_1000k.cu8") == 1_000_000
+          && SensorsController.sampleRate(inFileName: "gfile001.cu8") == 250_000 && SensorsController.sampleRate(inFileName: "a_2M.cu8") == 2_000_000, "Sensoren: Abtastrate aus dem Dateinamen")
+    check(SensorBand.mhz433.processingRate == 250_000 && SensorBand.mhz868.processingRate == 1_000_000 && DecoderModuleInfo.sensors.band == .vhfUhf && !DecoderModuleInfo.sensors.hasMap, "Sensoren: Bänder und Modul")
+    check(SensorCatalog.all.count >= 25 && Set(SensorCatalog.all.map(\.name)).count == SensorCatalog.all.count, "Sensoren: Katalog (\(SensorCatalog.all.count) Decoder, Namen eindeutig)")
+
+    // Telegramme der Sensoren in Pulse und Lücken umsetzen (µs) und über Erzeugung, Abwärtsumsetzung und Empfänger lesen
+    func ppmBursts(_ bits: [UInt8], repeats: Int, pulse: Double, zero: Double, one: Double, sync: Double, preamble: [(Double, Double)] = []) -> [(on: Double, off: Double)] {
+        var out: [(on: Double, off: Double)] = []
+        for _ in 0..<repeats {
+            out += preamble.map { (on: $0.0, off: $0.1) }
+            for b in bits { out.append((on: pulse, off: b == 1 ? one : zero)) }
+            out.append((on: pulse, off: sync))                          // letzter Puls mit der Synchronlücke
+        }
+        out[out.count - 1].off = 30_000
+        return out
+    }
+    func bitsOf(_ bytes: [UInt8], count: Int? = nil) -> [UInt8] { Array(bytes.flatMap { b in (0..<8).map { UInt8((b >> UInt8(7 - $0)) & 1) } }.prefix(count ?? bytes.count * 8)) }
+    func receive(_ iq: [UInt8], sourceRate: Int = 2_000_000, band: SensorBand = .mhz433, removeDC: Bool = true) -> (events: [SensorEvent], stats: SensorsEngine.Snapshot) {
+        let engine = SensorsEngine()
+        engine.configure(sourceRate: sourceRate, band: band, removeDC: removeDC)
+        iq.withUnsafeBufferPointer { p in
+            var i = 0
+            while i < p.count { let e = min(i + 65_536, p.count); engine.feed(UnsafeBufferPointer(rebasing: p[i..<e]), wait: true); i = e }
+        }
+        Thread.sleep(forTimeInterval: 0.3)
+        let s = engine.snapshot()
+        return (s.events, s)
+    }
+    // Nexus-TH: ID 181, Kanal 2 (Code 1), Batterie in Ordnung, 19,0 °C (190), 71 %
+    func nexusBits(id: Int, channel: Int, tempTenths: Int, humidity: Int, battery: Bool = true) -> [UInt8] {
+        let flags = (battery ? 8 : 0) | ((channel - 1) & 3)
+        let t = tempTenths & 0xFFF
+        var v: UInt64 = UInt64(id) << 28 | UInt64(flags) << 24 | UInt64(t) << 12 | 0xF00 | UInt64(humidity)
+        v &= 0xF_FFFF_FFFF
+        return (0..<36).map { UInt8((v >> UInt64(35 - $0)) & 1) }
+    }
+    let nexus = ppmBursts(nexusBits(id: 181, channel: 2, tempTenths: 190, humidity: 71), repeats: 12, pulse: 500, zero: 1000, one: 2000, sync: 4000)
+    var opt = SensorSignalGenerator.Options()
+    var got = receive(SensorSignalGenerator.ook(nexus, options: opt))
+    check(got.events.count == 1 && got.events.allSatisfy { $0.reading.model == "Nexus-TH" && $0.reading.id == 181 && $0.reading.channel == 2 && $0.reading.temperatureC == 19.0 && $0.reading.humidity == 71 && $0.reading.batteryOK == true },
+          "Sensoren Kette (Nexus, OOK/PPM, 2 MS/s → 250 kS/s): 12 Wiederholungen ergeben ein Telegramm (\(got.events.count))")
+    opt.dc = 6; opt.noise = 5; opt.offsetHz = -40_000
+    got = receive(SensorSignalGenerator.ook(nexus, options: opt))
+    check(got.events.count == 1 && got.events.allSatisfy { $0.reading.model == "Nexus-TH" && $0.reading.temperatureC == 19.0 }, "Sensoren Kette: mit Gleichanteil, Rauschen und Frequenzablage −40 kHz (\(got.events.count) Telegramme)")
+    let cold = ppmBursts(nexusBits(id: 9, channel: 1, tempTenths: 0x1000 - 123, humidity: 55, battery: false), repeats: 12, pulse: 500, zero: 1000, one: 2000, sync: 4000)
+    got = receive(SensorSignalGenerator.ook(cold, options: SensorSignalGenerator.Options()))
+    check(got.events.first.map { $0.reading.temperatureC == -12.3 && $0.reading.batteryOK == false && $0.reading.humidity == 55 } == true, "Sensoren Kette: negative Temperatur (−12,3 °C) und schwache Batterie")
+    // Fine Offset WH2: 0xFF + Typ 4, ID, Temperatur (Betrag, Vorzeichenbit), Feuchte, CRC-8; Bit 1 = kurzer Puls
+    func wh2Pulses(id: Int, tempTenths: Int, humidity: Int) -> [(on: Double, off: Double)] {
+        let t = tempTenths < 0 ? (0x800 | -tempTenths) : tempTenths
+        var b: [UInt8] = [UInt8(0x40 | (id >> 4)), UInt8(((id & 0xF) << 4) | (t >> 8)), UInt8(t & 0xFF), UInt8(humidity)]
+        b.append(SensorBits.crc8(b, poly: 0x31, initial: 0))
+        var bits = bitsOf([0xFF]) + bitsOf(b)
+        bits += []
+        var out: [(on: Double, off: Double)] = []
+        for _ in 0..<2 {
+            for (i, bit) in bits.enumerated() { out.append((on: bit == 1 ? 544 : 1524, off: i == bits.count - 1 ? 25_000 : 1036)) }
+        }
+        return out
+    }
+    got = receive(SensorSignalGenerator.ook(wh2Pulses(id: 0x5A, tempTenths: -85, humidity: 33), options: SensorSignalGenerator.Options()))
+    check(got.events.first.map { $0.reading.model == "Fineoffset-WH2" && $0.reading.id == 0x5A && $0.reading.temperatureC == -8.5 && $0.reading.humidity == 33 } == true,
+          "Sensoren Kette (Fine Offset WH2, OOK/PWM, CRC-8): −8,5 °C, 33 % (\(got.events.count) Telegramme)")
+    // Bresser 5-in-1 (FSK, 868,3 MHz, 1 MS/s): 13 Byte, danach dieselben invertiert
+    func bresser5in1(temp: Int, humidity: Int, wind: Int) -> [UInt8] {
+        var m = [UInt8](repeating: 0, count: 26)
+        m[13] = 0x41; m[14] = 0x2B; m[15] = 0x00 | 0x01
+        m[16] = UInt8(wind % 10 * 16) | 0; m[17] = 0
+        m[18] = UInt8((wind / 10) % 10 * 16 + wind % 10) ; m[19] = UInt8(wind / 100)
+        m[20] = UInt8((temp / 10 % 10) * 16 + temp % 10); m[21] = UInt8(temp / 100)
+        m[22] = UInt8((humidity / 10) * 16 + humidity % 10)
+        for i in 0..<13 { m[i] = ~m[i + 13] }
+        return bitsOf([0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x2D, 0xD4]) + bitsOf(m)
+    }
+    var fo = SensorSignalGenerator.Options(); fo.leadSeconds = 0.01
+    got = receive(SensorSignalGenerator.fsk(bits: bresser5in1(temp: 123, humidity: 64, wind: 25), bitMicroseconds: 124, deviationHz: 50_000, options: fo), band: .mhz868)
+    check(got.events.first.map { $0.reading.model == "Bresser-5in1" && $0.reading.id == 0x2B && $0.reading.temperatureC == 12.3 && $0.reading.humidity == 64 && $0.reading["wind_avg_m_s"]?.number == 2.5 } == true,
+          "Sensoren Kette (Bresser 5-in-1, FSK, 868,3 MHz, 1 MS/s): 12,3 °C, 64 %, 2,5 m/s (\(got.events.count) Telegramme, \(got.stats.fskPackages) FSK-Pakete)")
+    // Rauschen allein: nichts
+    var rng = SystemRandomNumberGenerator()
+    let hiss = (0..<(2_000_000 * 2 * 2)).map { _ in UInt8(127 + Int.random(in: -6...6, using: &rng)) }
+    got = receive(hiss)
+    check(got.events.isEmpty, "Sensoren Kette: Rauschen allein erzeugt keine Telegramme (\(got.stats.packages) Pakete)")
+    // Verwaltung: Wiederholungen zählen einmal, Verlauf und Ablaufzeit
+    let box = SensorsController(settings: SensorsSettingsStore())
+    let ev = { (t: Double) -> SensorEvent in
+        var rd = SensorReading(model: "Nexus-TH"); rd.add("id", 5); rd.add("channel", 1); rd.add("battery_ok", 1); rd.add("temperature_C", t); rd.add("humidity", 60)
+        return SensorEvent(reading: rd, device: "Nexus", time: 0, rssiDB: -20, snrDB: 15, noiseDB: -40, frequencyOffsetHz: 1200, isFSK: false)
+    }
+    let t0 = Date()
+    box.ingest(ev(20.0), now: t0); box.ingest(ev(20.0), now: t0.addingTimeInterval(1)); box.ingest(ev(20.0), now: t0.addingTimeInterval(2))
+    box.ingest(ev(20.5), now: t0.addingTimeInterval(60))
+    check(box.stations.count == 1 && box.stations[0].transmissions == 2 && box.stations[0].trend.count == 2 && box.recent.count == 2 && box.stations[0].latest.temperatureC == 20.5,
+          "Sensoren: Wiederholungen innerhalb von 3 s zählen einmal, Verlauf (\(box.stations.first?.transmissions ?? 0) Aussendungen)")
+    box.clear()
+    check(box.stations.isEmpty && box.recent.isEmpty, "Sensoren: Liste leeren")
+
+    // Aufnahmen der Referenz (nur lokal: TestData/Sensors, Tools/Sensors433Bench/fetch_testdata.sh): erwartete Messwerte je Datei
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Sensors")
+    if FileManager.default.fileExists(atPath: root.appendingPathComponent("nexus/01/gfile001.cu8").path) {
+        let files = try? FileManager.default.subpathsOfDirectory(atPath: root.path).filter { $0.hasSuffix(".cu8") }.sorted()
+        let all = SensorCatalog.all
+        var total = 0, ok = 0
+        var failed: [String] = []
+        // Verzeichnisse, deren Decoder fehlen (andere Geräte, in der Referenz deaktiviert oder noch nicht übernommen)
+        let skipDirs = ["KlimaLogg", "TFA_30.3151", "WH41", "WN34L", "eurochron", "wh2/02", "prologue/04", "tfa_30_3211_02", "TFA_Marbella/01"]
+        for f in files ?? [] where !skipDirs.contains(where: { f.contains($0) }) {
+            let jsonURL = root.appendingPathComponent(f.replacingOccurrences(of: ".cu8", with: ".json"))
+            guard let text = try? String(contentsOf: jsonURL, encoding: .utf8) else { continue }
+            let lines = text.split(whereSeparator: \.isNewline).compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+            guard !lines.isEmpty, let data = try? Data(contentsOf: root.appendingPathComponent(f)) else { continue }
+            let models = Set(lines.compactMap { $0["model"] as? String })
+            let rx = SensorReceiver(sampleRate: SensorsController.sampleRate(inFileName: (f as NSString).lastPathComponent), devices: all, centerFrequency: 433_920_000)
+            final class Sink: @unchecked Sendable { var list: [SensorEvent] = [] }
+            let sink = Sink()
+            rx.onEvent = { sink.list.append($0) }
+            data.withUnsafeBytes { raw in
+                let p = raw.bindMemory(to: UInt8.self)
+                var i = 0
+                while i < p.count { let e = min(i + 262_144, p.count); rx.process(UnsafeBufferPointer(rebasing: p[i..<e])); i = e }
+            }
+            rx.flush()
+            let events = sink.list.filter { models.contains($0.reading.model) }
+            total += 1
+            var good = events.count == lines.count
+            if good {
+                for (e, exp) in zip(events, lines) {
+                    for (k, v) in exp where !["time", "mic", "model"].contains(k) {
+                        guard let got = e.reading[k] else { good = false; break }
+                        if let s = v as? String { if got.text != s { good = false } }
+                        else if let n = (v as? NSNumber)?.doubleValue, abs((got.number ?? .nan) - n) > 0.0015 + abs(n) * 1e-5 { good = false }
+                    }
+                    if e.reading.model != exp["model"] as? String { good = false }
+                }
+            }
+            if good { ok += 1 } else { failed.append(f) }
+        }
+        check(total > 300 && ok == total, "Sensoren echt: \(ok) von \(total) Aufnahmen der Referenz stimmen in Modell, Kennung und allen Messwerten überein" + (failed.isEmpty ? "" : " (Abweichung: \(failed.prefix(3).joined(separator: ", ")))"))
+    } else { skip("Sensoren echt: TestData/Sensors liegt nicht lokal vor (Tools/Sensors433Bench/fetch_testdata.sh)") }
 }
 // MARK: - FreeDV (Codec2): Modem, Rundlauf, Textkanal, echte Aufnahme
 do {
