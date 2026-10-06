@@ -8997,6 +8997,122 @@ do {
               "DMR echt (Italien): \(r.voice[1].count / 3) Sprachbursts in Zeitschlitz 2, \(r.stats.idleBursts) Leerlaufbursts, Sprach-Kopf (CC 4, TG 19535, Quelle 2222223), \(r.stats.embeddedLC) mal eingebettet")
     } else { skip("DMR echt: TestData/Voice/dmr_it_8.dis liegt nicht lokal vor") }
 }
+// MARK: - FreeDV (Codec2): Modem, Rundlauf, Textkanal, echte Aufnahme
+do {
+    struct FRng: Sendable {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+        mutating func gauss() -> Double {
+            let u1 = max(Double(next() >> 11) / Double(1 << 53), 1e-12), u2 = Double(next() >> 11) / Double(1 << 53)
+            return (-2 * log(u1)).squareRoot() * cos(2 * Double.pi * u2)
+        }
+    }
+    // Sprachähnliches Signal: Stimmritzenfolge (130 Hz) durch drei Formanten, Silbenhüllkurve, dazu Zischlaute
+    func speechLike(seconds: Double) -> [Int16] {
+        var rng = FRng(state: 9)
+        let n = Int(seconds * 8000)
+        var out = [Int16](repeating: 0, count: n)
+        var y1 = [0.0, 0.0, 0.0], y2 = [0.0, 0.0, 0.0]
+        let formants = [(700.0, 90.0), (1220.0, 110.0), (2600.0, 160.0)]
+        for i in 0..<n {
+            let t = Double(i) / 8000
+            let syllable = max(0, sin(2 * Double.pi * 3.2 * t)) * (0.6 + 0.4 * sin(2 * Double.pi * 0.7 * t))
+            let phase = (t * (130 + 25 * sin(2 * Double.pi * 0.5 * t))).truncatingRemainder(dividingBy: 1)
+            let glottal = (phase < 0.08 ? 1.0 : 0.0) - 0.08
+            var v = 0.0
+            for (k, (f, bw)) in formants.enumerated() {
+                let r = exp(-Double.pi * bw / 8000), c = 2 * r * cos(2 * Double.pi * f / 8000)
+                let y = glottal + c * y1[k] - r * r * y2[k]
+                y2[k] = y1[k]; y1[k] = y
+                v += y * (k == 0 ? 1.0 : 0.6)
+            }
+            let hiss = (i / 4000) % 3 == 2 ? 0.15 * rng.gauss() * (0.5 + 0.5 * sin(2 * Double.pi * 1.1 * t)) : 0
+            out[i] = Int16(max(-30000, min(30000, 2600 * syllable * v + 1500 * hiss)))
+        }
+        return out
+    }
+    func rmsOf(_ x: ArraySlice<Int16>) -> Double { x.isEmpty ? 0 : (x.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(x.count)).squareRoot() }
+    func envelope(_ x: [Int16]) -> [Double] { stride(from: 0, to: max(0, x.count - 160), by: 160).map { rmsOf(x[$0..<($0 + 160)]) } }
+    /// Größte Korrelation der Hüllkurven bei einem Versatz bis zu 2 s
+    func envelopeCorrelation(_ a: [Int16], _ b: [Int16]) -> Double {
+        let ea = envelope(a), eb = envelope(b)
+        var best = -1.0
+        for shift in 0..<100 {
+            let k = min(ea.count, eb.count - shift)
+            guard k > 20 else { continue }
+            let x = Array(ea[0..<k]), y = Array(eb[shift..<(shift + k)])
+            let mx = x.reduce(0, +) / Double(k), my = y.reduce(0, +) / Double(k)
+            var sxy = 0.0, sxx = 0.0, syy = 0.0
+            for j in 0..<k { sxy += (x[j] - mx) * (y[j] - my); sxx += (x[j] - mx) * (x[j] - mx); syy += (y[j] - my) * (y[j] - my) }
+            best = max(best, sxy / max(1e-9, (sxx * syy).squareRoot()))
+        }
+        return best
+    }
+    func modulate(_ mode: FreeDVMode, speech: [Int16], text: String? = nil) -> [Int16] {
+        let tx = FreeDVModem(mode: mode)!
+        if let text { tx.setTransmitText(text) }
+        let n = tx.speechSamplesPerFrame
+        var out = [Int16](repeating: 0, count: 4000)
+        var i = 0
+        while i + n <= speech.count { out += tx.transmit(Array(speech[i..<(i + n)])); i += n }
+        return out + [Int16](repeating: 0, count: 8000)
+    }
+    func demodulate(_ mode: FreeDVMode, _ audio: [Int16]) -> (speech: [Int16], syncShare: Double, text: String, snr: Double) {
+        let rx = FreeDVModem(mode: mode)!
+        var chars = ""
+        rx.onText = { chars.append($0) }
+        var speech: [Int16] = []
+        var syncBlocks = 0, blocks = 0, snr = 0.0
+        var p = 0
+        while p < audio.count {
+            speech += rx.receive(Array(audio[p..<min(p + 800, audio.count)]))
+            blocks += 1
+            let st = rx.status
+            if st.sync { syncBlocks += 1; snr = st.snr }
+            p += 800
+        }
+        return (speech, Double(syncBlocks) / Double(max(1, blocks)), chars, snr)
+    }
+
+    let voice = speechLike(seconds: 8)
+    for mode in FreeDVMode.allCases {
+        let r = demodulate(mode, modulate(mode, speech: voice))
+        let corr = envelopeCorrelation(voice, r.speech)
+        check(r.syncShare > 0.5 && corr > 0.75 && abs(Double(r.speech.count) / 8000 - 9.5) < 2.0,
+              "FreeDV \(mode.title): Rundlauf Sprache, Synchronisation \(Int(r.syncShare * 100)) %, Hüllkurven-Korrelation \(String(format: "%.2f", corr)), \(String(format: "%.1f", Double(r.speech.count) / 8000)) s")
+    }
+    // Rauschen: 700D bei etwa 8 dB Rauschabstand (3 kHz)
+    var noiseRng = FRng(state: 31)
+    let clean700 = modulate(.mode700D, speech: voice)
+    let power = rmsOf(clean700[4000..<(clean700.count - 8000)])
+    let sigma = power / pow(10, 8.0 / 20) * (4000.0 / 3000.0).squareRoot()
+    let noisy = clean700.map { Int16(max(-32768, min(32767, Double($0) + sigma * noiseRng.gauss()))) }
+    let rn = demodulate(.mode700D, noisy)
+    check(rn.syncShare > 0.4 && envelopeCorrelation(voice, rn.speech) > 0.6, "FreeDV 700D mit Rauschen (≈ 8 dB in 3 kHz): Synchronisation \(Int(rn.syncShare * 100)) %, Sprache \(String(format: "%.2f", envelopeCorrelation(voice, rn.speech)))")
+    // Textkanal (Rufzeichen)
+    let withText = demodulate(.mode700D, modulate(.mode700D, speech: voice, text: "DL1ABC JN49"))
+    check(withText.text.contains("DL1ABC JN49"), "FreeDV 700D: Textkanal liefert das Rufzeichen („\(withText.text.prefix(24))“)")
+    // Falsche Betriebsart: kein Sync
+    let wrong = demodulate(.mode1600, modulate(.mode700D, speech: voice))
+    check(wrong.syncShare < 0.2, "FreeDV: falsche Betriebsart (1600 statt 700D) bleibt unsynchron (\(Int(wrong.syncShare * 100)) %)")
+    check(FreeDVMode(preset: "700E") == .mode700E && FreeDVMode(preset: "x") == nil && FreeDVMode.allCases.map(\.title) == ["700D", "700E", "1600", "700C"],
+          "FreeDV: Betriebsarten und Voreinstellungen der URL-Schnittstelle")
+
+    // Echte Aufnahme (Codec2-Beispiel, David Rowe: FreeDV 700D auf Kurzwelle, Gegenstation vk2tpm in Sydney; nur lokal)
+    let realFreeDV = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Voice/freedv_700d_vk2tpm.wav")
+    if let data = try? Data(contentsOf: realFreeDV), data.count > 44 {
+        let pcm = data.dropFirst(44).withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }
+        let r = demodulate(.mode700D, pcm)
+        check(r.syncShare > 0.9 && r.speech.count > 8000 * 30 && r.text.contains("vk2tpm Killarney Heights") && rmsOf(r.speech[...]) > 300 && r.snr > 3,
+              "FreeDV echt (700D, vk2tpm): Synchronisation \(Int(r.syncShare * 100)) %, \(String(format: "%.0f", Double(r.speech.count) / 8000)) s Sprache, Text „\(r.text.prefix(32))“, S/N \(String(format: "%.1f", r.snr)) dB")
+    } else { skip("FreeDV echt: TestData/Voice/freedv_700d_vk2tpm.wav liegt nicht lokal vor") }
+}
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {
     final class Flag: @unchecked Sendable { var done = false }

@@ -14,6 +14,10 @@ Quelltext, Daten, Testaufnahmen und Vorbilder. Es wird auch im Programm angezeig
 
 ## 2. Fremder Quelltext im Repository (Vendor/)
 
+### Codec2 und FreeDV (Vendor/Codec2)
+
+Sprachcodec und Modems (FreeDV 1600, 700C, 700D, 700E) von **David Rowe VK5DGR und Mitwirkenden**, https://github.com/drowe67/codec2, Version 1.2.0 (Commit `310777b`), **LGPL-2.1** (`Vendor/Codec2/COPYING_codec2_LGPL-2.1.txt`). Der Quelltext liegt unverändert bei; nur Symbole werden beim Übersetzen umbenannt. Herkunft, Übernahme und Abweichungen: `Vendor/Codec2/UPSTREAM_CODEC2.md`. Beispielaufnahme für die Tests (FreeDV 700D auf Kurzwelle, Gegenstation vk2tpm): `wav/vk2tpm_004.wav` des Codec2-Repositorys, nur lokal unter `TestData/Voice`.
+
 ### fldigi 4.2.13
 
 - Autoren: David Freese (W1HKJ) und Mitwirkende, darunter Stefan Fendt (DL1SMF) und Tomi Manninen (nach gmfsk) beim RTTY-Empfänger sowie Pawel Jalocha (SP9VRC) bei MT63 und Olivia.
