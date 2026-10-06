@@ -52,6 +52,8 @@ public final class FourFSKSlicer {
     /// Signalbeginn: der Takt soll schnell einrasten (Anfang der Aussendung hat keinen Vorspann)
     private var slowHalf: Float = 0
     private var boost = 0
+    /// Mittlerer Betrag der äußeren Symbole (±3), entscheidungsgestützt nachgeführt: die Schwelle liegt dann zwischen den echten Pegeln
+    private var outer: Float = 0
 
     public init(sampleRate: Double, baud: Double = FourFSK.baud) {
         self.sampleRate = sampleRate
@@ -78,7 +80,7 @@ public final class FourFSKSlicer {
         ring = [Float](repeating: 0, count: ring.count)
         peakHigh = 0; peakLow = 0
         phase = 0; emitted = false; started = false
-        slowHalf = 0; boost = 0
+        slowHalf = 0; boost = 0; outer = 0
     }
 
     public func process(_ samples: [Float]) {
@@ -106,7 +108,7 @@ public final class FourFSKSlicer {
         let half = max((peakHigh - peakLow) / 2, 1e-6)       // entspricht Pegel ±3
         level = half
         // Pegelsprung (Beginn einer Aussendung) → einige Dutzend Symbole lang schneller regeln
-        if half > 3 * slowHalf + 0.002 { boost = 100 }
+        if half > 3 * slowHalf + 0.002 { boost = 100; outer = half }
         slowHalf += (half - slowHalf) * Float(1 / (sampleRate * 0.05))
         let s = x - center
         let sign = s > 0
@@ -126,7 +128,10 @@ public final class FourFSKSlicer {
         if !emitted && next >= 0.5 {
             emitted = true
             if boost > 0 { boost -= 1 }
-            onSymbol?(max(-3, min(3, 3 * s / half)))
+            if outer <= 0 { outer = half }
+            let value = max(-3, min(3, 3 * s / outer))
+            if abs(value) > 2 { outer += 0.03 * (abs(s) - outer) }
+            onSymbol?(value)
         }
         phase = next
         previous = x

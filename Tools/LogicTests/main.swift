@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "PACKET", "PAGER", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "PACKET", "PAGER", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -8780,6 +8780,222 @@ do {
         check(r.frames >= 320 && r.voice.count >= 1500 && r.texts.contains("source(\"F6FCE\")") && r.texts.contains("source(\"F1SER\")") && r.texts.contains("uplink(\"F5ZOO-R1\")") && r.texts.contains("destination(\"**********\")"),
               "YSF echt (F5ZOO): \(r.frames) Rahmen, \(r.voice.count) Sprachrahmen, Rufzeichen F6FCE und F1SER über F5ZOO-R1")
     } else { skip("YSF echt: TestData/Voice/ysf_f5zoo.dis liegt nicht lokal vor") }
+}
+// MARK: - DMR: Codes, Burstaufbau, Link Control, Empfänger
+do {
+    struct Rng: Sendable {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+        mutating func bit() -> UInt8 { UInt8(next() & 1) }
+        mutating func below(_ n: Int) -> Int { Int(next() % UInt64(n)) }
+    }
+    var rng = Rng(state: 2424)
+
+    // Hamming-Codes: jeder Einzelfehler wird korrigiert
+    func hammingCheck(_ code: HammingCode, _ name: String) {
+        var allFixed = true
+        for _ in 0..<20 {
+            let data = (0..<code.dataBits).map { _ in rng.bit() }
+            let word = code.encode(data)
+            allFixed = allFixed && code.decode(word).ok && code.decode(word).bits == word
+            for position in 0..<word.count {
+                var bad = word
+                bad[position] ^= 1
+                let r = code.decode(bad)
+                allFixed = allFixed && r.ok && r.corrected && r.bits == word
+            }
+        }
+        check(allFixed, "DMR \(name): jeder Einzelfehler wird korrigiert")
+    }
+    hammingCheck(.h74, "Hamming (7,4,3)")
+    hammingCheck(.h139, "Hamming (13,9,3)")
+    hammingCheck(.h1511, "Hamming (15,11,3)")
+    hammingCheck(.h16114, "Hamming (16,11,4)")
+    var doubleRejected = true
+    for _ in 0..<50 {
+        let word = HammingCode.h16114.encode((0..<11).map { _ in rng.bit() })
+        var bad = word
+        let a = rng.below(16)
+        var b = rng.below(16)
+        while b == a { b = rng.below(16) }
+        bad[a] ^= 1; bad[b] ^= 1
+        doubleRejected = doubleRejected && !HammingCode.h16114.decode(bad).ok
+    }
+    check(doubleRejected, "DMR Hamming (16,11,4): zwei Fehler werden erkannt und nicht „korrigiert“")
+    // Tabellencodes
+    var tableOK = true
+    for _ in 0..<60 {
+        let data = rng.below(256)
+        var word = TableCode.golay208.encode(data)
+        var flips = Set<Int>()
+        let count = rng.below(4)
+        while flips.count < count { flips.insert(rng.below(20)) }
+        for f in flips { word[f] ^= 1 }
+        tableOK = tableOK && TableCode.golay208.decode(word, maxDistance: 3)?.data == data
+        let q = rng.below(128)
+        var qr = TableCode.qr1676.encode(q)
+        var qf = Set<Int>()
+        let qc = rng.below(3)
+        while qf.count < qc { qf.insert(rng.below(16)) }
+        for f in qf { qr[f] ^= 1 }
+        tableOK = tableOK && TableCode.qr1676.decode(qr, maxDistance: 2)?.data == q
+    }
+    check(tableOK, "DMR Golay (20,8,7) bis 3 Fehler und Quadratischer-Rest-Code (16,7,6) bis 2 Fehler")
+
+    // BPTC (196,96) und (128,77)
+    var bptcOK = true
+    for round in 0..<20 {
+        let data = (0..<96).map { _ in rng.bit() }
+        var coded = BPTC196.encode(data)
+        check(coded.count == 196 && BPTC196.decode(coded).data == data && BPTC196.decode(coded).errors == 0 || round > 0, "DMR BPTC (196,96): Hin- und Rückweg")
+        var flips = Set<Int>()
+        while flips.count < 1 + round % 6 { flips.insert(rng.below(196)) }
+        for f in flips { coded[f] ^= 1 }
+        bptcOK = bptcOK && BPTC196.decode(coded).data == data
+    }
+    check(bptcOK, "DMR BPTC (196,96): bis zu 6 gestreute Bitfehler werden korrigiert")
+    var embOK = true
+    for round in 0..<20 {
+        let data = (0..<77).map { _ in rng.bit() }
+        var coded = BPTC128.encode(data)
+        let clean = BPTC128.decode(coded)
+        embOK = embOK && clean.data == data && clean.errors == 0
+        coded[rng.below(128)] ^= 1
+        _ = round
+        embOK = embOK && BPTC128.decode(coded).data == data
+    }
+    check(embOK, "DMR BPTC (128,77): Hin- und Rückweg, ein Bitfehler wird korrigiert")
+
+    // Reed-Solomon (12,9): Prüfbytes eines echten Sprach-Kopfs (Aufnahme dmr_it_8, TG 19535, Quelle 2222223; Maske 0x969696)
+    let lcBytes: [UInt8] = [0x00, 0x00, 0x00, 0x00, 0x4C, 0x4F, 0x21, 0xE8, 0x8F]
+    check(ReedSolomon129.parity(lcBytes) == [0x27 ^ 0x96, 0x4C ^ 0x96, 0x5C ^ 0x96], "DMR Reed-Solomon (12,9): Prüfbytes eines echten Sprach-Kopfs")
+    var rsOK = true
+    for _ in 0..<40 {
+        let message = (0..<9).map { _ in UInt8(truncatingIfNeeded: rng.next()) }
+        let word = message + ReedSolomon129.parity(message)
+        rsOK = rsOK && ReedSolomon129.syndromes(word) == [0, 0, 0]
+        var bad = word
+        let position = rng.below(12)
+        bad[position] ^= UInt8(1 + rng.below(255))
+        rsOK = rsOK && ReedSolomon129.correct(bad)?.word == word
+    }
+    check(rsOK, "DMR Reed-Solomon (12,9): Syndrome null, ein fehlerhaftes Byte wird korrigiert")
+
+    // CACH, Slot Type, EMB
+    var cachOK = true
+    for slot in 0..<2 { for lcss in 0..<4 { let c = DMRCach(accessType: true, slot: slot, lcss: lcss); cachOK = cachOK && DMRCach.decode(c.symbols()[...]) == c } }
+    check(cachOK, "DMR CACH: Zeitschlitz und LCSS hin und zurück")
+    var slotOK = true
+    for cc in 0..<16 { for type in [DMR.DataType.voiceHeader, .terminator, .csbk, .idle, .rate12Data] {
+        let st = DMRSlotType(colorCode: cc, dataType: type)
+        let bits = st.bits()
+        let sym = stride(from: 0, to: 20, by: 2).map { FourFSK.level(ofDibit: (bits[$0] << 1) | bits[$0 + 1]) }
+        slotOK = slotOK && DMRSlotType.decode(before: sym[0..<5], after: sym[5..<10]) == st
+    } }
+    check(slotOK, "DMR Slot Type: Farbcode und Datentyp hin und zurück (alle 16 Farbcodes)")
+    var embBitsOK = true
+    for cc in 0..<16 { for lcss in 0..<4 {
+        let emb = DMREmb(colorCode: cc, pi: false, lcss: lcss)
+        let center = DMRSignalGenerator.embeddedCenter(colorCode: cc, lcss: lcss, fragment: [UInt8](repeating: 0, count: 32))
+        embBitsOK = embBitsOK && DMREmb.decode(center: center[...]) == emb
+    } }
+    check(embBitsOK, "DMR EMB: Farbcode und Fragmentkennung hin und zurück")
+
+    // Link Control
+    let lc = DMRLinkControl(flco: 0, featureID: 0, serviceOptions: 0, destination: 19535, source: 2222223)
+    check(DMRLinkControl.decodeFull(info: lc.encodeFull(type: .voiceHeader), type: .voiceHeader) == lc, "DMR Link Control: Sprach-Kopf hin und zurück")
+    check(DMRLinkControl.decodeFull(info: lc.encodeFull(type: .terminator), type: .terminator) == lc && DMRLinkControl.decodeFull(info: lc.encodeFull(type: .terminator), type: .voiceHeader) == nil, "DMR Link Control: Abschluss mit anderer Maske, falsche Maske fällt durch")
+    check(DMRLinkControl.decodeEmbedded(fragments: lc.encodeEmbedded()) == lc, "DMR Link Control: eingebettet (vier Fragmente) hin und zurück")
+    var damagedFragments = lc.encodeEmbedded()
+    damagedFragments[1][5] ^= 1; damagedFragments[2][20] ^= 1
+    check(DMRLinkControl.decodeEmbedded(fragments: damagedFragments) == lc, "DMR Link Control: eingebettet mit zwei Bitfehlern")
+    let privateCall = DMRLinkControl(flco: 3, destination: 9990001, source: 262001)
+    check(privateCall.isPrivateCall && !privateCall.isGroupCall && DMRLinkControl(bytes: privateCall.bytes) == privateCall, "DMR Link Control: Einzelruf und Bytefolge")
+
+    // Sprachburst: drei Rahmen hin und zurück
+    let testFrames: [[UInt8]] = (0..<3).map { _ in AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: (0..<49).map { _ in rng.bit() })) }
+    let oneBurst = DMRSignalGenerator.voiceBurst(slot: 0, frames: testFrames, center: DMR.SyncKind.baseVoice.levels)
+    check(oneBurst.count == 144 && DMRVoice.frames(burst: oneBurst[...]) == testFrames, "DMR Sprachburst: Rahmen A, B (um die Mitte geteilt) und C hin und zurück")
+    check(DMR.SyncKind.baseData.levels == DMR.SyncKind.baseVoice.levels.map { -$0 } && DMR.SyncKind.mobileData.levels == DMR.SyncKind.mobileVoice.levels.map { -$0 }, "DMR: Datensync ist das Negativ des Sprachsyncs (Polaritätsfalle)")
+
+    // Empfänger
+    let callFrames: [[UInt8]] = (0..<54).map { _ in AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: (0..<49).map { _ in rng.bit() })) }
+    struct DRun { var voice: [[[UInt8]]] = [[], []]; var starts: [(Int, Int?, DMRLinkControl?)] = []; var ends: [(Int, DMRLinkControl?, Bool)] = []; var lcs: [(Int, DMRLinkControl)] = []; var lost = 0; var stats = DMRFramerStats(); var embeddedIndexes = Set<Int>() }
+    func receiveDMR(_ audio: [Float], rate: Double = 48000) -> DRun {
+        let slicer = FourFSKSlicer(sampleRate: rate), framer = DMRFramer()
+        var run = DRun()
+        framer.onEvent = { e in
+            switch e {
+            case .voice(let v): run.voice[v.slot] += v.frames; run.embeddedIndexes.insert(v.index)
+            case .callStart(let s, let cc, let l): run.starts.append((s, cc, l))
+            case .callEnd(let s, let l, let lost): run.ends.append((s, l, lost))
+            case .linkControl(let s, let l): run.lcs.append((s, l))
+            case .lost: run.lost += 1
+            case .data: break
+            }
+        }
+        slicer.onSymbol = { framer.push(symbol: $0) }
+        var i = 0
+        while i < audio.count { let j = min(i + 1000, audio.count); slicer.process(Array(audio[i..<j])); i = j }
+        run.stats = framer.stats
+        return run
+    }
+    let cleanSymbols = DMRSignalGenerator.call(slot: 1, colorCode: 5, lc: lc, frames: callFrames)
+    func scenarioDMR(_ title: String, rate: Double = 48000, minBursts: Int = 18, share: Double = 0.97, _ edit: (inout FourFSKModulator.Impairments) -> Void) {
+        var im = FourFSKModulator.Impairments(); edit(&im)
+        let r = receiveDMR(FourFSKModulator.audio(symbols: cleanSymbols, sampleRate: rate, bt: 2.0, impairments: im), rate: rate)
+        let right = zip(r.voice[1], callFrames).filter { $0.0 == $0.1 }.count
+        check(r.voice[0].isEmpty && r.voice[1].count >= minBursts * 3 && Double(right) >= share * Double(r.voice[1].count) && r.starts.first?.0 == 1 && r.starts.first?.2 == lc && r.starts.first?.1 == 5 && r.ends.last?.2 == false && r.ends.last?.1 == lc && r.stats.embeddedLC >= 2,
+              "DMR-Empfänger \(title): Kopf (CC 5, TG 19535, Quelle 2222223), \(r.voice[1].count / 3) Sprachbursts (\(right) von \(r.voice[1].count) Rahmen bitgleich), Abschluss, eingebettete Information \(r.stats.embeddedLC)")
+    }
+    scenarioDMR("sauber") { _ in }
+    scenarioDMR("Pegel umgekehrt") { $0.inverted = true }
+    scenarioDMR("Gleichanteil 30 %") { $0.dc = 0.3 }
+    scenarioDMR("Takt +300 ppm") { $0.clockPPM = 300 }
+    scenarioDMR("Takt −500 ppm") { $0.clockPPM = -500 }
+    scenarioDMR("Rauschen 0,2", share: 0.85) { $0.noise = 0.2; $0.seed = 31 }
+    scenarioDMR("Abtastrate 24 kHz", rate: 24000, share: 0.9) { _ in }
+    scenarioDMR("Abtastrate 96 kHz") { _ in }
+    // Später Einstieg: ohne Kopf liefern die eingebetteten Fragmente die Rufdaten
+    let lateSymbols = DMRSignalGenerator.call(slot: 0, colorCode: 2, lc: lc, frames: callFrames, withHeader: false, withTerminator: false)
+    let late = receiveDMR(FourFSKModulator.audio(symbols: lateSymbols, sampleRate: 48000, bt: 2.0))
+    check(late.starts.first?.2 == nil && late.lcs.contains { $0.0 == 0 && $0.1 == lc } && late.voice[0].count >= 15 * 3 && late.voice[1].isEmpty,
+          "DMR-Empfänger später Einstieg: Gespräch ohne Kopf, Rufdaten aus der eingebetteten Information (\(late.lcs.count) mal), \(late.voice[0].count / 3) Sprachbursts")
+    // Zwei Gespräche zugleich, in jedem Zeitschlitz eines
+    let lcB = DMRLinkControl(flco: 3, destination: 262999, source: 2621111)
+    let framesB: [[UInt8]] = (0..<36).map { _ in AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: (0..<49).map { _ in rng.bit() })) }
+    let both = DMRSignalGenerator.stream(slot0: DMRSignalGenerator.bursts(slot: 0, colorCode: 7, lc: lc, frames: callFrames),
+                                         slot1: DMRSignalGenerator.bursts(slot: 1, colorCode: 7, lc: lcB, frames: framesB), colorCode: 7)
+    let two = receiveDMR(FourFSKModulator.audio(symbols: both, sampleRate: 48000, bt: 2.0))
+    check(two.starts.contains { $0.0 == 0 && $0.2 == lc } && two.starts.contains { $0.0 == 1 && $0.2 == lcB } && two.voice[0].count >= 15 * 3 && two.voice[1].count >= 10 * 3 && two.ends.count == 2,
+          "DMR-Empfänger zwei Zeitschlitze: Gruppenruf in Zeitschlitz 1 und Einzelruf in Zeitschlitz 2 getrennt (\(two.voice[0].count / 3) und \(two.voice[1].count / 3) Sprachbursts)")
+    // ID-Liste (Format der Datenbank von radioid.net)
+    let csv = "RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY\n1023007,VA3BOC,Hans Juergen,,Cornwall,Ontario,Canada\n2621234,DL1ABC,Peter,Betz,Würzburg,Bayern,Germany\nkaputt\n99,,Name,,,,\n"
+    let table = DMRIDDatabase.parse(csv: csv)
+    check(table.count == 2 && table[2621234]?.callsign == "DL1ABC" && table[2621234]?.description == "Peter Betz, Würzburg, Germany" && table[1023007]?.description == "Hans Juergen, Cornwall, Canada",
+          "DMR-ID-Liste: Zeilen lesen (Kopfzeile, fehlerhafte und leere Rufzeichen werden übersprungen)")
+    check(DMRIDDatabase.describe(count: 331_404, updated: Date(timeIntervalSince1970: 1_790_000_000)).hasPrefix("331.404 Einträge, Stand "), "DMR-ID-Liste: Statuszeile")
+    // Rauschen: keine Gespräche
+    var noiseRng = Rng(state: 8)
+    let noiseOnly: [Float] = (0..<(48000 * 30)).map { _ in Float(Double(noiseRng.next() >> 11) / Double(1 << 53) - 0.5) * 0.8 }
+    let nothing = receiveDMR(noiseOnly)
+    check(nothing.starts.isEmpty && nothing.voice[0].isEmpty && nothing.voice[1].isEmpty, "DMR-Empfänger: 30 s Rauschen ergeben kein Gespräch")
+
+    // Echte Aufnahme (dsdcc/samples, Italien; nur lokal): Zeitschlitz 2 mit Sprache, Zeitschlitz 1 im Leerlauf, TG 19535 von 2222223, Farbcode 4
+    let realDMR = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Voice/dmr_it_8.dis")
+    if let raw = try? Data(contentsOf: realDMR) {
+        let audio = raw.withUnsafeBytes { $0.bindMemory(to: Int16.self).map { Float(Int16(littleEndian: $0)) / 32768 } }
+        let r = receiveDMR(audio)
+        check(r.voice[1].count >= 320 * 3 && r.voice[0].isEmpty && r.stats.idleBursts >= 300 && r.stats.embeddedLC >= 10 && r.lcs.contains { $0.1.destination == 19535 && $0.1.source == 2222223 }
+              && r.starts.contains { $0.1 == 4 && $0.2?.destination == 19535 && $0.2?.source == 2222223 },
+              "DMR echt (Italien): \(r.voice[1].count / 3) Sprachbursts in Zeitschlitz 2, \(r.stats.idleBursts) Leerlaufbursts, Sprach-Kopf (CC 4, TG 19535, Quelle 2222223), \(r.stats.embeddedLC) mal eingebettet")
+    } else { skip("DMR echt: TestData/Voice/dmr_it_8.dis liegt nicht lokal vor") }
 }
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {
