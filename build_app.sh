@@ -28,6 +28,10 @@ fi
 mkdir -p "$APP_BUNDLE/Contents/Resources/Stations"
 cp "$DIR"/Resources/Stations/* "$APP_BUNDLE/Contents/Resources/Stations/"
 
+# ICAO-Adressblöcke der Staaten (ADS-B, siehe Vendor/Adsb/UPSTREAM_ADSB.md)
+mkdir -p "$APP_BUNDLE/Contents/Resources/ADSB"
+cp "$DIR"/Resources/ADSB/* "$APP_BUNDLE/Contents/Resources/ADSB/"
+
 mkdir -p "$APP_BUNDLE/Contents/Resources/Rtty"
 cp "$DIR"/Resources/Rtty/* "$APP_BUNDLE/Contents/Resources/Rtty/"
 
@@ -68,9 +72,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.59.0</string>
+    <string>0.60.0</string>
     <key>CFBundleVersion</key>
-    <string>0.59.0</string>
+    <string>0.60.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>

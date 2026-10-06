@@ -9,6 +9,7 @@ struct ModuleMapView: View {
     var body: some View {
         Group {
             switch state.activeModule {
+            case .adsb:   ADSBMapView(controller: state.adsbController, home: state.home)
             case .aprs:   APRSMapView(controller: state.aprsController, settings: state.aprs, home: state.home)
             case .acars:  ACARSMapView(controller: state.acarsController, home: state.home)
             case .ais:    AISMapView(controller: state.aisController, settings: state.ais, home: state.home)
@@ -49,7 +50,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .packet, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -58,7 +59,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -73,6 +74,7 @@ extension DecoderModuleInfo {
         case .skimmer: return "Alle gehörten Signale mit Rufzeichen, Rauschabstand und Spots"
         case .sonde: return "Die empfangenen Radiosonden mit Höhe, Steigen, Messwerten und Entfernung"
         case .ais: return "Die empfangenen Schiffe mit Typ, Fahrt, Ziel und Entfernung; Doppelklick öffnet die Schiffsdaten"
+        case .adsb: return "Die Flugzeuge mit Kennung, Höhe, Geschwindigkeit, Entfernung und Meldungsprotokoll"
         case .packet: return "Monitor, Stationen, Digipeater, Verbindungen, Nachrichten und Knoten"
         case .aprs, .acars, .hfdl, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
@@ -90,6 +92,23 @@ private struct APRSMapView: View {
         TimelineView(.periodic(from: .now, by: 10)) { ctx in
             MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: $controller.selection,
                      legend: settings.mapHours > 0 ? "letzte \(Int(settings.mapHours)) h" : "alle")
+        }
+    }
+}
+
+// MARK: - ADS-B
+
+private struct ADSBMapView: View {
+    @ObservedObject var controller: ADSBController
+    @ObservedObject var home: HomeLocation
+
+    var body: some View {
+        let selection = Binding<String?>(
+            get: { controller.selection.map { "adsb-" + String(format: "%06X", $0) } },
+            set: { controller.selection = $0.flatMap { $0.hasPrefix("adsb-") ? UInt32($0.dropFirst(5), radix: 16) : nil } })
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: selection,
+                     legend: "Flugzeuge mit Weg · Farbe nach Höhe")
         }
     }
 }

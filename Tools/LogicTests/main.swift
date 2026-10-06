@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "AIS", "APRS", "PACKET", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "PACKET", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -7927,6 +7927,281 @@ aisMoreBinaryTests()
     }
 }
 packetTests()
+
+// MARK: - ADS-B: Prüfsumme, Meldungen, Demodulator, Tracker, Engine
+@MainActor func adsbTests() {
+    func hexBytes(_ h: String) -> [UInt8] { var o: [UInt8] = []; var i = h.startIndex; while i < h.endIndex { let n = h.index(i, offsetBy: 2); o.append(UInt8(h[i..<n], radix: 16)!); i = n }; return o }
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+
+    // --- Prüfsumme und Korrektur (Beispielmeldungen aus „The 1090 MHz Riddle“) ---
+    do {
+        let msgs = ["8D40621D58C382D690C8AC2863A7", "8D40621D58C386435CC412692AD6", "8D4840D6202CC371C32CE0576098", "8D485020994409940838175B284F", "8C4841753A9A153237AEF0F275BE"]
+        check(msgs.allSatisfy { ModeSCRC.remainder(hexBytes($0)) == 0 }, "ADS-B: CRC-24 der Beispielmeldungen ist 0")
+        var bad = hexBytes(msgs[0])
+        bad[7] ^= 0x10
+        check(ModeSCRC.remainder(bad) != 0, "ADS-B: gekipptes Bit ändert das Syndrom")
+        let dec = ModeSDecoder()
+        let fixed = dec.decode(bad, at: t0)
+        check(fixed?.confidence == .corrected && fixed?.correctedBit == 7 * 8 + 3 && fixed?.bytes == hexBytes(msgs[0]), "ADS-B: Einzelbitfehler in DF17 korrigiert (Bit \(String(describing: fixed?.correctedBit)))")
+        var two = hexBytes(msgs[0])
+        two[5] ^= 0x01
+        two[9] ^= 0x40
+        check(ModeSDecoder().decode(two, at: t0) == nil, "ADS-B: zwei Bitfehler werden nicht „repariert“")
+        var strict = ModeSDecoder()
+        strict.correctSingleBit = false
+        check(strict.decode(bad, at: t0) == nil, "ADS-B: Korrektur abschaltbar")
+        check(ModeSCRC.syndromes112.count == 112 && Set(ModeSCRC.syndromes112).count == 112, "ADS-B: 112 verschiedene Syndrome für Einzelbitfehler")
+        _ = strict
+    }
+
+    // --- Meldungen lesen ---
+    do {
+        let dec = ModeSDecoder()
+        func d(_ h: String) -> ModeSMessage { dec.decode(hexBytes(h), at: t0)! }
+        let id = d("8D4840D6202CC371C32CE0576098")
+        check(id.icaoText == "4840D6" && id.callsign == "KLM1023" && id.typeCode == 4 && id.category == 0 && id.df == 17, "ADS-B: Kennung KLM1023")
+        let v = d("8D485020994409940838175B284F")
+        check(v.velocity?.subtype == 1 && abs((v.velocity?.groundSpeedKn ?? 0) - 159.2) < 0.2 && abs((v.velocity?.trackDeg ?? 0) - 182.88) < 0.01 && v.velocity?.verticalRateFpm == -832, "ADS-B: Geschwindigkeit 159 kn, 182,88°, −832 ft/min")
+        let even = d("8D40621D58C382D690C8AC2863A7"), odd = d("8D40621D58C386435CC412692AD6")
+        check(even.altitudeFt == 38000 && even.cpr == .init(odd: false, lat: 93000, lon: 51372, surface: false) && odd.cpr?.odd == true && even.onGround == false, "ADS-B: Höhe 38000 ft, CPR-Rohwerte")
+        let g = ADSBCPR.globalAirborne(even: (even.cpr!.lat, even.cpr!.lon), odd: (odd.cpr!.lat, odd.cpr!.lon), newerIsOdd: false)
+        check(g != nil && abs(g!.lat - 52.2572) < 1e-4 && abs(g!.lon - 3.91937) < 1e-4, "ADS-B: globale CPR-Dekodierung 52,2572 / 3,91937: \(String(describing: g))")
+        let local = ADSBCPR.local(lat: even.cpr!.lat, lon: even.cpr!.lon, odd: false, ref: (52.0, 4.0))
+        check(abs(local.lat - 52.2572) < 1e-4 && abs(local.lon - 3.91937) < 1e-4, "ADS-B: lokale CPR-Dekodierung mit Bezugspunkt")
+        let sf = d("8C4841753A9A153237AEF0F275BE")
+        check(sf.onGround == true && sf.cpr?.surface == true && sf.velocity?.groundSpeedKn == 17.0 && sf.velocity?.trackDeg == 92.8125, "ADS-B: Bodenposition, 17 kn, 92,8125°")
+        let sp = ADSBCPR.local(lat: sf.cpr!.lat, lon: sf.cpr!.lon, odd: sf.cpr!.odd, ref: (51.99, 4.375), surface: true)
+        check(abs(sp.lat - 52.3206) < 0.001 && abs(sp.lon - 4.7357) < 0.001, "ADS-B: Bodenposition mit Bezugspunkt: \(sp)")
+        check(ADSBCPR.nl(0) == 59 && ADSBCPR.nl(87) == 2 && ADSBCPR.nl(88) == 1 && ADSBCPR.nl(52.2572) == 36 && ADSBCPR.nl(-30) == 51 && ADSBCPR.nl(10.47047130) == 58, "ADS-B: NL-Tabelle")
+        // Meldungen ohne reine Parität gelten nur für bekannte Adressen
+        let fresh = ModeSDecoder()
+        let reply = ADSBSignalGenerator.altitudeReply(icao: 0x4840D6, altitudeFt: 12_350)
+        check(fresh.decode(reply, at: t0) == nil, "ADS-B: DF4 von unbekannter Adresse wird nicht geglaubt")
+        _ = fresh.decode(hexBytes("8D4840D6202CC371C32CE0576098"), at: t0)
+        let known = fresh.decode(reply, at: t0.addingTimeInterval(5))
+        check(known?.df == 4 && known?.icao == 0x4840D6 && known?.altitudeFt == 12_350 && known?.confidence == .knownAddress, "ADS-B: DF4 nach DF17 derselben Adresse, Höhe 12350 ft")
+        check(fresh.decode(reply, at: t0.addingTimeInterval(120)) == nil, "ADS-B: Adresse gilt nur 60 s")
+        // DF11 mit Interrogator-Anteil
+        var df11 = ADSBSignalGenerator.allCallReply(icao: 0x4840D6)
+        check(fresh.decode(df11, at: t0.addingTimeInterval(1))?.df == 11, "ADS-B: Sammelantwort DF11")
+        df11[6] ^= 0x05
+        check(fresh.decode(df11, at: t0.addingTimeInterval(2)) != nil, "ADS-B: DF11 mit Interrogator-Kennung (Rest < 80) bei bekannter Adresse")
+        // Kennung (Squawk) und Notlage
+        let em = ADSBSignalGenerator.extendedSquitter(icao: 0x3C6444, me: ADSBSignalGenerator.emergencyStatus(emergency: 1, squawk: "7700"))
+        let e = ModeSDecoder().decode(em, at: t0)
+        check(e?.squawk == "7700" && e?.emergency == 1 && ADSBNames.emergency(1, squawk: "7700") == "Allgemeiner Notfall" && ADSBNames.emergency(0, squawk: "7600") == "Funkausfall (Kennung 7600)", "ADS-B: Notlage und Kennung 7700")
+    }
+
+    // --- Erzeuger: Rundlauf CPR, Kennung, Geschwindigkeit ---
+    do {
+        let dec = ModeSDecoder()
+        var ok = 0, total = 0
+        for (lat, lon) in [(49.79, 9.95), (-33.86, 151.21), (64.13, -21.9), (0.5, 0.5), (-54.8, -68.3), (35.7, 139.7), (51.5, -0.12), (78.2, 15.6)] {
+            let e = ADSBSignalGenerator.cpr(lat: lat, lon: lon, odd: false), o = ADSBSignalGenerator.cpr(lat: lat, lon: lon, odd: true)
+            total += 1
+            if let g = ADSBCPR.globalAirborne(even: e, odd: o, newerIsOdd: true), abs(g.lat - lat) < 1e-3, abs(g.lon - lon) < 1e-3 { ok += 1 }
+            let loc = ADSBCPR.local(lat: e.lat, lon: e.lon, odd: false, ref: (lat + 0.3, lon - 0.4))
+            total += 1
+            if abs(loc.lat - lat) < 1e-3 && abs(loc.lon - lon) < 1e-3 { ok += 1 }
+        }
+        check(ok == total, "ADS-B: Erzeuger und Leser der CPR stimmen überein (\(ok) von \(total))")
+        let m = dec.decode(ADSBSignalGenerator.extendedSquitter(icao: 0x3C6444, me: ADSBSignalGenerator.identification(callsign: "DLH4AB", category: 5)), at: t0)
+        check(m?.callsign == "DLH4AB" && m?.category == 5 && m?.typeCode == 4, "ADS-B: Erzeuger Kennung DLH4AB")
+        let v = dec.decode(ADSBSignalGenerator.extendedSquitter(icao: 0x3C6444, me: ADSBSignalGenerator.velocity(eastKn: -300, northKn: 250, climbFpm: -1280)), at: t0)
+        check(abs((v?.velocity?.groundSpeedKn ?? 0) - 390.5) < 1.5 && abs((v?.velocity?.trackDeg ?? 0) - 309.8) < 0.5 && v?.velocity?.verticalRateFpm == -1280, "ADS-B: Erzeuger Geschwindigkeit \(String(describing: v?.velocity))")
+        let a = dec.decode(ADSBSignalGenerator.extendedSquitter(icao: 0x3C6444, me: ADSBSignalGenerator.airbornePosition(altitudeFt: 36_025, lat: 50.1, lon: 8.7, odd: true)), at: t0)
+        check(a?.altitudeFt == 36_025 && a?.cpr?.odd == true, "ADS-B: Erzeuger Höhe 36025 ft")
+    }
+
+    // --- Demodulator: Erzeuger → I/Q → Meldungen ---
+    do {
+        func run(_ iq: [UInt8], block: Int = 1 << 18) -> (found: [[UInt8]], demod: ModeSDemodulator) {
+            let demod = ModeSDemodulator()
+            let dec = ModeSDecoder()
+            var found: [[UInt8]] = []
+            var i = 0
+            while i < iq.count {
+                let e = min(i + block, iq.count)
+                iq[i..<e].withUnsafeBufferPointer { buf in
+                    demod.process(buf, accept: { dec.decode($0, at: t0) != nil }, emit: { found.append($0.bytes) })
+                }
+                i = e
+            }
+            return (found, demod)
+        }
+        let frames: [[UInt8]] = (0..<12).map { k in
+            ADSBSignalGenerator.extendedSquitter(icao: 0x3C6000 + UInt32(k), me: ADSBSignalGenerator.airbornePosition(altitudeFt: 30_000 + k * 100, lat: 50 + Double(k) * 0.1, lon: 9, odd: k % 2 == 1))
+        }
+        let spacing = 400
+        let bursts = frames.enumerated().map { ADSBSignalGenerator.Burst(startSample: 1000 + $0.offset * spacing, bytes: $0.element, amplitude: 50, phase: Double($0.offset) * 0.7) }
+        let iq = ADSBSignalGenerator.samples(bursts: bursts, totalSamples: 1000 + frames.count * spacing + 2000, noise: 1.5)
+        let r = run(iq)
+        check(r.found == frames, "ADS-B: 12 Meldungen aus dem I/Q-Signal, \(r.found.count) gefunden")
+        for block in [4096, 778, 100_002] { check(run(iq, block: block).found == frames, "ADS-B: gleiches Ergebnis bei Blockgröße \(block)") }
+        // Mit Phasenversatz des Abtastpunkts: ein halber Abtastwert Verschiebung durch Mischen benachbarter Werte
+        var smeared = iq
+        var prevI = Double(iq[0]), prevQ = Double(iq[1])
+        for k in 0..<(iq.count / 2) {
+            let i = Double(iq[2 * k]), q = Double(iq[2 * k + 1])
+            smeared[2 * k] = UInt8(max(0, min(255, (0.7 * i + 0.3 * prevI).rounded())))
+            smeared[2 * k + 1] = UInt8(max(0, min(255, (0.7 * q + 0.3 * prevQ).rounded())))
+            prevI = i; prevQ = q
+        }
+        let rs = run(smeared)
+        check(rs.found.count >= 11 && Set(rs.found).isSubset(of: Set(frames)), "ADS-B: verschmierte Abtastung (Phasenfehler), \(rs.found.count) von 12")
+        // Schwaches Signal (Amplitude 8 bei Rauschen 1,5)
+        let weak = ADSBSignalGenerator.samples(bursts: bursts.map { var b = $0; b.amplitude = 9; return b }, totalSamples: iq.count / 2, noise: 1.5, seed: 3)
+        let rw = run(weak)
+        check(rw.found.count >= 9 && Set(rw.found).isSubset(of: Set(frames)), "ADS-B: schwaches Signal, \(rw.found.count) von 12 und keine falschen")
+        // Kein Signal: nur Rauschen ergibt keine Meldung
+        let noiseOnly = ADSBSignalGenerator.samples(bursts: [], totalSamples: 3_000_000, noise: 4, seed: 99)
+        let rn = run(noiseOnly)
+        check(rn.found.isEmpty, "ADS-B: 1,5 s Rauschen ergibt keine Meldung (\(rn.found.count))")
+        // Übersteuerung wird gezählt
+        let clipped = ADSBSignalGenerator.samples(bursts: [ADSBSignalGenerator.Burst(startSample: 500, bytes: frames[0], amplitude: 200)], totalSamples: 8000, noise: 1)
+        check(run(clipped).demod.clippedSamples > 100 && run(iq).demod.clippedSamples == 0, "ADS-B: Übersteuerung gezählt")
+        check(r.demod.blockActivity > 0 && r.demod.preambles >= 12, "ADS-B: Zähler (Präambeln \(r.demod.preambles))")
+    }
+
+    // --- Tracker: Positionen aus Paaren, Plausibilität, Reichweite ---
+    do {
+        let home = Maidenhead.point("JN49WS")!
+        var tr = ADSBTracker(receiver: home)
+        let dec = ModeSDecoder()
+        func send(_ me: [UInt8], icao: UInt32, at t: Date) { if var m = dec.decode(ADSBSignalGenerator.extendedSquitter(icao: icao, me: me), at: t) { m.levelDB = -20; tr.ingest(m, at: t) } }
+        // Flugzeug 150 km nordwestlich, Ostkurs
+        let lat = 50.8, lon = 8.2
+        send(ADSBSignalGenerator.identification(callsign: "DLH4AB", category: 5), icao: 0x3C6444, at: t0)
+        send(ADSBSignalGenerator.airbornePosition(altitudeFt: 36_000, lat: lat, lon: lon, odd: false), icao: 0x3C6444, at: t0.addingTimeInterval(0.1))
+        check(tr.aircraft[0x3C6444]?.position == nil, "ADS-B-Tracker: ein einzelner Rahmen ergibt in der Luft keine Position")
+        send(ADSBSignalGenerator.airbornePosition(altitudeFt: 36_000, lat: lat, lon: lon, odd: true), icao: 0x3C6444, at: t0.addingTimeInterval(0.6))
+        let a = tr.aircraft[0x3C6444]!
+        check(a.position != nil && abs(a.position!.lat - lat) < 1e-3 && abs(a.position!.lon - lon) < 1e-3, "ADS-B-Tracker: Position aus gerade + ungerade: \(String(describing: a.position))")
+        check(a.callsign == "DLH4AB" && a.altitudeFt == 36_000 && a.altitudeText == "FL 360" && a.country?.code == "DE" && a.categoryText == "Schwer (> 136 t)", "ADS-B-Tracker: Kennung, Höhe, Land, Kategorie")
+        let km = Geo.distanceKm(home, a.position!)
+        check(abs((a.maxRangeKm ?? 0) - km) < 0.5 && tr.rangeBySector.contains { $0 > 100 } && tr.positionCount == 1, "ADS-B-Tracker: Reichweite \(a.maxRangeKm ?? 0) km, Sektor, Zähler")
+        // Folgeposition: ein einzelner Rahmen relativ zur letzten Position
+        send(ADSBSignalGenerator.airbornePosition(altitudeFt: 36_000, lat: lat + 0.01, lon: lon + 0.05, odd: false), icao: 0x3C6444, at: t0.addingTimeInterval(20))
+        let b = tr.aircraft[0x3C6444]!
+        check(abs(b.position!.lat - (lat + 0.01)) < 1e-3 && abs(b.position!.lon - (lon + 0.05)) < 1e-3 && b.track.count == 2, "ADS-B-Tracker: Folgeposition aus einem Rahmen, Weg hat \(b.track.count) Punkte")
+        // Sprung (Geisterposition): ein stimmiges Paar 111 km weiter, eine Sekunde später, wird verworfen
+        send(ADSBSignalGenerator.airbornePosition(altitudeFt: 36_000, lat: lat + 1.01, lon: lon + 0.05, odd: false), icao: 0x3C6444, at: t0.addingTimeInterval(21))
+        send(ADSBSignalGenerator.airbornePosition(altitudeFt: 36_000, lat: lat + 1.01, lon: lon + 0.05, odd: true), icao: 0x3C6444, at: t0.addingTimeInterval(21.5))
+        check(tr.rejectedPositions >= 1 && abs(tr.aircraft[0x3C6444]!.position!.lat - (lat + 0.01)) < 1e-3, "ADS-B-Tracker: unmöglicher Sprung verworfen (\(tr.rejectedPositions))")
+        // Zu weit weg (Australien) wird verworfen
+        let rejectedBefore = tr.rejectedPositions
+        send(ADSBSignalGenerator.airbornePosition(altitudeFt: 30_000, lat: -33.9, lon: 151.2, odd: false), icao: 0x7C1234, at: t0.addingTimeInterval(2))
+        send(ADSBSignalGenerator.airbornePosition(altitudeFt: 30_000, lat: -33.9, lon: 151.2, odd: true), icao: 0x7C1234, at: t0.addingTimeInterval(2.5))
+        check(tr.aircraft[0x7C1234]?.position == nil && tr.rejectedPositions == rejectedBefore + 1, "ADS-B-Tracker: Position über 1000 km vom Empfänger verworfen")
+        // Rahmen zu weit auseinander ergeben kein Paar
+        var tr2 = ADSBTracker(receiver: home)
+        for (odd, dt) in [(false, 0.0), (true, 12.0)] {
+            if var m = dec.decode(ADSBSignalGenerator.extendedSquitter(icao: 0x3C0001, me: ADSBSignalGenerator.airbornePosition(altitudeFt: 20_000, lat: 50, lon: 9, odd: odd)), at: t0.addingTimeInterval(dt)) { m.levelDB = -10; tr2.ingest(m, at: t0.addingTimeInterval(dt)) }
+        }
+        check(tr2.aircraft[0x3C0001]?.position == nil, "ADS-B-Tracker: Rahmen mit mehr als 10 s Abstand bilden kein Paar")
+        // Geschwindigkeit, Notlage, Verfall
+        send(ADSBSignalGenerator.velocity(eastKn: 400, northKn: 0, climbFpm: 640), icao: 0x3C6444, at: t0.addingTimeInterval(3))
+        send(ADSBSignalGenerator.emergencyStatus(emergency: 1, squawk: "7700"), icao: 0x3C6444, at: t0.addingTimeInterval(3.1))
+        let c = tr.aircraft[0x3C6444]!
+        check(abs((c.groundSpeedKn ?? 0) - 400) < 1.5 && abs((c.trackDeg ?? 0) - 90) < 0.5 && c.verticalRateFpm == 640 && c.squawk == "7700" && c.emergencyText == "Allgemeiner Notfall", "ADS-B-Tracker: Geschwindigkeit, Steigen, Notlage")
+        tr.expire(now: t0.addingTimeInterval(400), maxAge: 300)
+        check(tr.aircraft.isEmpty, "ADS-B-Tracker: Flugzeuge verfallen nach 300 s")
+        check(tr.dfCounts[17, default: 0] > 5 && tr.messageCount > 5, "ADS-B-Tracker: Zähler")
+    }
+
+    // --- Länder und Namen ---
+    do {
+        let r = ICAORanges.shared
+        check(r.count > 150, "ADS-B: Adressblöcke geladen (\(r.count))")
+        if r.count > 150 {
+            check(r.country(0x3C6444)?.code == "DE" && r.country(0x3C6444)?.name == "Deutschland" && r.country(0x3C6444)?.flag == "🇩🇪", "ADS-B: 3C6444 = Deutschland")
+            check(r.country(0x4D2023)?.code == "MT" && r.country(0x406A3D)?.code == "GB" && r.country(0xA00001)?.code == "US" && r.country(0x4CA7B1)?.code == "IE", "ADS-B: Malta, Großbritannien, USA, Irland")
+            check(r.country(0xF00001) == nil && r.country(0x000001) == nil, "ADS-B: Sonderblock und nicht vergebener Block ohne Staat")
+        }
+        check(ICAORanges.flag("fr") == "🇫🇷" && ADSBNames.category(typeCode: 4, category: 7) == "Drehflügler" && ADSBNames.category(typeCode: 4, category: 0) == nil, "ADS-B: Flagge, Kategorie")
+    }
+
+    // --- Engine mit Erzeuger (Verkehr als I/Q, Zeit aus der Lage im Datenstrom) ---
+    do {
+        let home = Maidenhead.point("JN49WS")!
+        let fleet = [
+            ADSBSignalGenerator.SimAircraft(icao: 0x3C6444, callsign: "DLH4AB", lat: 50.6, lon: 8.2, altitudeFt: 36_000, trackDeg: 110, speedKn: 450),
+            ADSBSignalGenerator.SimAircraft(icao: 0x406A3D, callsign: "EZY81KT", lat: 51.8, lon: 11.5, altitudeFt: 35_000, trackDeg: 250, speedKn: 430, climbFpm: -640),
+            ADSBSignalGenerator.SimAircraft(icao: 0x3C4A10, callsign: "MEDEVAC1", lat: 49.5, lon: 10.4, altitudeFt: 5_000, trackDeg: 270, speedKn: 180, emergency: true),
+        ]
+        let (iq, count) = ADSBSignalGenerator.traffic(fleet, receiver: (home.lat, home.lon), seconds: 4)
+        let engine = ADSBEngine()
+        engine.configure(receiver: home, expireAfter: 300, sampleClock: true)
+        iq.withUnsafeBufferPointer { buf in
+            var i = 0
+            while i < buf.count {
+                let e = min(i + 65_536, buf.count)
+                engine.feed(UnsafeBufferPointer(rebasing: buf[i..<e]), wait: true)      // der Prüfstand speist schneller als in Echtzeit
+                i = e
+            }
+        }
+        var snap = engine.snapshot()
+        for _ in 0..<50 where snap.messageCount < count - 3 { Thread.sleep(forTimeInterval: 0.1); snap = engine.snapshot() }
+        check(snap.droppedBlocks == 0 || snap.messageCount > count / 2, "ADS-B-Engine: Rückstau")
+        check(snap.messageCount >= count - 3, "ADS-B-Engine: \(snap.messageCount) von \(count) erzeugten Meldungen gehört")
+        let byID = Dictionary(uniqueKeysWithValues: snap.aircraft.map { ($0.icao, $0) })
+        check(byID.count == 3 && byID[0x3C6444]?.callsign == "DLH4AB" && byID[0x406A3D]?.callsign == "EZY81KT" && byID[0x3C4A10]?.emergencyText != nil, "ADS-B-Engine: drei Flugzeuge mit Kennung und Notlage")
+        if let p = byID[0x3C6444]?.position {
+            let rad = 110.0 * Double.pi / 180
+            let km = 4.0 * 450.0 * 1.852 / 3600.0
+            let expectedLat = 50.6 + km * cos(rad) / 111.2
+            let expectedLon = 8.2 + km * sin(rad) / (111.2 * cos(50.6 * Double.pi / 180))
+            check(Geo.distanceKm(p, GeoPoint(lat: expectedLat, lon: expectedLon)) < 3, "ADS-B-Engine: Position folgt dem Flug (\(p))")
+        } else {
+            check(false, "ADS-B-Engine: Position fehlt")
+        }
+        check(snap.aircraft.allSatisfy { $0.hasPosition } && (snap.rangeBySector.max() ?? 0) > 50 && snap.positionCount > 20, "ADS-B-Engine: Positionen und Reichweite")
+        // Karte aus den Flugzeugen
+        let map = ADSBMapBuilder.content(snap.aircraft, home: home, now: snap.aircraft.map(\.lastSeen).max()!)
+        check(map.markers.count == 3 && map.markers.allSatisfy { $0.symbol == "airplane" && $0.valueLevel != nil }, "ADS-B-Karte: drei Flugzeuge mit Höhenfarbe")
+        check(map.markers.first { $0.title == "MEDEVAC1" }?.tone == .alert && map.markers.first { $0.title == "DLH4AB" }?.headingDeg.map { abs($0 - 110) < 5 } == true, "ADS-B-Karte: Notfall rot, Kurs")
+        check(ADSBMapBuilder.altitudeLevel(0) == 0 && ADSBMapBuilder.altitudeLevel(40_000) == 1 && ADSBMapBuilder.altitudeLevel(60_000) == 1 && ADSBMapBuilder.altitudeLevel(nil) == nil, "ADS-B-Karte: Höhenskala")
+        let line = ADSBController.logLine(byID[0x3C6444]!)
+        check(line.contains("3C6444") && line.contains("DLH4AB") && line.contains("Deutschland"), "ADS-B: Protokollzeile \(line)")
+        check(snap.recent.count > 20 && snap.recent.last?.summary.contains("DF") == true, "ADS-B-Engine: Meldungsprotokoll")
+    }
+
+    // --- Quellen: Datei, SDRconnect-Umsetzung, Einstellungen ---
+    do {
+        let samples: [UInt8] = (0..<20_000).map { UInt8($0 & 0xFF) }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("adsb_test_\(UUID().uuidString).bin")
+        try? Data(samples).write(to: url)
+        let src = ADSBFileSource(url: url, realtime: false)
+        let got = NSLock()
+        nonisolated(unsafe) var total = 0
+        nonisolated(unsafe) var stopped = false
+        try? src.start(onData: { buf in got.withLock { total += buf.count } }, onStop: { _ in got.withLock { stopped = true } })
+        for _ in 0..<100 where !got.withLock({ stopped }) { Thread.sleep(forTimeInterval: 0.02) }
+        check(got.withLock { total } == 20_000 && got.withLock { stopped }, "ADS-B: Dateiquelle liefert alle Bytes und meldet das Ende")
+        try? FileManager.default.removeItem(at: url)
+        check({ do { try ADSBFileSource(url: URL(fileURLWithPath: "/nonexistent/x.bin")).start(onData: { _ in }, onStop: { _ in }); return false } catch { return true } }(), "ADS-B: fehlende Datei meldet einen Fehler")
+        // SDRconnect: Binärnachricht Typ 2 (I/Q, 16 Bit) → 8 Bit mit Mittelpunkt 127
+        let sdr = SDRconnectSource(settings: ADSBGainSettings())
+        nonisolated(unsafe) var converted: [UInt8] = []
+        sdr.setTestHandler { converted += Array($0) }
+        var packet = Data([2, 0])
+        for v in [Int16(0), 4000, -4000, 2000] { var le = v.littleEndian; packet.append(Data(bytes: &le, count: 2)) }
+        sdr.handleBinary(packet)
+        check(converted.count == 4 && converted[0] == 127 && converted[1] > 200 && converted[2] < 60 && abs(Int(converted[3]) - 127 - (Int(converted[1]) - 127) / 2) <= 2, "ADS-B: SDRconnect 16-Bit → 8-Bit \(converted)")
+        sdr.handleBinary(Data([1, 0, 1, 2, 3, 4, 5, 6]))
+        check(converted.count == 4, "ADS-B: SDRconnect ignoriert Audio-Nachrichten")
+        // Gerätefehler lesbar
+        check(ADSBSourceError.libraryMissing("libhackrf").errorDescription?.contains("brew install hackrf") == true && ADSBSourceError.busy("HackRF").errorDescription?.contains("GQRX") == true, "ADS-B: Fehlertexte")
+        // Modul, URL
+        check(DecoderModuleInfo.adsb.isAvailable && DecoderModuleInfo.adsb.band == .vhfUhf && DecoderModuleInfo.adsb.hasMap && DecoderModuleInfo.adsb.displayName == "ADS-B", "ADS-B: Modul in der Liste")
+        check(parse("digidec://decode?mode=adsb&preset=rtlsdr") == .success(DecodeRequest(module: .adsb, presetID: "rtlsdr")) && parse("digidec://decode?mode=adsb") == .success(DecodeRequest(module: .adsb, presetID: "hackrf")), "ADS-B: URL-Aufruf")
+        let st = ADSBSettingsStore()
+        st.rtlGain = 0
+        check(st.gain.rtlGainDB == nil && ADSBSettingsStore().gain.hackrfLNA == st.gain.hackrfLNA, "ADS-B: Einstellungen (AGC = keine feste Verstärkung)")
+        st.rtlGain = 49.6
+    }
+}
+adsbTests()
 
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)
