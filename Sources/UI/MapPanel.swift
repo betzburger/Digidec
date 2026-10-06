@@ -65,6 +65,8 @@ struct MapPanel: View {
     var detailAction: MapDetailAction? = nil
     /// Namensteil der Bilddatei („RTTY-TEMP“ → Karte-RTTY-TEMP-20261005-123000.png)
     var snapshotName: String = "Karte"
+    /// Bei der Auswahl eines Punktes nur zentrieren, den Zoom aber lassen (dichte Karten wie AIS)
+    var keepZoomOnSelect = false
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var visibleRegion: MKCoordinateRegion?
@@ -82,7 +84,7 @@ struct MapPanel: View {
     private var appearance: MapAppearance { MapAppearance(rawValue: appearanceRaw) ?? .standard }
 
     init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil, accessory: AnyView? = nil,
-         detailAction: MapDetailAction? = nil, snapshotName: String = "Karte") {
+         detailAction: MapDetailAction? = nil, snapshotName: String = "Karte", keepZoomOnSelect: Bool = false) {
         self.content = content
         self.home = home
         self._selection = selection
@@ -90,6 +92,7 @@ struct MapPanel: View {
         self.accessory = accessory
         self.detailAction = detailAction
         self.snapshotName = snapshotName
+        self.keepZoomOnSelect = keepZoomOnSelect
     }
 
     var body: some View {
@@ -121,7 +124,9 @@ struct MapPanel: View {
         .onChange(of: content.home) { _, _ in if !fitted { fit(force: true) } }
         .onChange(of: selection) { _, id in
             guard let id, let m = content.markers.first(where: { $0.id == id }) else { return }
-            if showTracks, m.track.count > 1, let r = Self.region(of: m.track) {
+            if keepZoomOnSelect {
+                withAnimation { camera = .region(MKCoordinateRegion(center: m.coordinate.cl, span: MKCoordinateSpan(latitudeDelta: max(span, 0.005), longitudeDelta: max(span, 0.005)))) }
+            } else if showTracks, m.track.count > 1, let r = Self.region(of: m.track) {
                 // Der Weg der Station soll ganz zu sehen sein
                 withAnimation { camera = .region(r) }
             } else {

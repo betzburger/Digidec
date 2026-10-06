@@ -55,6 +55,11 @@ public struct RigTuneTarget: Equatable, Sendable {
         RigTuneTarget(dialHz: Int64(frequencyKHz) * 1000, mode: "FM", passbandHz: filterKHz * 1000)
     }
 
+    /// AIS-Kanal: FM auf 161,975 oder 162,025 MHz, 25 kHz Bandbreite (die GMSK-Aussendung braucht etwa ±8 kHz)
+    public static func ais(channel: AISChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM", passbandHz: 25_000) }
+    }
+
     /// APRS-Kanal: FM auf der Region-Frequenz (frei = nichts)
     public static func aprs(channel: APRSChannel) -> RigTuneTarget? {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }

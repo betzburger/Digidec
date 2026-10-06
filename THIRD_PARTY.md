@@ -63,9 +63,10 @@ In diesen Fällen steht **kein Fremdcode** im Digidec-Quelltext. Die Programme w
 - **Skimmer**: eigener Entwurf; der Aufbau von KZ4AP Skimmer (GPL-3.0) wurde zum Vergleich gelesen. Die Varicode-Tabelle ist die allgemein bekannte von G3PLX und wurde gegen fldigi geprüft.
 - **Radiosonden (RS41)**: Rahmenaufbau, Reed-Solomon und Kalibrierformeln nach rs41mod (zilog80, radiosonde_auto_rx, GPL-3.0).
 - **HFDL**: Rahmenaufbau, Protokolltypen und die Systemtabelle der Bodenstationen nach dumphfdl 1.7.0 (Tomasz Lemiech, GPL-3.0); die Signalverarbeitung ist eigene Arbeit.
+- **AIS**: eigener Empfänger und eigene Auswertung nach ITU-R M.1371-5 und IEC 61162-1; die Layouts der binären Nachrichten (Wetter, Binnenschiff, Gebietsmeldungen u. a.) nach der AIVDM/AIS-Beschreibung des gpsd-Projekts (BSD-2-Clause, https://gpsd.io). Gegenprobe mit AIS-catcher (jvde-github, GPL-3.0; nur als Programm benutzt, kein Quelltext übernommen) und mit der Sammlung `sample.aivdm` des gpsd-Projekts (BSD) sowie der I/Q-Aufnahme „AIS“ von Signal Identification Wiki; beides nur lokal, nicht im Repository. Herkunft und Nachweis: `Vendor/Ais/UPSTREAM_AIS.md`. Die Zuordnung der MMSI-Kennzahl (MID) zu Ländern folgt der öffentlichen Liste der ITU.
 - **SSTV, DCF77, EFR (DCF49/DCF39/HGA22)**: nach den veröffentlichten Beschreibungen der Verfahren.
 
-Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): ITU-R M.493, MIL-STD-188-141, ARINC 618 und 635, APRS Protocol Reference (APRS101), DIN 19244 / IEC 60870-5, WMO FM 12/13/18 (SYNOP, SHIP, BUOY), IMO NAVTEX-Handbuch.
+Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): ITU-R M.493, ITU-R M.1371-5 und IEC 61162-1 (AIS), IMO SN/Circ.236 und SN.1/Circ.289 (binäre AIS-Nachrichten), Inland-AIS-Standard (DAC 200), MIL-STD-188-141, ARINC 618 und 635, APRS Protocol Reference (APRS101), DIN 19244 / IEC 60870-5, WMO FM 12/13/18 (SYNOP, SHIP, BUOY), IMO NAVTEX-Handbuch.
 
 ## 4. Daten im Programm (Resources/)
 
@@ -76,7 +77,9 @@ Normen und Beschreibungen, nach denen gearbeitet wurde (nicht Teil des Pakets): 
 - **Sendepläne** (`Resources/Rtty/`, `Resources/Wefax/`): Textauszüge der Sendepläne des Deutschen Wetterdienstes (Stand 09/2023). **Quelle: Deutscher Wetterdienst**, https://www.dwd.de/. Die Aktualisierung im Programm lädt die Seiten und PDFs des DWD nur auf Knopfdruck.
 - **Karten**: Die Kartendarstellung nutzt Apple Karten (MapKit) mit den Nutzungsbedingungen von Apple; Kartenbilder, die du mit BILD speicherst, enthalten Kartendaten von Apple.
 
-Außer den Kartenkacheln von Apple und der Verbindung zu deinem rigctld ruft Digidec nichts im Netz ab. Plandaten werden nur geladen, wenn du den Knopf **Aktualisieren** im Sendeplan drückst, und nur von dwd.de und api.v2.sondehub.org.
+Außer den Kartenkacheln von Apple und der Verbindung zu deinem rigctld ruft Digidec nichts von sich aus im Netz ab. Plandaten werden nur geladen, wenn du den Knopf **Aktualisieren** im Sendeplan drückst, und nur von dwd.de und api.v2.sondehub.org.
+
+**Schiffsdaten (AIS):** Öffnest du in der AIS-Karte oder -Liste die Schiffsdaten eines Schiffs, fragt Digidec (solange der Schalter NETZ-SUCHE an ist, sonst erst auf Knopfdruck) bei **Wikidata** (`query.wikidata.org`, `www.wikidata.org`; Daten **CC0**), **Wikimedia Commons** (`commons.wikimedia.org`, `upload.wikimedia.org`; Fotos mit eigener Lizenz, die im Fenster mit Urheber angezeigt wird) und **Wikipedia** (`de.wikipedia.org`, `en.wikipedia.org`; Texte **CC BY-SA**) nach diesem Schiff. Übermittelt werden nur MMSI, IMO-Nummer, Rufzeichen und Name dieses Schiffs. Antworten werden unter `~/Library/Caches/com.peterbetz.digidec/ShipInfo` zwischengespeichert. Für Seezeichen und Küstenstationen wird nichts abgefragt. Die Knöpfe zu MarineTraffic, VesselFinder, ShipSpotting und BalticShipping öffnen nur die Seite im Browser.
 
 ## 5. Testaufnahmen
 
