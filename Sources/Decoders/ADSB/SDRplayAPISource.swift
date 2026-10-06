@@ -193,7 +193,7 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
         deviceDescription = "\(Self.modelName(hwVer)) \(serial)\(isDuo ? " Tuner \(tuner == Layout.tunerB ? "B" : "A")" : "")"
         let handle = mem.load(fromByteOffset: Layout.handle, as: UnsafeMutableRawPointer?.self)
 
-        // Einstellungen: 1090 MHz, 2 MS/s, Nullzwischenfrequenz, Filter 1,536 MHz, Verstärkung
+        // Einstellungen: Frequenz aus den Einstellungen (ADS-B 1090 MHz), 2 MS/s, Nullzwischenfrequenz, Filter 1,536 MHz, Verstärkung
         var paramsPointer: UnsafeMutableRawPointer?
         let rcParams = getParams(handle, &paramsPointer)
         guard rcParams == 0, let params = paramsPointer,
@@ -208,7 +208,7 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
         channel.storeBytes(of: Layout.loAuto, toByteOffset: Layout.loMode, as: Int32.self)
         channel.storeBytes(of: Int32(max(20, min(59, settings.sdrplayIFGainReduction))), toByteOffset: Layout.gRdB, as: Int32.self)
         channel.storeBytes(of: UInt8(max(0, min(27, settings.sdrplayLNAState))), toByteOffset: Layout.lnaState, as: UInt8.self)
-        channel.storeBytes(of: 1_090_000_000.0, toByteOffset: Layout.rfHz, as: Double.self)
+        channel.storeBytes(of: settings.centerFrequencyHz, toByteOffset: Layout.rfHz, as: Double.self)
         // Verstärkungsregelung: aus (feste Stufen) oder 50 Hz mit dem Standardpegel
         channel.storeBytes(of: Int32(settings.sdrplayAGC ? 2 : 0), toByteOffset: Layout.agcEnable, as: Int32.self)
         if isDuo { channel.storeBytes(of: UInt8(settings.sdrplayBias ? 1 : 0), toByteOffset: Layout.duoBiasT, as: UInt8.self) }

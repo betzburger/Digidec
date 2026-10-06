@@ -31,6 +31,13 @@ public enum ADSBSourceKind: String, CaseIterable, Identifiable, Codable, Sendabl
     }
 }
 
+/// Zustand eines I/Q-Empfängers (ADS-B, Funksensoren)
+public enum ADSBStatus: Equatable, Sendable {
+    case idle
+    case running(String)
+    case error(String)
+}
+
 public enum ADSBSourceError: Error, LocalizedError, Sendable {
     case libraryMissing(String)
     case deviceNotFound(String)
@@ -58,6 +65,8 @@ public protocol ADSBIQSource: AnyObject, Sendable {
 
 /// Einstellungen der Geräte (vom Controller aus den gespeicherten Werten gebildet)
 public struct ADSBGainSettings: Equatable, Sendable {
+    /// Empfangsfrequenz in Hz (ADS-B 1090 MHz, Funksensoren 433,92 oder 868,3 MHz)
+    public var centerFrequencyHz = 1_090_000_000.0
     // HackRF
     public var hackrfLNA = 32
     public var hackrfVGA = 20
@@ -124,14 +133,17 @@ public final class ADSBFileSource: ADSBIQSource, @unchecked Sendable {
     private let url: URL
     private let realtime: Bool
     private let loop: Bool
+    /// Abtastrate der Aufnahme (ADS-B 2 MS/s; Sensoraufnahmen meist 250 kS/s oder 1 MS/s)
+    public let sampleRate: Int
     private let lock = NSLock()
     private var running = false
     private var thread: Thread?
 
-    public init(url: URL, realtime: Bool = true, loop: Bool = false) {
+    public init(url: URL, realtime: Bool = true, loop: Bool = false, sampleRate: Int = 2_000_000) {
         self.url = url
         self.realtime = realtime
         self.loop = loop
+        self.sampleRate = sampleRate
     }
 
     public var deviceDescription: String { url.lastPathComponent }
@@ -154,7 +166,7 @@ public final class ADSBFileSource: ADSBIQSource, @unchecked Sendable {
                 data[offset..<end].withUnsafeBytes { raw in
                     onData(UnsafeBufferPointer(start: raw.bindMemory(to: UInt8.self).baseAddress, count: end - offset))
                 }
-                sent += Double(end - offset) / 4_000_000
+                sent += Double(end - offset) / Double(2 * sampleRate)
                 offset = end
                 if realtime {
                     let wait = sent - Date().timeIntervalSince(start)
@@ -230,10 +242,10 @@ public final class RTLSDRSource: ADSBIQSource, @unchecked Sendable {
         deviceDescription = nameFn(0).map { String(cString: $0) } ?? "RTL-SDR"
 
         _ = setRate(dev, 2_000_000)
-        guard setFreq(dev, 1_090_000_000) == 0 else {
+        guard setFreq(dev, UInt32(settings.centerFrequencyHz)) == 0 else {
             _ = close(dev)
             device = nil
-            throw ADSBSourceError.failed("RTL-SDR: 1090 MHz nicht einstellbar")
+            throw ADSBSourceError.failed("RTL-SDR: \(Int((settings.centerFrequencyHz / 1e6).rounded())) MHz nicht einstellbar")
         }
         if let ppm = lib.symbol("rtlsdr_set_freq_correction", as: SetI32Fn.self), settings.rtlPPM != 0 { _ = ppm(dev, Int32(settings.rtlPPM)) }
         if let g = settings.rtlGainDB {
@@ -353,7 +365,7 @@ public final class HackRFSource: ADSBIQSource, @unchecked Sendable {
         }
         try check(setRate(dev, 2_000_000), "Abtastrate")
         try check(setFilter(dev, 1_750_000), "Filterbandbreite")
-        try check(setFreq(dev, 1_090_000_000), "Frequenz 1090 MHz")
+        try check(setFreq(dev, UInt64(settings.centerFrequencyHz)), "Frequenz \(Int((settings.centerFrequencyHz / 1e6).rounded())) MHz")
         try check(setAmp(dev, settings.hackrfAmp ? 1 : 0), "Vorverstärker")
         try check(setLNA(dev, UInt32(max(0, min(40, settings.hackrfLNA / 8 * 8)))), "LNA-Verstärkung")
         try check(setVGA(dev, UInt32(max(0, min(62, settings.hackrfVGA / 2 * 2)))), "VGA-Verstärkung")
