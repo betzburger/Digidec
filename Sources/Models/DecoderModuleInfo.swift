@@ -23,6 +23,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case acars
     case ais
     case dstar
+    case ysf
     case hfdl
     case sonde
     case pager
@@ -56,6 +57,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .acars:  return "ACARS"
         case .ais:    return "AIS"
         case .dstar:  return "D-STAR"
+        case .ysf:    return "YSF"
         case .hfdl:   return "HFDL"
         case .sonde:  return "SONDE"
         case .pager:  return "PAGER"
@@ -101,7 +103,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var band: Band {
         switch self {
-        case .acars, .adsb, .ais, .aprs, .dstar, .packet, .pager, .sonde, .tones: return .vhfUhf
+        case .acars, .adsb, .ais, .aprs, .dstar, .packet, .pager, .sonde, .tones, .ysf: return .vhfUhf
         case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
@@ -109,14 +111,14 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     /// Hat das Modul eine Kartenanzeige? (Ohne Ortsdaten nicht: Bilder, Funkruf, Tonfolgen, ALE)
     public var hasMap: Bool {
         switch self {
-        case .sstv, .ale, .pager, .tones, .hell, .packet, .dstar: return false
+        case .sstv, .ale, .pager, .tones, .hell, .packet, .dstar, .ysf: return false
         default: return true
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .packet, .adsb, .acars, .ais, .dstar, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -137,6 +139,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .adsb: return ["hackrf", "rtlsdr", "sdrplay", "sdrconnect"]   // = ADSBSourceKind.rawValue (ohne Datei)
         case .acars: return ["f131550", "f131725", "f131525", "f130025", "f136900", "free"]   // = ACARSChannel.rawValue
         case .dstar: return ["dstar"]
+        case .ysf: return ["ysf"]
         case .ais: return ["a", "b", "both"]   // = AISChannel.rawValue (ohne „frei“)
         case .hfdl: return HFDLChannels.allPresetIDs   // = HFDLChannels.presetID(kHz), Standard 8942 kHz
         case .sonde: return ["rs41"]
