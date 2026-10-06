@@ -4,7 +4,7 @@
 import Foundation
 import PackageDescription
 
-// Optionale lokale Erweiterung für digitale Sprache (Software-Decoder): liegt unter Local/ (nicht im Repository) und wird nur gebaut, wenn der Ordner existiert.
+// Optionale lokale Erweiterung für digitale Sprache: liegt unter Local/ (nicht im Repository) und wird nur gebaut, wenn der Ordner existiert.
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let hasLocalVocoder = FileManager.default.fileExists(atPath: packageRoot + "/Local/Vocoder/Sources")
 

@@ -80,6 +80,11 @@ public final class VoiceRegistry: @unchecked Sendable {
         entries.removeAll()
     }
 
+    public func removeAll(where shouldRemove: (any VoiceDecoder) -> Bool) {
+        lock.lock(); defer { lock.unlock() }
+        entries.removeAll(where: shouldRemove)
+    }
+
     /// Bester Decoder für das Verfahren: Geräte vor Software, sonst in der Reihenfolge der Eintragung.
     public func preferred(for profile: VoiceProfile) -> (any VoiceDecoder)? {
         let candidates = decoders.filter { $0.supports(profile) }
