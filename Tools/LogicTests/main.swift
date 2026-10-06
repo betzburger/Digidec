@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "VDL2", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -9684,6 +9684,97 @@ do {
         let snap = engine.snapshot()
         check(snap.bursts.flatMap(\.frames).count == 2, "VDL2 echt: dieselbe Aufnahme auf 8 Bit und über die Engine (\(snap.bursts.flatMap(\.frames).count) Rahmen)")
     } else { skip("VDL2 echt: TestData/VDL2/vdl2_model_16b_1050kHz.wav liegt nicht lokal vor (aus dumpvdl2/test)") }
+}
+// MARK: - VOR/ILS: Peilung, Kennung (Morse), Landekurs- und Gleitwegsender, echte Aufnahmen
+do {
+    /// Audio in ungleich langen Stücken in den Empfänger geben (prüft, dass die Blockgrenzen nichts ausmachen)
+    func run(_ x: [Float]) -> (rx: NavReceiver, idents: [String]) {
+        let rx = NavReceiver()
+        nonisolated(unsafe) var ids: [String] = []
+        rx.onIdent = { ids.append($0) }
+        let sizes = [777, 4096, 1000, 12345, 333]
+        var p = 0, k = 0
+        x.withUnsafeBufferPointer { a in
+            while p < a.count { let c = min(sizes[k % sizes.count], a.count - p); rx.process(UnsafeBufferPointer(rebasing: a[p..<(p + c)])); p += c; k += 1 }
+        }
+        return (rx, ids)
+    }
+    func angleError(_ a: Double, _ b: Double) -> Double { let d = abs(a - b).truncatingRemainder(dividingBy: 360); return d > 180 ? 360 - d : d }
+
+    // VOR: Peilung über den ganzen Kreis, mit Rauschen und Sprache
+    var worst = 0.0, allValid = true, identOK = true
+    for bearing in stride(from: 0.0, to: 360.0, by: 29.0) {
+        let (rx, ids) = run(NavSignalGenerator.vor(bearing: bearing, seconds: 20, ident: "TRC", noise: 0.05, voice: true))
+        guard let v = rx.vor else { allValid = false; continue }
+        worst = max(worst, angleError(v.bearing, bearing))
+        if !v.isValid || abs(v.deviationHz - 480) > 20 { allValid = false }
+        if ids != ["TRC"] { identOK = false }
+    }
+    check(worst < 0.5 && allValid, "VOR: Peilung über den Kreis (größter Fehler \(String(format: "%.2f", worst))°), Hub 480 Hz, gültig")
+    check(identOK, "VOR: Morse-Kennung „TRC“ gelesen (einmal je Aussendung)")
+    // Stark verrauscht: Peilung bleibt innerhalb weniger Grad
+    let (noisy, _) = run(NavSignalGenerator.vor(bearing: 123, seconds: 12, noise: 0.5, voice: true))
+    check(noisy.vor.map { angleError($0.bearing, 123) < 4 } == true, "VOR: Peilung bei starkem Rauschen (\(String(format: "%.1f", noisy.vor?.bearing ?? -1))° statt 123°)")
+    // Nur Rauschen und nur Sprache: kein VOR, kein ILS
+    var rng = SystemRandomNumberGenerator()
+    let hiss = (0..<(48_000 * 6)).map { _ in Float.random(in: -0.3...0.3, using: &rng) }
+    let (hissRx, hissIds) = run(hiss)
+    check(hissRx.vor?.isValid == false && hissRx.ils?.isValid == false && hissIds.isEmpty, "VOR/ILS: Rauschen allein wird nicht erkannt")
+    // ILS: DDM-Werte, Landekurs und Gleitweg (gleiche Signalform), Kennung
+    var ddmOK = true
+    for ddm in [-0.155, -0.08, -0.02, 0, 0.02, 0.08, 0.155] {
+        let (rx, ids) = run(NavSignalGenerator.ils(ddm: ddm, seconds: 20, ident: "IDKB", noise: 0.05))
+        if let i = rx.ils, i.isValid, abs(i.ddm - ddm) < 0.004, rx.vor?.isValid == false, ids == ["IDKB"] {} else { ddmOK = false }
+    }
+    check(ddmOK, "ILS: DDM von −0,155 bis +0,155 auf 0,004 genau, VOR nicht ausgelöst, Kennung „IDKB“")
+    let (vorAsILS, _) = run(NavSignalGenerator.vor(bearing: 80, seconds: 6))
+    check(vorAsILS.ils?.isValid == false, "ILS: ein VOR-Signal löst den ILS-Anzeiger nicht aus")
+    // Morse bei verschiedenen Geschwindigkeiten (7 bis 20 Wörter je Minute) und mit Ziffern
+    var morseOK = true
+    for (dit, text) in [(0.17, "ABC"), (0.11, "TRC"), (0.06, "WUR"), (0.09, "DKB"), (0.11, "MOE"), (0.08, "IGB7")] {
+        let (_, ids) = run(NavSignalGenerator.vor(bearing: 10, seconds: 24, ident: text, dit: dit, noise: 0.02))
+        if ids.first != text { morseOK = false; print("Morse \(text) dit \(dit) → \(ids)") }
+    }
+    check(morseOK, "Morse: Kennungen bei 0,06 bis 0,17 s Punktlänge und mit Ziffer")
+    // Anzeige, Eichung und Verwaltung
+    check(NavFormat.bearingText(7.3) == "007,3°" && NavFormat.ilsAdvice(ddm: 0.05, kind: .localizer).contains("rechts fliegen") && NavFormat.ilsAdvice(ddm: -0.05, kind: .glideslope).contains("oben")
+          && NavFormat.ilsAdvice(ddm: 0.001, kind: .localizer) == "auf der Mittellinie", "VOR/ILS: Anzeigetexte")
+    check(NavController.corrected(350, offset: 22) == 12 && NavController.corrected(5, offset: -22) == 343 && ILSKind.localizer.fullScaleDDM == 0.155 && ILSKind.glideslope.fullScaleDDM == 0.175,
+          "VOR/ILS: Eichung rechnet um den Kreis, Vollausschlag")
+    let navBox = NavController(pipeline: AudioPipeline(), settings: NavSettingsStore())
+    navBox.ingestIdent("TRC", now: Date())
+    check(navBox.ident == "TRC" && !navBox.identConfirmed, "VOR: erste Kennung noch nicht bestätigt")
+    navBox.ingestIdent("TRC", now: Date())
+    navBox.ingestIdent("TRX", now: Date())
+    check(navBox.ident == "TRX" && !navBox.identConfirmed && navBox.identHistory == ["TRC", "TRC", "TRX"], "VOR: Kennung bestätigt erst beim zweiten gleichen Lesen")
+    let line = NavController.logLine(mode: .vor, bearing: 177, vor: VORReading(bearing: 155, deviationHz: 478, variableLevel: 0.01, subcarrierDB: -20, coherence: 1, isValid: true), ils: nil, ident: "TRC", kind: .localizer, time: Date())
+    check(line.contains("Peilung 177,0°") && line.contains("roh 155,0°") && line.contains("Kennung TRC"), "VOR: Protokollzeile")
+    check(NavDiagnosis.assess(inputDB: -120, mode: .none, vor: nil, secondsWithoutSignal: 60).title == "Kein Audio" && NavDiagnosis.assess(inputDB: -30, mode: .vor, vor: nil, secondsWithoutSignal: 0).ok
+          && !NavDiagnosis.assess(inputDB: -30, mode: .none, vor: nil, secondsWithoutSignal: 60).ok, "VOR/ILS: Diagnose")
+    check(DecoderModuleInfo.vor.band == .vhfUhf && !DecoderModuleInfo.vor.hasMap && DecoderModuleInfo.vor.displayName == "VOR/ILS", "VOR/ILS: Modul in der Liste")
+
+    // Echte Aufnahmen (martinber/vor-python-decoder, MIT; AM-Audio von GQRX bei Río Cuarto, Radial mit der Karte gemessen; nur lokal)
+    let vorDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/VOR")
+    if let names = try? FileManager.default.contentsOfDirectory(atPath: vorDir.path).filter({ $0.hasSuffix(".wav") }).sorted(), names.count >= 10 {
+        var offsets: [Double] = []
+        var invalid: [String] = [], identFound = 0, identWrong = 0
+        for name in names {
+            guard let truth = Double(name.prefix(while: { $0.isNumber })), let data = try? Data(contentsOf: vorDir.appendingPathComponent(name)), data.count > 44 else { continue }
+            let n = (data.count - 44) / 4
+            let left: [Float] = data.dropFirst(44).withUnsafeBytes { raw in let s = raw.bindMemory(to: Int16.self); return (0..<n).map { Float(s[2 * $0]) / 32768 } }
+            let (rx, ids) = run(left)
+            guard let v = rx.vor, v.isValid else { invalid.append(name); continue }
+            var d = (truth - v.bearing).truncatingRemainder(dividingBy: 360)
+            if d > 180 { d -= 360 } else if d < -180 { d += 360 }
+            offsets.append(d)
+            for id in ids { if id == "TRC" { identFound += 1 } else { identWrong += 1 } }
+        }
+        let mean = offsets.reduce(0, +) / Double(max(1, offsets.count))
+        let spread = offsets.map { abs($0 - mean) }.max() ?? 99
+        check(invalid.isEmpty && offsets.count == names.count, "VOR echt: alle \(names.count) Aufnahmen als VOR erkannt (\(invalid))")
+        check(spread < 3.5 && mean > 15 && mean < 30, "VOR echt: Peilungen an drei Standorten (177°, 234°, 293°) weichen gleichmäßig um \(String(format: "%.1f", mean))° von der Karte ab (Streuung ±\(String(format: "%.1f", spread))°)")
+        check(identFound >= 5 && identWrong == 0, "VOR echt: Kennung „TRC“ in \(identFound) Aussendungen gelesen, falsch gelesen: \(identWrong)")
+    } else { skip("VOR echt: TestData/VOR liegt nicht lokal vor (github.com/martinber/vor-python-decoder, Ordner samples)") }
 }
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {
