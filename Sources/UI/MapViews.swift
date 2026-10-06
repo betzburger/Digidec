@@ -32,7 +32,7 @@ struct ModuleMapView: View {
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
             case .efr:    FixedSiteMapView(sites: Transmitters.efr(state.efr.station), home: state.home, hint: "EFR: Rundsteuersender")
-            case .sstv, .ale, .pager, .tones, .hell, .packet, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .freedv:
+            case .sstv, .ale, .pager, .tones, .hell, .packet, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .vor, .freedv:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -50,7 +50,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -59,7 +59,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -78,6 +78,7 @@ extension DecoderModuleInfo {
         case .packet: return "Monitor, Stationen, Digipeater, Verbindungen, Nachrichten und Knoten"
         case .freedv: return "Die gehörte FreeDV-Übertragung mit Rufzeichen, Rauschabstand und Frequenzablage, dazu der Verlauf"
         case .sensors: return "Alle gehörten Funksensoren mit ihren letzten Werten, dem Verlauf und dem Protokoll der Telegramme"
+        case .vor: return "Peilung (Radial) und Kennung eines VOR oder die Ablage eines ILS mit Kompass, Verlauf und Messwerten"
         case .vdl2: return "Flugzeuge und Bodenstationen am VHF-Datenfunk (VDL Mode 2) mit den ACARS-Meldungen und allen Rahmen"
         case .m17: return "Die gehörte Aussendung mit Rufzeichen, Ziel, Kanalzugriffsnummer, Text und Position, dazu der Verlauf der Gespräche"
         case .dmr: return "Beide Zeitschlitze mit Absender, Ziel und Farbcode, dazu der Verlauf der Gespräche mit Wiedergabe"
