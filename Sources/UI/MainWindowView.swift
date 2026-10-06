@@ -43,6 +43,8 @@ public struct MainWindowView: View {
                                 AISMainPanel(controller: state.aisController, settings: state.ais, home: state.home)
                             } else if state.activeModule == .dstar {
                                 DStarMainPanel(controller: state.dstarController, settings: state.dstar)
+                            } else if state.activeModule == .ysf {
+                                YSFMainPanel(controller: state.ysfController, settings: state.ysf, output: state.dstarController.output)
                             } else if state.activeModule == .hfdl {
                                 HFDLMessagePanel(controller: state.hfdlController, settings: state.hfdl)
                             } else if state.activeModule == .sonde {
@@ -113,6 +115,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ais, audio: state.audio)
                             } else if state.activeModule == .dstar {
                                 WaterfallView(model: state.waterfall, rtty: state.dstar, audio: state.audio)
+                            } else if state.activeModule == .ysf {
+                                WaterfallView(model: state.waterfall, rtty: state.ysf, audio: state.audio)
                             } else if state.activeModule == .hfdl {
                                 WaterfallView(model: state.waterfall, rtty: state.hfdl, audio: state.audio)
                             } else if state.activeModule == .sonde {
@@ -163,7 +167,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -220,6 +224,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             DStarSettingsPanel(controller: state.dstarController, settings: state.dstar)
                                 .radioCard(title: "D-STAR")
+                        } else if state.activeModule == .ysf {
+                            YSFTuningPanel(controller: state.ysfController, settings: state.ysf, output: state.dstarController.output)
+                                .radioCard(title: "Abstimmanzeige")
+                            YSFSettingsPanel(output: state.dstarController.output)
+                                .radioCard(title: "YSF")
                         } else if state.activeModule == .hfdl {
                             HFDLTuningPanel(controller: state.hfdlController, settings: state.hfdl)
                                 .radioCard(title: "Abstimmanzeige")
@@ -902,6 +911,7 @@ private struct StatusBar: View {
         case .sonde: return sondeCurrent
         case .ais: return aisCurrent
         case .dstar: return "D-STAR · DV · GMSK 4800 Bd · FM-Diskriminator-Audio"
+        case .ysf: return "YSF · C4FM 4800 Bd · FM-Diskriminator-Audio"
         case .packet: return packetCurrent
         case .adsb: return adsbCurrent
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")

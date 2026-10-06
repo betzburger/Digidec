@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "PACKET", "PAGER", "SONDE", "TÖNE"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "PACKET", "PAGER", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -8624,6 +8624,162 @@ do {
     // Kurz vor Ende abgeschnitten: Verlust wird gemeldet
     let cut = Array(DStarSignalGenerator.audio(bits: bits, sampleRate: 48000).prefix(Int(48000 * 0.9)))
     check(receive(cut + [Float](repeating: 0, count: 48000 * 3)).frames.count > 20, "D-Star-Empfänger: abgebrochene Aussendung liefert die bis dahin gesendeten Rahmen")
+}
+// MARK: - Vierpegel-Sprachverfahren: Fehlerschutz, AMBE-Halbrate, YSF (C4FM)
+do {
+    struct Rng: Sendable {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+        mutating func bit() -> UInt8 { UInt8(next() & 1) }
+        mutating func below(_ n: Int) -> Int { Int(next() % UInt64(n)) }
+    }
+    var rng = Rng(state: 2026)
+
+    // Golay (23,12): bis zu 3 Fehler werden korrigiert
+    var golayOK = 0, golayBad = 0
+    for _ in 0..<300 {
+        let data = rng.below(4096)
+        var word = Golay.encode23(data)
+        var flips = Set<Int>()
+        let count = rng.below(4)
+        while flips.count < count { flips.insert(rng.below(23)) }
+        for f in flips { word ^= 1 << f }
+        let r = Golay.decode23(word)
+        if r.data == data && r.corrected == count { golayOK += 1 } else { golayBad += 1 }
+    }
+    check(golayBad == 0, "Golay (23,12): 0 bis 3 Bitfehler werden immer korrigiert (\(golayOK) von 300)")
+    check(Golay.parity11(0) == 0 && Golay.encode23(1) == 0xC75 && Golay.encode23(1).nonzeroBitCount == 7, "Golay (23,12): Nullwort und Erzeugerpolynom (kleinstes Gewicht 7)")
+
+    // CRC (Yaesu)
+    var crcOK = 0
+    for _ in 0..<50 {
+        let n = 8 * (1 + rng.below(20))
+        let data = (0..<n).map { _ in rng.bit() }
+        if YaesuCRC.remainder(data + YaesuCRC.checkBits(for: data)) == 0 { crcOK += 1 }
+    }
+    check(crcOK == 50, "Yaesu-CRC: angehängte Prüfsumme ergibt den Rest 0 (50 von 50)")
+    var flipped = (0..<48).map { _ in rng.bit() }
+    flipped += YaesuCRC.checkBits(for: flipped)
+    flipped[10] ^= 1
+    check(YaesuCRC.remainder(flipped) != 0, "Yaesu-CRC: ein gekipptes Bit fällt auf")
+
+    // Faltungscode K=5
+    var convOK = 0
+    for round in 0..<20 {
+        let bits = (0..<96).map { _ in rng.bit() } + [0, 0, 0, 0]
+        var soft = ConvK5.encode(bits).map { $0 != 0 ? Float(1) : -1 }
+        for _ in 0..<(round % 10) { soft[rng.below(soft.count)] *= -1 }
+        if ConvK5.decode(soft: soft) == bits { convOK += 1 }
+    }
+    check(convOK == 20, "Faltungscode K=5: bis zu 9 Bitfehler in 200 Bit werden korrigiert (\(convOK) von 20)")
+
+    // AMBE-Halbrate: Rahmenform
+    let chipFrames = ["954be6500310b00777", "dd15852ad3736ead25", "6f60f7a05e52d20ab5"]
+    func hex(_ s: String) -> [UInt8] { stride(from: 0, to: s.count, by: 2).map { UInt8(s[s.index(s.startIndex, offsetBy: $0)..<s.index(s.startIndex, offsetBy: $0 + 2)], radix: 16)! } }
+    var chipRoundTrip = true, chipClean = true
+    for f in chipFrames {
+        let air = AMBEHalfRate.bits(fromBytes: hex(f))
+        chipClean = chipClean && AMBEHalfRate.isClean(air)
+        let d = AMBEHalfRate.data49(fromAir: air)
+        chipRoundTrip = chipRoundTrip && d.corrected == 0 && AMBEHalfRate.air72(fromData49: d.data) == air
+    }
+    check(chipClean && chipRoundTrip, "AMBE-Halbrate: vom Sprachchip erzeugte Rahmen sind fehlerfrei und werden aus den 49 Nutzbits bitgleich neu erzeugt")
+    var noisy = AMBEHalfRate.bits(fromBytes: hex(chipFrames[0]))
+    let clean49 = AMBEHalfRate.data49(fromAir: noisy).data
+    noisy[5] ^= 1; noisy[30] ^= 1
+    let fixed = AMBEHalfRate.data49(fromAir: noisy)
+    check(fixed.data == clean49 && fixed.corrected >= 1, "AMBE-Halbrate: Bitfehler in C0 und C1 werden korrigiert")
+    var randomOK = 0
+    for _ in 0..<100 {
+        let d = (0..<49).map { _ in rng.bit() }
+        let air = AMBEHalfRate.air72(fromData49: d)
+        if air.count == 72 && AMBEHalfRate.isClean(air) && AMBEHalfRate.data49(fromAir: air).data == d { randomOK += 1 }
+    }
+    check(randomOK == 100, "AMBE-Halbrate: 49 Nutzbits → 72 Bit → 49 Nutzbits (100 von 100)")
+    check(AMBEHalfRate.bits(fromBytes: AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: (0..<49).map { $0 % 2 == 0 ? 1 : 0 }))).count == 72, "AMBE-Halbrate: 72 Bit ↔ 9 Byte")
+
+    // YSF: FICH
+    let fich = YSFFich(fi: 1, cs: 2, cm: 0, bn: 0, bt: 0, fn: 3, ft: 6, mr: 2, viaRepeater: true, dt: 2, squelchEnabled: true, squelchCode: 42)
+    check(YSFFich.decode(symbols: fich.symbols()[...]) == fich, "YSF: FICH hin und zurück (alle Felder)")
+    var damaged = fich.symbols()
+    for _ in 0..<8 { let i = rng.below(100); damaged[i] = -damaged[i] }
+    check(YSFFich.decode(symbols: damaged[...]) == fich, "YSF: FICH mit 8 gekippten Symbolen wird gelesen")
+    var wrong = fich.symbols()
+    for i in stride(from: 0, to: 100, by: 3) { wrong[i] = -wrong[i] }
+    check(YSFFich.decode(symbols: wrong[...]) == nil, "YSF: stark beschädigter FICH wird abgelehnt")
+    // Datenkanäle
+    let vd2 = YSFDataChannel.decodeVD2(symbols: YSFSignalGenerator.vd2Channel(Array("DL1ABC    ".utf8)))
+    check(vd2 == Array("DL1ABC    ".utf8), "YSF: Datenkanal V/D-Modus 2 (10 Byte) hin und zurück")
+    let full = YSFDataChannel.decodeFull(symbols: YSFSignalGenerator.fullChannel(Array("**********F6FCE     ".utf8)))
+    check(full == Array("**********F6FCE     ".utf8), "YSF: Datenkanal von Kopf und Abschluss (20 Byte) hin und zurück")
+    // Sprachkanal: 49 Nutzbits, Mehrheitsentscheid gleicht Fehler in den Wiederholungen aus
+    let d49 = (0..<49).map { _ in rng.bit() }
+    var voiceSymbols = YSFVoice.symbols(forData49: d49)
+    check(YSFVoice.frame(voiceSymbols[...]).ambe == AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: d49)) && YSFVoice.frame(voiceSymbols[...]).disagreements == 0, "YSF: Sprachkanal hin und zurück ergibt den Sprachrahmen")
+    voiceSymbols[3] = -voiceSymbols[3]; voiceSymbols[30] = -voiceSymbols[30]
+    let repaired = YSFVoice.frame(voiceSymbols[...])
+    check(repaired.ambe == AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: d49)) && repaired.disagreements > 0, "YSF: Wiederholungscode gleicht gekippte Symbole aus (\(repaired.disagreements) uneinig)")
+    check(YSF.whitening.prefix(16) == [1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1] && YSF.whitening[511] == YSF.whitening[0], "YSF: Verwürfelungsfolge (Periode 511)")
+
+    // YSF: ganze Aussendung → Audio → Rahmen
+    let data49: [[UInt8]] = (0..<400).map { _ in (0..<49).map { _ in rng.bit() } }
+    let expected = data49.map { AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: $0)) }
+    let symbols = YSFSignalGenerator.transmission(destination: "CQCQCQ", source: "DL1ABC", uplink: "DB0XYZ", downlink: "DB0XYZ", data49: { n in Array(data49[(n * 5)..<(n * 5 + 5)]) }, voiceFrames: 40)
+    struct YRun { var frames = 0, headers = 0, terminators = 0, lost = 0; var voice: [[UInt8]] = []; var texts = Set<String>() }
+    func receiveYSF(_ audio: [Float], rate: Double = 48000) -> YRun {
+        let slicer = FourFSKSlicer(sampleRate: rate), framer = YSFFramer()
+        var run = YRun()
+        framer.onEvent = { e in
+            switch e {
+            case .frame(let f):
+                run.frames += 1
+                if f.fich?.isHeader == true { run.headers += 1 }
+                if f.fich?.isTerminator == true { run.terminators += 1 }
+                run.voice += f.voice
+                for t in f.texts { run.texts.insert("\(t)") }
+            case .lost: run.lost += 1
+            }
+        }
+        slicer.onSymbol = { framer.push(symbol: $0) }
+        var i = 0
+        while i < audio.count { let j = min(i + 1000, audio.count); slicer.process(Array(audio[i..<j])); i = j }
+        return run
+    }
+    func scenarioYSF(_ title: String, rate: Double = 48000, minVoice: Int = 200, allCorrect: Bool = true, maxWrong: Int = 0, _ edit: (inout FourFSKModulator.Impairments) -> Void) {
+        var im = FourFSKModulator.Impairments(); edit(&im)
+        let run = receiveYSF(FourFSKModulator.audio(symbols: symbols, sampleRate: rate, impairments: im), rate: rate)
+        let expectedSet = Set(expected)
+        let right = allCorrect ? zip(run.voice, expected).filter { $0.0 == $0.1 }.count : run.voice.filter { expectedSet.contains($0) }.count
+        let enough = allCorrect ? right >= run.voice.count - maxWrong : right * 10 >= run.voice.count * 6          // verrauscht: mindestens 60 % unversehrt, unabhängig von der Reihenfolge
+        check((allCorrect ? run.headers == 1 : true) && run.terminators <= 1 && run.voice.count >= minVoice && enough && run.texts.contains("source(\"DL1ABC\")") && run.texts.contains("uplink(\"DB0XYZ\")"),
+              "YSF-Empfänger \(title): Kopf, Abschluss, \(run.voice.count)/200 Sprachrahmen (\(right) richtig), Rufzeichen \(run.texts.count) Stück")
+    }
+    scenarioYSF("sauber") { _ in }
+    scenarioYSF("Pegel umgekehrt") { $0.inverted = true }
+    scenarioYSF("Gleichanteil 30 %") { $0.dc = 0.3 }
+    scenarioYSF("Takt +400 ppm", maxWrong: 2) { $0.clockPPM = 400 }
+    scenarioYSF("Takt −600 ppm", maxWrong: 2) { $0.clockPPM = -600 }
+    scenarioYSF("Rauschen 0,25", minVoice: 170, allCorrect: false) { $0.noise = 0.25; $0.seed = 11 }
+    scenarioYSF("Abtastrate 24 kHz", rate: 24000, maxWrong: 2) { _ in }
+    scenarioYSF("Abtastrate 96 kHz", rate: 96000, maxWrong: 2) { _ in }
+    var noiseRng = Rng(state: 77)
+    let noiseOnly: [Float] = (0..<(48000 * 30)).map { _ in Float(Double(noiseRng.next() >> 11) / Double(1 << 53) - 0.5) * 0.8 }
+    check(receiveYSF(noiseOnly).frames == 0, "YSF-Empfänger: 30 s Rauschen ergeben keinen Rahmen")
+
+    // Echte Aufnahme (Repeater F5ZOO, FT-70/FTM, aus dsdcc/samples; nur lokal)
+    let realURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Voice/ysf_f5zoo.dis")
+    if let raw = try? Data(contentsOf: realURL) {
+        let audio = raw.withUnsafeBytes { $0.bindMemory(to: Int16.self).map { Float(Int16(littleEndian: $0)) / 32768 } }
+        let r = receiveYSF(audio)
+        check(r.frames >= 320 && r.voice.count >= 1500 && r.texts.contains("source(\"F6FCE\")") && r.texts.contains("source(\"F1SER\")") && r.texts.contains("uplink(\"F5ZOO-R1\")") && r.texts.contains("destination(\"**********\")"),
+              "YSF echt (F5ZOO): \(r.frames) Rahmen, \(r.voice.count) Sprachrahmen, Rufzeichen F6FCE und F1SER über F5ZOO-R1")
+    } else { skip("YSF echt: TestData/Voice/ysf_f5zoo.dis liegt nicht lokal vor") }
 }
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {

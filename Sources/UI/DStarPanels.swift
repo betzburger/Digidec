@@ -172,10 +172,10 @@ struct DStarTable: View {
                 Image(systemName: "play.fill")
             }
             .buttonStyle(.plain)
-            .foregroundColor(controller.voiceDecoderName == nil ? RadioTheme.textDim : RadioTheme.vfdCyan)
+            .foregroundColor(controller.output.decoderName == nil ? RadioTheme.textDim : RadioTheme.vfdCyan)
             .frame(width: 22)
-            .disabled(controller.voiceDecoderName == nil || t.isLive)
-            .help(controller.voiceDecoderName == nil ? "Kein Sprachdecoder: Stick in den Einstellungen wählen" : "Diese Aussendung noch einmal abspielen")
+            .disabled(controller.output.decoderName == nil || t.isLive)
+            .help(controller.output.decoderName == nil ? "Kein Sprachdecoder: Stick in den Einstellungen wählen" : "Diese Aussendung noch einmal abspielen")
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundColor(color)
@@ -210,7 +210,7 @@ struct DStarTuningPanel: View {
             HStack(spacing: 10) {
                 led("SYNC", on: controller.locked, color: RadioTheme.vfdGreen)
                 led("INVERS", on: controller.inverted, color: RadioTheme.vfdAmber)
-                led("TON", on: controller.voiceDecoderName != nil, color: RadioTheme.vfdCyan)
+                led("TON", on: controller.output.decoderName != nil, color: RadioTheme.vfdCyan)
             }
             PagerLevelBar(level: controller.level * 0.5)
                 .frame(height: 8)
@@ -286,57 +286,13 @@ struct DStarTuningPanel: View {
 struct DStarSettingsPanel: View {
     @ObservedObject var controller: DStarController
     @ObservedObject var settings: DStarSettingsStore
-    @State private var ports: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("STICK")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(RadioTheme.textDim)
-                    .frame(width: 56, alignment: .leading)
-                Picker("", selection: $settings.stickPort) {
-                    Text("keiner").tag("")
-                    ForEach(ports, id: \.self) { Text($0.replacingOccurrences(of: "/dev/cu.", with: "")).tag($0) }
-                    if !settings.stickPort.isEmpty, !ports.contains(settings.stickPort) { Text(settings.stickPort).tag(settings.stickPort) }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 220)
-                .help("Serieller Anschluss des Sprachsticks (DVSI AMBE-3000R, 460800 Baud). Es wird nur der gewählte Anschluss angesprochen: andere serielle Geräte (z. B. das CAT-Kabel des Funkgeräts) bekommen nichts.")
-                Button("VERBINDEN") { controller.connectStick() }
-                    .buttonStyle(ModeButtonStyle(isSelected: controller.voiceDecoderName != nil))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Stick am gewählten Anschluss öffnen und prüfen")
-                Button { ports = AMBE3000Stick.candidatePaths() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Liste der seriellen Anschlüsse neu lesen")
-            }
-            HStack(spacing: 6) {
-                Text("TON")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(RadioTheme.textDim)
-                    .frame(width: 56, alignment: .leading)
-                Button("AUSGABE") { settings.playAudio.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.playAudio))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Empfangene Sprache über den Standard-Ausgang abspielen (braucht einen Sprachdecoder)")
-                Text(status)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(controller.voiceError != nil ? RadioTheme.ledRed : controller.voiceDecoderName != nil ? RadioTheme.vfdGreen : RadioTheme.textMuted)
-                    .lineLimit(2)
-            }
+            VoiceStickSettings(output: controller.output)
             Text("FM-Diskriminator-Audio, unbearbeitet (kein Hochpass, keine Entzerrung). Die Polarität wird erkannt. Ohne Sprachdecoder zeigt Digidec Rufzeichen, Repeater, Text und Positionen, aber keinen Ton.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }
-        .onAppear { ports = AMBE3000Stick.candidatePaths() }
-    }
-
-    private var status: String {
-        if let e = controller.voiceError { return e }
-        if let n = controller.voiceDecoderName { return "Sprachdecoder: \(n)" }
-        return "kein Sprachdecoder"
     }
 }

@@ -13,19 +13,11 @@ import VoiceCore
 
 @MainActor
 public final class DStarSettingsStore: ObservableObject {
-    /// Ton ausgeben, wenn ein Sprachdecoder da ist
-    @Published public var playAudio: Bool { didSet { UserDefaults.standard.set(playAudio, forKey: "dstarPlayAudio") } }
-    /// Anschluss des Sprachsticks (`/dev/cu.…`) oder leer
-    @Published public var stickPort: String { didSet { UserDefaults.standard.set(stickPort, forKey: "voiceStickPort") } }
     /// Wie viele Aussendungen im Verlauf bleiben
     @Published public var keepCount: Int { didSet { UserDefaults.standard.set(keepCount, forKey: "dstarKeepCount") } }
 
     public init() {
-        let d = UserDefaults.standard
-        playAudio = d.object(forKey: "dstarPlayAudio") as? Bool ?? true
-        // Umgebung `DIGIDEC_AMBE_PORT` hat Vorrang (wird nicht gespeichert)
-        stickPort = ProcessInfo.processInfo.environment["DIGIDEC_AMBE_PORT"] ?? d.string(forKey: "voiceStickPort") ?? ""
-        let k = d.integer(forKey: "dstarKeepCount")
+        let k = UserDefaults.standard.integer(forKey: "dstarKeepCount")
         keepCount = (10...500).contains(k) ? k : 100
     }
 }
@@ -174,9 +166,6 @@ public final class DStarController: ObservableObject {
     @Published public private(set) var inputDB = -120.0
     @Published public private(set) var inverted = false
     @Published public private(set) var locked = false
-    /// Name des Sprachdecoders, der den Ton liefert; `nil` = keiner
-    @Published public private(set) var voiceDecoderName: String?
-    @Published public private(set) var voiceError: String?
     public let recorder: InputRecorder
     @Published public private(set) var isRecording = false
     @Published public private(set) var recordingDuration: TimeInterval = 0
@@ -190,10 +179,7 @@ public final class DStarController: ObservableObject {
     private var currentIndex: Int?
     private var lastFrameAt: Date?
     private var cancellables: Set<AnyCancellable> = []
-    private let player = VoicePlayer()
-    private var playerRunning = false
-    private let voiceQueue = DispatchQueue(label: "digidec.dstar.voice")
-    private var stick: AMBE3000Stick?
+    public let output = VoiceOutput.shared
 
     nonisolated static let utc: DateFormatter = {
         let f = DateFormatter()
@@ -208,8 +194,6 @@ public final class DStarController: ObservableObject {
         decoder = DStarDecoder(pipeline: pipeline)
         recorder = InputRecorder(pipeline: pipeline)
         logEnabled = UserDefaults.standard.object(forKey: "dstarLogEnabled") as? Bool ?? true
-        if !settings.stickPort.isEmpty { connectStick() }
-        refreshVoiceDecoder()
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
@@ -217,7 +201,7 @@ public final class DStarController: ObservableObject {
 
     public func setActive(_ active: Bool) {
         decoder.setEnabled(active)
-        if !active { finishCurrent(.lost, now: Date()); stopPlayer() }
+        if !active { finishCurrent(.lost, now: Date()); output.stopPlayback() }
     }
 
     public func clear() {
@@ -241,57 +225,9 @@ public final class DStarController: ObservableObject {
 
     public var diagnosis: DStarDiagnosis.Result { DStarDiagnosis.assess(inputDB: inputDB, stats: stats, locked: locked) }
 
-    // MARK: Sprachdecoder
-
-    /// Öffnet den Stick am eingestellten Anschluss (oder gibt ihn frei, wenn leer) und trägt ihn in die Sammlung ein.
-    public func connectStick() {
-        voiceError = nil
-        VoiceRegistry.shared.removeAll(where: { $0.isHardware })
-        stick = nil
-        let path = settings.stickPort
-        if !path.isEmpty {
-            do {
-                let opened = try AMBE3000Stick(path: path)
-                stick = opened
-                VoiceRegistry.shared.register(opened)
-            } catch {
-                voiceError = "\(path): \(error)"
-            }
-        }
-        refreshVoiceDecoder()
-    }
-
-    private func refreshVoiceDecoder() {
-        let name = VoiceRegistry.shared.preferred(for: .dstar)?.name
-        if name != voiceDecoderName { voiceDecoderName = name }
-    }
-
-    private func startPlayerIfNeeded() {
-        guard !playerRunning else { return }
-        do { try player.start(); playerRunning = true } catch { voiceError = "Wiedergabe: \(error)" }
-    }
-
-    private func stopPlayer() {
-        guard playerRunning else { return }
-        player.stop()
-        playerRunning = false
-    }
-
-    private func play(_ frames: [[UInt8]]) {
-        guard settings.playAudio, !frames.isEmpty, let voice = VoiceRegistry.shared.preferred(for: .dstar) else { return }
-        startPlayerIfNeeded()
-        let player = self.player
-        voiceQueue.async {
-            for bytes in frames {
-                guard let frame = VoiceFrame(bytes: bytes), let pcm = try? voice.decode(frame, profile: .dstar) else { continue }
-                player.enqueue(pcm)
-            }
-        }
-    }
-
     /// Eine Aussendung aus dem Verlauf noch einmal abspielen
     public func replay(_ t: DStarTransmission) {
-        play(t.ambe)
+        output.play(t.ambe, profile: .dstar)
     }
 
     // MARK: Verarbeitung
@@ -304,10 +240,10 @@ public final class DStarController: ObservableObject {
         if out.inverted != inverted { inverted = out.inverted }
         if out.locked != locked { locked = out.locked }
         if isRecording { recordingDuration = recorder.duration }
-        refreshVoiceDecoder()
+        output.refresh()
         var toPlay: [[UInt8]] = []
         for event in out.events { ingest(event, audio: &toPlay) }
-        play(toPlay)
+        output.play(toPlay, profile: .dstar)
         // Audio reißt ab, ohne dass Ende-Muster oder Verlust gemeldet werden: nach 3 s ohne Rahmen beenden
         if currentIndex != nil, let last = lastFrameAt, Date().timeIntervalSince(last) > 3 { finishCurrent(.lost, now: Date()) }
     }
