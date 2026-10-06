@@ -36,7 +36,7 @@ Tools/build_fldigi.sh "$OUT/fldigi"
 # 3. Testprogramm mit den getesteten Quellen bauen
 swiftc ${=LT_FLAGS:--O} -swift-version 6 -o "$OUT/logic_tests" \
     -I "$OUT/fldigi/module" -Xcc -I"$ROOT/Vendor/Codec2/include" \
-    Tools/LogicTests/main.swift Tools/LogicTests/FakeRigctld.swift \
+    Tools/LogicTests/main.swift Tools/LogicTests/FakeRigctld.swift Tools/LogicTests/FakeSDRconnect.swift $S/Rig/SDRconnectRig.swift \
     $S/Models/RigProfile.swift $S/Rig/RigModel.swift $S/Models/LicenseDocuments.swift \
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift $S/Models/DXCC.swift \
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift \

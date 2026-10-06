@@ -16,6 +16,9 @@ public final class RigModel: ObservableObject {
     @Published public private(set) var overriddenByRequest = false
 
     private var client: RigctlClient!
+    private var sdrClient: SDRconnectRigClient!
+    /// Zustand von SDRconnect, wenn das gewählte Gerät SDRconnect ist (sonst leer)
+    @Published public private(set) var sdrconnect = SDRconnectStatus()
     /// Port aus einem Auftrag (gilt, solange das Auftrags-Funkgerät gelesen wird)
     private var requestPort: (radio: RadioSource, port: UInt16)?
     public var onChange: ((RigState) -> Void)?
@@ -28,6 +31,26 @@ public final class RigModel: ObservableObject {
                 self.onChange?(s)
             }
         }
+        sdrClient = SDRconnectRigClient { [weak self] s, status in
+            Task { @MainActor in
+                guard let self, self.customProfile?.dialect == .sdrconnect else { return }
+                self.state = s
+                self.sdrconnect = status
+                self.onChange?(s)
+            }
+        }
+    }
+
+    /// Eine Eigenschaft von SDRconnect setzen (nur wenn SDRconnect das gewählte Gerät ist)
+    public func sdrconnectSet(_ property: String, _ value: String) {
+        guard customProfile?.dialect == .sdrconnect else { return }
+        sdrClient.set(property, value)
+    }
+
+    /// Gerätestrom von SDRconnect ein- oder ausschalten
+    public func sdrconnectStream(_ on: Bool) {
+        guard customProfile?.dialect == .sdrconnect else { return }
+        sdrClient.streamDevice(on)
     }
 
     /// Gibt es ein Funkgerät, dessen Frequenz und Mode abgefragt werden (verbunden oder nicht)?
@@ -69,9 +92,18 @@ public final class RigModel: ObservableObject {
 
     private func updateConnection() {
         if let profile = customProfile {
-            client.setEndpoint(profile.endpoint)
+            if profile.dialect == .sdrconnect {
+                client.setEndpoint(nil)
+                sdrClient.setEndpoint(profile.endpoint)
+            } else {
+                sdrClient.setEndpoint(nil)
+                if sdrconnect != SDRconnectStatus() { sdrconnect = SDRconnectStatus() }
+                client.setEndpoint(profile.endpoint)
+            }
             return
         }
+        sdrClient.setEndpoint(nil)
+        if sdrconnect != SDRconnectStatus() { sdrconnect = SDRconnectStatus() }
         guard let r = radio else {
             client.setEndpoint(nil)
             return
@@ -93,8 +125,7 @@ public final class RigModel: ObservableObject {
             return
         }
         tuneMessage = "Stimme Funkgerät ab: \(target.label) …"
-        client.tune(frequencyHz: target.dialHz, mode: target.mode, passbandHz: target.passbandHz,
-                    dialect: customProfile?.dialect ?? .hamlib) { [weak self] result in
+        let done: @Sendable (RigTuneResult) -> Void = { [weak self] result in
             Task { @MainActor in
                 switch result {
                 case .ok: self?.tuneMessage = "Funkgerät → \(target.label)"
@@ -102,6 +133,11 @@ public final class RigModel: ObservableObject {
                 case .rejected(let why): self?.tuneMessage = "Funkgerät lehnt ab (\(why))"
                 }
             }
+        }
+        if customProfile?.dialect == .sdrconnect {
+            sdrClient.tune(frequencyHz: target.dialHz, mode: target.mode, passbandHz: target.passbandHz, completion: done)
+        } else {
+            client.tune(frequencyHz: target.dialHz, mode: target.mode, passbandHz: target.passbandHz, dialect: customProfile?.dialect ?? .hamlib, completion: done)
         }
     }
 

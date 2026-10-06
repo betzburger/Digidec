@@ -72,6 +72,14 @@ struct RigSettingsSheet: View {
                         }
                         .buttonStyle(ModeButtonStyle(isSelected: false))
                         .help("GQRX auf diesem Rechner (Remote Control, Port 7356)")
+                        Button {
+                            let added = store.add(RigProfile.sdrconnect())
+                            edit(added)
+                        } label: {
+                            Label("NEU: SDRCONNECT", systemImage: "plus")
+                        }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("SDRconnect (SDRplay) auf diesem Rechner: WebSocket-Server einschalten, Port 5454")
                     }
                     .padding(.top, 2)
 
@@ -131,7 +139,7 @@ struct RigSettingsSheet: View {
                 Text(profile.displayName)
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textBright)
-                Text("\(profile.dialect == .gqrx ? "GQRX" : "rigctld") \(profile.host):\(profile.port)" + (profile.audioName.map { " · Audio: \($0)" } ?? "")
+                Text("\(profile.dialect == .gqrx ? "GQRX" : profile.dialect == .sdrconnect ? "SDRconnect" : "rigctld") \(profile.host):\(profile.port)" + (profile.audioName.map { " · Audio: \($0)" } ?? "")
                      + (profile.problem.map { " · \($0)" } ?? ""))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(profile.problem == nil ? RadioTheme.textMuted : RadioTheme.ledRed)
@@ -272,13 +280,14 @@ struct RigSettingsSheet: View {
         guard let endpoint = draft.endpoint else { return }
         testing = true
         testMessage = nil
-        RigctlClient.probe(endpoint) { result in
+        let done: @Sendable (RigProbeResult) -> Void = { result in
             Task { @MainActor in
                 testing = false
                 testMessage = result.message
                 if case .ok = result { testSucceeded = true } else { testSucceeded = false }
             }
         }
+        if draft.dialect == .sdrconnect { SDRconnectRigClient.probe(endpoint, completion: done) } else { RigctlClient.probe(endpoint, completion: done) }
     }
 
     // MARK: Hinweise
@@ -298,6 +307,13 @@ struct RigSettingsSheet: View {
                  + "Das Audio holt Digidec nicht von GQRX selbst: In GQRX unter Audio das Ausgabegerät auf VALHost 2ch oder BlackHole stellen "
                  + "und hier denselben Eingang wählen. Mit QSY AUTO stellt Digidec Frequenz und Mode ein (GQRX: RTTY und Paketbetrieb → USB, CW → CW-U, "
                  + "AIS → Narrow FM mit 25 kHz). Für AIS in GQRX De-Emphase aus und Rauschsperre offen lassen.")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(RadioTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("SDRconnect: Server einschalten (Einstellungen → WebSocket-Server, Port 5454; auch in der Fassung „Headless“). Digidec liest dann Frequenz, Mode, "
+                 + "Bandbreite und Zustand und stellt auf Wunsch Frequenz, Mode, Bandbreite, Verstärkungsstufe und den Gerätestrom ein (Karte „SDRconnect“ rechts). "
+                 + "Das Audio holt Digidec nicht von SDRconnect selbst: dort das Ausgabegerät auf VALHost 2ch oder BlackHole stellen und hier denselben Eingang wählen. "
+                 + "Es werden nur Eigenschaften gesetzt, nie Aufnahmen gestartet; die I/Q-, Audio- und Spektrumströme von SDRconnect bleiben aus.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
