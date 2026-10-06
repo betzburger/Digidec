@@ -76,6 +76,8 @@ public final class DigidecState: ObservableObject {
     public let m17Controller: M17Controller
     public let sensors = SensorsSettingsStore()
     public let sensorsController: SensorsController
+    public let vdl2 = VDL2SettingsStore()
+    public let vdl2Controller: VDL2Controller
     public let freedv = FreeDVSettingsStore()
     public let freedvController: FreeDVController
     public let hfdl = HFDLSettingsStore()
@@ -148,6 +150,7 @@ public final class DigidecState: ObservableObject {
         dmrController = DMRController(pipeline: audio.pipeline, settings: dmr)
         m17Controller = M17Controller(pipeline: audio.pipeline, settings: m17)
         sensorsController = SensorsController(settings: sensors)
+        vdl2Controller = VDL2Controller(settings: vdl2)
         freedvController = FreeDVController(pipeline: audio.pipeline, settings: freedv)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
         sondeController = SondeController(pipeline: audio.pipeline, settings: sonde)
@@ -217,6 +220,7 @@ public final class DigidecState: ObservableObject {
                 self?.dmrController.setActive(module == .dmr)
                 self?.m17Controller.setActive(module == .m17)
                 self?.sensorsController.setActive(module == .sensors)
+                self?.vdl2Controller.setActive(module == .vdl2)
                 self?.freedvController.setActive(module == .freedv)
                 self?.hfdlController.setActive(module == .hfdl)
                 self?.sondeController.setActive(module == .sonde)
@@ -349,7 +353,7 @@ public final class DigidecState: ObservableObject {
         case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
-        case .dstar, .ysf, .dmr, .m17, .sensors, .freedv: return nil
+        case .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .freedv: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
@@ -411,6 +415,11 @@ public final class DigidecState: ObservableObject {
                 state.sensorsController.fileSampleRate = SensorsController.sampleRate(inFileName: URL(fileURLWithPath: path).lastPathComponent)
                 state.sensorsController.fileRealtime = ProcessInfo.processInfo.environment["DIGIDEC_SENSORS_REALTIME"] != "0"
                 if let b = ProcessInfo.processInfo.environment["DIGIDEC_SENSORS_BAND"].flatMap(SensorBand.init(rawValue:)) { state.sensors.band = b }
+            }
+            // Entwicklungshilfe: DIGIDEC_VDL2_FILE=/Pfad/aufnahme_1050kHz.wav (I/Q, WAV oder cu8; ein Kanal in der Mitte); DIGIDEC_VDL2_REALTIME=0 schneller
+            if let path = ProcessInfo.processInfo.environment["DIGIDEC_VDL2_FILE"] {
+                state.vdl2Controller.fileOverride = URL(fileURLWithPath: path)
+                state.vdl2Controller.fileRealtime = ProcessInfo.processInfo.environment["DIGIDEC_VDL2_REALTIME"] != "0"
             }
             // Entwicklungshilfe: DIGIDEC_MODULE=aprs startet im genannten Modul (nur dieses decodiert), DIGIDEC_PLAY_FILE=/Pfad/aufnahme.wav
             // spielt eine Datei statt des Live-Eingangs ab
@@ -480,6 +489,13 @@ public final class DigidecState: ObservableObject {
                     break
                 case .sensors:
                     if let preset = request.presetID, let b = SensorBand(rawValue: preset) { sensors.band = b }
+                case .vdl2:
+                    switch request.presetID {
+                    case "csc": vdl2.channels = [VDL2.commonSignallingChannel / 1e6]
+                    case "alle": vdl2.channels = VDL2Channels.all
+                    case "europa": vdl2.channels = VDL2Channels.europe
+                    default: break
+                    }
                 case .freedv:
                     if let preset = request.presetID, let m = FreeDVMode(preset: preset) { freedv.mode = m }
                 case .hfdl:
