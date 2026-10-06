@@ -62,6 +62,12 @@ struct DigidecApp: App {
         }
         .defaultSize(width: 560, height: 780)
         .windowResizability(.contentMinSize)
+        // Flugzeugdaten aus dem Netz (Foto, Typ, Betreiber, Strecke) zum Flugzeug, das in der ADS-B-Liste oder -Karte gewählt wurde
+        Window("Flugzeugdaten", id: "aircraft-info") {
+            AircraftInfoWindow(controller: state.adsbController, settings: state.adsb, home: state.home)
+        }
+        .defaultSize(width: 560, height: 820)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .appInfo) {

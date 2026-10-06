@@ -33,6 +33,8 @@ public struct MainWindowView: View {
                                 ALEMessagePanel(controller: state.aleController)
                             } else if state.activeModule == .aprs {
                                 APRSMainPanel(controller: state.aprsController, settings: state.aprs, home: state.home)
+                            } else if state.activeModule == .adsb {
+                                ADSBMainPanel(controller: state.adsbController, settings: state.adsb, home: state.home)
                             } else if state.activeModule == .packet {
                                 PacketMainPanel(controller: state.packetController, settings: state.packet)
                             } else if state.activeModule == .acars {
@@ -99,6 +101,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ale, audio: state.audio)
                             } else if state.activeModule == .aprs {
                                 WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
+                            } else if state.activeModule == .adsb {
+                                ADSBScopePanel(controller: state.adsbController)
                             } else if state.activeModule == .packet {
                                 WaterfallView(model: state.waterfall, rtty: state.packet, audio: state.audio)
                             } else if state.activeModule == .acars {
@@ -136,7 +140,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(height: 260)
-                        .radioCard(title: "Wasserfall")
+                        .radioCard(title: state.activeModule == .adsb ? "Empfang" : "Wasserfall")
 
                         Group {
                             switch state.mapLayout(state.activeModule) {
@@ -155,7 +159,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -187,6 +191,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             APRSSettingsPanel(settings: state.aprs)
                                 .radioCard(title: "APRS")
+                        } else if state.activeModule == .adsb {
+                            ADSBTuningPanel(controller: state.adsbController, settings: state.adsb)
+                                .radioCard(title: "Abstimmanzeige")
+                            ADSBSettingsPanel(controller: state.adsbController, settings: state.adsb)
+                                .radioCard(title: "ADS-B")
                         } else if state.activeModule == .packet {
                             PacketTuningPanel(controller: state.packetController, settings: state.packet)
                                 .radioCard(title: "Abstimmanzeige")
@@ -304,8 +313,13 @@ public struct MainWindowView: View {
                             .radioCard(title: "Preset")
                         }
 
-                        InputPanelView(audio: state.audio)
-                            .radioCard(title: "Eingang")
+                        if state.activeModule == .adsb {
+                            ADSBReceiverCard(controller: state.adsbController)
+                                .radioCard(title: "Empfänger")
+                        } else {
+                            InputPanelView(audio: state.audio)
+                                .radioCard(title: "Eingang")
+                        }
 
                         Spacer(minLength: 0)
                     }
@@ -313,7 +327,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
         }
@@ -324,6 +338,12 @@ public struct MainWindowView: View {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 state.aisController.showInfo(for: mmsi)
                 openWindow(id: "ship-info")
+            }
+            // Entwicklungshilfe: DIGIDEC_ADSB_INFO=<ICAO hex> öffnet das Fenster „Flugzeugdaten“ nach 12 s (für Schnappschüsse)
+            if let v = ProcessInfo.processInfo.environment["DIGIDEC_ADSB_INFO"], let icao = UInt32(v, radix: 16) {
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                state.adsbController.showInfo(for: icao)
+                openWindow(id: "aircraft-info")
             }
         }
         .sheet(isPresented: $showRTTYSettings) {
@@ -796,6 +816,8 @@ private struct StatusBar: View {
     @ObservedObject var aprs: APRSSettingsStore
     @ObservedObject var packet: PacketSettingsStore
     @ObservedObject var packetController: PacketController
+    @ObservedObject var adsb: ADSBSettingsStore
+    @ObservedObject var adsbController: ADSBController
     @ObservedObject var acars: ACARSSettingsStore
     @ObservedObject var ais: AISSettingsStore
     @ObservedObject var aisController: AISController
@@ -871,6 +893,7 @@ private struct StatusBar: View {
         case .sonde: return sondeCurrent
         case .ais: return aisCurrent
         case .packet: return packetCurrent
+        case .adsb: return adsbCurrent
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")
         case .tones: return "TÖNE · " + ToneStandard.allCases.filter(tones.standards.contains).map(\.name).joined(separator: ", ")
         case .aprs: return "APRS · \(aprs.channel.label) MHz FM · AFSK 1200 Bd · Töne \(Int(aprs.centerHz - 500)) / \(Int(aprs.centerHz + 500)) Hz" + (aprs.repairBits ? " · Korrektur" : "") + (aprs.emphasis == .auto ? "" : aprs.emphasis == .on ? " · DE-EMPH." : " · FLACH")
@@ -914,6 +937,17 @@ private struct StatusBar: View {
         s += " · Schwelle \(Int(skimmer.thresholdDB)) dB"
         let live = skimmerController.stations.filter(\.isLive)
         s += " · \(live.count) Signale · \(live.filter { $0.call != nil }.count) mit Rufzeichen"
+        return s
+    }
+
+    /// „ADS-B · 1090 MHz · HackRF · 23 Flugzeuge · 18 mit Position · 112 Meldungen/s“
+    private var adsbCurrent: String {
+        var s = "ADS-B · 1090 MHz · \(adsb.source.title)"
+        let n = adsbController.aircraft.count
+        if n > 0 {
+            s += " · \(n) Flugzeug" + (n == 1 ? "" : "e") + " · \(adsbController.aircraft.filter(\.hasPosition).count) mit Position"
+            s += " · \(Int(adsbController.stats.messagesPerSecond.rounded())) Meldungen/s"
+        }
         return s
     }
 

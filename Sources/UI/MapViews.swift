@@ -9,6 +9,7 @@ struct ModuleMapView: View {
     var body: some View {
         Group {
             switch state.activeModule {
+            case .adsb:   ADSBMapView(controller: state.adsbController, settings: state.adsb, home: state.home)
             case .aprs:   APRSMapView(controller: state.aprsController, settings: state.aprs, home: state.home)
             case .acars:  ACARSMapView(controller: state.acarsController, home: state.home)
             case .ais:    AISMapView(controller: state.aisController, settings: state.ais, home: state.home)
@@ -49,7 +50,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .packet, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -58,7 +59,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -73,6 +74,7 @@ extension DecoderModuleInfo {
         case .skimmer: return "Alle gehörten Signale mit Rufzeichen, Rauschabstand und Spots"
         case .sonde: return "Die empfangenen Radiosonden mit Höhe, Steigen, Messwerten und Entfernung"
         case .ais: return "Die empfangenen Schiffe mit Typ, Fahrt, Ziel und Entfernung; Doppelklick öffnet die Schiffsdaten"
+        case .adsb: return "Die Flugzeuge mit Kennung, Höhe, Geschwindigkeit, Entfernung und Meldungsprotokoll"
         case .packet: return "Monitor, Stationen, Digipeater, Verbindungen, Nachrichten und Knoten"
         case .aprs, .acars, .hfdl, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
@@ -91,6 +93,46 @@ private struct APRSMapView: View {
             MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: $controller.selection,
                      legend: settings.mapHours > 0 ? "letzte \(Int(settings.mapHours)) h" : "alle")
         }
+    }
+}
+
+// MARK: - ADS-B
+
+private struct ADSBMapView: View {
+    @ObservedObject var controller: ADSBController
+    @ObservedObject var settings: ADSBSettingsStore
+    @ObservedObject var home: HomeLocation
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        let selection = Binding<String?>(
+            get: { controller.selection.map { "adsb-" + String(format: "%06X", $0) } },
+            set: { id in
+                // Ein Flughafen der Strecke lässt die Auswahl des Flugzeugs stehen
+                if let id, id.hasPrefix("adsb-apt-") { return }
+                controller.selection = id.flatMap { $0.hasPrefix("adsb-") ? UInt32($0.dropFirst(5), radix: 16) : nil }
+            })
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: selection,
+                     legend: "Flugzeuge mit Weg · Farbe nach Höhe", detailAction: infoAction, keepZoomOnSelect: true)
+        }
+        .onChange(of: controller.selection) { _, icao in
+            guard settings.openInfoOnClick, let icao else { return }
+            controller.showInfo(for: icao)
+            openWindow(id: "aircraft-info")
+        }
+    }
+
+    /// Knopf in den Einzelheiten eines Flugzeugs: Fenster mit Foto, Typ, Betreiber und Strecke
+    private var infoAction: MapDetailAction {
+        MapDetailAction(title: "FLUGZEUGDATEN", help: "Foto, Typ, Betreiber und Strecke des Flugzeugs (aus dem Netz)", systemImage: "airplane",
+                        applies: { $0.id.hasPrefix("adsb-") && !$0.id.hasPrefix("adsb-apt-") },
+                        perform: { m in
+                            guard let icao = UInt32(m.id.dropFirst(5), radix: 16) else { return }
+                            controller.selection = icao
+                            controller.showInfo(for: icao)
+                            openWindow(id: "aircraft-info")
+                        })
     }
 }
 

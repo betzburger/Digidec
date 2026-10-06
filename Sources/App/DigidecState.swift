@@ -60,6 +60,8 @@ public final class DigidecState: ObservableObject {
     public let aprsController: APRSController
     public let packet = PacketSettingsStore()
     public let packetController: PacketController
+    public let adsb = ADSBSettingsStore()
+    public let adsbController: ADSBController
     public let acars = ACARSSettingsStore()
     public let acarsController: ACARSController
     public let ais = AISSettingsStore()
@@ -126,6 +128,7 @@ public final class DigidecState: ObservableObject {
         aleController = ALEController(pipeline: audio.pipeline, settings: ale)
         aprsController = APRSController(pipeline: audio.pipeline, settings: aprs)
         packetController = PacketController(pipeline: audio.pipeline, settings: packet)
+        adsbController = ADSBController(settings: adsb)
         acarsController = ACARSController(pipeline: audio.pipeline, settings: acars)
         aisController = AISController(pipeline: audio.pipeline, settings: ais)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
@@ -151,6 +154,9 @@ public final class DigidecState: ObservableObject {
         // Standort für die AIS-Entfernungen (weitester Empfang)
         aisController.homePoint = home.point
         home.$locator.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in self?.aisController.homePoint = self?.home.point }.store(in: &cancellables)
+        // Standort des Empfängers für ADS-B (Entfernungen, Bodenpositionen, Reichweite)
+        adsbController.homePoint = home.point
+        home.$locator.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in self?.adsbController.homePoint = self?.home.point }.store(in: &cancellables)
 
         // Ein Standort für alle: der Locator der Karte gilt auch für Entfernungen in FT8, FT4, WSPR und die NAVTEX-Stationssuche
         let syncLocators: @MainActor (String) -> Void = { [weak self] loc in
@@ -185,6 +191,7 @@ public final class DigidecState: ObservableObject {
                 self?.aleController.setActive(module == .ale)
                 self?.aprsController.setActive(module == .aprs)
                 self?.packetController.setActive(module == .packet)
+                self?.adsbController.setActive(module == .adsb)
                 self?.acarsController.setActive(module == .acars)
                 self?.aisController.setActive(module == .ais)
                 self?.hfdlController.setActive(module == .hfdl)
@@ -310,6 +317,7 @@ public final class DigidecState: ObservableObject {
         case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
         case .aprs:   return .aprs(channel: aprs.channel)
         case .packet: return .packet(channel: packet.channel)
+        case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
@@ -362,6 +370,11 @@ public final class DigidecState: ObservableObject {
         audioStarted = true
         let start: @MainActor () -> Void = {
             let state = DigidecState.shared
+            // Entwicklungshilfe: DIGIDEC_ADSB_FILE=/Pfad/aufnahme.bin (8-Bit-I/Q, 2 MS/s) statt eines Geräts; DIGIDEC_ADSB_REALTIME=0 schneller als in Echtzeit
+            if let path = ProcessInfo.processInfo.environment["DIGIDEC_ADSB_FILE"] {
+                state.adsbController.fileOverride = URL(fileURLWithPath: path)
+                state.adsbController.fileRealtime = ProcessInfo.processInfo.environment["DIGIDEC_ADSB_REALTIME"] != "0"
+            }
             // Entwicklungshilfe: DIGIDEC_MODULE=aprs startet im genannten Modul (nur dieses decodiert), DIGIDEC_PLAY_FILE=/Pfad/aufnahme.wav
             // spielt eine Datei statt des Live-Eingangs ab
             if let id = ProcessInfo.processInfo.environment["DIGIDEC_MODULE"], let module = DecoderModuleInfo(rawValue: id) {
@@ -420,6 +433,8 @@ public final class DigidecState: ObservableObject {
                 case .packet:
                     if let preset = request.presetID, let c = PacketChannel(rawValue: preset) { packet.channel = c }
                     if let center = request.centerHz { packet.setCenter(center) }
+                case .adsb:
+                    if let preset = request.presetID, let k = ADSBSourceKind(rawValue: preset) { adsb.source = k }
                 case .acars:
                     if let preset = request.presetID, let c = ACARSChannel(rawValue: preset) { acars.channel = c }
                 case .ais:
