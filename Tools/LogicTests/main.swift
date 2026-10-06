@@ -702,6 +702,77 @@ do {
           "Standardports 4532 / 4533")
 }
 
+// MARK: - GQRX Remote Control (Dialekt)
+do {
+    // Antworten, wie GQRX sie liefert: Frequenz, Mode, Bandbreite
+    let g = RigctlClient.parse(["161975000", "FM", "10000"])
+    check(g.connected && g.frequencyHz == 161_975_000 && g.mode == "FM" && g.passbandHz == 10_000 && g.isLSB == false, "GQRX: f + m (161,975 MHz FM 10 kHz) ausgewertet")
+    check(RigctlClient.parse(["7074000", "WFM_ST", "160000"]).mode == "WFM_ST", "GQRX: Mode mit Unterstrich (WFM_ST) bleibt erhalten")
+    check(RigctlClient.parse(["7074000", "CWL", "500"]).isLSB == true && RigctlClient.parse(["7074000", "CWU", "500"]).isLSB == false, "GQRX: CWL = Kehrlage, CWU = Regellage")
+    check(RigctlClient.parse(["7074000", "LSB", "2700"]).isLSB == true && RigctlClient.parse(["7074000", "AMS", "5000"]).isLSB == false, "GQRX: LSB = Kehrlage, AM-Sync = Regellage")
+
+    // Mode-Abbildung: RTTY und Paketbetrieb → USB, CW → CWU, was es dort nicht gibt → kein Befehl
+    let gq = RigDialect.gqrx
+    check(gq.modeName(for: "RTTY") == "USB" && gq.modeName(for: "rttyr") == "USB" && gq.modeName(for: "PKTUSB") == "USB" && gq.modeName(for: "PKTLSB") == "LSB", "GQRX: RTTY/PKTUSB → USB, PKTLSB → LSB")
+    check(gq.modeName(for: "CW") == "CWU" && gq.modeName(for: "CWR") == "CWL" && gq.modeName(for: "FM") == "FM" && gq.modeName(for: "AM") == "AM" && gq.modeName(for: "LSB") == "LSB", "GQRX: CW → CWU, CWR → CWL, FM, AM, LSB unverändert")
+    check(gq.modeName(for: "PWR") == nil && gq.modeName(for: "ECSSUSB") == nil, "GQRX: unbekannter Mode → nil")
+    check(RigDialect.hamlib.modeName(for: "rtty") == "RTTY" && RigDialect.hamlib.modeName(for: "PKTUSB") == "PKTUSB", "Hamlib: Mode bleibt, wie er ist")
+    check(RigCommand.mode("RTTY", passbandHz: 500, dialect: .gqrx) == "M USB 500\n" && RigCommand.mode("CW", passbandHz: nil, dialect: .gqrx) == "M CWU 0\n", "GQRX: Befehl M mit übersetztem Mode")
+    check(RigCommand.mode("FM", passbandHz: 25_000, dialect: .gqrx) == "M FM 25000\n" && RigCommand.mode("RTTY", passbandHz: 500) == "M RTTY 500\n", "AIS-Befehl für GQRX; Hamlib unverändert")
+    check(RigCommand.mode("USB\nT 1", passbandHz: nil, dialect: .gqrx) == nil && RigCommand.mode("PWR", passbandHz: nil, dialect: .gqrx) == nil, "GQRX: eingeschmuggelte Befehle und fremde Modes werden abgewiesen")
+    check(RigDialect.gqrx.defaultPort == 7356 && RigDialect.hamlib.defaultPort == 4532, "Vorgabe-Ports 7356 (GQRX) und 4532 (Hamlib)")
+
+    // Profil: Vorlage, Speichern und Laden, alte Daten ohne Dialekt
+    let tpl = RigProfile.gqrx(audioUID: "UID-V", audioName: "VALHost 2ch")
+    check(tpl.name == "GQRX" && tpl.port == 7356 && tpl.host == "127.0.0.1" && tpl.dialect == .gqrx && tpl.problem == nil && tpl.endpoint == RigEndpoint.loopback(port: 7356), "GQRX-Vorlage: 127.0.0.1:7356, Dialekt GQRX")
+    let back = RigProfileList.decoded(from: RigProfileList(profiles: [tpl, RigProfile(name: "IC-7300")], activeID: tpl.id).encoded())
+    check(back.profiles.count == 2 && back.profiles[0].dialect == .gqrx && back.profiles[1].dialect == .hamlib && back.active?.audioName == "VALHost 2ch", "Profil: Dialekt wird gespeichert und geladen")
+    let old = Data(#"{"profiles":[{"id":"A","name":"IC-7300","host":"127.0.0.1","port":4540,"audioUID":"U"}],"activeID":"A"}"#.utf8)
+    let oldList = RigProfileList.decoded(from: old)
+    check(oldList.profiles.count == 1 && oldList.active?.dialect == .hamlib && oldList.active?.port == 4540 && oldList.active?.audioUID == "U", "Profil: früher gespeichertes Gerät ohne Dialekt bleibt erhalten (Hamlib)")
+    let odd = Data(#"{"profiles":[{"id":"A","name":"x","host":"h","port":1,"dialect":"unbekannt"}]}"#.utf8)
+    check(RigProfileList.decoded(from: odd).profiles.first?.dialect == .hamlib, "Profil: unbekannter Dialekt → Hamlib")
+
+    // Ende zu Ende gegen einen nachgebauten GQRX: AIS-Ziel (FM 25 kHz), RTTY (→ USB), unbekannter Mode wird gar nicht erst gesendet
+    final class Box: @unchecked Sendable { let lock = NSLock(); var last = RigState() }
+    if let fake = FakeRigctld(behavior: .gqrx) {
+        let box = Box()
+        let client = RigctlClient { s in box.lock.withLock { box.last = s } }
+        client.setEndpoint(RigEndpoint.loopback(port: fake.port))
+        func waitFor(_ cond: () -> Bool, seconds: Double = 4) -> Bool {
+            let end = Date().addingTimeInterval(seconds)
+            while Date() < end { if cond() { return true }; Thread.sleep(forTimeInterval: 0.05) }
+            return cond()
+        }
+        check(waitFor { box.lock.withLock { box.last.frequencyHz } == 14_074_000 || box.lock.withLock { box.last.mode } == "FM" }, "GQRX e2e: Verbindung, Anfangszustand gelesen")
+        func tune(_ hz: Int64, _ mode: String, _ pb: Int?, _ dialect: RigDialect) -> RigTuneResult {
+            let sem = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var res: RigTuneResult = .notConnected
+            client.tune(frequencyHz: hz, mode: mode, passbandHz: pb, dialect: dialect) { res = $0; sem.signal() }
+            _ = sem.wait(timeout: .now() + 5)
+            return res
+        }
+        let ais = RigTuneTarget.ais(channel: .a)!
+        check(tune(ais.dialHz, ais.mode, ais.passbandHz, .gqrx) == .ok, "GQRX e2e: AIS-Kanal A abstimmen")
+        check(waitFor { box.lock.withLock { box.last.frequencyHz } == 161_975_000 && box.lock.withLock { box.last.mode } == "FM" && box.lock.withLock { box.last.passbandHz } == 25_000 },
+              "GQRX e2e: steht auf 161,975 MHz FM 25 kHz (\(box.lock.withLock { box.last }))")
+        check(tune(7_039_000, "RTTY", 500, .gqrx) == .ok && fake.currentMode == "USB" && fake.currentFrequency == 7_039_000, "GQRX e2e: RTTY wird als USB gesetzt (\(fake.currentMode))")
+        // Ohne Übersetzung würde das echte GQRX „RPRT 1“ melden: Digidec stellt dann den Mode nicht ein und meldet es
+        nonisolated(unsafe) var raw: RigTuneResult = .ok
+        let sem = DispatchSemaphore(value: 0)
+        client.tune(frequencyHz: 7_039_000, mode: "RTTY", passbandHz: 500, dialect: .hamlib) { raw = $0; sem.signal() }
+        _ = sem.wait(timeout: .now() + 5)
+        if case .rejected(let why) = raw { check(why.contains("RPRT 1"), "Hamlib-Weg gegen GQRX: Ablehnung gemeldet (\(why))") } else { check(false, "Hamlib-Weg gegen GQRX: erwartet abgelehnt, bekam \(raw)") }
+        if case .rejected(let why) = tune(14_074_000, "PWR", nil, .gqrx) { check(why.contains("GQRX"), "GQRX: Mode ohne Gegenstück → Meldung nennt GQRX (\(why))") } else { check(false, "GQRX: PWR muss abgewiesen werden") }
+        let sent = fake.commands
+        check(sent.allSatisfy { ["f", "m", "F", "M"].contains(String($0.split(separator: " ").first ?? "")) }, "GQRX e2e: nur f, m, F, M gesendet, nie PTT")
+        check(sent.contains("F 161975000") && sent.contains("M FM 25000") && sent.contains("M USB 500") && !sent.contains("M PWR 0"), "GQRX e2e: gesendete Befehle \(sent.filter { $0.first == "F" || $0.first == "M" })")
+        client.setEndpoint(nil)
+    } else {
+        check(false, "GQRX-Nachbau konnte nicht starten")
+    }
+}
+
 // MARK: - rigctld: echter TCP-Austausch mit einem Test-Server
 do {
     // Mini-rigctld auf einem freien Port: antwortet auf "f" und "m", protokolliert alle Befehle

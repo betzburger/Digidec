@@ -3,7 +3,8 @@
 import SwiftUI
 
 /// Dialog „Funkgerät“: Digidec bekommt Frequenz und Mode von einem rigctld. Entweder automatisch vom Commander, dessen USB-Codec
-/// gelesen wird, oder von einem frei eingestellten Gerät (Rechner, Port, Name, Audio-Eingang), also von allem, was Hamlib kann.
+/// gelesen wird, oder von einem frei eingestellten Gerät (Rechner, Port, Name, Audio-Eingang), also von allem, was Hamlib kann,
+/// sowie von GQRX (Remote Control, Port 7356).
 struct RigSettingsSheet: View {
     @ObservedObject var state: DigidecState
     @ObservedObject var store: RigProfileStore
@@ -36,8 +37,8 @@ struct RigSettingsSheet: View {
                     .buttonStyle(ModeButtonStyle(isSelected: false))
                     .keyboardShortcut(.cancelAction)
             }
-            Text("Digidec liest Frequenz und Mode von einem rigctld (Hamlib) und stellt das Funkgerät nur auf Wunsch ein (Schalter QSY AUTO, "
-                 + "nur Frequenz und Mode, nie Senden). Jedes Funkgerät, das ein rigctld bedient, lässt sich einbinden.")
+            Text("Digidec liest Frequenz und Mode von einem rigctld (Hamlib) oder von GQRX und stellt das Funkgerät nur auf Wunsch ein (Schalter QSY AUTO, "
+                 + "nur Frequenz und Mode, nie Senden). Jedes Funkgerät, das ein rigctld bedient, lässt sich einbinden, ebenso GQRX mit seinem SDR.")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -55,13 +56,23 @@ struct RigSettingsSheet: View {
                     ForEach(store.list.profiles) { profile in
                         profileRow(profile)
                     }
-                    Button {
-                        let added = store.add(RigProfile(name: ""))
-                        edit(added)
-                    } label: {
-                        Label("NEUES FUNKGERÄT", systemImage: "plus")
+                    HStack(spacing: 6) {
+                        Button {
+                            let added = store.add(RigProfile(name: ""))
+                            edit(added)
+                        } label: {
+                            Label("NEUES FUNKGERÄT", systemImage: "plus")
+                        }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        Button {
+                            let added = store.add(RigProfile.gqrx())
+                            edit(added)
+                        } label: {
+                            Label("NEU: GQRX", systemImage: "plus")
+                        }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("GQRX auf diesem Rechner (Remote Control, Port 7356)")
                     }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
                     .padding(.top, 2)
 
                     if editingID != nil {
@@ -120,7 +131,7 @@ struct RigSettingsSheet: View {
                 Text(profile.displayName)
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textBright)
-                Text("rigctld \(profile.host):\(profile.port)" + (profile.audioName.map { " · Audio: \($0)" } ?? "")
+                Text("\(profile.dialect == .gqrx ? "GQRX" : "rigctld") \(profile.host):\(profile.port)" + (profile.audioName.map { " · Audio: \($0)" } ?? "")
                      + (profile.problem.map { " · \($0)" } ?? ""))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(profile.problem == nil ? RadioTheme.textMuted : RadioTheme.ledRed)
@@ -157,13 +168,23 @@ struct RigSettingsSheet: View {
                 TextField("z. B. IC-7300", text: $draft.name)
                     .textFieldStyle(.roundedBorder)
             }
+            labeled("Protokoll") {
+                Picker("", selection: $draft.dialect) {
+                    ForEach(RigDialect.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .onChange(of: draft.dialect) { old, new in
+                    // Der Vorgabe-Port des alten Protokolls wird zu dem des neuen; ein selbst gewählter Port bleibt
+                    if draft.port == old.defaultPort { draft.port = new.defaultPort }
+                }
+            }
             labeled("Rechner") {
                 TextField("127.0.0.1 oder Name", text: $draft.host)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
             }
             labeled("Port") {
-                TextField("4532", value: $draft.port, format: .number.grouping(.never))
+                TextField("\(draft.dialect.defaultPort)", value: $draft.port, format: .number.grouping(.never))
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 100)
             }
@@ -270,6 +291,13 @@ struct RigSettingsSheet: View {
             Text("Hamlib installieren (z. B. brew install hamlib) und im Terminal starten: rigctld -m <Modellnummer> -r <Anschluss> -s <Baudrate>. "
                  + "Die Modellnummern zeigt rigctl -l. rigctld hört standardmäßig auf Port 4532. "
                  + "Mehrere Geräte brauchen verschiedene Ports (Option -t). Die Commander bringen ihren rigctld selbst mit.")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(RadioTheme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("GQRX: Remote Control einschalten (Tools → Remote control; Port 7356, GQRX erlaubt standardmäßig nur diesen Rechner). "
+                 + "Das Audio holt Digidec nicht von GQRX selbst: In GQRX unter Audio das Ausgabegerät auf VALHost 2ch oder BlackHole stellen "
+                 + "und hier denselben Eingang wählen. Mit QSY AUTO stellt Digidec Frequenz und Mode ein (GQRX: RTTY und Paketbetrieb → USB, CW → CW-U, "
+                 + "AIS → Narrow FM mit 25 kHz). Für AIS in GQRX De-Emphase aus und Rauschsperre offen lassen.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)

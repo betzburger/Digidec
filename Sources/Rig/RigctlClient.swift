@@ -21,7 +21,8 @@ public struct RigState: Equatable, Sendable {
     public init() {}
 
     /// Hamlib-Modes mit Kehrlage im NF (höhere Audiofrequenz = tiefere HF). fldigi: `reverse = REV xor !USB`.
-    public static let invertingModes: Set<String> = ["LSB", "PKTLSB", "ECSSLSB", "RTTY", "CWR"]
+    /// (GQRX: LSB und CWL; WFM, AM und die übrigen sind Regellage.)
+    public static let invertingModes: Set<String> = ["LSB", "PKTLSB", "ECSSLSB", "RTTY", "CWR", "CWL"]
 
     /// `true` = Kehrlage (LSB), `false` = Regellage, `nil` = unbekannt
     public var isLSB: Bool? {
@@ -138,7 +139,8 @@ public final class RigctlClient: @unchecked Sendable {
 
     /// Stellt Frequenz und Mode des Funkgeräts über den rigctld des Commanders ein (`F`, danach `M`). Der Commander stellt
     /// sich dabei selbst um, seine Anzeige folgt. Die Rückmeldung kommt auf einer Hintergrund-Queue.
-    public func tune(frequencyHz: Int64, mode: String?, passbandHz: Int?, completion: @escaping @Sendable (RigTuneResult) -> Void) {
+    public func tune(frequencyHz: Int64, mode: String?, passbandHz: Int?, dialect: RigDialect = .hamlib,
+                     completion: @escaping @Sendable (RigTuneResult) -> Void) {
         queue.async { [self] in
             guard let endpoint else { completion(.notConnected); return }
             if fd < 0 {
@@ -155,8 +157,8 @@ public final class RigctlClient: @unchecked Sendable {
                 completion(.rejected(reply.first ?? "keine Antwort")); return
             }
             if let mode {
-                guard let mCommand = RigCommand.mode(mode, passbandHz: passbandHz) else {
-                    completion(.rejected("Mode \(mode) nicht erlaubt")); return
+                guard let mCommand = RigCommand.mode(mode, passbandHz: passbandHz, dialect: dialect) else {
+                    completion(.rejected("Mode \(mode) nicht erlaubt oder bei \(dialect.title) unbekannt")); return
                 }
                 guard let modeReply = exchange(mCommand, expectedLines: 1) else {
                     closeSocket(); completion(.notConnected); return
@@ -342,7 +344,8 @@ public final class RigctlClient: @unchecked Sendable {
         }
         if let mode = rest.first {
             rest = rest.dropFirst()
-            if !mode.hasPrefix("RPRT"), !mode.isEmpty, mode.allSatisfy({ $0.isLetter }) {
+            // GQRX meldet auch WFM_ST und WFM_ST_OIRT
+            if !mode.hasPrefix("RPRT"), !mode.isEmpty, mode.allSatisfy({ $0.isLetter || $0 == "_" }) {
                 s.mode = mode.uppercased()
                 if let pb = rest.first, let v = Int(pb) {
                     s.passbandHz = v

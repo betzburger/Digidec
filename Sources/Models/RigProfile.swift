@@ -49,6 +49,49 @@ public struct RigEndpoint: Equatable, Hashable, Sendable {
     }
 }
 
+/// Welche Mundart die Gegenseite spricht. Das Textprotokoll (`f`, `m`, `F`, `M`) ist gleich, nur die Mode-Namen unterscheiden sich.
+public enum RigDialect: String, Codable, CaseIterable, Sendable {
+    /// Hamlib-rigctld (die Commander, IC-7300 usw.): USB, LSB, FM, AM, CW, CWR, RTTY, RTTYR, PKTUSB, PKTLSB
+    case hamlib
+    /// GQRX „Remote control“ (Standardport 7356): AM, AMS, LSB, USB, CWL, CWU, FM, WFM … Es kennt weder RTTY noch PKTUSB.
+    case gqrx
+
+    /// Name im Dialog
+    public var title: String {
+        switch self {
+        case .hamlib: return "Hamlib rigctld"
+        case .gqrx: return "GQRX Remote Control"
+        }
+    }
+
+    /// Vorgabe-Port der Gegenseite
+    public var defaultPort: Int {
+        switch self {
+        case .hamlib: return 4532
+        case .gqrx: return 7356
+        }
+    }
+
+    /// Mode-Name, wie ihn die Gegenseite versteht; `nil` = gibt es dort nicht.
+    /// GQRX: RTTY und Paket-Betrieb laufen in USB bzw. LSB (Töne im NF, den Rest macht Digidec), CW heißt CWU, CWR heißt CWL.
+    public func modeName(for hamlibMode: String) -> String? {
+        let m = hamlibMode.uppercased()
+        switch self {
+        case .hamlib:
+            return m
+        case .gqrx:
+            switch m {
+            case "USB", "RTTY", "RTTYR", "PKTUSB": return "USB"
+            case "LSB", "PKTLSB": return "LSB"
+            case "CW": return "CWU"
+            case "CWR": return "CWL"
+            case "AM", "FM": return m
+            default: return nil
+            }
+        }
+    }
+}
+
 /// Ein Funkgerät, das über einen rigctld bedient wird, mit Namen und (wahlweise) dem zugehörigen Audio-Eingang.
 public struct RigProfile: Codable, Equatable, Identifiable, Sendable {
     public var id: String
@@ -59,19 +102,41 @@ public struct RigProfile: Codable, Equatable, Identifiable, Sendable {
     /// Audio-Eingang, der mit dem Gerät zusammengehört (CoreAudio-UID und Name als Ersatz, wenn sich die UID geändert hat)
     public var audioUID: String?
     public var audioName: String?
+    /// Hamlib-rigctld oder GQRX
+    public var dialect: RigDialect
 
     /// Hamlib-Standardport von rigctld
     public static let defaultPort = 4532
     public static let defaultHost = "127.0.0.1"
 
     public init(id: String = UUID().uuidString, name: String, host: String = RigProfile.defaultHost, port: Int = RigProfile.defaultPort,
-                audioUID: String? = nil, audioName: String? = nil) {
+                audioUID: String? = nil, audioName: String? = nil, dialect: RigDialect = .hamlib) {
         self.id = id
         self.name = name
         self.host = host
         self.port = port
         self.audioUID = audioUID
         self.audioName = audioName
+        self.dialect = dialect
+    }
+
+    /// Vorlage für GQRX auf diesem Rechner (Standardport 7356 der Remote-Control-Funktion)
+    public static func gqrx(audioUID: String? = nil, audioName: String? = nil) -> RigProfile {
+        RigProfile(name: "GQRX", port: RigDialect.gqrx.defaultPort, audioUID: audioUID, audioName: audioName, dialect: .gqrx)
+    }
+
+    // Früher gespeicherte Geräte kennen kein `dialect`: sie sind Hamlib
+    private enum CodingKeys: String, CodingKey { case id, name, host, port, audioUID, audioName, dialect }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        host = try c.decode(String.self, forKey: .host)
+        port = try c.decode(Int.self, forKey: .port)
+        audioUID = try c.decodeIfPresent(String.self, forKey: .audioUID)
+        audioName = try c.decodeIfPresent(String.self, forKey: .audioName)
+        dialect = (try? c.decodeIfPresent(RigDialect.self, forKey: .dialect)) ?? .hamlib
     }
 
     /// Verbindungsziel, nil bei ungültigem Rechnernamen oder Port
