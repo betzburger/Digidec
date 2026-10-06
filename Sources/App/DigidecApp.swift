@@ -45,6 +45,7 @@ struct DigidecApp: App {
         signal(SIGPIPE, SIG_IGN)
         NSApplication.shared.setActivationPolicy(.regular)
         SnapshotHelper.installIfRequested()
+        LocalVoiceHook.install()
     }
 
     var body: some Scene {
