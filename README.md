@@ -35,7 +35,7 @@ Weitere Merkmale: Sendepläne mit automatischer Aufnahme (Wetterfax, RTTY, NAVTE
 
 ## Voraussetzungen
 
-- Mac mit **macOS 14 oder neuer** (entwickelt mit dem macOS-27-SDK), Apple Silicon.
+- Mac mit **macOS 14 oder neuer** (entwickelt mit dem macOS-27-SDK).
 - **Xcode** (oder die Command Line Tools) mit **Swift 6** zum Bauen.
 - Eine Audioquelle mit dem **Empfangsaudio**: der USB-Audio-Codec eines Funkgeräts (IC-PCR1500 und FT-991A werden automatisch erkannt) oder eine virtuelle Soundkarte wie BlackHole oder VALHost, in die ein SDR-Programm das Audio schreibt. Für AIS und Radiosonden braucht es das **Diskriminator-Audio eines FM-Empfängers** (FM, ausreichend breit, ohne De-Emphase, ohne Rauschsperre).
 - Beim ersten Start fragt macOS nach dem Zugriff auf das Mikrofon (nötig für den Audioeingang).
