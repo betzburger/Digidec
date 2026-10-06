@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.64.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.65.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -26,6 +26,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 |---|---|
 | **D-STAR** | Digitale Sprache (DV) im Amateurfunk: Kopf mit Rufzeichen, Gegenstation und Repeater, Textnachricht und GPS-Position aus den Langsamdaten, Verlauf der Aussendungen, später Einstieg ohne Kopf; der Ton kommt aus einem Sprachstick mit DVSI AMBE-3000R (in den Einstellungen wählen), ohne Stick bleibt es bei den Steuerdaten. Braucht das Diskriminator-Audio eines FM-Empfängers (4800 Bd) |
 | **YSF** | Yaesu System Fusion (C4FM, Betriebsart V/D 2): Rufzeichen, Ziel und Repeater aus Kopf und Datenkanal, Verlauf der Aussendungen; der Ton kommt aus dem Sprachstick (derselbe wie bei D-STAR), ohne Stick bleibt es bei den Rufzeichen. Braucht das Diskriminator-Audio eines FM-Empfängers (4800 Symbole/s) |
+| **DMR** | Digital Mobile Radio (Repeater mit zwei Zeitschlitzen oder Direktmodus): Gespräche je Zeitschlitz mit Absender, Ziel (Gruppe oder Einzelruf) und Farbcode aus Sprach-Kopf und eingebetteter Information (auch bei spätem Einstieg); auf Wunsch Rufzeichen, Name und Ort aus der DMR-ID-Liste von radioid.net; der Ton eines Zeitschlitzes kommt aus dem Sprachstick (der Chip hat nur einen Kanal). Braucht das Diskriminator-Audio eines FM-Empfängers (4800 Symbole/s) |
 | **AIS** | Schiffsverfolgung auf 161,975 und 162,025 MHz: Schiffsliste, Karte mit Kurs und Weg, beide Kanäle gleichzeitig; ein Klick auf ein Schiff öffnet ein Fenster mit Foto und technischen Daten aus dem Netz; Wetter-, Pegel-, Binnenschiff- und Gebietsmeldungen; NMEA-Log |
 | **ADS-B** | Flugzeuge auf 1090 MHz direkt vom SDR (HackRF, RTL-SDR, SDRplay direkt über die SDRplay-API oder über SDRconnect): Liste mit Kennung, Land, Höhe, Geschwindigkeit, Entfernung und Notlagen, Karte mit Weg und Farbe nach Höhe, Reichweitediagramm je Richtung, Meldungsprotokoll; Doppelklick auf ein Flugzeug öffnet ein Fenster mit Foto, Typ, Betreiber und planmäßiger Strecke (Start- und Zielflughafen, Fortschritt) |
 | APRS | 1200 Bd AX.25 mit Stationsliste, Nachrichten, Wetter und Karte |
@@ -70,7 +71,7 @@ Parameter und Presets stehen in `PLAN.md`, Abschnitt 3.
 
 ## Netzzugriffe
 
-Digidec ruft von sich aus nichts im Netz ab, bis auf die Kartenkacheln von Apple. Auf Knopfdruck laden die Sendepläne Daten von dwd.de und api.v2.sondehub.org. Beim AIS-Schiffsfenster fragt es (abschaltbar mit NETZ-SUCHE) Wikidata, Wikimedia Commons und Wikipedia nach dem angeklickten Schiff; übermittelt werden nur MMSI, IMO-Nummer, Rufzeichen und Name dieses Schiffs. Beim ADS-B-Flugzeugfenster fragt es (abschaltbar mit NETZ-SUCHE) adsbdb.com und planespotters.net nach dem angeklickten Flugzeug; übermittelt werden nur ICAO-Adresse und Rufzeichen. Mit dem Schalter AUTO-INFO (standardmäßig aus) geschieht das im Hintergrund für alle gehörten Flugzeuge, höchstens eine Abfrage je Sekunde. Einzelheiten: `THIRD_PARTY.md`, Abschnitt 4.
+Digidec ruft von sich aus nichts im Netz ab, bis auf die Kartenkacheln von Apple. Auf Knopfdruck laden die Sendepläne Daten von dwd.de und api.v2.sondehub.org. Beim AIS-Schiffsfenster fragt es (abschaltbar mit NETZ-SUCHE) Wikidata, Wikimedia Commons und Wikipedia nach dem angeklickten Schiff; übermittelt werden nur MMSI, IMO-Nummer, Rufzeichen und Name dieses Schiffs. Die DMR-ID-Liste (Rufzeichen, Name und Ort zu den Funkgeräte-Kennungen, rund 17 MB) lädt es nur auf Knopfdruck in den DMR-Einstellungen von radioid.net. Beim ADS-B-Flugzeugfenster fragt es (abschaltbar mit NETZ-SUCHE) adsbdb.com und planespotters.net nach dem angeklickten Flugzeug; übermittelt werden nur ICAO-Adresse und Rufzeichen. Mit dem Schalter AUTO-INFO (standardmäßig aus) geschieht das im Hintergrund für alle gehörten Flugzeuge, höchstens eine Abfrage je Sekunde. Einzelheiten: `THIRD_PARTY.md`, Abschnitt 4.
 
 ## Tests und Werkzeuge
 

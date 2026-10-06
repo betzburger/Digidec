@@ -18,6 +18,13 @@ public struct VoiceCall: Identifiable, Equatable, Sendable {
     /// Sprachrahmen (9 Byte im Format des Sprachsticks)
     public var ambe: [[UInt8]] = []
     public var lateEntry = false
+    /// DMR: Zeitschlitz (1 oder 2) und Farbcode
+    public var slot: Int?
+    public var colorCode: Int?
+    /// DMR: Kennungen von Absender und Ziel (für die Auflösung zu Rufzeichen) und Art des Rufs
+    public var sourceID: Int?
+    public var targetID: Int?
+    public var isGroup = true
     /// `nil` = läuft noch
     public var endedBy: Ended?
 
