@@ -72,6 +72,8 @@ public final class DigidecState: ObservableObject {
     public let ysfController: YSFController
     public let dmr = DMRSettingsStore()
     public let dmrController: DMRController
+    public let m17 = M17SettingsStore()
+    public let m17Controller: M17Controller
     public let freedv = FreeDVSettingsStore()
     public let freedvController: FreeDVController
     public let hfdl = HFDLSettingsStore()
@@ -142,6 +144,7 @@ public final class DigidecState: ObservableObject {
         dstarController = DStarController(pipeline: audio.pipeline, settings: dstar)
         ysfController = YSFController(pipeline: audio.pipeline, settings: ysf)
         dmrController = DMRController(pipeline: audio.pipeline, settings: dmr)
+        m17Controller = M17Controller(pipeline: audio.pipeline, settings: m17)
         freedvController = FreeDVController(pipeline: audio.pipeline, settings: freedv)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
         sondeController = SondeController(pipeline: audio.pipeline, settings: sonde)
@@ -209,6 +212,7 @@ public final class DigidecState: ObservableObject {
                 self?.dstarController.setActive(module == .dstar)
                 self?.ysfController.setActive(module == .ysf)
                 self?.dmrController.setActive(module == .dmr)
+                self?.m17Controller.setActive(module == .m17)
                 self?.freedvController.setActive(module == .freedv)
                 self?.hfdlController.setActive(module == .hfdl)
                 self?.sondeController.setActive(module == .sonde)
@@ -300,6 +304,7 @@ public final class DigidecState: ObservableObject {
             dstarController.rigDescription = rig.description
             ysfController.rigDescription = rig.description
             dmrController.rigDescription = rig.description
+            m17Controller.rigDescription = rig.description
             freedvController.rigDescription = rig.description
             hfdlController.rigDescription = rig.description
             sondeController.rigDescription = rig.description
@@ -340,7 +345,7 @@ public final class DigidecState: ObservableObject {
         case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
-        case .dstar, .ysf, .dmr, .freedv: return nil
+        case .dstar, .ysf, .dmr, .m17, .freedv: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
@@ -460,7 +465,7 @@ public final class DigidecState: ObservableObject {
                     if let preset = request.presetID, let c = ACARSChannel(rawValue: preset) { acars.channel = c }
                 case .ais:
                     if let preset = request.presetID, let c = AISChannel(rawValue: preset) { ais.channel = c }
-                case .dstar, .ysf, .dmr:
+                case .dstar, .ysf, .dmr, .m17:
                     break
                 case .freedv:
                     if let preset = request.presetID, let m = FreeDVMode(preset: preset) { freedv.mode = m }

@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "PACKET", "PAGER", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SONDE", "TÖNE", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -8996,6 +8996,146 @@ do {
               && r.starts.contains { $0.1 == 4 && $0.2?.destination == 19535 && $0.2?.source == 2222223 },
               "DMR echt (Italien): \(r.voice[1].count / 3) Sprachbursts in Zeitschlitz 2, \(r.stats.idleBursts) Leerlaufbursts, Sprach-Kopf (CC 4, TG 19535, Quelle 2222223), \(r.stats.embeddedLC) mal eingebettet")
     } else { skip("DMR echt: TestData/Voice/dmr_it_8.dis liegt nicht lokal vor") }
+}
+// MARK: - M17: Codes, Rahmen, LSF, Empfänger, Sprache
+do {
+    // Vektoren der Referenzbibliothek libM17 (Rufzeichen, CRC, Golay) und der Spezifikation
+    check(M17.address(fromCallsign: "N0CALL") == 0x4B13D106 && M17.address(fromCallsign: "@ALL") == M17.broadcast && M17.callsign(from: 0x4B13D106) == "N0CALL",
+          "M17: Rufzeichen N0CALL = 0x4B13D106, @ALL = Rundruf")
+    check(M17.callsign(from: M17.address(fromCallsign: "#ABC")!) == "#ABC" && M17.callsign(from: M17.hashEnd) == nil && M17.address(fromCallsign: "ABCDEFGHIJ") == nil && M17.address(fromCallsign: "DL1ä") == nil,
+          "M17: Hash-Adressen, zu langes und ungültiges Rufzeichen")
+    check(M17.crc16(Array("123456789".utf8)) == 0x772B && M17.crc16(Array("A".utf8)) == 0x206E && M17.crc16((0..<256).map { UInt8($0) }) == 0x1C31 && M17.crc16([]) == 0xFFFF,
+          "M17: CRC-16 (Polynom 0x5935) gegen die Prüfwerte der Referenz")
+    var golayWord = 0
+    for bit in Golay.encode24((0..<12).map { UInt8((0x0D78 >> (11 - $0)) & 1) }) { golayWord = (golayWord << 1) | Int(bit) }
+    check(golayWord == 0xD7880F, "M17: Golay (24,12) gegen den Prüfwert der Referenz (0x0D78 → 0xD7880F)")
+    check(M17.permutation.prefix(8) == [0, 137, 90, 227, 180, 317, 270, 39] && M17.permutation.enumerated().allSatisfy { M17.permutation[$0.element] == $0.offset },
+          "M17: Verschachtelung π(x) = (45x + 92x²) mod 368 ist eine Selbstumkehr und passt zur Tabelle der Referenz")
+    check(M17.randomizer.count == 368 && Array(M17.randomizer[0..<16]) == [1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1] && M17.puncture1.filter { $0 }.count == 46 && M17.puncture2.filter { $0 }.count == 11,
+          "M17: Zufallsmaske und Punktierungsmuster")
+    check(M17.SyncKind.allCases.map(\.word) == [0x55F7, 0xFF5D, 0x75FF, 0xDF55, 0x555D] && M17.SyncKind.lsf.levels == [3, 3, 3, 3, -3, -3, 3, -3] && M17.SyncKind.stream.levels == M17.SyncKind.lsf.levels.map { -$0 },
+          "M17: Synchronwörter (das Strom-Wort ist das Negativ des LSF-Worts)")
+
+    // LSF
+    let caller = M17.address(fromCallsign: "DL1ABC")!
+    let lsf = M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type3(payload: 2, can: 3))
+    check(lsf.bytes.count == 30 && M17LSF(bytes: lsf.bytes) == lsf && lsf.payload == .voice3200 && lsf.channelAccessNumber == 3 && !lsf.isEncrypted && lsf.sourceName == "DL1ABC" && lsf.destinationName == "@ALL",
+          "M17: LSF 30 Byte mit CRC, Typfeld nach Fassung 3.0")
+    var broken = lsf.bytes; broken[7] ^= 0x10
+    check(M17LSF(bytes: broken) == nil, "M17: LSF mit falscher CRC wird verworfen")
+    let v2 = M17LSF(destination: M17.address(fromCallsign: "DL0XY")!, source: caller, type: M17LSF.type2(dataType: 2, can: 5))
+    check(v2.type == 0x0285 && !v2.isVersion3 && v2.payload == .voice3200 && v2.channelAccessNumber == 5 && M17LSF.type2(dataType: 3) == 0x0007,
+          "M17: Typfeld nach Fassung 2.0 (Sprache 3200 = 0x0005 + CAN)")
+    let enc = M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type3(payload: 3, encryption: 5, signed: true, meta: 0xF, can: 1))
+    check(enc.isEncrypted && enc.encryptionText == "AES 192" && enc.isSigned && enc.payload == .voice1600 && enc.content == .none, "M17: Verschlüsselung, Signatur und Initialisierungsvektor")
+    var text = [UInt8](repeating: 0, count: 14); text[0] = 0x32; for (i, c) in "Hallo Welt".utf8.enumerated() { text[i + 1] = c }
+    check(M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type3(payload: 2, meta: 3), meta: text).content == .text(segment: 2, total: 3, text: "Hallo Welt"), "M17: Meta-Text (Fassung 3.0, Abschnitt 2 von 3)")
+    let textV2 = text                                  // Steuerbyte 0x32: Bitmuster 0b0011 = 2 Abschnitte, 0b0010 = der zweite
+    check(M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type2(dataType: 2, subtype: 0), meta: textV2).content == .text(segment: 2, total: 2, text: "Hallo Welt"), "M17: Meta-Text (Fassung 2.0, Bitmuster)")
+    var pos = [UInt8](repeating: 0, count: 14)
+    let lat24 = Int((49.4075 * 8_388_607 / 90).rounded()), lon24 = Int((-8.6924 * 8_388_607 / 180).rounded()) & 0xFFFFFF
+    pos[0] = 0x02; pos[1] = 0xE << 4; pos[3] = UInt8(lat24 >> 16); pos[4] = UInt8((lat24 >> 8) & 0xFF); pos[5] = UInt8(lat24 & 0xFF)
+    pos[6] = UInt8(lon24 >> 16); pos[7] = UInt8((lon24 >> 8) & 0xFF); pos[8] = UInt8(lon24 & 0xFF); pos[9] = 0x07; pos[10] = 0xD0
+    if case .position(let la, let lo, let alt, _, _, let st) = M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type3(payload: 2, meta: 1), meta: pos).content {
+        check(abs(la - 49.4075) < 1e-4 && abs(lo + 8.6924) < 1e-4 && alt == 500 && st == "Handfunkgerät", "M17: Meta-Position (Breite \(la), Länge \(lo), Höhe \(alt ?? -1) m, \(st))")
+    } else { check(false, "M17: Meta-Position nicht erkannt") }
+
+    // Rahmen: Rundlauf
+    let lsfSymbols = M17.lsfFrameSymbols(lsf)
+    let lsfDecoded = M17.decodeLSFFrame(lsfSymbols[8...])
+    check(lsfSymbols.count == 192 && lsfDecoded?.lsf == lsf && lsfDecoded?.errorRate == 0, "M17: LSF-Rahmen (192 Symbole) Rundlauf")
+    var damaged = Array(lsfSymbols[8...])
+    for i in stride(from: 3, to: damaged.count, by: 23) { damaged[i] = -damaged[i] }         // jedes 23. Symbol falsch (8 von 184)
+    check(M17.decodeLSFFrame(damaged[...])?.lsf == lsf, "M17: LSF-Rahmen mit 8 falschen Symbolen wird vom Faltungscode repariert")
+    let pay = (0..<16).map { UInt8($0 * 17) }
+    let chunk = Array(lsf.bytes[5..<10])
+    let strSymbols = M17.streamFrameSymbols(lichChunk: chunk, counter: 1, last: false, frameNumber: 12345, payload: pay)
+    let strDecoded = M17.decodeStreamFrame(strSymbols[8...])
+    check(strDecoded?.payload == pay && strDecoded?.lichCounter == 1 && strDecoded?.frameNumber == 12345 && strDecoded?.lichChunk == chunk && strDecoded?.isLast == false && strDecoded?.lichErrors == 0 && strDecoded?.errorRate == 0,
+          "M17: Strom-Rahmen Rundlauf (LICH-Anteil, Zähler, Rahmennummer, Nutzlast)")
+    check(M17.decodeStreamFrame(M17.streamFrameSymbols(lichChunk: chunk, counter: 5, last: true, frameNumber: 0x7FFF, payload: pay)[8...])?.isLast == true, "M17: Ende-Bit")
+    var dmg2 = Array(strSymbols[8...])
+    for i in stride(from: 5, to: dmg2.count, by: 11) { dmg2[i] = dmg2[i] > 0 ? -1 : 1 }
+    let r2 = M17.decodeStreamFrame(dmg2[...])
+    check(r2?.payload == pay && r2?.lichChunk == chunk && (r2?.lichErrors ?? 9) > 0, "M17: Strom-Rahmen mit 17 falschen Symbolen (LICH-Fehler \(r2?.lichErrors ?? -1) korrigiert)")
+
+    // Empfänger über Modulator und Vierpegel-Empfänger
+    final class Events: @unchecked Sendable { var list: [M17Event] = [] }
+    func receive(_ symbols: [Float], noise: Float = 0, ppm: Double = 0, inverted: Bool = false, seed: UInt64 = 1, tail: Int = 0) -> (events: [M17Event], stats: M17FramerStats) {
+        var imp = FourFSKModulator.Impairments()
+        imp.noise = noise; imp.clockPPM = ppm; imp.inverted = inverted; imp.seed = seed
+        let audio = FourFSKModulator.audio(symbols: symbols + [Float](repeating: 0, count: tail), sampleRate: 48000, impairments: imp)
+        let slicer = FourFSKSlicer(sampleRate: 48000)
+        let framer = M17Framer()
+        let box = Events()
+        framer.onEvent = { box.list.append($0) }
+        slicer.onSymbol = { framer.push(symbol: $0) }
+        slicer.process(audio)
+        return (box.list, framer.stats)
+    }
+    struct Summary { var calls = 0, ends = 0, lost = 0, frames = 0, viaLICH = 0; var lsfs: [M17LSF] = []; var payloads: [[UInt8]] = [] }
+    func summarize(_ events: [M17Event]) -> Summary {
+        var s = Summary()
+        for e in events {
+            switch e {
+            case .callStart: s.calls += 1
+            case .callEnd(let lost): s.ends += 1; if lost { s.lost += 1 }
+            case .frame(let f): s.frames += 1; s.payloads.append(f.payload)
+            case .lsf(let l, let via): s.lsfs.append(l); if via { s.viaLICH += 1 }
+            case .lost: break
+            }
+        }
+        return s
+    }
+    let payloads = (0..<100).map { i in (0..<16).map { UInt8(truncatingIfNeeded: i * 16 + $0) } }
+    let call = M17SignalGenerator.call(lsf: lsf, payloads: payloads)
+    for (name, noise, ppm, inverted) in [("sauber", Float(0), 0.0, false), ("invertiert", 0, 0, true), ("Rauschen", 0.25, 0, false), ("Takt +300 ppm", 0.05, 300, false), ("Takt −300 ppm invertiert", 0.05, -300, true)] {
+        let s = summarize(receive(call, noise: noise, ppm: ppm, inverted: inverted).events)
+        check(s.calls == 1 && s.ends == 1 && s.lost == 0 && s.frames >= 98 && s.lsfs.first == lsf && s.payloads.prefix(98).enumerated().allSatisfy { $0.element == payloads[$0.offset] },
+              "M17 Empfänger (\(name)): \(s.calls) Gespräch, \(s.frames)/100 Rahmen, LSF \(s.lsfs.first?.sourceName ?? "–") → \(s.lsfs.first?.destinationName ?? "–")")
+    }
+    let late = summarize(receive(M17SignalGenerator.call(lsf: lsf, payloads: payloads, withLSF: false), noise: 0.05).events)
+    check(late.calls == 1 && late.viaLICH == 1 && late.lsfs == [lsf] && late.frames >= 98, "M17 Empfänger: später Einstieg (ohne LSF-Rahmen), LSF aus sechs LICH-Anteilen (\(late.viaLICH) mal)")
+    let noEnd = receive(M17SignalGenerator.call(lsf: lsf, payloads: Array(payloads.prefix(40)), withEnd: false), tail: 192 * 14)
+    check(summarize(noEnd.events).ends == 1, "M17 Empfänger: Ende ohne Schlusswort durch das Ende-Bit")
+    let cut = summarize(receive(Array(call.prefix(192 * 30)), tail: 192 * 14).events)
+    check(cut.calls == 1 && cut.ends == 1 && cut.lost == 1, "M17 Empfänger: Funkstille mitten im Gespräch → verloren (\(cut.lost))")
+    let two = summarize(receive(call + call).events)
+    check(two.calls == 2 && two.ends == 2 && two.lsfs.count == 2, "M17 Empfänger: zwei Gespräche hintereinander")
+    var other = lsf; other.source = M17.address(fromCallsign: "F4XYZ")!
+    let changing = summarize(receive(M17SignalGenerator.call(lsf: other, payloads: payloads, withLSF: false)).events)
+    check(changing.lsfs == [other], "M17 Empfänger: anderer Absender aus der LICH (\(changing.lsfs.first?.sourceName ?? "–"))")
+    var rng = SystemRandomNumberGenerator()
+    let hiss = (0..<(48000 * 5)).map { _ in Float.random(in: -0.4...0.4, using: &rng) }
+    let slicer = FourFSKSlicer(sampleRate: 48000), framer = M17Framer(); let box = Events()
+    framer.onEvent = { box.list.append($0) }; slicer.onSymbol = { framer.push(symbol: $0) }; slicer.process(hiss)
+    check(box.list.isEmpty && !framer.isLocked, "M17 Empfänger: Rauschen allein erzeugt nichts")
+
+    // Sprache: Codec2 3200 und 1600 über die Funkstrecke
+    var speech = [Int16](repeating: 0, count: 8000 * 2)
+    for n in 0..<speech.count {
+        let t = Double(n) / 8000
+        let pitch = 110 + 20 * sin(2 * Double.pi * 0.7 * t)
+        var v = 0.0
+        for h in 1...20 { v += sin(2 * Double.pi * pitch * Double(h) * t) * exp(-pow((Double(h) * pitch - 700) / 500, 2)) }
+        speech[n] = Int16(max(-30000, min(30000, v * 4000 * (0.6 + 0.4 * sin(2 * Double.pi * 3 * t)))))
+    }
+    for full in [true, false] {
+        let encoder = M17Voice()!
+        var frames: [[UInt8]] = []
+        var i = 0
+        while i + 320 <= speech.count { frames.append(encoder.encode(speech: Array(speech[i..<(i + 320)]), full: full, data: Array("M17 Test".utf8))); i += 320 }
+        let voiceLSF = M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type3(payload: full ? 2 : 3, can: 1))
+        let got = summarize(receive(M17SignalGenerator.call(lsf: voiceLSF, payloads: frames), noise: 0.1).events)
+        let decoder = M17Voice()!
+        var pcm: [Int16] = []
+        for p in got.payloads { pcm += decoder.decode(payload: p, full: full) }
+        var power = 0.0; for x in pcm { power += Double(x) * Double(x) }
+        let name = full ? "3200" : "1600"
+        check(got.payloads.count >= frames.count - 2 && got.payloads.prefix(frames.count - 2).enumerated().allSatisfy { $0.element == frames[$0.offset] } && pcm.count == got.payloads.count * 320 && (power / Double(max(1, pcm.count))).squareRoot() > 300,
+              "M17 Sprache Codec2 \(name): \(got.payloads.count) Rahmen übertragen und decodiert (\(pcm.count / 8000) s, Effektivwert \(Int((power / Double(max(1, pcm.count))).squareRoot())))")
+        if !full { check(got.payloads.first.map { Array($0[8..<16]) } == Array("M17 Test".utf8), "M17 Sprache 1600: freie Daten (8 Byte) im Rahmen") }
+    }
 }
 // MARK: - FreeDV (Codec2): Modem, Rundlauf, Textkanal, echte Aufnahme
 do {

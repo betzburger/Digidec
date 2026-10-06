@@ -123,6 +123,8 @@ struct VoiceCallTable: View {
     let replay: (VoiceCall) -> Void
     var targetTitle = "Ziel"
     var viaTitle = "Repeater"
+    /// Ohne gespeicherte Sprachrahmen (M17 spielt direkt ab) entfällt die Wiedergabe-Spalte
+    var replayAvailable = true
 
     var body: some View {
         ScrollView {
@@ -142,7 +144,7 @@ struct VoiceCallTable: View {
             Text(viaTitle).frame(width: 96, alignment: .leading)
             Text("Dauer").frame(width: 44, alignment: .trailing)
             Text("Hinweis").frame(maxWidth: .infinity, alignment: .leading)
-            Text("").frame(width: 22)
+            if replayAvailable { Text("").frame(width: 22) }
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
         .foregroundColor(RadioTheme.textDim)
@@ -158,12 +160,14 @@ struct VoiceCallTable: View {
             Text(c.via).frame(width: 96, alignment: .leading)
             Text(String(format: "%.1f", c.seconds)).frame(width: 44, alignment: .trailing)
             Text(c.note).frame(maxWidth: .infinity, alignment: .leading).lineLimit(2)
-            Button { replay(c) } label: { Image(systemName: "play.fill") }
-                .buttonStyle(.plain)
-                .foregroundColor(hasDecoder ? RadioTheme.vfdCyan : RadioTheme.textDim)
-                .frame(width: 22)
-                .disabled(!hasDecoder || c.isLive || c.ambe.isEmpty)
-                .help(hasDecoder ? "Diese Aussendung noch einmal abspielen" : "Kein Sprachdecoder: Stick in den Einstellungen wählen")
+            if replayAvailable {
+                Button { replay(c) } label: { Image(systemName: "play.fill") }
+                    .buttonStyle(.plain)
+                    .foregroundColor(hasDecoder ? RadioTheme.vfdCyan : RadioTheme.textDim)
+                    .frame(width: 22)
+                    .disabled(!hasDecoder || c.isLive || c.ambe.isEmpty)
+                    .help(hasDecoder ? "Diese Aussendung noch einmal abspielen" : "Kein Sprachdecoder: Stick in den Einstellungen wählen")
+            }
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundColor(color)

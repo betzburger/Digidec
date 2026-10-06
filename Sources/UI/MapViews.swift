@@ -32,7 +32,7 @@ struct ModuleMapView: View {
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
             case .efr:    FixedSiteMapView(sites: Transmitters.efr(state.efr.station), home: state.home, hint: "EFR: Rundsteuersender")
-            case .sstv, .ale, .pager, .tones, .hell, .packet, .dstar, .ysf, .dmr, .freedv:
+            case .sstv, .ale, .pager, .tones, .hell, .packet, .dstar, .ysf, .dmr, .m17, .freedv:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -50,7 +50,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .m17, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -59,7 +59,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .m17, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -77,6 +77,7 @@ extension DecoderModuleInfo {
         case .adsb: return "Die Flugzeuge mit Kennung, Höhe, Geschwindigkeit, Entfernung und Meldungsprotokoll"
         case .packet: return "Monitor, Stationen, Digipeater, Verbindungen, Nachrichten und Knoten"
         case .freedv: return "Die gehörte FreeDV-Übertragung mit Rufzeichen, Rauschabstand und Frequenzablage, dazu der Verlauf"
+        case .m17: return "Die gehörte Aussendung mit Rufzeichen, Ziel, Kanalzugriffsnummer, Text und Position, dazu der Verlauf der Gespräche"
         case .dmr: return "Beide Zeitschlitze mit Absender, Ziel und Farbcode, dazu der Verlauf der Gespräche mit Wiedergabe"
         case .ysf: return "Die gehörte Aussendung mit Rufzeichen, Ziel und Repeater, dazu der Verlauf mit Wiedergabe"
         case .dstar: return "Die gehörte Aussendung mit Rufzeichen, Repeater, Text und Position, dazu der Verlauf mit Wiedergabe"
