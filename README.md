@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.60.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.61.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -25,7 +25,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 | Modul | Inhalt |
 |---|---|
 | **AIS** | Schiffsverfolgung auf 161,975 und 162,025 MHz: Schiffsliste, Karte mit Kurs und Weg, beide Kanäle gleichzeitig; ein Klick auf ein Schiff öffnet ein Fenster mit Foto und technischen Daten aus dem Netz; Wetter-, Pegel-, Binnenschiff- und Gebietsmeldungen; NMEA-Log |
-| **ADS-B** | Flugzeuge auf 1090 MHz direkt vom SDR (HackRF, RTL-SDR, SDRplay über SDRconnect): Liste mit Kennung, Land, Höhe, Geschwindigkeit, Entfernung und Notlagen, Karte mit Weg und Farbe nach Höhe, Reichweitediagramm je Richtung, Meldungsprotokoll |
+| **ADS-B** | Flugzeuge auf 1090 MHz direkt vom SDR (HackRF, RTL-SDR, SDRplay über SDRconnect): Liste mit Kennung, Land, Höhe, Geschwindigkeit, Entfernung und Notlagen, Karte mit Weg und Farbe nach Höhe, Reichweitediagramm je Richtung, Meldungsprotokoll; Doppelklick auf ein Flugzeug öffnet ein Fenster mit Foto, Typ, Betreiber und planmäßiger Strecke (Start- und Zielflughafen, Fortschritt) |
 | APRS | 1200 Bd AX.25 mit Stationsliste, Nachrichten, Wetter und Karte |
 | PACKET | Packet-Radio 1200 Bd: Monitor aller AX.25-Rahmen, Stationen und Digipeater, Verbindungen mit Gesprächsverlauf, Mailbox-Weiterleitung und **Winlink** (Nachrichten werden entpackt und gelesen, Anhänge speicherbar), NET/ROM-Knoten. Nachrichten anderer bitte vertraulich behandeln |
 | ACARS | Flugzeugmeldungen mit Positionen, OOOI-Berichten und Flughäfen |
@@ -68,7 +68,7 @@ Parameter und Presets stehen in `PLAN.md`, Abschnitt 3.
 
 ## Netzzugriffe
 
-Digidec ruft von sich aus nichts im Netz ab, bis auf die Kartenkacheln von Apple. Auf Knopfdruck laden die Sendepläne Daten von dwd.de und api.v2.sondehub.org. Beim AIS-Schiffsfenster fragt es (abschaltbar mit NETZ-SUCHE) Wikidata, Wikimedia Commons und Wikipedia nach dem angeklickten Schiff; übermittelt werden nur MMSI, IMO-Nummer, Rufzeichen und Name dieses Schiffs. Einzelheiten: `THIRD_PARTY.md`, Abschnitt 4.
+Digidec ruft von sich aus nichts im Netz ab, bis auf die Kartenkacheln von Apple. Auf Knopfdruck laden die Sendepläne Daten von dwd.de und api.v2.sondehub.org. Beim AIS-Schiffsfenster fragt es (abschaltbar mit NETZ-SUCHE) Wikidata, Wikimedia Commons und Wikipedia nach dem angeklickten Schiff; übermittelt werden nur MMSI, IMO-Nummer, Rufzeichen und Name dieses Schiffs. Beim ADS-B-Flugzeugfenster fragt es (abschaltbar mit NETZ-SUCHE) adsbdb.com und planespotters.net nach dem angeklickten Flugzeug; übermittelt werden nur ICAO-Adresse und Rufzeichen. Mit dem Schalter AUTO-INFO (standardmäßig aus) geschieht das im Hintergrund für alle gehörten Flugzeuge, höchstens eine Abfrage je Sekunde. Einzelheiten: `THIRD_PARTY.md`, Abschnitt 4.
 
 ## Tests und Werkzeuge
 

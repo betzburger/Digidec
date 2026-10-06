@@ -8203,5 +8203,141 @@ packetTests()
 }
 adsbTests()
 
+// MARK: - Flugzeugdaten aus dem Netz (adsbdb, planespotters) mit nachgebautem Abruf
+@MainActor func aircraftInfoTests() async {
+    let aircraftJSON = #"{"response":{"aircraft":{"type":"A319 112","icao_type":"A319","manufacturer":"Airbus","mode_s":"3C6444","registration":"D-AIBD","registered_owner_country_iso_name":"DE","registered_owner_country_name":"Germany","registered_owner_operator_flag_code":"DLH","registered_owner":"Lufthansa","url_photo":"https://image.airport-data.com/aircraft/001742555.jpg","url_photo_thumbnail":"https://airport-data.com/images/aircraft/thumbnails/001/742/001742555.jpg"}}}"#
+    let routeJSON = #"{"response":{"flightroute":{"callsign":"DLH400","callsign_icao":"DLH400","callsign_iata":"LH400","airline":{"name":"Lufthansa","icao":"DLH","iata":"LH","country":"Germany","country_iso":"DE","callsign":"LUFTHANSA"},"origin":{"country_iso_name":"DE","country_name":"Germany","elevation":364,"iata_code":"FRA","icao_code":"EDDF","latitude":50.033333,"longitude":8.570556,"municipality":"Frankfurt am Main","name":"Frankfurt am Main Airport"},"destination":{"country_iso_name":"US","country_name":"United States","elevation":13,"iata_code":"JFK","icao_code":"KJFK","latitude":40.639801,"longitude":-73.7789,"municipality":"New York","name":"John F Kennedy International Airport"}}}}"#
+    let photoJSON = #"{"photos":[{"id":"1981050","thumbnail":{"src":"https://t.plnspttrs.net/09561/1981050_77e29380db_t.jpg","size":{"width":200,"height":133}},"thumbnail_large":{"src":"https://t.plnspttrs.net/09561/1981050_77e29380db_280.jpg","size":{"width":422,"height":280}},"link":"https://www.planespotters.net/photo/1981050/d-aibd-lufthansa-airbus-a319-112?utm_source=api","photographer":"Steffen Müller"}]}"#
+
+    // --- Auswertung der Antworten ---
+    do {
+        var info = AircraftWebInfo()
+        check(AircraftInfoParsing.aircraft(Data(aircraftJSON.utf8), into: &info) && info.registration == "D-AIBD" && info.typeName == "A319 112" && info.icaoType == "A319"
+              && info.manufacturer == "Airbus" && info.owner == "Lufthansa" && info.ownerCountryISO == "DE" && info.operatorCode == "DLH", "Flugzeugdaten: adsbdb Flugzeug")
+        check(info.photo?.source == "airport-data.com" && info.fullTypeName == "Airbus A319 112" && info.shortDescription == "A319 · Lufthansa", "Flugzeugdaten: Ersatzfoto, Typ, Kurzbeschreibung")
+        var unknown = AircraftWebInfo()
+        check(!AircraftInfoParsing.aircraft(Data(#"{"response":"unknown aircraft"}"#.utf8), into: &unknown) && unknown.isEmpty, "Flugzeugdaten: unbekannte Adresse")
+        let r = AircraftInfoParsing.route(Data(routeJSON.utf8))
+        check(r?.flightNumber == "LH400" && r?.airlineName == "Lufthansa" && r?.origin?.icao == "EDDF" && r?.destination?.shortCode == "JFK" && r?.routeText == "FRA→JFK", "Flugzeugdaten: Strecke")
+        check(abs((r?.distanceKm ?? 0) - 6195) < 60 && r?.origin?.elevationFt == 364, "Flugzeugdaten: Luftlinie Frankfurt–New York \(r?.distanceKm ?? 0) km")
+        check(AircraftInfoParsing.route(Data(#"{"response":"unknown callsign"}"#.utf8)) == nil && AircraftInfoParsing.route(Data("kein json".utf8)) == nil, "Flugzeugdaten: unbekanntes Rufzeichen, kaputte Antwort")
+        let ph = AircraftInfoParsing.photo(Data(photoJSON.utf8))
+        check(ph?.photographer == "Steffen Müller" && ph?.imageURL.hasSuffix("_280.jpg") == true && ph?.pageURL?.contains("planespotters.net/photo/1981050") == true && ph?.source == "planespotters.net", "Flugzeugdaten: planespotters Foto mit Fotograf und Seite")
+        check(AircraftInfoParsing.photo(Data(#"{"photos":[]}"#.utf8)) == nil, "Flugzeugdaten: kein Foto")
+        check(AircraftQuery(icao: 0x3C6444, callsign: " dlh400 ").callsign == "DLH400" && AircraftQuery(icao: 1, callsign: "ab").callsign == nil && AircraftQuery(icao: 0x3C6444, callsign: nil).hex == "3C6444", "Flugzeugdaten: Abfrage normalisiert Rufzeichen")
+    }
+
+    // --- Dienst mit nachgebautem Abruf: Zwischenspeicher, Fehler, Zählung ---
+    do {
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var urls: [String] = []
+            var mode = "ok"
+            func add(_ u: String) { lock.withLock { urls.append(u) } }
+            var count: Int { lock.withLock { urls.count } }
+            func count(containing s: String) -> Int { lock.withLock { urls.filter { $0.contains(s) }.count } }
+        }
+        let counter = Counter()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aircraftinfo_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let service = AircraftInfoService(directory: dir, fetch: { url in
+            counter.add(url.absoluteString)
+            if counter.mode == "down" { throw URLError(.notConnectedToInternet) }
+            if counter.mode == "limit" { return (Data("{}".utf8), 429) }
+            let u = url.absoluteString
+            if u.contains("/v0/aircraft/3C6444") { return (Data(aircraftJSON.utf8), 200) }
+            if u.contains("/v0/callsign/DLH400") { return (Data(routeJSON.utf8), 200) }
+            if u.contains("planespotters.net/pub/photos/hex/3C6444") { return (Data(photoJSON.utf8), 200) }
+            if u.contains("/v0/aircraft/") { return (Data(#"{"response":"unknown aircraft"}"#.utf8), 404) }
+            if u.contains("/v0/callsign/") { return (Data(#"{"response":"unknown callsign"}"#.utf8), 404) }
+            return (Data(#"{"photos":[]}"#.utf8), 200)
+        })
+        let q = AircraftQuery(icao: 0x3C6444, callsign: "DLH400")
+        let first = await service.lookup(q)
+        check(!first.failed && first.registration == "D-AIBD" && first.route?.routeText == "FRA→JFK" && first.photo?.source == "planespotters.net" && first.photo?.photographer == "Steffen Müller", "Flugzeugdaten-Dienst: Flugzeug, Strecke und Foto (planespotters vor Ersatzfoto)")
+        check(counter.count == 3, "Flugzeugdaten-Dienst: genau drei Abrufe (\(counter.count))")
+        let second = await service.lookup(q)
+        check(counter.count == 3 && second.registration == "D-AIBD" && second.route?.routeText == "FRA→JFK", "Flugzeugdaten-Dienst: zweite Abfrage aus dem Zwischenspeicher, ohne Abruf")
+        let cached = await service.cachedInfo(q)
+        check(cached?.registration == "D-AIBD" && cached?.route?.destination?.name.contains("Kennedy") == true, "Flugzeugdaten-Dienst: Lesen nur aus dem Zwischenspeicher")
+        let notCached = await service.cachedInfo(AircraftQuery(icao: 0x111111, callsign: nil))
+        check(notCached == nil, "Flugzeugdaten-Dienst: unbekanntes Flugzeug nicht im Zwischenspeicher")
+        // Ohne Foto abfragen: kein planespotters-Abruf
+        let q2 = AircraftQuery(icao: 0x4D2023, callsign: "AMC421")
+        let before = counter.count
+        let noPhoto = await service.lookup(q2, photo: false)
+        check(counter.count == before + 2 && counter.count(containing: "planespotters") == 1 && noPhoto.registration == nil && noPhoto.route == nil && noPhoto.isEmpty && !noPhoto.failed, "Flugzeugdaten-Dienst: ohne Foto kein planespotters-Abruf; Unbekanntes ist leer, kein Fehler")
+        check(noPhoto.notes.contains { $0.contains("4D2023") } && noPhoto.notes.contains { $0.contains("AMC421") }, "Flugzeugdaten-Dienst: Hinweise zu unbekannter Adresse und Strecke \(noPhoto.notes)")
+        // Kein Rufzeichen: keine Streckenabfrage
+        let q3 = AircraftQuery(icao: 0x4D2024, callsign: nil)
+        let c3 = counter.count
+        let nc = await service.lookup(q3, photo: false)
+        check(counter.count == c3 + 1 && nc.notes.contains { $0.contains("Ohne Rufzeichen") }, "Flugzeugdaten-Dienst: ohne Rufzeichen keine Strecke")
+        // Neu abfragen übergeht den Zwischenspeicher
+        await service.forget(q)
+        let again = await service.lookup(q)
+        check(counter.count > before + 3 && again.registration == "D-AIBD", "Flugzeugdaten-Dienst: nach „vergessen“ wieder aus dem Netz")
+        // Fehler: kein Netz → nicht zwischenspeichern
+        counter.mode = "down"
+        let q4 = AircraftQuery(icao: 0x3C6445, callsign: "DLH401")
+        let down = await service.lookup(q4)
+        check(down.failed && down.registration == nil && down.notes.contains { $0.contains("nicht erreichbar") }, "Flugzeugdaten-Dienst: kein Netz wird gemeldet")
+        counter.mode = "ok"
+        let up = await service.lookup(q4)
+        check(!up.failed && up.isEmpty, "Flugzeugdaten-Dienst: der Fehler wurde nicht zwischengespeichert")
+        counter.mode = "limit"
+        let q5 = AircraftQuery(icao: 0x3C6446, callsign: nil)
+        let lim = await service.lookup(q5, photo: false)
+        check(lim.failed && lim.notes.contains { $0.contains("zu viele Anfragen") }, "Flugzeugdaten-Dienst: HTTP 429 wird gemeldet")
+        check(AircraftInfoService.userAgent.contains("github.com/betzburger/Digidec") && AircraftInfoService.aircraftTTL(first) == 30 * 86_400 && AircraftInfoService.aircraftTTL(AircraftWebInfo()) == 86_400 && AircraftInfoService.routeTTL(nil) == 3 * 3600, "Flugzeugdaten-Dienst: Kennung mit Kontakt (verlangt von planespotters) und Gültigkeitsdauer")
+    }
+
+    // --- Flugfortschritt, Verweise, Karte mit Strecke ---
+    do {
+        let route = AircraftInfoParsing.route(Data(routeJSON.utf8))!
+        let mid = GeoPoint(lat: 52.5, lon: -20.0)
+        let p = AircraftProgress.compute(route: route, position: mid, groundSpeedKn: 480)
+        check(p != nil && p!.fraction > 0.3 && p!.fraction < 0.35 && abs(p!.flownKm + p!.remainingKm - route.distanceKm!) < 400 && p!.etaMinutes.map { $0 > 250 && $0 < 320 } == true, "Flugzeugdaten: Fortschritt bei 52,5° N 20° W (etwa ein Drittel der Strecke) \(String(describing: p))")
+        check(AircraftProgress.compute(route: route, position: route.origin!.point, groundSpeedKn: 0)?.fraction == 0 && AircraftProgress.compute(route: route, position: route.origin!.point, groundSpeedKn: 0)?.etaText == nil, "Flugzeugdaten: am Start 0 %, ohne Geschwindigkeit keine Restzeit")
+        check(AircraftProgress(flownKm: 1, remainingKm: 2, fraction: 0.3, etaMinutes: 130).etaText == "2 h 10 min" && AircraftProgress(flownKm: 1, remainingKm: 2, fraction: 0.3, etaMinutes: 45).etaText == "45 min", "Flugzeugdaten: Restzeit als Text")
+        check(AircraftProgress.compute(route: nil, position: mid, groundSpeedKn: 400) == nil && AircraftProgress.compute(route: route, position: nil, groundSpeedKn: 400) == nil, "Flugzeugdaten: ohne Strecke oder Position kein Fortschritt")
+        var info = AircraftWebInfo()
+        _ = AircraftInfoParsing.aircraft(Data(aircraftJSON.utf8), into: &info)
+        info.route = route
+        info.photo = AircraftInfoParsing.photo(Data(photoJSON.utf8))
+        let links = AircraftLinks.links(for: AircraftQuery(icao: 0x3C6444, callsign: "DLH400"), info: info)
+        check(links.contains { $0.title == "planespotters" && $0.url.absoluteString.hasSuffix("/hex/3C6444") } && links.contains { $0.title == "FlightAware" && $0.url.absoluteString.hasSuffix("DLH400") }
+              && links.contains { $0.title == "Flightradar24" && $0.url.absoluteString.hasSuffix("d-aibd") } && links.contains { $0.title == "Foto-Seite" }, "Flugzeugdaten: Verweise für den Browser")
+        // Karte: Flugzeug mit Typ, Betreiber, Strecke; für das gewählte Flugzeug Linie und Flughäfen
+        var a = ADSBAircraft(icao: 0x3C6444, firstSeen: Date(timeIntervalSince1970: 1_800_000_000), lastSeen: Date(timeIntervalSince1970: 1_800_000_000))
+        a.callsign = "DLH400"; a.position = mid; a.altitudeFt = 36_000; a.groundSpeedKn = 480; a.trackDeg = 270; a.messages = 20
+        let now = Date(timeIntervalSince1970: 1_800_000_001)
+        let plain = ADSBMapBuilder.content([a], home: nil, now: now, details: [:])
+        check(plain.markers.count == 1 && plain.lines.isEmpty && !(plain.markers[0].details.contains { $0.contains("Strecke") }), "ADS-B-Karte: ohne Netzdaten keine Strecke")
+        let rich = ADSBMapBuilder.content([a], home: nil, now: now, selection: nil, details: [0x3C6444: info])
+        check(rich.markers[0].details.contains("Airbus A319 112 (D-AIBD)") && rich.markers[0].details.contains("Betreiber: Lufthansa") && rich.markers[0].subtitle?.contains("FRA→JFK") == true
+              && rich.markers[0].details.contains { $0.hasPrefix("Strecke: Frankfurt am Main (FRA) → New York (JFK)") } && rich.markers[0].details.contains { $0.hasPrefix("Flugfortschritt") }, "ADS-B-Karte: Typ, Betreiber, Strecke und Fortschritt in den Einzelheiten")
+        check(rich.lines.isEmpty && rich.markers.count == 1, "ADS-B-Karte: ohne Auswahl keine Streckenlinie")
+        let sel = ADSBMapBuilder.content([a], home: nil, now: now, selection: 0x3C6444, details: [0x3C6444: info])
+        check(sel.lines.count == 2 && sel.lines.first { $0.id == "adsb-route-done" }?.points.first == route.origin!.point && sel.lines.first { $0.id == "adsb-route-rest" }?.points.last == route.destination!.point, "ADS-B-Karte: gewähltes Flugzeug mit Linie von Start über Position zum Ziel")
+        check(sel.markers.count == 3 && sel.markers.contains { $0.id == "adsb-apt-EDDF" && $0.symbol == "airplane.departure" } && sel.markers.contains { $0.id == "adsb-apt-KJFK" && $0.symbol == "airplane.arrival" }, "ADS-B-Karte: Start- und Zielflughafen")
+        // Einstellungen: Netz-Suche an, automatisch aus
+        let st = ADSBSettingsStore()
+        check(st.webLookup && !st.autoLookup && !st.openInfoOnClick, "ADS-B: Netz-Suche an, Hintergrundabfrage und Fenster bei Klick aus (Standard)")
+    }
+}
+// Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
+do {
+    final class Flag: @unchecked Sendable { var done = false }
+    let flag = Flag()
+    Task { @MainActor in
+        await aircraftInfoTests()
+        flag.done = true
+    }
+    let limit = Date().addingTimeInterval(120)
+    while !flag.done && Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+    check(flag.done, "Flugzeugdaten: asynchrone Prüfungen fertig")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

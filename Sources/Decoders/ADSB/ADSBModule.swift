@@ -26,6 +26,12 @@ public final class ADSBSettingsStore: ObservableObject {
     @Published public var onlyWithPosition: Bool { didSet { UserDefaults.standard.set(onlyWithPosition, forKey: "adsbOnlyPosition") } }
     /// Wege auf der Karte
     @Published public var showTracks: Bool { didSet { UserDefaults.standard.set(showTracks, forKey: "adsbShowTracks") } }
+    /// Flugzeugdaten (Typ, Betreiber, Strecke, Foto) im Netz suchen: nur für angeklickte Flugzeuge, sofern nicht `autoLookup`
+    @Published public var webLookup: Bool { didSet { UserDefaults.standard.set(webLookup, forKey: "adsbWebLookup") } }
+    /// Typ, Betreiber und Strecke aller Flugzeuge im Hintergrund abfragen (sendet deren ICAO-Adressen und Rufzeichen)
+    @Published public var autoLookup: Bool { didSet { UserDefaults.standard.set(autoLookup, forKey: "adsbAutoLookup") } }
+    /// Klick auf ein Flugzeug in der Karte öffnet das Fenster „Flugzeugdaten“
+    @Published public var openInfoOnClick: Bool { didSet { UserDefaults.standard.set(openInfoOnClick, forKey: "adsbOpenInfoOnClick") } }
 
     public init() {
         let d = UserDefaults.standard
@@ -43,6 +49,9 @@ public final class ADSBSettingsStore: ObservableObject {
         expireMinutes = d.object(forKey: "adsbExpireMinutes") as? Int ?? 5
         onlyWithPosition = d.object(forKey: "adsbOnlyPosition") as? Bool ?? false
         showTracks = d.object(forKey: "adsbShowTracks") as? Bool ?? true
+        webLookup = d.object(forKey: "adsbWebLookup") as? Bool ?? true
+        autoLookup = d.object(forKey: "adsbAutoLookup") as? Bool ?? false
+        openInfoOnClick = d.object(forKey: "adsbOpenInfoOnClick") as? Bool ?? false
     }
 
     public var gain: ADSBGainSettings {
@@ -247,12 +256,24 @@ public final class ADSBController: ObservableObject {
     @Published public private(set) var recent: [ADSBLogEntry] = []
     /// Meldungen je Sekunde der letzten zwei Minuten (alle 0,5 s ein Wert)
     @Published public private(set) var rateHistory: [Double] = []
-    @Published public var selection: UInt32?
+    @Published public var selection: UInt32? {
+        didSet { if let icao = selection, icao != oldValue { selectionChanged(icao) } }
+    }
+    /// Flugzeugdaten aus dem Netz (Typ, Betreiber, Strecke, Foto) je ICAO-Adresse
+    @Published public private(set) var details: [UInt32: AircraftWebInfo] = [:]
+    /// Flugzeug im Fenster „Flugzeugdaten“
+    @Published public var infoICAO: UInt32?
+    @Published public private(set) var detailsLoading: Set<UInt32> = []
     @Published public var logEnabled: Bool { didSet { UserDefaults.standard.set(logEnabled, forKey: "adsbLogEnabled") } }
     /// Standort des Empfängers
     public var homePoint: GeoPoint? { didSet { applyConfiguration() } }
 
     private let settings: ADSBSettingsStore
+    private let infoService: AircraftInfoService
+    /// Wann und mit welchem Rufzeichen ein Flugzeug zuletzt abgefragt wurde
+    private var lookedUp: [UInt32: (callsign: String?, at: Date)] = [:]
+    private var autoInFlight = 0
+    private var autoTick = 0
     private var source: ADSBIQSource?
     private var timer: Timer?
     private var active = false
@@ -261,8 +282,9 @@ public final class ADSBController: ObservableObject {
     public var fileOverride: URL?
     public var fileRealtime = true
 
-    public init(settings: ADSBSettingsStore) {
+    public init(settings: ADSBSettingsStore, infoService: AircraftInfoService = .shared) {
         self.settings = settings
+        self.infoService = infoService
         logEnabled = UserDefaults.standard.object(forKey: "adsbLogEnabled") as? Bool ?? true
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
@@ -371,6 +393,70 @@ public final class ADSBController: ObservableObject {
         if logEnabled {
             for a in s.expired { logger.append(Self.logLine(a), now: a.lastSeen) }
         }
+        if settings.webLookup && settings.autoLookup { autoLookupStep() }
+        // Entwicklungshilfe (Schnappschüsse): DIGIDEC_ADSB_SELECT=<ICAO hex> wählt dieses Flugzeug, sobald es in der Liste steht
+        if selection == nil, let v = ProcessInfo.processInfo.environment["DIGIDEC_ADSB_SELECT"], let icao = UInt32(v, radix: 16), aircraft.contains(where: { $0.icao == icao && $0.hasPosition }) {
+            selection = icao
+        }
+    }
+
+    // MARK: Flugzeugdaten aus dem Netz
+
+    /// Ein Flugzeug wurde gewählt: Typ, Betreiber und Strecke holen (ohne Foto), sofern erlaubt und noch nicht bekannt
+    private func selectionChanged(_ icao: UInt32) {
+        guard settings.webLookup, details[icao] == nil, !detailsLoading.contains(icao) else { return }
+        let callsign = aircraft(icao)?.callsign
+        Task { await loadDetails(icao, callsign: callsign, photo: false) }
+    }
+
+    public func showInfo(for icao: UInt32) { infoICAO = icao }
+
+    public func aircraft(_ icao: UInt32) -> ADSBAircraft? { aircraft.first { $0.icao == icao } }
+
+    /// Daten zu einem Flugzeug laden (Fenster: mit Foto). Ohne `force` zählt der Zwischenspeicher.
+    public func loadDetails(_ icao: UInt32, callsign: String?, photo: Bool, force: Bool = false) async {
+        guard settings.webLookup else { return }
+        let q = AircraftQuery(icao: icao, callsign: callsign)
+        detailsLoading.insert(icao)
+        if force { await infoService.forget(q) }
+        let info = await infoService.lookup(q, photo: photo, useCache: !force)
+        detailsLoading.remove(icao)
+        // Fehlgeschlagene Abfragen überschreiben keine guten Daten
+        if !info.failed || details[icao] == nil { details[icao] = info }
+        lookedUp[icao] = (q.callsign, Date())
+    }
+
+    /// Im Hintergrund: höchstens eine Abfrage pro Sekunde, zwei gleichzeitig; Fehler erst nach zehn Minuten wieder
+    private func autoLookupStep() {
+        autoTick += 1
+        guard autoTick % 2 == 0, autoInFlight < 2 else { return }
+        let now = Date()
+        let candidate = aircraft.first { a in
+            guard a.messages >= 3, a.callsign != nil || a.hasPosition else { return false }
+            if let last = lookedUp[a.icao] {
+                // Rufzeichen kam erst später: Strecke nachholen
+                return last.callsign == nil && a.callsign != nil && now.timeIntervalSince(last.at) > 20
+            }
+            return true
+        }
+        guard let a = candidate else { return }
+        let icao = a.icao, callsign = a.callsign
+        lookedUp[icao] = (callsign, now)
+        autoInFlight += 1
+        Task { @MainActor in
+            let q = AircraftQuery(icao: icao, callsign: callsign)
+            var info = await infoService.cachedInfo(q)
+            if info == nil || (q.callsign != nil && info?.route == nil && info?.notes.isEmpty != false) {
+                info = await infoService.lookup(q, photo: false)
+            }
+            autoInFlight -= 1
+            guard let info else { return }
+            if info.failed {
+                lookedUp[icao] = (callsign, Date().addingTimeInterval(600))      // zehn Minuten Ruhe
+            } else {
+                details[icao] = info
+            }
+        }
     }
 
     /// Eine Zeile für das Tagesprotokoll, wenn ein Flugzeug aus der Liste fällt
@@ -392,7 +478,7 @@ public final class ADSBController: ObservableObject {
     }
 
     public func mapContent(home: GeoPoint?, now: Date = Date()) -> MapContent {
-        ADSBMapBuilder.content(aircraft, home: home, now: now, showTracks: settings.showTracks, selection: selection)
+        ADSBMapBuilder.content(aircraft, home: home, now: now, showTracks: settings.showTracks, selection: selection, details: details)
     }
 }
 
@@ -404,41 +490,71 @@ public enum ADSBMapBuilder {
         ft.map { min(1, max(0, Double($0) / 40_000)) }
     }
 
-    public static func content(_ list: [ADSBAircraft], home: GeoPoint?, now: Date, showTracks: Bool = true, selection: UInt32? = nil) -> MapContent {
+    public static func content(_ list: [ADSBAircraft], home: GeoPoint?, now: Date, showTracks: Bool = true, selection: UInt32? = nil,
+                               details: [UInt32: AircraftWebInfo] = [:]) -> MapContent {
         var markers: [MapMarker] = []
+        var lines: [MapLine] = []
         for a in list {
             guard let pos = a.position, pos.isValid else { continue }
             let age = now.timeIntervalSince(a.lastSeen)
-            var details: [String] = ["ICAO \(a.icaoText)"]
-            if let c = a.country { details.append("\(c.flag) \(c.name)") }
-            if let cat = a.categoryText { details.append(cat) }
+            var rows: [String] = ["ICAO \(a.icaoText)"]
+            let web = details[a.icao]
+            if let c = a.country { rows.append("\(c.flag) \(c.name)") }
+            if let w = web {
+                if let t = w.fullTypeName { rows.append(t + (w.registration.map { " (\($0))" } ?? "")) } else if let r = w.registration { rows.append(r) }
+                if let o = w.owner ?? w.route.map(\.airlineName), !o.isEmpty { rows.append("Betreiber: \(o)") }
+                if let r = w.route {
+                    var s = "Strecke: "
+                    s += r.origin.map { "\($0.city.isEmpty ? $0.name : $0.city) (\($0.shortCode))" } ?? "?"
+                    s += " → " + (r.destination.map { "\($0.city.isEmpty ? $0.name : $0.city) (\($0.shortCode))" } ?? "?")
+                    rows.append(s + " laut Flugplan")
+                    if let p = AircraftProgress.compute(route: r, position: pos, groundSpeedKn: a.groundSpeedKn) {
+                        rows.append(String(format: "Flugfortschritt %.0f %% · Rest %.0f km", p.fraction * 100, p.remainingKm) + (p.etaText.map { " · ca. \($0)" } ?? ""))
+                    }
+                }
+            }
+            if let cat = a.categoryText { rows.append(cat) }
             if let alt = a.altitudeFt {
-                details.append(a.onGround == true ? "Am Boden" : "Höhe \(alt) ft (\(a.altitudeText ?? "")) · \(Int((Double(alt) * 0.3048).rounded())) m" + (a.altitudeIsGNSS ? " (GNSS)" : ""))
+                rows.append(a.onGround == true ? "Am Boden" : "Höhe \(alt) ft (\(a.altitudeText ?? "")) · \(Int((Double(alt) * 0.3048).rounded())) m" + (a.altitudeIsGNSS ? " (GNSS)" : ""))
             }
             if let v = a.groundSpeedKn {
-                details.append(String(format: "%.0f kn · %.0f km/h", v, v * 1.852) + (a.trackDeg.map { String(format: " · Kurs %.0f°", $0) } ?? ""))
+                rows.append(String(format: "%.0f kn · %.0f km/h", v, v * 1.852) + (a.trackDeg.map { String(format: " · Kurs %.0f°", $0) } ?? ""))
             }
-            if let vr = a.verticalRateFpm, vr != 0 { details.append("\(vr > 0 ? "Steigen" : "Sinken") \(abs(vr)) ft/min") }
-            if let sq = a.squawk { details.append("Kennung \(sq)") }
-            if let e = a.emergencyText { details.append("⚠ \(e)") }
+            if let vr = a.verticalRateFpm, vr != 0 { rows.append("\(vr > 0 ? "Steigen" : "Sinken") \(abs(vr)) ft/min") }
+            if let sq = a.squawk { rows.append("Kennung \(sq)") }
+            if let e = a.emergencyText { rows.append("⚠ \(e)") }
             if let h = home {
                 let km = Geo.distanceKm(h, pos), b = Geo.bearing(from: h, to: pos)
-                details.append("\(Geo.formatKm(km)) \(Geo.compass(b)) (\(Int(b.rounded()))°)")
+                rows.append("\(Geo.formatKm(km)) \(Geo.compass(b)) (\(Int(b.rounded()))°)")
             }
-            details.append("\(a.messages) Meldungen, \(a.positionMessages) Positionen" + (a.levelDB.map { String(format: ", %.0f dB", $0) } ?? ""))
+            rows.append("\(a.messages) Meldungen, \(a.positionMessages) Positionen" + (a.levelDB.map { String(format: ", %.0f dB", $0) } ?? ""))
             var sub: [String] = []
             if let t = a.altitudeText { sub.append(t) }
             if let v = a.groundSpeedKn { sub.append(String(format: "%.0f kn", v)) }
+            if let r = web?.route?.routeText { sub.append(r) }
             sub.append("vor \(Int(age)) s")
             var tone: MapTone = age > 60 ? .dim : .normal
             if a.emergencyText != nil { tone = .alert }
             else if a.id == selection { tone = .highlight }
             let track = showTracks ? a.track.map { GeoPoint(lat: $0.lat, lon: $0.lon) } : []
             markers.append(MapMarker(id: "adsb-\(a.icaoText)", coordinate: pos, title: a.callsign ?? a.icaoText, subtitle: sub.joined(separator: " · "),
-                                     details: details, symbol: "airplane", tone: tone, heardAt: a.lastSeen,
+                                     details: rows, symbol: "airplane", tone: tone, heardAt: a.lastSeen,
                                      track: track.count > 1 ? track : [], headingDeg: a.trackDeg, valueLevel: a.onGround == true ? nil : altitudeLevel(a.altitudeFt)))
         }
-        var c = MapContent(markers: markers, home: home, emptyHint: "Noch kein Flugzeug mit Position empfangen")
+        // Strecke des gewählten Flugzeugs: geflogener Teil blass, Rest hell, beide Flughäfen
+        if let sel = selection, let a = list.first(where: { $0.id == sel }), let pos = a.position, let r = details[sel]?.route {
+            if let o = r.origin {
+                lines.append(MapLine(id: "adsb-route-done", points: [o.point, pos], tone: .dim, geodesic: true))
+                markers.append(MapMarker(id: "adsb-apt-\(o.icao)", coordinate: o.point, title: o.shortCode, subtitle: "Start · \(o.name)", details: ["\(o.name), \(o.city)", "\(o.countryName)"],
+                                         symbol: "airplane.departure", tone: .info))
+            }
+            if let d = r.destination {
+                lines.append(MapLine(id: "adsb-route-rest", points: [pos, d.point], tone: .info, geodesic: true))
+                markers.append(MapMarker(id: "adsb-apt-\(d.icao)", coordinate: d.point, title: d.shortCode, subtitle: "Ziel · \(d.name)", details: ["\(d.name), \(d.city)", "\(d.countryName)"],
+                                         symbol: "airplane.arrival", tone: .info))
+            }
+        }
+        var c = MapContent(markers: markers, lines: lines, home: home, emptyHint: "Noch kein Flugzeug mit Position empfangen")
         c.note = "Farbe: Flughöhe (blau tief, rot hoch)"
         return c
     }

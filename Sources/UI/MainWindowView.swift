@@ -339,6 +339,12 @@ public struct MainWindowView: View {
                 state.aisController.showInfo(for: mmsi)
                 openWindow(id: "ship-info")
             }
+            // Entwicklungshilfe: DIGIDEC_ADSB_INFO=<ICAO hex> öffnet das Fenster „Flugzeugdaten“ nach 12 s (für Schnappschüsse)
+            if let v = ProcessInfo.processInfo.environment["DIGIDEC_ADSB_INFO"], let icao = UInt32(v, radix: 16) {
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                state.adsbController.showInfo(for: icao)
+                openWindow(id: "aircraft-info")
+            }
         }
         .sheet(isPresented: $showRTTYSettings) {
             RTTYSettingsSheet(settings: state.rtty)

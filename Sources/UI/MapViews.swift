@@ -9,7 +9,7 @@ struct ModuleMapView: View {
     var body: some View {
         Group {
             switch state.activeModule {
-            case .adsb:   ADSBMapView(controller: state.adsbController, home: state.home)
+            case .adsb:   ADSBMapView(controller: state.adsbController, settings: state.adsb, home: state.home)
             case .aprs:   APRSMapView(controller: state.aprsController, settings: state.aprs, home: state.home)
             case .acars:  ACARSMapView(controller: state.acarsController, home: state.home)
             case .ais:    AISMapView(controller: state.aisController, settings: state.ais, home: state.home)
@@ -100,16 +100,39 @@ private struct APRSMapView: View {
 
 private struct ADSBMapView: View {
     @ObservedObject var controller: ADSBController
+    @ObservedObject var settings: ADSBSettingsStore
     @ObservedObject var home: HomeLocation
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let selection = Binding<String?>(
             get: { controller.selection.map { "adsb-" + String(format: "%06X", $0) } },
-            set: { controller.selection = $0.flatMap { $0.hasPrefix("adsb-") ? UInt32($0.dropFirst(5), radix: 16) : nil } })
+            set: { id in
+                // Ein Flughafen der Strecke lässt die Auswahl des Flugzeugs stehen
+                if let id, id.hasPrefix("adsb-apt-") { return }
+                controller.selection = id.flatMap { $0.hasPrefix("adsb-") ? UInt32($0.dropFirst(5), radix: 16) : nil }
+            })
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
             MapPanel(content: controller.mapContent(home: home.point, now: ctx.date), home: home, selection: selection,
-                     legend: "Flugzeuge mit Weg · Farbe nach Höhe")
+                     legend: "Flugzeuge mit Weg · Farbe nach Höhe", detailAction: infoAction, keepZoomOnSelect: true)
         }
+        .onChange(of: controller.selection) { _, icao in
+            guard settings.openInfoOnClick, let icao else { return }
+            controller.showInfo(for: icao)
+            openWindow(id: "aircraft-info")
+        }
+    }
+
+    /// Knopf in den Einzelheiten eines Flugzeugs: Fenster mit Foto, Typ, Betreiber und Strecke
+    private var infoAction: MapDetailAction {
+        MapDetailAction(title: "FLUGZEUGDATEN", help: "Foto, Typ, Betreiber und Strecke des Flugzeugs (aus dem Netz)", systemImage: "airplane",
+                        applies: { $0.id.hasPrefix("adsb-") && !$0.id.hasPrefix("adsb-apt-") },
+                        perform: { m in
+                            guard let icao = UInt32(m.id.dropFirst(5), radix: 16) else { return }
+                            controller.selection = icao
+                            controller.showInfo(for: icao)
+                            openWindow(id: "aircraft-info")
+                        })
     }
 }
 

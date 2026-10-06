@@ -7,7 +7,7 @@
 //                              --serial N1234567 --lat 49.79 --lon 9.95 --alt 180 --climb 5 --burst 28000 --wind 2,8 --seconds 600
 //                              --start <s> (Beginn im Flug) --freq 403500 (kHz) --temp 15 (Bodentemperatur °C) --offset <Spannung> --ppm <Taktabweichung>
 //   packet - <aus.wav>         Packet-Radio-Demo (12 kHz): Bake, Knotenliste, Digipeater, Mailbox-Verbindung, Winlink-Sitzung mit Nachricht und Anhang
-//   adsb - <aus.bin>           ADS-B-Demo: zehn erfundene Flugzeuge rund um JN49WS als 8-Bit-I/Q (2 MS/s, vorzeichenlos), --seconds 24
+//   adsb - <aus.bin>           ADS-B-Demo: zehn Flugzeuge mit frei gewählten Adressen und Rufzeichen rund um JN49WS (können zufällig echten entsprechen) als 8-Bit-I/Q (2 MS/s, vorzeichenlos), --seconds 24
 //   Optionen: --noise <Amplitude>   Rauschen dazu (Standard 0)
 import Foundation
 
@@ -100,7 +100,7 @@ case "adsb":
     let home = Maidenhead.point("JN49WS") ?? GeoPoint(lat: 49.79, lon: 9.95)
     typealias A = ADSBSignalGenerator.SimAircraft
     let fleet: [A] = [
-        A(icao: 0x3C6444, callsign: "DLH4AB", lat: 50.6, lon: 8.2, altitudeFt: 36_000, trackDeg: 110, speedKn: 450),
+        A(icao: 0x3C6444, callsign: "DLH400", lat: 50.4, lon: 6.0, altitudeFt: 36_000, trackDeg: 290, speedKn: 450),
         A(icao: 0x406A3D, callsign: "EZY81KT", lat: 51.8, lon: 11.5, altitudeFt: 35_000, trackDeg: 250, speedKn: 430, climbFpm: -640),
         A(icao: 0x4CA7B1, callsign: "RYR5XQ", lat: 48.0, lon: 13.0, altitudeFt: 37_000, trackDeg: 300, speedKn: 440),
         A(icao: 0x3944C1, callsign: "AFR1234", lat: 48.5, lon: 5.5, altitudeFt: 33_000, trackDeg: 75, speedKn: 400),

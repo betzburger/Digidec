@@ -87,6 +87,7 @@ struct ADSBMainPanel: View {
 struct ADSBAircraftTable: View {
     @ObservedObject var controller: ADSBController
     let home: HomeLocation
+    @Environment(\.openWindow) private var openWindow
     @State private var sort = Sort.recent
 
     enum Sort: String, CaseIterable { case recent = "ZULETZT", distance = "ENTFERNUNG", altitude = "HÖHE" }
@@ -185,12 +186,23 @@ struct ADSBAircraftTable: View {
         .padding(.vertical, 1)
         .background(selected ? color.opacity(0.18) : .clear)
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            controller.selection = a.id
+            controller.showInfo(for: a.id)
+            openWindow(id: "aircraft-info")
+        }
         .onTapGesture { controller.selection = selected ? nil : a.id }
-        .help(tooltip(a))
+        .help(tooltip(a) + "\nDoppelklick: Flugzeugdaten (Foto, Typ, Strecke)")
     }
 
     private func info(_ a: ADSBAircraft) -> String {
         if let e = a.emergencyText { return "⚠ " + e }
+        if let w = controller.details[a.id] {
+            var parts: [String] = []
+            if let d = w.shortDescription { parts.append(d) }
+            if let r = w.route?.routeText { parts.append(r) }
+            if !parts.isEmpty { return parts.joined(separator: " · ") }
+        }
         return a.categoryText ?? ""
     }
 
@@ -200,6 +212,11 @@ struct ADSBAircraftTable: View {
         if let p = a.position { t += "\n" + Geo.format(p) }
         if let alt = a.altitudeFt { t += "\nHöhe \(alt) ft" }
         if let r = a.maxRangeKm { t += String(format: "\nWeitester Empfang %.0f km", r) }
+        if let w = controller.details[a.id] {
+            if let ty = w.fullTypeName { t += "\n" + ty + (w.registration.map { " (\($0))" } ?? "") }
+            if let o = w.owner { t += "\n" + o }
+            if let r = w.route, let o = r.origin, let d = r.destination { t += "\n\(o.name) → \(d.name)" }
+        }
         return t
     }
 }
@@ -489,6 +506,17 @@ struct ADSBSettingsPanel: View {
                 Button("WEGE") { settings.showTracks.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.showTracks))
                     .help("Bisherigen Weg der Flugzeuge auf der Karte zeigen")
+            }
+            HStack(spacing: 6) {
+                Button("NETZ-SUCHE") { settings.webLookup.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.webLookup))
+                    .help("Flugzeugdaten (Typ, Betreiber, Strecke, Foto) im Netz suchen: bei adsbdb.com und planespotters.net, nur mit ICAO-Adresse und Rufzeichen des angeklickten Flugzeugs")
+                Button("AUTO-INFO") { settings.autoLookup.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.autoLookup && settings.webLookup))
+                    .help("Typ, Betreiber und Strecke aller Flugzeuge im Hintergrund abfragen (höchstens eine Abfrage je Sekunde). Sendet die ICAO-Adressen und Rufzeichen aller gehörten Flugzeuge an adsbdb.com.")
+                Button("INFO BEI KLICK") { settings.openInfoOnClick.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.openInfoOnClick))
+                    .help("Klick auf ein Flugzeug in der Karte öffnet das Fenster Flugzeugdaten")
             }
             HStack(spacing: 6) {
                 Text("ENTFERNEN NACH (MIN)")

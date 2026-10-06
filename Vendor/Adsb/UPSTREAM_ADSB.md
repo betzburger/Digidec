@@ -16,6 +16,11 @@
 | `ADSBSignalGenerator.swift` | Erzeugt Meldungen und I/Q-Daten für Tests und `make_signal.sh adsb` |
 | `Sources/UI/ADSBPanels.swift` | Flugzeugliste, Meldungsprotokoll, Meldungsrate und Reichweitediagramm, Abstimmanzeige, Einstellungen |
 
+## Flugzeugdaten aus dem Netz (0.61.0)
+
+`Sources/Models/AircraftInfoService.swift` und `Sources/UI/AircraftInfoWindow.swift`: Typ, Registrierung, Betreiber und planmäßige Strecke (Start- und Zielflughafen mit Koordinaten) von **adsbdb.com**, Foto von **planespotters.net** (Fotograf und Fotoseite werden angezeigt, das Bild wird nicht gespeichert).
+Die Abfrage geschieht nur für angeklickte Flugzeuge, es sei denn, AUTO-INFO ist an. Zwischenspeicher: Flugzeug 30 Tage, Strecke 12 Stunden, Fehler nie. Der Dienst nimmt seinen Abruf als Parameter; die Logiktests benutzen einen nachgebauten Abruf mit Antworten, die zuvor am echten Dienst aufgenommen wurden.
+
 ## Nachweis
 
 - **Gegenprobe mit dump1090** an dessen Beispielaufnahme `modes1.bin` (713 736 Byte): dump1090 findet 217 Meldungen (111 verschiedene), Digidec findet **alle** davon und dazu weitere gültige (284 Meldungen, 145 verschiedene; die Prüfsumme ist bei jeder erfüllt, 5 mit einem korrigierten Bit), unabhängig von der Blockgröße (2048 Byte bis 100 MB identisch).
