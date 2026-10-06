@@ -8166,6 +8166,62 @@ packetTests()
         check(snap.recent.count > 20 && snap.recent.last?.summary.contains("DF") == true, "ADS-B-Engine: Meldungsprotokoll")
     }
 
+
+    // --- Neustart der Quelle (Einstellung geändert): eine verspätete „gestoppt“-Meldung darf die neue Quelle nicht beenden ---
+    do {
+        final class FakeSource: ADSBIQSource, @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var started = 0, stopped = 0
+            private var handler: (@Sendable (String?) -> Void)?
+            let deviceDescription = "Attrappe"
+            func start(onData: @escaping @Sendable (UnsafeBufferPointer<UInt8>) -> Void, onStop: @escaping @Sendable (String?) -> Void) throws {
+                lock.withLock { started += 1; handler = onStop }
+            }
+            func stop() {
+                let h = lock.withLock { () -> (@Sendable (String?) -> Void)? in stopped += 1; return handler }
+                h?(nil)                         // wie der HackRF: meldet das Ende gleich beim Stoppen
+            }
+            /// Das Gerät fällt aus (abgesteckt)
+            func fail(_ reason: String) { lock.withLock { handler }?(reason) }
+        }
+        let settings = ADSBSettingsStore()
+        let c = ADSBController(settings: settings)
+        nonisolated(unsafe) var made: [FakeSource] = []
+        c.sourceFactory = { _ in let f = FakeSource(); made.append(f); return f }
+        func pump(_ s: Double = 0.15) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+        c.startSource()
+        check(made.count == 1 && made[0].started == 1 && c.status == .running("Attrappe"), "ADS-B: Quelle gestartet")
+        // Einstellung geändert: stoppen und sofort neu starten (wie im Controller bei Verstärkung, Vorverstärker …)
+        c.stopSource()
+        c.startSource()
+        pump()
+        check(made.count == 2 && made[0].stopped == 1 && made[1].stopped == 0, "ADS-B-Neustart: nur die alte Quelle wurde gestoppt")
+        check(c.status == .running("Attrappe"), "ADS-B-Neustart: die neue Quelle läuft weiter (Status \(c.status))")
+        // Ein erneuter Start ohne Stopp ersetzt die laufende Quelle sauber
+        c.startSource()
+        pump()
+        check(made.count == 3 && made[1].stopped == 1 && made[2].stopped == 0 && c.status == .running("Attrappe"), "ADS-B: Start ersetzt die laufende Quelle")
+        // Ausfall der laufenden Quelle wird gemeldet
+        made[2].fail("USB-Fehler")
+        pump()
+        check(c.status == .error("USB-Fehler"), "ADS-B: Ausfall der Quelle als Fehler angezeigt (\(c.status))")
+        // Eine alte Quelle meldet sich spät noch einmal: ohne Wirkung
+        c.startSource()
+        made[2].fail("alt")
+        pump()
+        check(c.status == .running("Attrappe"), "ADS-B: späte Meldung einer alten Quelle ändert nichts")
+        c.stopSource()
+        pump()
+        check(c.status == .idle && made[3].stopped == 1, "ADS-B: Stopp setzt den Status zurück")
+        // Modul verlassen gibt das Gerät frei
+        c.setActive(true)
+        pump()
+        let before = made.count
+        c.setActive(false)
+        pump()
+        check(made.count == before && made[before - 1].stopped == 1 && c.status == .idle, "ADS-B: Modul verlassen stoppt die Quelle")
+    }
+
     // --- Quellen: Datei, SDRconnect-Umsetzung, Einstellungen ---
     do {
         let samples: [UInt8] = (0..<20_000).map { UInt8($0 & 0xFF) }

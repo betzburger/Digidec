@@ -275,11 +275,15 @@ public final class ADSBController: ObservableObject {
     private var autoInFlight = 0
     private var autoTick = 0
     private var source: ADSBIQSource?
+    /// Kennung der aktuellen Quelle: eine verspätete „gestoppt“-Meldung einer alten Quelle darf die neue nicht beenden
+    private var sourceToken = UUID()
     private var timer: Timer?
     private var active = false
     private var cancellables: Set<AnyCancellable> = []
     /// Aufnahme als Quelle (Entwicklung und Prüfung): gesetzt, dann statt des gewählten Geräts
     public var fileOverride: URL?
+    /// Nur für Tests: liefert eine Quelle statt der Geräte
+    var sourceFactory: ((ADSBSettingsStore) -> ADSBIQSource?)?
     public var fileRealtime = true
 
     public init(settings: ADSBSettingsStore, infoService: AircraftInfoService = .shared) {
@@ -337,7 +341,9 @@ public final class ADSBController: ObservableObject {
     public func startSource() {
         stopSource()
         let src: ADSBIQSource
-        if let url = fileOverride {
+        if let made = sourceFactory?(settings) {
+            src = made
+        } else if let url = fileOverride {
             src = ADSBFileSource(url: url, realtime: fileRealtime, loop: false)
         } else {
             switch settings.source {
@@ -352,9 +358,11 @@ public final class ADSBController: ObservableObject {
         applyConfiguration()
         let engine = self.engine
         let wait = fileOverride != nil && !fileRealtime
+        let token = UUID()
+        sourceToken = token
         do {
             try src.start(onData: { engine.feed($0, wait: wait) }, onStop: { [weak self] reason in
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.sourceStopped(reason) } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.sourceStopped(reason, token: token) } }
             })
             source = src
             status = .running(src.deviceDescription)
@@ -365,13 +373,14 @@ public final class ADSBController: ObservableObject {
     }
 
     public func stopSource() {
+        sourceToken = UUID()               // Meldungen der alten Quelle sind ab jetzt ungültig
         source?.stop()
         source = nil
         if case .running = status { status = .idle }
     }
 
-    private func sourceStopped(_ reason: String?) {
-        guard source != nil else { return }
+    private func sourceStopped(_ reason: String?, token: UUID) {
+        guard token == sourceToken, source != nil else { return }
         source = nil
         status = reason.map { .error($0) } ?? .idle
     }

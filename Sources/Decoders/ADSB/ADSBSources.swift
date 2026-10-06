@@ -350,6 +350,9 @@ public final class HackRFSource: ADSBIQSource, @unchecked Sendable {
 
         self.onData = onData
         lock.withLock { active = true }
+        // Die Rückrufe von libhackrf kommen von einem fremden Faden und finden diese Quelle über einen Zeiger: festhalten, bis der Strom beendet ist
+        let context = Unmanaged.passRetained(self)
+        contextToRelease = context
         let rc = startRx(dev, { transfer in
             guard let t = transfer?.assumingMemoryBound(to: Transfer.self).pointee, let me = CallbackContext.object(t.rxContext, as: HackRFSource.self),
                   let src = t.buffer else { return 0 }
@@ -362,17 +365,21 @@ public final class HackRFSource: ADSBIQSource, @unchecked Sendable {
                 me.onData?(UnsafeBufferPointer(start: out.baseAddress, count: n))
             }
             return 0
-        }, CallbackContext.pointer(self))
+        }, context.toOpaque())
         guard rc == 0 else {
             _ = close(dev)
             _ = exit()
             device = nil
+            lock.withLock { active = false }
+            contextToRelease = nil
+            context.release()
             throw ADSBSourceError.failed("HackRF: Empfang lässt sich nicht starten (\(rc))")
         }
         stopped = onStop
     }
 
     private var stopped: (@Sendable (String?) -> Void)?
+    private var contextToRelease: Unmanaged<HackRFSource>?
 
     public func stop() {
         let wasActive = lock.withLock { () -> Bool in defer { active = false }; return active }
@@ -381,6 +388,13 @@ public final class HackRFSource: ADSBIQSource, @unchecked Sendable {
         _ = closeFn?(dev)
         _ = exitFn?()
         device = nil
-        stopped?(nil)
+        // Nach dem Schließen kommen keine Rückrufe mehr; kurz warten und dann den festgehaltenen Zeiger freigeben
+        if let c = contextToRelease {
+            contextToRelease = nil
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { c.release() }
+        }
+        let done = stopped
+        stopped = nil
+        done?(nil)
     }
 }
