@@ -624,8 +624,11 @@ public final class AISController: ObservableObject {
         applyDecoder()
     }
 
+    /// Kanal einer Kanalbank: genau ein Audiokanal (A oder B), unabhängig von der gespeicherten Wahl des Moduls
+    public var forcedChannel: AISChannel? { didSet { applyDecoder() } }
+
     private func applyDecoder() {
-        decoder.configure(enabled: isActive, channel: settings.channel, swap: settings.swapChannels)
+        decoder.configure(enabled: isActive, channel: forcedChannel ?? settings.channel, swap: settings.swapChannels)
     }
 
     public func clear() {

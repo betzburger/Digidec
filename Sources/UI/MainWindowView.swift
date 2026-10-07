@@ -91,6 +91,8 @@ public struct MainWindowView: View {
                                 EFRMainPanel(controller: state.efrController, settings: state.efr)
                             } else if state.activeModule == .sstv {
                                 SSTVImagePanel(controller: state.sstvController)
+                            } else if state.activeModule == .channels {
+                                ChannelsMainPanel(hub: state.channelHub, bank: state.sdrController.bank, controller: state.sdrController)
                             } else {
                                 ReceivePanel(controller: state.rttyController, settings: state.rtty)
                             }
@@ -190,7 +192,7 @@ public struct MainWindowView: View {
                         }
                         }
                         .frame(height: 260)
-                        .radioCard(title: state.activeModule == .adsb || state.activeModule == .sensors || state.activeModule == .vdl2 || state.activeModule == .tetra || state.activeModule == .vor || state.activeModule == .dab ? "Empfang" : "Wasserfall")
+                        .radioCard(title: state.activeModule == .adsb || state.activeModule == .sensors || state.activeModule == .vdl2 || state.activeModule == .tetra || state.activeModule == .vor || state.activeModule == .dab ? "Empfang" : state.activeModule == .channels ? "HF-Fenster" : "Wasserfall")
 
                         Group {
                             switch state.mapLayout(state.activeModule) {
@@ -209,7 +211,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Kanäle" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -291,6 +293,9 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             TETRASettingsPanel(controller: state.tetraController, settings: state.tetra)
                                 .radioCard(title: "TETRA")
+                        } else if state.activeModule == .channels {
+                            ChannelsSettingsPanel(bank: state.sdrController.bank, settings: state.sdr, controller: state.sdrController)
+                                .radioCard(title: "KANÄLE")
                         } else if state.activeModule == .dab {
                             DABTuningPanel(controller: state.dabController)
                                 .radioCard(title: "Abstimmanzeige")
@@ -1007,6 +1012,7 @@ private struct StatusBar: View {
 
     private var currentLine: String {
         switch state.activeModule {
+        case .channels: return "KANÄLE · \(state.sdrController.bank.slots.filter(\.enabled).count) Decoder zugleich aus einem Fenster des SDR"
         case .navtex: return navtexCurrent
         case .cw: return cwCurrent
         case .psk: return pskCurrent

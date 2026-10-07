@@ -120,7 +120,7 @@ struct SDRWaterfallHost<Content: View>: View {
 
     var body: some View {
         if audio.sourceKind == .sdr && !module.usesOwnIQDevice {
-            if settings.showRFWaterfall {
+            if settings.showRFWaterfall || module == .channels {
                 SDRSpectrumView(controller: controller, settings: settings, audio: audio)
             } else {
                 nf().overlay(alignment: .topTrailing) {
@@ -140,6 +140,7 @@ struct SDRSpectrumView: View {
     @ObservedObject var controller: SDRController
     @ObservedObject var settings: SDRSettingsStore
     @ObservedObject var audio: AudioInputManager
+    @ObservedObject private var bank: SDRChannelBank
     @StateObject private var model: SDRSpectrumModelBox
 
     @State private var hoverHz: Double?
@@ -149,10 +150,11 @@ struct SDRSpectrumView: View {
         self.controller = controller
         self.settings = settings
         self.audio = audio
+        bank = controller.bank
         _model = StateObject(wrappedValue: SDRSpectrumModelBox(controller: controller))
     }
 
-    private var span: Double { Double(SDRSettingsStore.sampleRate) }
+    private var span: Double { Double(settings.effectiveSampleRate) }
 
     private func range() -> ClosedRange<Double> {
         let lo = controller.loHz
@@ -174,11 +176,16 @@ struct SDRSpectrumView: View {
                                 .frame(height: 54)
                             waterfallImage
                         }
-                        RFMarker(range: r, settings: settings, hoverHz: hoverHz)
+                        if bank.isActive {
+                            RFBankMarkers(range: r, bank: bank, hoverHz: hoverHz)
+                        } else {
+                            RFMarker(range: r, settings: settings, hoverHz: hoverHz)
+                        }
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                        controller.tune(frequencyHz: snap(frequency(atX: value.location.x, width: width, range: r)))
+                        let f = snap(frequency(atX: value.location.x, width: width, range: r))
+                        if bank.isActive { bank.pendingFrequencyHz = f } else { controller.tune(frequencyHz: f) }
                     })
                     .onContinuousHover { phase in
                         switch phase {
@@ -252,7 +259,7 @@ struct SDRSpectrumView: View {
     }
 
     private var readout: String {
-        var s = SDRFormat.frequency(settings.frequencyHz) + " MHz " + settings.mode.title
+        var s = bank.isActive ? "\(bank.slots.filter(\.enabled).count) Kanäle" : SDRFormat.frequency(settings.frequencyHz) + " MHz " + settings.mode.title
         if let h = hoverHz { s += " · ▸ " + SDRFormat.frequency(h) }
         return s
     }
@@ -271,7 +278,7 @@ struct SDRSpectrumView: View {
         guard scrollMonitor == nil else { return }
         let c = controller
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            guard MainActor.assumeIsolated({ SDRHoverState.shared.hovering }) else { return event }
+            guard MainActor.assumeIsolated({ SDRHoverState.shared.hovering && !c.bank.isActive }) else { return event }
             let delta = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.deltaY
             guard abs(delta) > 0.5 else { return nil }
             let steps = delta > 0 ? 1 : -1
@@ -330,7 +337,8 @@ struct RFAxis: View {
     var body: some View {
         Canvas { ctx, size in
             let span = range.upperBound - range.lowerBound
-            let step = 200_000.0
+            // Etwa zehn Marken: 200 kHz bei 2,4 MS/s, 500 kHz bei 4,8 und 1 MHz bei 9,6 MS/s
+            let step = [200_000.0, 500_000, 1_000_000, 2_000_000].first { span / $0 <= 12 } ?? 2_000_000
             var f = (range.lowerBound / step).rounded(.up) * step
             while f <= range.upperBound {
                 let x = CGFloat((f - range.lowerBound) / span) * size.width
@@ -338,7 +346,7 @@ struct RFAxis: View {
                 tick.move(to: CGPoint(x: x, y: size.height - 4))
                 tick.addLine(to: CGPoint(x: x, y: size.height))
                 ctx.stroke(tick, with: .color(RadioTheme.textDim), lineWidth: 1)
-                let label = Text(verbatim: String(format: "%.1f", f / 1e6).replacingOccurrences(of: ".", with: ","))
+                let label = Text(verbatim: String(format: step < 1_000_000 ? "%.1f" : "%.0f", f / 1e6).replacingOccurrences(of: ".", with: ","))
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
                 ctx.draw(label, at: CGPoint(x: min(max(x, 14), size.width - 14), y: 6), anchor: .center)
@@ -376,6 +384,50 @@ struct RFSpectrumGraph: View {
         }
         .background(RadioTheme.bgDeep)
         .overlay(alignment: .bottom) { Rectangle().fill(RadioTheme.borderSubtle).frame(height: 1) }
+    }
+}
+
+/// Kanäle der Kanalbank im Wasserfall: Durchlassbereich, Mittenlinie und Nummer; ausgeschaltete oder außerhalb liegende Kanäle gedämpft
+private struct RFBankMarkers: View {
+    let range: ClosedRange<Double>
+    @ObservedObject var bank: SDRChannelBank
+    let hoverHz: Double?
+
+    var body: some View {
+        Canvas { ctx, size in
+            let span = range.upperBound - range.lowerBound
+            func x(_ f: Double) -> CGFloat { CGFloat((f - range.lowerBound) / span) * size.width }
+            for (n, slot) in bank.slots.enumerated() {
+                let f = slot.frequencyHz
+                guard f > range.lowerBound - 50_000, f < range.upperBound + 50_000 else { continue }
+                let on = slot.enabled && bank.plan.covered.contains(slot.id)
+                let selected = bank.selectedID == slot.id
+                let color: Color = on ? (selected ? RadioTheme.vfdAmber : RadioTheme.vfdCyan) : RadioTheme.textDim
+                let band = CGRect(x: x(f - slot.bandwidthHz / 2), y: 0, width: max(2, x(f + slot.bandwidthHz / 2) - x(f - slot.bandwidthHz / 2)), height: size.height)
+                ctx.fill(Path(band), with: .color(color.opacity(on ? 0.22 : 0.10)))
+                var line = Path()
+                line.move(to: CGPoint(x: x(f), y: 0))
+                line.addLine(to: CGPoint(x: x(f), y: size.height))
+                ctx.stroke(line, with: .color(color), lineWidth: selected ? 1.6 : 1)
+                let tag = Text(verbatim: "\(n + 1)")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(color)
+                ctx.draw(tag, at: CGPoint(x: min(max(x(f), 6), size.width - 6), y: 8), anchor: .center)
+            }
+            if let pending = bank.pendingFrequencyHz {
+                var line = Path()
+                line.move(to: CGPoint(x: x(pending), y: 0))
+                line.addLine(to: CGPoint(x: x(pending), y: size.height))
+                ctx.stroke(line, with: .color(RadioTheme.vfdGreen), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+            }
+            if let h = hoverHz {
+                var hl = Path()
+                hl.move(to: CGPoint(x: x(h), y: 0))
+                hl.addLine(to: CGPoint(x: x(h), y: size.height))
+                ctx.stroke(hl, with: .color(RadioTheme.textBright.opacity(0.35)), lineWidth: 1)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -426,13 +478,32 @@ struct SDRControlView: View {
 
     private static let steps: [Double] = [100, 500, 1_000, 5_000, 6_250, 8_333, 9_000, 10_000, 12_500, 25_000, 100_000, 1_000_000]
 
+    @ObservedObject private var bank: SDRChannelBank
+
+    init(controller: SDRController, settings: SDRSettingsStore) {
+        self.controller = controller
+        self.settings = settings
+        bank = controller.bank
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            frequencyRow
-            modeRow
-            bandwidthRow
-            levelRow
-            optionsRow
+            if bank.isActive {
+                Text("KANALBANK · \(bank.slots.filter(\.enabled).count) Kanäle zugleich, Mitte \(SDRFormat.frequency(controller.loHz)) MHz. Frequenzen, Betriebsarten und Decoder je Kanal stehen im Modul KANÄLE.")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(RadioTheme.vfdCyan)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    label("LAUTST.")
+                    Slider(value: $settings.volume, in: 0...1)
+                }
+            } else {
+                frequencyRow
+                modeRow
+                bandwidthRow
+                levelRow
+                optionsRow
+            }
             Divider().overlay(RadioTheme.borderSubtle)
             deviceRow
             statusLine

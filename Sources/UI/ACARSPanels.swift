@@ -83,6 +83,7 @@ struct ACARSTable: View {
             Text("Flug").frame(width: 62, alignment: .leading)
             Text("↕").frame(width: 14, alignment: .center)
             Text("Lbl").frame(width: 24, alignment: .leading)
+            Text("ADS-B").frame(width: 104, alignment: .leading)
             Text("Meldung").frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -98,6 +99,9 @@ struct ACARSTable: View {
             Text(m.flightID ?? "").frame(width: 62, alignment: .leading).lineLimit(1)
             Image(systemName: m.isDownlink ? "arrow.down" : "arrow.up").font(.system(size: 8, weight: .bold)).frame(width: 14)
             Text(m.label).frame(width: 24, alignment: .leading)
+            Text(DigidecState.shared.aircraftSummary(for: m) ?? "").frame(width: 104, alignment: .leading).lineLimit(1)
+                .foregroundColor(RadioTheme.vfdAmber)
+                .help("Dasselbe Flugzeug im ADS-B-Modul: Höhe und Entfernung")
             Text(m.isEmpty ? (ACARSLabels.describe(m.label) ?? "ohne Text") : m.text.replacingOccurrences(of: "\n", with: " ⏎ "))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(3)

@@ -80,8 +80,8 @@ struct DSCTable: View {
             Text("UTC").frame(width: 56, alignment: .leading)
             Text("Ruf").frame(width: 92, alignment: .leading)
             Text("Kat.").frame(width: 84, alignment: .leading)
-            Text("Von").frame(width: 84, alignment: .leading)
-            Text("An").frame(width: 84, alignment: .leading)
+            Text("Von").frame(width: 150, alignment: .leading)
+            Text("An").frame(width: 120, alignment: .leading)
             Text("Inhalt").frame(maxWidth: .infinity, alignment: .leading)
             Text("ECC").frame(width: 34, alignment: .center)
         }
@@ -96,8 +96,8 @@ struct DSCTable: View {
             Text(DSCController.utc.string(from: m.receivedAt)).frame(width: 56, alignment: .leading)
             Text(m.format.name).frame(width: 92, alignment: .leading)
             Text(m.category ?? "").frame(width: 84, alignment: .leading)
-            Text(m.from ?? "").frame(width: 84, alignment: .leading)
-            Text(m.to ?? "").frame(width: 84, alignment: .leading).lineLimit(1)
+            Text(Self.partyText(m.from)).frame(width: 150, alignment: .leading).lineLimit(1)
+            Text(Self.partyText(m.to)).frame(width: 120, alignment: .leading).lineLimit(1)
             Text(m.summary).frame(maxWidth: .infinity, alignment: .leading)
             Text(m.eccOK ? "OK" : "?").frame(width: 34, alignment: .center)
         }
@@ -105,6 +105,13 @@ struct DSCTable: View {
         .foregroundColor(color)
         .lineLimit(1)
         .help(tooltip(m))
+    }
+
+    /// MMSI, mit dem Namen des Schiffs dahinter, wenn es per AIS gehört wurde
+    private static func partyText(_ mmsi: String?) -> String {
+        guard let mmsi, !mmsi.isEmpty else { return "" }
+        if let name = DigidecState.shared.vesselLabel(mmsi: mmsi) { return mmsi + " " + name }
+        return mmsi
     }
 
     private func tooltip(_ m: DSCMessage) -> String {

@@ -31,7 +31,10 @@ var skipped = 0
     skipped += 1
     print("ÜBERSPRUNGEN: \(msg)")
 }
+/// `LT_TRACE=1`: jede Prüfung vor dem Ausführen nennen (ungepuffert), um einen Absturz einer Stelle zuzuordnen
+nonisolated(unsafe) let traceChecks = ProcessInfo.processInfo.environment["LT_TRACE"] != nil
 @MainActor func check(_ cond: @autoclosure () -> Bool, _ msg: String, file: String = #file, line: Int = #line) {
+    if traceChecks { fputs("· (Zeile \(line)) \(msg)\n", stderr) }
     checks += 1
     if !cond() {
         failures += 1
@@ -144,7 +147,7 @@ if want("url") {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "KANÄLE", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr && DecoderModuleInfo.Band.hf.modules.contains(.ndb), "HF-Rubrik A–Z")
 }
 
@@ -10684,6 +10687,61 @@ if want("sdr") {
         for k in (center - 40)...(center + 40) where row[k] > v { v = row[k]; best = k }
         check(abs(Double(best - SDRSpectrum.size / 2) * binHz + 700_000) < 3_000 && abs(Double(v) - 20 * log10(0.05)) < 2.5, "SDR: Spektrum zeigt den Träger bei −700 kHz mit richtigem Pegel (\(v) dB)")
     }
+    // Kanalbank: Planung der Gerätemitte
+    func slot(_ id: Int, _ f: Double, bw: Double = 12_500) -> SDRBankSlot { SDRBankSlot(id: id, moduleID: "aprs", frequencyHz: f, mode: .nfm, bandwidthHz: bw) }
+    let half = SDRSettingsStore.window(forRate: 2_400_000)
+    check(half == 850_000 && SDRSettingsStore.window(forRate: 9_600_000) == 3_400_000, "SDR Bank: nutzbares Fenster 850 kHz bei 2,4 MS/s, 3,4 MHz bei 9,6 MS/s")
+    let p1 = SDRBankPlanner.plan(slots: [slot(1, 161_975_000, bw: 25_000), slot(2, 162_025_000, bw: 25_000)], halfWindowHz: half)
+    check(p1.covered == [1, 2] && p1.uncovered.isEmpty && abs(p1.loHz - 162_000_000) >= 40_000 && abs(p1.loHz - 162_000_000) <= 100_000, "SDR Bank: AIS A und B liegen zusammen im Fenster, die Mitte meidet die Gleichanteil-Spitze (\(p1.loHz))")
+    let p2 = SDRBankPlanner.plan(slots: [slot(1, 144_800_000), slot(2, 145_500_000), slot(3, 161_975_000)], halfWindowHz: half)
+    check(p2.covered == [1, 2] && p2.uncovered == [3], "SDR Bank: 144,8 und 145,5 MHz passen zusammen, 161,975 MHz liegt außerhalb (\(p2.covered) / \(p2.uncovered))")
+    let p3 = SDRBankPlanner.plan(slots: [slot(1, 144_800_000), slot(2, 161_975_000), slot(3, 162_025_000), slot(4, 162_300_000)], halfWindowHz: half)
+    check(p3.covered == [2, 3, 4] && p3.uncovered == [1], "SDR Bank: das Fenster mit den meisten Kanälen gewinnt (\(p3.covered))")
+    var disabled = slot(5, 100_000_000); disabled.enabled = false
+    check(SDRBankPlanner.plan(slots: [disabled], halfWindowHz: half, currentLoHz: 7).covered.isEmpty && SDRBankPlanner.plan(slots: [disabled], halfWindowHz: half, currentLoHz: 7).loHz == 7, "SDR Bank: ausgeschaltete Kanäle zählen nicht")
+    let keep = SDRBankPlanner.plan(slots: [slot(1, 131_550_000), slot(2, 131_725_000)], halfWindowHz: half, currentLoHz: 131_900_000)
+    check(keep.loHz == 131_900_000, "SDR Bank: trägt die bisherige Mitte alle Kanäle, bleibt das Gerät stehen (kein Umstimmen)")
+    let p9 = SDRBankPlanner.plan(slots: [slot(1, 130_300_000), slot(2, 131_550_000), slot(3, 133_000_000), slot(4, 136_900_000), slot(5, 136_975_000)], halfWindowHz: SDRSettingsStore.window(forRate: 9_600_000))
+    check(p9.covered == [1, 2, 3, 4, 5] && p9.spanHz > 6_000_000, "SDR Bank: 9,6 MS/s überspannt 130,3 bis 137 MHz (\(p9.covered))")
+
+    // Mehrere Kanäle zugleich aus einem I/Q-Strom
+    final class Collector: @unchecked Sendable {
+        let lock = NSLock(); var samples: [Float] = []
+        func add(_ b: UnsafeBufferPointer<Float>) { lock.lock(); samples.append(contentsOf: b); lock.unlock() }
+        var all: [Float] { lock.lock(); defer { lock.unlock() }; return samples }
+    }
+    for rate in [2_400_000.0, 4_800_000.0] {
+        let wide = rate > 3_000_000
+        var multi = SDRTestSignal(sampleRate: rate, seconds: 2)
+        let farA = wide ? 1_600_000.0 : 500_000.0, farB = wide ? -1_800_000.0 : -600_000.0
+        multi.addFM(offsetHz: farA, tone: 1000, deviation: 3_000, amplitude: 0.2)
+        multi.addFM(offsetHz: farB, tone: 2000, deviation: 3_000, amplitude: 0.2)
+        multi.addAM(offsetHz: 150_000, tone: 700, depth: 0.5, amplitude: 0.15)
+        multi.addNoise(sigma: 0.004)
+        let bank = SDRReceiverEngine(sampleRate: rate)
+        let outA = Collector(), outB = Collector(), outC = Collector()
+        var cfm = SDRChannelConfig(mode: .nfm); cfm.bandwidthHz = 12_500
+        bank.setPrimaryEnabled(false)
+        bank.setExtraChannel(id: 1, config: cfm, offsetHz: farA, handler: { outA.add($0) })
+        bank.setExtraChannel(id: 2, config: cfm, offsetHz: farB, handler: { outB.add($0) })
+        bank.setExtraChannel(id: 3, config: SDRChannelConfig(mode: .am), offsetHz: 150_000, handler: { outC.add($0) })
+        let raw = multi.quantized()
+        raw.withUnsafeBufferPointer { b in
+            var i = 0
+            while i < b.count { let e = min(i + 262_144, b.count); bank.feed(UnsafeBufferPointer(rebasing: b[i..<e]), wait: true); i = e }
+        }
+        Thread.sleep(forTimeInterval: 1.0)
+        let a = outA.all, b = outB.all, c = outC.all
+        let tag = wide ? "4,8 MS/s" : "2,4 MS/s"
+        check(a.count > 60_000 && abs(level(a, 1000) - 0.6) < 0.08 && level(a, 2000) / max(level(a, 1000), 1e-9) < 0.03, "SDR Bank (\(tag)): Kanal 1 hat nur seinen 1-kHz-Ton (\(level(a, 1000)), fremd \(level(a, 2000)))")
+        check(b.count > 60_000 && abs(level(b, 2000) - 0.6) < 0.08 && level(b, 1000) / max(level(b, 2000), 1e-9) < 0.03, "SDR Bank (\(tag)): Kanal 2 hat nur seinen 2-kHz-Ton (\(level(b, 2000)))")
+        check(c.count > 60_000 && abs(level(c, 700) - 0.5) < 0.08, "SDR Bank (\(tag)): AM-Kanal 3 nebenher (\(level(c, 700)))")
+        check(bank.snapshot().audioSamples == 0 && bank.extraChannelMetrics().count == 3 && bank.extraChannelMetrics().values.allSatisfy { $0.signalDB > -60 }, "SDR Bank (\(tag)): Hörkanal ruht, Pegel der drei Kanäle gemeldet")
+        bank.removeExtraChannel(id: 2)
+        Thread.sleep(forTimeInterval: 0.2)
+        check(bank.extraChannelMetrics()[2] == nil, "SDR Bank (\(tag)): entfernter Kanal verschwindet")
+    }
+
     // Funkgerät: der eingebaute Empfänger meldet sich an, stimmt ab und gibt frei
     MainActor.assumeIsolated {
         let rig = RigModel()
@@ -10698,6 +10756,38 @@ if want("sdr") {
         rig.useInternal(name: nil)
         check(!rig.hasRig && !rig.isInternal, "SDR: nach dem Abmelden gilt wieder kein Funkgerät")
     }
+}
+
+// MARK: - Verbindung der Dienste (Flugzeuge: ADS-B, VDL2, ACARS; Schiffe: AIS, DSC)
+if want("links") {
+    check(AirlineCodes.callsign(fromFlight: "LH123") == "DLH123" && AirlineCodes.callsign(fromFlight: "LH0123") == "DLH123" && AirlineCodes.callsign(fromFlight: "EW9") == "EWG9"
+          && AirlineCodes.callsign(fromFlight: "ZZ12") == nil && AirlineCodes.callsign(fromFlight: "LH") == nil && AirlineCodes.callsign(fromFlight: "BA 17") == nil,
+          "Verbindung: Flugnummer → Rufzeichen (LH123 = DLH123, führende Nullen weg, unbekannte Gesellschaft = nichts)")
+    check(AirlineCodes.sameCallsign("DLH123", "DLH0123") && AirlineCodes.sameCallsign("DLH123 ", "dlh123") && !AirlineCodes.sameCallsign("DLH123", "DLH124") && !AirlineCodes.sameCallsign("", ""),
+          "Verbindung: Rufzeichen mit und ohne führende Nullen")
+    let now = Date()
+    func plane(_ icao: UInt32, _ cs: String?, alt: Int? = 38_000, pos: GeoPoint? = nil) -> ADSBAircraft {
+        var a = ADSBAircraft(icao: icao, firstSeen: now, lastSeen: now)
+        a.callsign = cs; a.altitudeFt = alt; a.position = pos
+        return a
+    }
+    func vdl(_ icao: UInt32, reg: String?, flight: String?) -> VDL2Aircraft {
+        VDL2Aircraft(address: VDL2Address(raw: (1 << 24) | icao), registration: reg, flight: flight, firstSeen: now, lastSeen: now, frequency: 136_975_000, levelDB: -30, lastText: "")
+    }
+    let home = GeoPoint(lat: 49.79, lon: 9.95)
+    let list = [plane(0x3C6444, "DLH123", pos: GeoPoint(lat: 50.5, lon: 10.5)), plane(0x4B1805, "SWR8", alt: 12_000), plane(0x3C0001, nil)]
+    check(ServiceLinks.aircraft(registration: nil, flight: nil, icao: 0x4B1805, adsb: list)?.callsign == "SWR8", "Verbindung: über die ICAO-Adresse")
+    check(ServiceLinks.aircraft(registration: "D-AIBC", flight: nil, adsb: list, vdl2: [vdl(0x3C6444, reg: "D-AIBC", flight: "LH123")])?.icao == 0x3C6444, "Verbindung: Kennzeichen → VDL2 → ADS-B")
+    check(ServiceLinks.aircraft(registration: "DAIBC", flight: nil, adsb: list, vdl2: [vdl(0x3C6444, reg: "D-AIBC", flight: nil)])?.icao == 0x3C6444, "Verbindung: Kennzeichen ohne Bindestrich")
+    check(ServiceLinks.aircraft(registration: "D-AIXY", flight: nil, adsb: list, registrations: [0x3C0001: "D-AIXY"])?.icao == 0x3C0001, "Verbindung: Kennzeichen aus dem Flugzeugdatenblatt")
+    check(ServiceLinks.aircraft(registration: "", flight: "LH123", adsb: list)?.icao == 0x3C6444 && ServiceLinks.aircraft(registration: nil, flight: "LH999", adsb: list) == nil && ServiceLinks.aircraft(registration: nil, flight: nil, adsb: list) == nil,
+          "Verbindung: über die Flugnummer (LH123 = DLH123), falsche Nummer = kein Treffer")
+    check(ServiceLinks.summary(of: list[0], from: home).hasPrefix("FL 380 · 8") && ServiceLinks.summary(of: list[1], from: home) == "FL 120" && ServiceLinks.summary(of: plane(1, "ABC1", alt: nil), from: home) == "ABC1",
+          "Verbindung: Kurzangabe (\(ServiceLinks.summary(of: list[0], from: home)))")
+    var v = AISVessel(mmsi: 211_181_050, now: now)
+    v.name = "ALTE LIEBE "
+    check(ServiceLinks.vessel(mmsi: "211181050", in: [v.mmsi: v])?.mmsi == 211_181_050 && ServiceLinks.vessel(mmsi: "x", in: [v.mmsi: v]) == nil && ServiceLinks.vessel(mmsi: nil, in: [:]) == nil
+          && ServiceLinks.label(of: v) == "ALTE LIEBE" && ServiceLinks.label(of: AISVessel(mmsi: 5, now: now)) == nil, "Verbindung: DSC-MMSI → Schiffsname aus AIS")
 }
 
 // MARK: - DAB (Empfänger, FIC, Hauptdienstkanal, DAB+)

@@ -14,14 +14,20 @@ import os
 @MainActor
 public final class SDRSettingsStore: ObservableObject {
     public static let sampleRate = 2_400_000
+    /// Wählbare Abtastraten des HackRF (RTL-SDR und SDRplay laufen mit 2,4 MS/s); ganzzahlige Vielfache von 480 kS/s
+    public static let sampleRateChoices = [2_400_000, 4_800_000, 9_600_000]
     /// Wie weit sich die gehörte Frequenz von der Mitte des I/Q-Fensters entfernen darf, bevor das Gerät umgestimmt wird
     static let window = 850_000.0
+    /// Nutzbare halbe Fensterbreite bei einer Abtastrate (bei 2,4 MS/s 850 kHz: die Ränder des Geräts fallen ab)
+    static func window(forRate rate: Int) -> Double { Double(rate) * 850_000.0 / 2_400_000.0 }
     /// Abstand der Gerätemitte von der gehörten Frequenz nach dem Umstimmen (die Gleichanteil-Spitze liegt auf der Mitte)
     static let loOffset = 300_000.0
 
     @Published public var source: ADSBSourceKind { didSet { save(source.rawValue, "sdrSource") } }
     @Published public var hackrfLNA: Int { didSet { save(hackrfLNA, "sdrHackrfLNA") } }
     @Published public var hackrfVGA: Int { didSet { save(hackrfVGA, "sdrHackrfVGA") } }
+    /// Abtastrate des I/Q-Stroms (nur HackRF über 2,4 MS/s; für den Mehrkanalbetrieb mit breitem Fenster)
+    @Published public var sampleRateHz: Int { didSet { save(sampleRateHz, "sdrSampleRate") } }
     @Published public var hackrfAmp: Bool { didSet { save(hackrfAmp, "sdrHackrfAmp") } }
     @Published public var hackrfBias: Bool { didSet { save(hackrfBias, "sdrHackrfBias") } }
     @Published public var rtlGain: Double { didSet { save(rtlGain, "sdrRtlGain") } }
@@ -64,6 +70,8 @@ public final class SDRSettingsStore: ObservableObject {
         source = kind == .sdrconnect ? .hackrf : kind
         hackrfLNA = d.object(forKey: "sdrHackrfLNA") as? Int ?? 32
         hackrfVGA = d.object(forKey: "sdrHackrfVGA") as? Int ?? 30
+        let savedRate = d.object(forKey: "sdrSampleRate") as? Int ?? Self.sampleRate
+        sampleRateHz = Self.sampleRateChoices.contains(savedRate) ? savedRate : Self.sampleRate
         hackrfAmp = d.object(forKey: "sdrHackrfAmp") as? Bool ?? false
         hackrfBias = d.object(forKey: "sdrHackrfBias") as? Bool ?? false
         rtlGain = d.object(forKey: "sdrRtlGain") as? Double ?? 0
@@ -92,6 +100,9 @@ public final class SDRSettingsStore: ObservableObject {
         showRFWaterfall = d.object(forKey: "sdrShowRF") as? Bool ?? true
     }
 
+    /// Tatsächliche Abtastrate: höhere Raten gibt es nur am HackRF
+    public var effectiveSampleRate: Int { source == .hackrf ? sampleRateHz : Self.sampleRate }
+
     public var channelConfig: SDRChannelConfig {
         var c = SDRChannelConfig(mode: mode)
         c.bandwidthHz = bandwidthHz
@@ -108,7 +119,7 @@ public final class SDRSettingsStore: ObservableObject {
     public func gain(centerHz: Double) -> ADSBGainSettings {
         var g = ADSBGainSettings()
         g.centerFrequencyHz = centerHz
-        g.sampleRateHz = Self.sampleRate
+        g.sampleRateHz = effectiveSampleRate
         g.hackrfLNA = hackrfLNA
         g.hackrfVGA = hackrfVGA
         g.hackrfAmp = hackrfAmp
@@ -205,8 +216,14 @@ public final class SDRSpeaker: @unchecked Sendable {
 @MainActor
 public final class SDRController: ObservableObject {
     public let engine = SDRReceiverEngine(sampleRate: Double(SDRSettingsStore.sampleRate))
+    /// Abtastrate des laufenden I/Q-Stroms
+    public var sampleRateHz: Double { engine.sampleRate }
     public let speaker = SDRSpeaker()
     public let settings: SDRSettingsStore
+    /// Kanalbank: mehrere Kanäle zugleich aus dem I/Q-Fenster (Modul KANÄLE)
+    public let bank = SDRChannelBank()
+    /// Audio-Ziel je Kanal der Bank (setzt der Programmzustand: die Pipeline des Decoders dieses Kanals)
+    public var slotAudio: ((Int) -> SDRReceiverEngine.AudioHandler?)?
     @Published public private(set) var status = ADSBStatus.idle
     /// Mitte des I/Q-Fensters (Gerät) in Hz
     @Published public private(set) var loHz = 0.0
@@ -250,6 +267,11 @@ public final class SDRController: ObservableObject {
         settings.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.settingsChanged() }
+            .store(in: &cancellables)
+        bank.onChange = { [weak self] in self?.bankChanged() }
+        bank.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
 
@@ -300,12 +322,16 @@ public final class SDRController: ObservableObject {
         let f = settings.frequencyHz
         // Mitte: gehörte Frequenz 300 kHz neben der Mitte (dort liegt keine Gleichanteil-Spitze)
         var lo = f + SDRSettingsStore.loOffset
-        var rate = Double(SDRSettingsStore.sampleRate)
+        var rate = Double(settings.effectiveSampleRate)
         let src: ADSBIQSource
         let usesFile = fileOverride != nil
         if usesFile {
             rate = Double(fileSampleRate)
             if fileCenterHz > 0 { lo = fileCenterHz }
+        }
+        if bank.isActive {
+            let plan = bank.replan(sampleRate: Int(rate), currentLoHz: nil)
+            if !plan.covered.isEmpty { lo = usesFile && fileCenterHz > 0 ? fileCenterHz : plan.loHz }
         }
         let gain = settings.gain(centerHz: lo)
         if let made = sourceFactory?(settings, lo) {
@@ -327,6 +353,7 @@ public final class SDRController: ObservableObject {
         engine.setOffset(f - lo)
         loHz = lo
         lastTunedFrequency = f
+        pushBank()
         let engine = self.engine
         let wait = usesFile && !fileRealtime
         let token = UUID()
@@ -378,6 +405,8 @@ public final class SDRController: ObservableObject {
         source = nil
         startedGain = nil
         engine.setAudioHandler(nil)
+        engine.removeAllExtraChannels()
+        engine.setPrimaryEnabled(true)
         speaker.stop()
         pipeline.stop()
     }
@@ -395,7 +424,7 @@ public final class SDRController: ObservableObject {
 
     private func publishStatus() {
         if case .running(let name) = status {
-            onStatus?(true, "SDR · \(name) · \(String(format: "%.1f", Double(SDRSettingsStore.sampleRate) / 1e6).replacingOccurrences(of: ".", with: ",")) MS/s", false)
+            onStatus?(true, "SDR · \(name) · \(String(format: "%.1f", Double(settings.effectiveSampleRate) / 1e6).replacingOccurrences(of: ".", with: ",")) MS/s", false)
         }
     }
 
@@ -406,7 +435,7 @@ public final class SDRController: ObservableObject {
         engine.setChannel(settings.channelConfig)
         applySpeaker()
         if isSelected, source != nil {
-            if settings.frequencyHz != lastTunedFrequency { applyFrequency() }
+            if settings.frequencyHz != lastTunedFrequency && !bank.isActive { applyFrequency() }
             publishRig()
             // Verstärkung des Geräts geändert: neu öffnen
             if let started = startedGain, started != settings.gain(centerHz: started.centerFrequencyHz) {
@@ -422,17 +451,16 @@ public final class SDRController: ObservableObject {
 
     private func applySpeaker() {
         speaker.volume = Float(settings.volume)
-        if settings.monitor && source != nil { speaker.start() } else { speaker.stop() }
+        let wanted = bank.isActive ? bank.monitorID != nil : settings.monitor
+        if wanted && source != nil { speaker.start() } else { speaker.stop() }
     }
 
     /// Gehörte Frequenz geändert: im Fenster nur den Mischer verschieben, sonst das Gerät umstimmen
     private func applyFrequency() {
         let f = settings.frequencyHz
         lastTunedFrequency = f
-        let rate = Double(SDRSettingsStore.sampleRate)
-        _ = rate
         var offset = f - loHz
-        let outside = abs(offset) > SDRSettingsStore.window || abs(offset) < 40_000
+        let outside = abs(offset) > SDRSettingsStore.window(forRate: settings.effectiveSampleRate) || abs(offset) < 40_000
         if outside {
             let target = f + SDRSettingsStore.loOffset
             if let tunable = source as? SDRTunableSource {
@@ -486,15 +514,70 @@ public final class SDRController: ObservableObject {
     private func poll() {
         guard isSelected, source != nil else { return }
         snapshot = engine.snapshot()
+        if bank.isActive { bank.setLevels(engine.extraChannelMetrics().mapValues(\.signalDB)) }
+    }
+
+    // MARK: Kanalbank
+
+    /// Kanäle geändert oder die Bank ein- bzw. ausgeschaltet: Gerätemitte neu planen, Kanäle an die Engine geben
+    private func bankChanged() {
+        objectWillChange.send()
+        guard isSelected, !isSuspended else { return }
+        guard source != nil else { return }
+        if !bank.isActive {
+            // Bank beendet: der Hörkanal braucht wieder ein Fenster um seine Frequenz
+            applyFrequency()
+        } else {
+            let plan = bank.replan(sampleRate: Int(engine.sampleRate), currentLoHz: loHz)
+            defer { publishRig() }
+            if !plan.covered.isEmpty, abs(plan.loHz - loHz) > 1 {
+                if let tunable = source as? SDRTunableSource {
+                    if tunable.retune(centerHz: plan.loHz) {
+                        loHz = plan.loHz
+                        tuneMessage = nil
+                    } else {
+                        tuneMessage = "Mitte \(Self.format(plan.loHz)) nicht einstellbar"
+                    }
+                }
+            }
+        }
+        pushBank()
+    }
+
+    /// Kanäle der Bank in die Engine übernehmen: je Kanal Abstand von der Gerätemitte, Betriebsart und Audio-Ziel
+    private func pushBank() {
+        guard bank.isActive else {
+            engine.removeAllExtraChannels()
+            engine.setPrimaryEnabled(true)
+            return
+        }
+        engine.setPrimaryEnabled(false)
+        let plan = bank.plan
+        let speaker = self.speaker
+        let monitor = bank.monitorID
+        for slot in bank.slots {
+            if slot.enabled, plan.covered.contains(slot.id) {
+                let sink = slotAudio?(slot.id)
+                var handler = sink
+                if slot.id == monitor {
+                    handler = { @Sendable buf in sink?(buf); speaker.write(buf) }
+                }
+                engine.setExtraChannel(id: slot.id, config: slot.channelConfig, offsetHz: slot.frequencyHz - loHz, handler: handler)
+            } else {
+                engine.removeExtraChannel(id: slot.id)
+            }
+        }
+        applySpeaker()
     }
 
     private func publishRig() {
         guard isSelected, source != nil else { return }
         var s = RigState()
         s.connected = true
-        s.frequencyHz = Int(settings.frequencyHz.rounded())
-        s.mode = settings.mode.hamlibName
-        s.passbandHz = Int(settings.bandwidthHz.rounded())
+        // Kanalbank: das Gerät steht auf der Mitte des Fensters
+        s.frequencyHz = Int((bank.isActive ? loHz : settings.frequencyHz).rounded())
+        s.mode = bank.isActive ? "FM" : settings.mode.hamlibName
+        s.passbandHz = bank.isActive ? Int(engine.sampleRate) : Int(settings.bandwidthHz.rounded())
         onRigState?(s)
     }
 

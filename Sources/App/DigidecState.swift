@@ -84,6 +84,8 @@ public final class DigidecState: ObservableObject {
     public let sensorsController: SensorsController
     public let sdr = SDRSettingsStore()
     public let sdrController: SDRController
+    /// Mehrkanalbetrieb: Decoder zu den Kanälen der Kanalbank (Modul KANÄLE)
+    public private(set) var channelHub: ChannelHub!
     public let vdl2 = VDL2SettingsStore()
     public let vdl2Controller: VDL2Controller
     public let dab = DABSettingsStore()
@@ -185,6 +187,9 @@ public final class DigidecState: ObservableObject {
         efrController = EFRController(pipeline: audio.pipeline, settings: efr)
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
 
+        channelHub = ChannelHub(bank: sdrController.bank, state: self)
+        sdrController.slotAudio = { [unowned self] id in self.channelHub.audioHandler(for: id) }
+
         autoRecorder = ScheduleAutoRecorder(state: self, wefax: wefaxSchedule, rtty: rttySchedule, navtex: navtexPlan, sonde: sondePlan)
         // Suchlauf nach Sonden: stimmt über die Abstimmung des Moduls (QSY AUTO, rigctld) Frequenz für Frequenz ab
         sondeScanner = SondeScanner(
@@ -267,6 +272,7 @@ public final class DigidecState: ObservableObject {
                 self?.dcf77Controller.setActive(module == .dcf77)
                 self?.efrController.setActive(module == .efr)
                 self?.sstvController.setActive(module == .sstv)
+                self?.updateChannelBank(active: module == .channels)
                 if !module.usesOwnIQDevice { self?.sdrController.resume() }
             }
             .store(in: &cancellables)
@@ -379,6 +385,14 @@ public final class DigidecState: ObservableObject {
         }
     }
 
+    /// Modul KANÄLE gewählt: der SDR-Empfänger wird als Quelle gewählt und die Kanalbank läuft; sonst hält sie an
+    private func updateChannelBank(active: Bool) {
+        if active, audio.sourceKind != .sdr { audio.selectSDR() }
+        sdrController.bank.setActive(active)
+        // Die Kanäle sind in der Engine des SDR-Empfängers; nach dem Umschalten Zustand übernehmen
+        if active { channelHub.sync() }
+    }
+
     private func observeForTuning<P: Publisher>(_ publisher: P) where P.Output: Equatable, P.Failure == Never {
         publisher
             .removeDuplicates()
@@ -407,7 +421,7 @@ public final class DigidecState: ObservableObject {
         case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
-        case .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv: return nil
+        case .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .channels: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
@@ -527,6 +541,17 @@ public final class DigidecState: ObservableObject {
                     state.sdrController.fileCenterHz = Double(env["DIGIDEC_SDR_CENTER"] ?? "") ?? 0
                     state.sdrController.fileRealtime = env["DIGIDEC_SDR_REALTIME"] != "0"
                 }
+                // DIGIDEC_BANK="aprs@144.8,acars@131.55": Kanäle der Kanalbank (Modul@MHz), ersetzen die gespeicherten
+                if let list = env["DIGIDEC_BANK"] {
+                    state.sdrController.bank.removeAll()
+                    for item in list.split(separator: ",") {
+                        let parts = item.split(separator: "@")
+                        guard parts.count == 2, let module = DecoderModuleInfo(rawValue: String(parts[0])), let mhz = Double(parts[1]) else { continue }
+                        let d = ChannelCatalog.defaults(for: module)
+                        state.sdrController.bank.add(moduleID: module.rawValue, frequencyHz: (mhz * 1e6).rounded(), mode: d.mode, bandwidthHz: d.bandwidthHz)
+                    }
+                }
+                if let n = env["DIGIDEC_BANK_SELECT"].flatMap({ Int($0) }), state.sdrController.bank.slots.indices.contains(n - 1) { state.sdrController.bank.selectedID = state.sdrController.bank.slots[n - 1].id }
                 if env["DIGIDEC_SDR_MONITOR"] != nil { state.sdr.monitor = true }
                 if let m = env["DIGIDEC_SDR_MODE"].flatMap({ SDRMode(hamlib: $0) }) { state.sdr.select(mode: m) }
                 if let f = env["DIGIDEC_SDR_FREQ"].flatMap({ Double($0) }) { state.sdr.frequencyHz = f }
@@ -641,6 +666,8 @@ public final class DigidecState: ObservableObject {
                 case .sstv:
                     if let preset = request.presetID, let ch = SSTVChannel(rawValue: preset) { sstv.channel = ch }
                     if let center = request.centerHz { sstv.setCenter(center) }
+                case .channels:
+                    break
                 }
             }
             lastRequestError = nil

@@ -183,6 +183,8 @@ public final class DStarController: ObservableObject {
     private var lastFrameAt: Date?
     private var cancellables: Set<AnyCancellable> = []
     public let output = VoiceOutput.shared
+    /// Kanal einer Kanalbank (mehrere Decoder zugleich): keine Sprachausgabe, der Stick gehört dem Hauptmodul
+    public var silent = false
 
     nonisolated static let utc: DateFormatter = {
         let f = DateFormatter()
@@ -204,7 +206,7 @@ public final class DStarController: ObservableObject {
 
     public func setActive(_ active: Bool) {
         decoder.setEnabled(active)
-        if !active { finishCurrent(.lost, now: Date()); output.stopPlayback() }
+        if !active { finishCurrent(.lost, now: Date()); if !silent { output.stopPlayback() } }
     }
 
     public func clear() {
@@ -232,7 +234,7 @@ public final class DStarController: ObservableObject {
 
     /// Eine Aussendung aus dem Verlauf noch einmal abspielen
     public func replay(_ t: DStarTransmission) {
-        output.play(t.ambe, profile: .dstar)
+        if !silent { output.play(t.ambe, profile: .dstar) }
     }
 
     // MARK: Verarbeitung
@@ -248,7 +250,7 @@ public final class DStarController: ObservableObject {
         output.refresh()
         var toPlay: [[UInt8]] = []
         for event in out.events { ingest(event, audio: &toPlay) }
-        output.play(toPlay, profile: .dstar)
+        if !silent { output.play(toPlay, profile: .dstar) }
         // Audio reißt ab, ohne dass Ende-Muster oder Verlust gemeldet werden: nach 3 s ohne Rahmen beenden
         if currentIndex != nil, let last = lastFrameAt, Date().timeIntervalSince(last) > 3 { finishCurrent(.lost, now: Date()) }
     }

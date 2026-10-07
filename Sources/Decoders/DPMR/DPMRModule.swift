@@ -115,6 +115,8 @@ public final class DPMRController: ObservableObject {
     @Published public private(set) var inverted = false
     @Published public private(set) var locked = false
     public let output = VoiceOutput.shared
+    /// Kanal einer Kanalbank (mehrere Decoder zugleich): keine Sprachausgabe, der Stick gehört dem Hauptmodul
+    public var silent = false
     public let recorder: InputRecorder
     @Published public private(set) var isRecording = false
     @Published public private(set) var recordingDuration: TimeInterval = 0
@@ -149,7 +151,7 @@ public final class DPMRController: ObservableObject {
 
     public func setActive(_ active: Bool) {
         decoder.setEnabled(active)
-        if !active { finish(reason: .lost, now: Date()); output.stopPlayback() }
+        if !active { finish(reason: .lost, now: Date()); if !silent { output.stopPlayback() } }
     }
 
     public func clear() {
@@ -194,7 +196,7 @@ public final class DPMRController: ObservableObject {
         var toPlay: [[UInt8]] = []
         let now = Date()
         for event in out.events { ingest(event, now: now, audio: &toPlay) }
-        output.play(toPlay, profile: .dmr)
+        if !silent { output.play(toPlay, profile: .dmr) }
         if current != nil, let last = lastVoice, now.timeIntervalSince(last) > 3 { finish(reason: .lost, now: now) }
     }
 
