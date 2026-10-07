@@ -25,6 +25,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case dstar
     case ysf
     case dmr
+    case dpmr
     case m17
     case sensors
     case vdl2
@@ -65,6 +66,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dstar:  return "D-STAR"
         case .ysf:    return "YSF"
         case .dmr:    return "DMR"
+        case .dpmr:   return "DPMR"
         case .m17:    return "M17"
         case .sensors: return "SENSOREN"
         case .vdl2:   return "VDL2"
@@ -115,7 +117,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var band: Band {
         switch self {
-        case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf: return .vhfUhf
+        case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf: return .vhfUhf
         case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
@@ -123,14 +125,14 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     /// Hat das Modul eine Kartenanzeige? (Ohne Ortsdaten nicht: Bilder, Funkruf, Tonfolgen, ALE)
     public var hasMap: Bool {
         switch self {
-        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .sensors, .vdl2, .vor, .freedv: return false
+        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .sensors, .vdl2, .vor, .freedv: return false
         default: return true
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -153,6 +155,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dstar: return ["dstar"]
         case .ysf: return ["ysf"]
         case .dmr: return ["dmr"]
+        case .dpmr: return ["dpmr"]
         case .m17: return ["m17"]
         case .vor: return ["vor", "loc", "gs"]   // VOR, Landekurssender, Gleitwegsender (Anzeige und Eichung)
         case .vdl2: return ["europa", "csc", "alle"]   // Kanalwahl: EUROPA (6 Kanäle), nur 136,975 MHz, alle Kanäle

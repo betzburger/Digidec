@@ -72,6 +72,8 @@ public final class DigidecState: ObservableObject {
     public let ysfController: YSFController
     public let dmr = DMRSettingsStore()
     public let dmrController: DMRController
+    public let dpmr = DPMRSettingsStore()
+    public let dpmrController: DPMRController
     public let m17 = M17SettingsStore()
     public let m17Controller: M17Controller
     public let sensors = SensorsSettingsStore()
@@ -150,6 +152,7 @@ public final class DigidecState: ObservableObject {
         dstarController = DStarController(pipeline: audio.pipeline, settings: dstar)
         ysfController = YSFController(pipeline: audio.pipeline, settings: ysf)
         dmrController = DMRController(pipeline: audio.pipeline, settings: dmr)
+        dpmrController = DPMRController(pipeline: audio.pipeline, settings: dpmr)
         m17Controller = M17Controller(pipeline: audio.pipeline, settings: m17)
         sensorsController = SensorsController(settings: sensors)
         vdl2Controller = VDL2Controller(settings: vdl2)
@@ -221,6 +224,7 @@ public final class DigidecState: ObservableObject {
                 self?.dstarController.setActive(module == .dstar)
                 self?.ysfController.setActive(module == .ysf)
                 self?.dmrController.setActive(module == .dmr)
+                self?.dpmrController.setActive(module == .dpmr)
                 self?.m17Controller.setActive(module == .m17)
                 self?.sensorsController.setActive(module == .sensors)
                 self?.vdl2Controller.setActive(module == .vdl2)
@@ -357,7 +361,7 @@ public final class DigidecState: ObservableObject {
         case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
-        case .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .vor, .freedv: return nil
+        case .dstar, .ysf, .dmr, .dpmr, .m17, .sensors, .vdl2, .vor, .freedv: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
@@ -489,7 +493,7 @@ public final class DigidecState: ObservableObject {
                     if let preset = request.presetID, let c = ACARSChannel(rawValue: preset) { acars.channel = c }
                 case .ais:
                     if let preset = request.presetID, let c = AISChannel(rawValue: preset) { ais.channel = c }
-                case .dstar, .ysf, .dmr, .m17:
+                case .dstar, .ysf, .dmr, .dpmr, .m17:
                     break
                 case .sensors:
                     if let preset = request.presetID, let b = SensorBand(rawValue: preset) { sensors.band = b }
