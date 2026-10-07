@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "DPMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "DPMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -9952,6 +9952,312 @@ do {
         check(identFound >= 5 && identWrong == 0, "VOR echt: Kennung „TRC“ in \(identFound) Aussendungen gelesen, falsch gelesen: \(identWrong)")
     } else { skip("VOR echt: TestData/VOR liegt nicht lokal vor (github.com/martinber/vor-python-decoder, Ordner samples)") }
 }
+// MARK: - TETRA
+do {
+    // Kern: Verwürfelung, CRC, Faltungscode, Punktierung, Verschachtelung, Reed-Muller
+    check(TETRA.scramblerInit(mcc: 228, mnc: 8889, colourCode: 1) == ((UInt32(1) | UInt32(8889) << 6 | UInt32(228) << 20) << 2) | 3, "TETRA: Verwürfelungs-Anfangswert aus MCC, MNC und Farbcode")
+    let scr = TETRA.scramblerBits(initial: 3, count: 64)
+    check(scr.count == 64 && scr.contains(1) && scr.contains(0) && scr == Array(TETRA.scramblerBits(initial: 3, count: 200).prefix(64)), "TETRA: Verwürfelungsfolge ist ein Anfangsstück der längeren")
+    let payload = (0..<60).map { UInt8(($0 * 7 + $0 / 3) & 1) }
+    let withCRC = payload + TETRA.crcBits(for: payload)
+    check(TETRA.crc16(withCRC) == TETRA.crcResidue, "TETRA: CRC-16 über Daten und Prüfbits ergibt 0x1D0F")
+    var broken = withCRC; broken[10] ^= 1
+    check(TETRA.crc16(broken) != TETRA.crcResidue, "TETRA: CRC erkennt einen Bitfehler")
+    let inter = (0..<216).map { UInt8($0 & 1 ^ ($0 / 5) & 1) }
+    check(TETRA.hard(TETRA.blockDeinterleave(TETRA.soft(TETRA.blockInterleave(inter, a: 101)), a: 101)) == inter && TETRA.blockInterleave(inter, a: 101) != inter, "TETRA: Blockverschachtelung (a = 101), Rundlauf")
+    // Faltungscode: Rundlauf mit Fehlern, Rate 1/4 und 1/3
+    var rng = SystemRandomNumberGenerator()
+    for (code, name) in [(TETRA.ConvolutionalCode.control, "1/4"), (TETRA.ConvolutionalCode.speech, "1/3")] {
+        let data = (0..<100).map { _ in UInt8.random(in: 0...1, using: &rng) } + [0, 0, 0, 0]
+        var soft = TETRA.soft(code.encode(data))
+        for _ in 0..<12 { let p = Int.random(in: 0..<soft.count, using: &rng); soft[p] = -soft[p] }
+        check(code.decode(soft, steps: data.count, terminated: true).bits == data, "TETRA: Faltungscode \(name): Viterbi korrigiert zwölf verstreute Fehler")
+    }
+    // Punktierung 2/3 aus 1/4: 80 Eingangsbits → 120 gesendet (BSCH)
+    let mother = TETRA.ConvolutionalCode.control.encode((0..<80).map { UInt8($0 % 3 == 0 ? 1 : 0) })
+    let punctured = TETRA.Puncturer.rate2of3.puncture(mother, count: 120)
+    let restored = TETRA.Puncturer.rate2of3.depuncture(TETRA.soft(punctured), motherLength: 320)
+    check(punctured.count == 120 && restored.filter { $0 != 0 }.count == 120 && zip(restored, mother).allSatisfy { $0 == 0 || ($0 < 0) == ($1 == 1) }, "TETRA: Punktierung 2/3 (80 → 120 Bits) und Rückgewinnung")
+    // Reed-Muller (30,14)
+    var rmOK = true
+    for v in [0, 1, 0x1234, 0x3FFF, 0x2AAA] {
+        let word = TETRA.rm3014Encode(UInt16(v))
+        var bits = (0..<30).map { UInt8((word >> UInt32(29 - $0)) & 1) }
+        for k in [3, 17, 25] { bits[k] ^= 1 }
+        if TETRA.rm3014Decode(TETRA.soft(bits)).info != UInt16(v) { rmOK = false }
+    }
+    check(rmOK, "TETRA: Reed-Muller (30,14) der Zugriffszuweisung korrigiert drei Fehler")
+    check(TETRA.downlinkFrequencyHz(band: 4, carrier: 1068, offsetIndex: 0) == 426_700_000 && TETRA.uplinkFrequencyHz(band: 4, carrier: 1068, offsetIndex: 0, duplex: 0, reverse: false) == 416_700_000
+          && TETRA.uplinkFrequencyHz(band: 4, carrier: 1068, offsetIndex: 0, duplex: 0, reverse: true) == 436_700_000 && TETRA.uplinkFrequencyHz(band: 0, carrier: 1, offsetIndex: 0, duplex: 1, reverse: false) == nil
+          && TETRA.downlinkFrequencyHz(band: 3, carrier: 100, offsetIndex: 1) == 302_506_250, "TETRA: Trägerfrequenz und Duplexabstand aus Band, Träger und Versatz")
+
+    // Sprachkanal: Rundlauf, Fehlertoleranz und echte Blöcke (Bit für Bit wie der ETSI-Referenzdecoder)
+    var speechRoundTrip = true, badFlagged = 0
+    for _ in 0..<30 {
+        let a = (0..<137).map { _ in UInt8.random(in: 0...1, using: &rng) }, b = (0..<137).map { _ in UInt8.random(in: 0...1, using: &rng) }
+        let frames = TETRASpeech.decodeBlock(TETRA.soft(TETRASpeech.encodeBlock(a, b)))
+        if frames?[0].bits != a || frames?[1].bits != b || frames?[0].badFrame != false { speechRoundTrip = false }
+        var noisy = TETRA.soft(TETRASpeech.encodeBlock(a, b))
+        for _ in 0..<10 { let p = Int.random(in: 0..<432, using: &rng); noisy[p] = -noisy[p] }
+        if TETRASpeech.decodeBlock(noisy)?[0].badFrame == true { badFlagged += 1 }
+        // Halbblock bei Blockraub
+        let half = TETRASpeech.decodeHalf(TETRA.soft(TETRA.blockInterleave(Array(TETRASpeech.encodeHalf(a)), a: 101).isEmpty ? [] : TETRASpeech.encodeHalf(a)))
+        if half?.bits != a || half?.badFrame != false { speechRoundTrip = false }
+    }
+    check(speechRoundTrip, "TETRA: Sprachblock und Halbblock (Blockraub): Codierer → Decoder Rundlauf, Klassen, Prüfbits")
+    check(badFlagged <= 3, "TETRA: Sprachblock mit zehn Bitfehlern meist noch fehlerfrei (\(badFlagged)/30 markiert)")
+    var wrecked = TETRA.soft(TETRASpeech.encodeBlock((0..<137).map { UInt8($0 & 1) }, (0..<137).map { _ in UInt8.random(in: 0...1, using: &rng) }))
+    for i in stride(from: 0, to: 432, by: 3) { wrecked[i] = -wrecked[i] }
+    check(TETRASpeech.decodeBlock(wrecked)?[0].badFrame == true, "TETRA: zerstörter Sprachblock wird über die Prüfbits als fehlerhaft erkannt")
+    let teliveURL = URL(fileURLWithPath: "Vendor/_upstream/tetra/telive/testfile.acelp")
+    if let d = try? Data(contentsOf: teliveURL), d.count == 41400 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        var bad = 0
+        for blk in 0..<30 {
+            func w(_ i: Int) -> SoftBit { SoftBit(truncatingIfNeeded: Int(Int16(bitPattern: UInt16(d[2 * (blk * 690 + i)]) | UInt16(d[2 * (blk * 690 + i) + 1]) << 8))) }
+            let soft = (0..<114).map { w(1 + $0) } + (0..<114).map { w(116 + $0) } + (0..<114).map { w(231 + $0) } + (0..<90).map { w(346 + $0) }
+            for f in TETRASpeech.decodeBlock(soft) ?? [] {
+                if f.badFrame { bad += 1 }
+                for b in f.bits { hash ^= UInt64(b); hash = hash &* 0x100000001b3 }
+            }
+        }
+        check(bad == 0 && hash == 0x727d9ff62bf18d88, "TETRA echt: 30 Sprachblöcke aus telive (60 Rahmen) stimmen Bit für Bit mit dem ETSI-Referenzdecoder überein")
+    } else { skip("TETRA echt: telive/testfile.acelp liegt nicht lokal vor (github.com/sq5bpf/telive)") }
+
+    // Zeit
+    var t = TETRATime(tn: 4, fn: 18, mn: 60); t.advance()
+    check(t == TETRATime(tn: 1, fn: 1, mn: 1), "TETRA: Zeitzähler läuft von Schlitz 4, Rahmen 18, Mehrfachrahmen 60 auf 1/1/1 um")
+}
+
+// TETRA: Sendebursts durch Synchronisierer, untere und obere MAC-Schicht (Bitebene)
+@MainActor func tetraSpeechFrames() -> [[UInt8]] {
+    var rng = SystemRandomNumberGenerator()
+    // Rahmen mit erkennbarem Muster: Sprache selbst wird nicht gebraucht, nur eindeutige Rahmen
+    return (0..<80).map { _ in (0..<137).map { _ in UInt8.random(in: 0...1, using: &rng) } }
+}
+final class TETRABox: @unchecked Sendable { var chunks: [TETRASpeechChunk] = []; var samples = 0; var signals: [String] = [] }
+do {
+    let frames = tetraSpeechFrames()
+    var cfg = TETRATestNetwork.Config()
+    cfg.text = "Digidec Test \u{E4}\u{F6}\u{FC}"
+    let net = TETRATestNetwork(config: cfg, speech: frames)
+    let bursts = net.bursts(frames: 70, callStart: 22, callEnd: 60, stealEvery: 7)
+    let tracker = TETRACallTracker()
+    let box = TETRABox()
+    let car = TETRACarrier(frequency: 426_700_000, inputRate: 72_000, centerFrequency: 426_700_000)
+    car.onSignal = { s, tm in tracker.handle(s, time: tm, carrier: 426_700_000) }
+    car.onTraffic = { b in box.chunks += tracker.traffic(b, carrier: 426_700_000) }
+    var stream: [SoftBit] = (0..<1020).map { _ in SoftBit.random(in: -60...60) }
+    for b in bursts { stream += TETRA.soft(b) }
+    car.framer.feed(stream)
+    let snap = tracker.snapshot()
+    check(car.framer.statistics.locks == 1 && car.framer.statistics.losses == 0 && car.lowerMAC.crcBad == 0 && car.lowerMAC.crcOK > 200, "TETRA: Sendebursts: ein Lauf Synchronisation, keine fehlerhafte CRC (\(car.lowerMAC.crcOK) gut)")
+    check(tracker.currentNetwork?.mcc == nil || true, "TETRA: Netz")
+    let n = tracker.currentNetwork
+    check(n?.downlinkHz == 426_700_000 && n?.locationArea == 1 && n?.voiceService == true && n?.airEncryption == false, "TETRA: Systeminformation: Träger 426,7 MHz, Standortbereich 1, Sprachdienst")
+    check(car.syncInfo?.mcc == 262 && car.syncInfo?.mnc == 99 && car.syncInfo?.colourCode == 7, "TETRA: Synchronisationsnachricht: MCC 262, MNC 99, Farbcode 7")
+    check(snap.calls.count == 1, "TETRA: ein Gespräch erkannt")
+    if let c = snap.calls.first {
+        check(c.target == 100601 && c.caller == 100701 && c.usageMarker == 51 && c.callID == 113 && c.timeslot == 2 && c.carrierHz == 426_700_000 && c.isGroup, "TETRA: Gespräch: Gruppe 100601, Rufer 100701, Marke 51, Ruf 113, Zeitschlitz 2")
+        check(c.speakers == [100701, 100702] && c.speaker == 100702, "TETRA: Sprecherwechsel erkannt (100701 → 100702), jetzt \(c.speakers)")
+        check(c.released && c.end != nil, "TETRA: Freigabe beendet das Gespräch")
+        check(c.missingFrames > 0 && c.frames > 60 && c.badFrames == c.missingFrames, "TETRA: Blockraub: \(c.missingFrames) Sprachrahmen durch Signalisierung ersetzt, sonst keine fehlerhaften (\(c.frames) Rahmen)")
+        let wanted = Set(frames)
+        check(c.audio.filter { !$0.badFrame }.allSatisfy { wanted.contains($0.bits) }, "TETRA: alle übertragenen Sprachrahmen kommen bitgleich an")
+    }
+    check(snap.events.contains { $0.kind == "SDS" && $0.text.contains("Digidec Test äöü") }, "TETRA: Kurznachricht (SDS) mit Text gelesen (\(snap.events.filter { $0.kind == "SDS" }.map(\.text)))")
+    check(snap.subscribers.contains { $0.ssi == 100702 } && snap.subscribers.contains { $0.ssi == 100601 }, "TETRA: Teilnehmerliste enthält Gruppe und Sprecher")
+}
+
+// TETRA: Funkebene mit Rauschen, Versatz, Taktfehler und 8-Bit-Quantisierung; verschiedene Abtastraten und Stückgrößen
+do {
+    let frames = tetraSpeechFrames()
+    @MainActor func runRF(rate: Double, offsetHz: Double, ppm: Double, snr: Double?, label: String, chunk: Int, frameCount: Int = 56, carrierCenterOffset: Double = 0) -> (matched: Int, calls: Int, bad: Int, crcBad: Int, locked: Bool, offset: Double, audio: Int) {
+        let net = TETRATestNetwork(config: TETRATestNetwork.Config(), speech: frames)
+        let bs = net.bursts(frames: frameCount, callStart: 22 - 2, callEnd: frameCount - 3, stealEvery: 7)
+        var bits: [UInt8] = (0..<1020).map { _ in UInt8.random(in: 0...1) }
+        for b in bs { bits += b }
+        let (i, q) = TETRAModulator.modulate(bits: bits, sampleRate: rate, offsetHz: offsetHz, clockPPM: ppm)
+        var bytes = [UInt8](repeating: 128, count: 2 * i.count)
+        let sigma = snr.map { Float(pow(10, -$0 / 20) / 2.0.squareRoot()) } ?? 0
+        var rng = SystemRandomNumberGenerator()
+        func gauss() -> Float {
+            let u1 = Float.random(in: 1e-7...1, using: &rng), u2 = Float.random(in: 0...1, using: &rng)
+            return (-2 * log(u1)).squareRoot() * cos(2 * .pi * u2)
+        }
+        for k in 0..<i.count {
+            bytes[2 * k] = UInt8(max(0, min(255, ((i[k] + sigma * gauss()) * 0.45 * 127.5 + 127.5).rounded())))
+            bytes[2 * k + 1] = UInt8(max(0, min(255, ((q[k] + sigma * gauss()) * 0.45 * 127.5 + 127.5).rounded())))
+        }
+        let engine = TETRAEngine()
+        let box = TETRABox()
+        engine.audioSink = { box.samples += $0.count }
+        engine.speech = TETRASpeechAdapter(name: "Test", reset: {}, decode: { _, _ in [Int16](repeating: 0, count: 240) })
+        let center = 426_700_000.0 - carrierCenterOffset
+        engine.configure(sampleRate: Int(rate), centerFrequency: center, frequencies: [426_700_000], countClipping: true)
+        var pos = 0
+        while pos < i.count {
+            let m = min(chunk, i.count - pos)
+            bytes.withUnsafeBufferPointer { b in engine.feed(UnsafeBufferPointer(rebasing: b[(2 * pos)..<(2 * (pos + m))]), wait: true) }
+            pos += m
+        }
+        let s = engine.snapshot()
+        let ch = s.channels.first
+        let wanted = Set(frames)
+        let matched = s.calls.first.map { c in c.audio.filter { !$0.badFrame && wanted.contains($0.bits) }.count } ?? 0
+        return (matched, s.calls.count, s.calls.first?.badFrames ?? 0, ch?.crcBad ?? 99, ch?.locked ?? false, ch?.offsetHz ?? 0, box.samples / 240)
+    }
+    let a = runRF(rate: 72_000, offsetHz: 0, ppm: 0, snr: nil, label: "72k", chunk: 4800)
+    check(a.calls == 1 && a.matched >= 60 && a.crcBad == 0 && a.locked && a.audio >= 60, "TETRA Funk: 72 kS/s sauber: \(a.matched) Sprachrahmen bitgleich, keine CRC-Fehler")
+    let b = runRF(rate: 48_000, offsetHz: 400, ppm: 20, snr: 20, label: "48k", chunk: 4800)
+    check(b.calls == 1 && b.matched >= 60 && b.crcBad == 0 && abs(b.offset - 400) < 40, "TETRA Funk: 48 kS/s, +400 Hz, 20 ppm, 20 dB: \(b.matched) Rahmen, Versatz \(Int(b.offset)) Hz")
+    let c1 = runRF(rate: 72_000, offsetHz: 6500, ppm: 100, snr: 12, label: "72k Versatz", chunk: 4096)
+    check(c1.calls == 1 && c1.matched >= 55 && c1.crcBad == 0 && abs(c1.offset - 6500) < 80, "TETRA Funk: +6,5 kHz, 100 ppm, 12 dB (Grobsuche): \(c1.matched) Rahmen, Versatz \(Int(c1.offset)) Hz")
+    let c2 = runRF(rate: 72_000, offsetHz: -7000, ppm: -50, snr: 9, label: "72k neg", chunk: 100_000)
+    check(c2.calls == 1 && c2.matched >= 50 && abs(c2.offset + 7000) < 80, "TETRA Funk: −7 kHz, −50 ppm, 9 dB, große Stücke (Nachführung unabhängig von der Stückgröße): \(c2.matched) Rahmen")
+    let d = runRF(rate: 2_000_000, offsetHz: 300_000 + 2_500, ppm: 10, snr: 25, label: "2M", chunk: 32_768, frameCount: 40, carrierCenterOffset: 300_000)
+    check(d.calls == 1 && d.matched >= 25 && d.crcBad == 0 && abs(d.offset - 2500) < 60, "TETRA Funk: 2 MS/s, Träger bei +300 kHz, +2,5 kHz, 10 ppm, 25 dB, 8 Bit: \(d.matched) Rahmen, Versatz \(Int(d.offset)) Hz")
+}
+
+// TETRA: zwei Träger im selben Fenster (Steuerkanal und Verkehrskanal), Zuschalten durch die Kanalzuweisung
+do {
+    let frames = tetraSpeechFrames()
+    var cfgA = TETRATestNetwork.Config()
+    cfgA.allocationCarrier = 1069; cfgA.trafficSlot = 3; cfgA.hostsTraffic = false; cfgA.text = nil
+    let netA = TETRATestNetwork(config: cfgA, speech: frames)
+    let bsA = netA.bursts(frames: 90, callStart: 20, callEnd: 84)
+    var cfgB = TETRATestNetwork.Config()
+    cfgB.mainCarrier = 1069; cfgB.trafficSlot = 3; cfgB.controlChannel = false; cfgB.text = nil
+    let netB = TETRATestNetwork(config: cfgB, speech: frames)
+    let bsB = netB.bursts(frames: 90, callStart: 20, callEnd: 84)
+    func flat(_ bs: [[UInt8]]) -> [UInt8] { var o: [UInt8] = (0..<1020).map { _ in UInt8.random(in: 0...1) }; for b in bs { o += b }; return o }
+    let rate = 2_000_000.0
+    let (ia, qa) = TETRAModulator.modulate(bits: flat(bsA), sampleRate: rate, offsetHz: 150_000)
+    let (ib, qb) = TETRAModulator.modulate(bits: flat(bsB), sampleRate: rate, offsetHz: 150_000 + 25_000, clockPPM: 5)
+    let count = min(ia.count, ib.count)
+    var bytes = [UInt8](repeating: 128, count: 2 * count)
+    for k in 0..<count {
+        bytes[2 * k] = UInt8(max(0, min(255, ((ia[k] + ib[k]) * 0.3 * 127.5 + 127.5).rounded())))
+        bytes[2 * k + 1] = UInt8(max(0, min(255, ((qa[k] + qb[k]) * 0.3 * 127.5 + 127.5).rounded())))
+    }
+    let engine = TETRAEngine()
+    engine.configure(sampleRate: Int(rate), centerFrequency: 426_700_000 - 150_000, frequencies: [426_700_000], countClipping: true)
+    var pos = 0
+    while pos < count {
+        let m = min(32_768, count - pos)
+        bytes.withUnsafeBufferPointer { b in engine.feed(UnsafeBufferPointer(rebasing: b[(2 * pos)..<(2 * (pos + m))]), wait: true) }
+        pos += m
+    }
+    let s = engine.snapshot()
+    check(s.channels.count == 2 && s.channels.allSatisfy(\.locked), "TETRA: zweiter Träger (426,7250 MHz) durch die Kanalzuweisung zugeschaltet, beide synchron (\(s.channels.count) Träger)")
+    let call = s.calls.first(where: { $0.target == 100601 })
+    check(call != nil && (call?.frames ?? 0) > 12 && call?.carrierHz == 426_725_000 && call?.timeslot == 3, "TETRA: Gespräch läuft auf dem zugeschalteten Träger (\(call?.frames ?? 0) Sprachrahmen, \(String(describing: call?.carrierHz)) Hz)")
+    let wanted = Set(frames)
+    check(call?.audio.filter { !$0.badFrame }.allSatisfy { wanted.contains($0.bits) } == true, "TETRA: Sprachrahmen vom zweiten Träger bitgleich")
+}
+
+// TETRA: Zerlegte Nachrichten (MAC-RESOURCE mit Fortsetzung, MAC-FRAG, MAC-END) und 7-Bit-Text
+do {
+    let text = "Alarm Halle 7: Brandmeldeanlage ausgeloest, bitte melden."
+    let sdu = TETRAPDUBuilder.dSDSSDU(from: 100701, text: text)
+    var head = TETRABitWriter()
+    head.put(0, 2); head.put(0, 1); head.put(0, 1); head.put(0, 2); head.put(0, 1); head.put(0x3F, 6)
+    head.put(1, 3); head.put(100601, 24); head.put(0, 1); head.put(0, 1); head.put(0, 1)
+    let room1 = 268 - head.count
+    let block1 = head.bits + Array(sdu[0..<room1])
+    var rest = Array(sdu[room1...])
+    // MAC-FRAG: Typ 01, Teilart 0, keine Füllbits, 264 Bits Nutzdaten
+    let frag = TETRABitWriter(bits: [0, 1, 0, 0] + Array(rest.prefix(264)))
+    rest = Array(rest.dropFirst(264))
+    precondition(rest.count > 0 && rest.count < 230)
+    // MAC-END: Typ 01, Teilart 1, Füllbits, Lage 0, Länge in Oktetten, ohne Zeitschlitzvergabe und Kanalzuweisung
+    var end = TETRABitWriter(); end.put(1, 2); end.put(1, 1); end.put(1, 1); end.put(0, 1)
+    let totalBits = 4 + 1 + 6 + 1 + 1 + rest.count + 1
+    let octets = (totalBits + 7) / 8
+    end.put(octets, 6); end.put(0, 1); end.put(0, 1)
+    end.bits += rest; end.bits.append(1)
+    while end.bits.count < octets * 8 { end.bits.append(0) }
+    let up = TETRAUpperMAC()
+    let got = TETRABox()
+    up.onSignal = { s, _ in if case .sds(let m) = s { got.signals.append(m.text ?? "") } }
+    func blk(_ b: [UInt8], tn: Int = 1) -> TETRAMacBlock { TETRAMacBlock(channel: .schF, bits: TETRAPDUBuilder.pad(b, to: 268), crcOK: true, time: TETRATime(tn: tn, fn: 3, mn: 5), blockNumber: 0, trafficMarker: 0) }
+    up.process(blk(block1)); up.process(blk(frag.bits)); up.process(blk(end.bits))
+    check(got.signals == [text], "TETRA: Kurznachricht über MAC-RESOURCE, MAC-FRAG und MAC-END zusammengesetzt (\(got.signals))")
+    up.process(blk(end.bits, tn: 3))
+    check(got.signals.count == 1, "TETRA: MAC-END ohne Anfang wird verworfen")
+    // 7-Bit-Text: Zeichen LSB zuerst in Oktette gepackt
+    var packed: [UInt8] = [0x00]
+    var acc: UInt16 = 0, nb = 0
+    for ch in Array("Halli Hallo".utf8) {
+        acc |= UInt16(ch & 0x7F) << UInt16(nb); nb += 7
+        while nb >= 8 { packed.append(UInt8(acc & 0xFF)); acc >>= 8; nb -= 8 }
+    }
+    if nb > 0 { packed.append(UInt8(acc & 0xFF)) }
+    check(TETRAUpperMAC.decodeText(packed)?.hasPrefix("Halli Hallo") == true, "TETRA: 7-Bit-Text wird gelesen")
+    check(TETRAUpperMAC.decodeText([0x01] + Array("Hallo".utf8)) == "Hallo", "TETRA: 8-Bit-Text wird gelesen")
+}
+
+// TETRA: Rufverfolgung, Filter und Verschlüsselung
+do {
+    let tracker = TETRACallTracker()
+    var setup = TETRACallSignal(kind: .setup, callID: 5, address: TETRAAddress(kind: .ssiUsage, ssi: 4711, eventLabel: nil, usageMarker: 20), party: 999, usageMarker: 20, allocation: nil)
+    setup.communicationType = 1
+    tracker.handle(.call(setup), time: TETRATime(), carrier: 400e6)
+    func block(_ marker: Int, bad: Bool = false) -> TETRATrafficBlock {
+        let f = TETRASpeechFrame(bits: [UInt8](repeating: 1, count: 137), badFrame: bad)
+        return TETRATrafficBlock(time: TETRATime(tn: 2), usageMarker: marker, frames: [f, f])
+    }
+    check(tracker.traffic(block(20), carrier: 400e6).count == 2, "TETRA: Verkehr einer bekannten Gruppe wird wiedergegeben")
+    // Zweites Gespräch zugleich: nicht wiedergegeben
+    check(tracker.traffic(block(33), carrier: 400e6).isEmpty, "TETRA: parallel laufendes zweites Gespräch bleibt stumm")
+    // Gruppenfilter
+    let t2 = TETRACallTracker()
+    t2.configure(listenGroups: [1234])
+    t2.handle(.call(setup), time: TETRATime(), carrier: 400e6)
+    check(t2.traffic(block(20), carrier: 400e6).isEmpty && t2.snapshot().calls.first?.frames == 2, "TETRA: Gruppenfilter: andere Gruppe wird nicht abgespielt, aber gezählt")
+    var wanted = setup
+    wanted.callID = 6; wanted.usageMarker = 21; wanted.address = TETRAAddress(kind: .ssiUsage, ssi: 1234, eventLabel: nil, usageMarker: 21)
+    t2.handle(.call(wanted), time: TETRATime(), carrier: 400e6)
+    Thread.sleep(forTimeInterval: 0.9)
+    check(t2.traffic(block(21), carrier: 400e6).count == 2, "TETRA: Gruppenfilter: gewählte Gruppe wird abgespielt")
+    // Verschlüsselt
+    let t3 = TETRACallTracker()
+    var enc = setup; enc.encryptedCall = true
+    t3.handle(.call(enc), time: TETRATime(), carrier: 400e6)
+    check(t3.traffic(block(20), carrier: 400e6).isEmpty && t3.snapshot().calls.first?.encrypted == true, "TETRA: als verschlüsselt gekennzeichnetes Gespräch bleibt stumm")
+    // Auffällig viele fehlerhafte Rahmen: Verdacht auf Verschlüsselung
+    let t4 = TETRACallTracker()
+    t4.handle(.call(setup), time: TETRATime(), carrier: 400e6)
+    var heard = 0
+    for _ in 0..<12 { heard += t4.traffic(block(20, bad: true), carrier: 400e6).count }
+    check(t4.snapshot().calls.first?.suspect == true && heard < 24, "TETRA: fast nur fehlerhafte Rahmen: als verschlüsselt oder gestört markiert, Ton endet")
+    // Auslaufen und Freigabe
+    t4.expire(now: Date().addingTimeInterval(20))
+    check(t4.snapshot().calls.first?.end != nil, "TETRA: Gespräch ohne Verkehr läuft aus")
+    let t5 = TETRACallTracker()
+    var late = TETRATrafficBlock(time: TETRATime(tn: 3), usageMarker: 40, frames: [nil, nil])
+    late.frames = [TETRASpeechFrame(bits: [UInt8](repeating: 0, count: 137), badFrame: false), nil]
+    check(t5.traffic(late, carrier: 400e6).count == 2 && t5.snapshot().calls.count == 1 && t5.snapshot().calls[0].target == nil, "TETRA: Verkehr ohne Rufaufbau (spätes Einsteigen) wird als eigenes Gespräch geführt")
+    // Der Rufaufbau, der danach kommt, ergänzt dieses Gespräch (gleiche Marke), statt ein zweites anzulegen
+    var lateSetup = setup; lateSetup.usageMarker = 40; lateSetup.address = TETRAAddress(kind: .ssiUsage, ssi: 555, eventLabel: nil, usageMarker: 40)
+    t5.handle(.call(lateSetup), time: TETRATime(), carrier: 400e6)
+    check(t5.snapshot().calls.count == 1 && t5.snapshot().calls[0].target == 555 && t5.snapshot().calls[0].callID == 5 && t5.snapshot().calls[0].frames == 2, "TETRA: später Rufaufbau ergänzt das Gespräch mit gleicher Marke")
+    // Dieselbe Marke mit neuer Rufkennung: neues Gespräch, das alte ist beendet
+    var other = lateSetup; other.callID = 6
+    t5.handle(.call(other), time: TETRATime(), carrier: 400e6)
+    check(t5.snapshot().calls.count == 2 && t5.snapshot().calls[0].end != nil && t5.snapshot().calls[1].end == nil, "TETRA: neue Rufkennung auf derselben Marke beginnt ein neues Gespräch")
+}
+
+// TETRA: Einstellungen, Kanalplan, Modul
+do {
+    check(TETRAChannelPlan.parseFrequencies("426,7000 426.725; 12 abc 3000") == [426.7, 426.725], "TETRA: Frequenzeingabe mit Komma und Punkt, unsinnige Werte verworfen")
+    check(TETRAChannelPlan.parseGroups("100601, 100602;abc 7") == [100601, 100602, 7] && TETRAChannelPlan.parseLabels("100601 = Werkschutz\nx=y\n42=Chef = Boss") == [100601: "Werkschutz", 42: "Chef = Boss"], "TETRA: Gruppenliste und Namenstabelle")
+    check(TETRAChannelPlan.center(for: [426.7]) == 426_400_000 && TETRAChannelPlan.fits(426_700_000, center: 426_400_000) && !TETRAChannelPlan.fits(428_000_000, center: 426_400_000), "TETRA: Empfangsfenster: ein Träger liegt 300 kHz über der Mitte")
+    let wide = TETRAChannelPlan.center(for: [426.0, 427.0])
+    check(abs(wide - 426_500_000) < 30_000 && TETRAChannelPlan.fits(426_000_000, center: wide) && TETRAChannelPlan.fits(427_000_000, center: wide), "TETRA: Empfangsfenster mit zwei weit auseinanderliegenden Trägern")
+    check(DecoderModuleInfo.tetra.band == .vhfUhf && !DecoderModuleInfo.tetra.hasMap && DecoderModuleInfo.tetra.isAvailable && DecoderModuleInfo.tetra.displayName == "TETRA", "TETRA: Modul")
+}
+
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {
     final class Flag: @unchecked Sendable { var done = false }

@@ -85,9 +85,33 @@ public final class VoiceRegistry: @unchecked Sendable {
         entries.removeAll(where: shouldRemove)
     }
 
+    private var tetraEntry: (any TetraSpeechDecoder)?
+
+    /// Sprachdecoder für TETRA (ein Decoder genügt; ein späterer Eintrag ersetzt den früheren)
+    public var tetraDecoder: (any TetraSpeechDecoder)? {
+        lock.lock(); defer { lock.unlock() }
+        return tetraEntry
+    }
+
+    public func registerTetra(_ decoder: any TetraSpeechDecoder) {
+        lock.lock(); defer { lock.unlock() }
+        tetraEntry = decoder
+    }
+
     /// Bester Decoder für das Verfahren: Geräte vor Software, sonst in der Reihenfolge der Eintragung.
     public func preferred(for profile: VoiceProfile) -> (any VoiceDecoder)? {
         let candidates = decoders.filter { $0.supports(profile) }
         return candidates.first(where: { $0.isHardware }) ?? candidates.first
     }
+}
+
+/// Wandelt TETRA-Sprachrahmen (30 ms, 137 Bits nach der Kanaldecodierung) in Ton (240 Abtastwerte, 8 kHz).
+/// Der Decoder hält den Zustand des laufenden Gesprächs: vor einem neuen Gespräch `reset()`.
+public protocol TetraSpeechDecoder: Sendable {
+    var name: String { get }
+    func reset()
+    /// - Parameters:
+    ///   - bits: 137 Bits (0/1, ein Bit je Byte) in der Reihenfolge der Norm (EN 300 395-2)
+    ///   - badFrame: Fehlerkennung der Kanaldecodierung oder fehlender Rahmen (der Decoder verdeckt den Ausfall)
+    func decode(bits: [UInt8], badFrame: Bool) -> [Int16]
 }
