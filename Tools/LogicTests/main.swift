@@ -12,6 +12,17 @@ import ImageIO
 import Darwin
 import AVFoundation
 
+/// Auswahl der Prüfgruppen: `LT_ONLY=dab,sdr` oder Argument `--only dab,sdr` (leer = alle); `--groups` listet sie auf.
+/// Neue Blöcke beginnen am Zeilenanfang mit `if want("gruppe") {`, damit sie sich einzeln und parallel ausführen lassen.
+nonisolated(unsafe) let selectedGroups: Set<String>? = {
+    var list = ProcessInfo.processInfo.environment["LT_ONLY"] ?? ""
+    let args = CommandLine.arguments
+    if let i = args.firstIndex(of: "--only"), i + 1 < args.count { list = args[i + 1] }
+    let set = Set(list.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+    return set.isEmpty ? nil : set
+}()
+func want(_ group: String) -> Bool { selectedGroups == nil || selectedGroups!.contains(group) }
+
 var failures = 0
 var checks = 0
 /// Prüfungen mit echten Aufnahmen, die nur lokal liegen (TestData/ ist nicht im Repository)
@@ -33,7 +44,7 @@ var skipped = 0
 }
 
 // MARK: - URL-Schema: vollständiger Auftrag (Beispiel aus PLAN.md, Abschnitt 3.1)
-do {
+if want("url") {
     let r = parse("digidec://decode?mode=rtty&preset=dwd-lw&source=pcr1500&rigctl=4532&device=VALHost2ch_UID&center=1000")
     check(r == .success(DecodeRequest(module: .rtty, presetID: "dwd-lw", source: "pcr1500",
                                       rigctlPort: 4532, deviceUID: "VALHost2ch_UID", centerHz: 1000)),
@@ -50,7 +61,7 @@ do {
 }
 
 // MARK: - URL-Schema: Standardwerte und Toleranz
-do {
+if want("url") {
     // Ohne Preset: erstes Preset des Moduls (Amateurfunk)
     check(parse("digidec://decode?mode=rtty") == .success(DecodeRequest(module: .rtty, presetID: "ham")),
           "Standard-Preset ham")
@@ -83,7 +94,7 @@ do {
 }
 
 // MARK: - URL-Schema: Fehlerfälle
-do {
+if want("url") {
     check(parse("http://decode?mode=rtty") == .failure(.wrongScheme("http")), "Falsches Schema")
     check(parse("digidec://start?mode=rtty") == .failure(.unknownAction("start")), "Falsche Aktion")
     check(parse("digidec://decode") == .failure(.missingMode), "Mode fehlt")
@@ -120,7 +131,7 @@ do {
 }
 
 // MARK: - Modul-Liste
-do {
+if want("url") {
     check(DecoderModuleInfo.allCases.filter(\.isAvailable) == DecoderModuleInfo.allCases, "Alle Module verfügbar")
     for m in DecoderModuleInfo.allCases where m.isAvailable {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
@@ -139,7 +150,7 @@ do {
 
 
 // MARK: - Audio: Ringpuffer
-do {
+if want("audio") {
     let rb = FloatRingBuffer(capacity: 8)
     var src: [Float] = [1, 2, 3, 4, 5]
     var dst = [Float](repeating: 0, count: 8)
@@ -159,7 +170,7 @@ do {
 }
 
 // MARK: - Audio: Kanalwahl
-do {
+if want("audio") {
     let inter: [Float] = [1, 10, 2, 20, 3, 30]   // L, R verschachtelt
     var out = [Float](repeating: 0, count: 3)
     ChannelMode.extract(interleaved: inter, frames: 3, channels: 2, mode: .left, into: &out)
@@ -179,7 +190,7 @@ do {
 }
 
 // MARK: - Audio: Pegel
-do {
+if want("audio") {
     check(AudioLevel.dB(1) == 0, "0 dBFS")
     check(abs(AudioLevel.dB(0.5) - -6.0206) < 0.001, "-6 dBFS")
     check(AudioLevel.dB(0) == AudioLevel.floorDB, "Stille = Boden")
@@ -209,7 +220,7 @@ do {
 @MainActor func rms(_ x: ArraySlice<Float>) -> Double {
     (x.reduce(0.0) { $0 + Double($1) * Double($1) } / Double(x.count)).squareRoot()
 }
-do {
+if want("audio") {
     let out = resample(freq: 1000)
     check(out.count > 7950 && out.count <= 8000, "SRC: ~8000 Samples aus 1 s, got \(out.count)")
     // Kein Sample darf verloren gehen: 1 s mehr Eingang = genau 8000 Samples mehr, bei jeder Blockgröße bitgleich
@@ -235,7 +246,7 @@ do {
 }
 
 // MARK: - Audio: Pipeline Ende-zu-Ende (Ringpuffer -> Wandler -> Senke)
-do {
+if want("audio") {
     let pipeline = AudioPipeline()
     final class Counter: @unchecked Sendable { let lock = NSLock(); var n = 0 }
     let counter = Counter()
@@ -253,7 +264,7 @@ do {
 }
 
 // MARK: - Audio: Funkgeräte-Codec über den eingebauten USB-Hub finden (unabhängig vom Port)
-do {
+if want("audio") {
     typealias L = RadioCodecLocator
     check(L.parentHubLocation(0x03114320) == 0x03114300, "Hub von 0x03114320")
     check(L.parentHubLocation(0x03114310) == 0x03114300, "Hub von 0x03114310")
@@ -330,7 +341,7 @@ do {
 }
 
 // MARK: - Audio: Datei öffnen
-do {
+if want("audio") {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("digidec_test_\(getpid()).wav")
     defer { try? FileManager.default.removeItem(at: url) }
     let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 11025.0,
@@ -355,7 +366,7 @@ do {
 }
 
 // MARK: - Spektrum (vDSP-FFT, Hann, dBFS)
-do {
+if want("audio") {
     let an = SpectrumAnalyzer(size: 2048, sampleRate: 8000)!
     check(abs(an.binWidth - 3.90625) < 1e-9, "Binbreite 3,9 Hz")
     check(SpectrumAnalyzer(size: 1000, sampleRate: 8000) == nil, "Nur Zweierpotenzen")
@@ -375,7 +386,7 @@ do {
 }
 
 // MARK: - Wasserfall-Zeilen
-do {
+if want("audio") {
     let wf = WaterfallProcessor(sampleRate: 8000)
     let tone = (0..<8000).map { Float(0.3 * sin(2 * Double.pi * 1500 * Double($0) / 8000)) }
     tone.withUnsafeBufferPointer { buf in
@@ -399,7 +410,7 @@ do {
 }
 
 // MARK: - Farbskala
-do {
+if want("audio") {
     let lut = WaterfallColorMap.lut
     check(lut.count == 256, "256 Farben")
     check(lut.allSatisfy { $0 >> 24 == 0xFF }, "Alle Farben deckend")
@@ -411,7 +422,7 @@ do {
 }
 
 // MARK: - RTTY-Presets und Mark/Space (PLAN.md 5.2)
-do {
+if want("rtty") {
     let ham = RTTYPreset.preset(id: "ham")!.parameters
     let kw = RTTYPreset.preset(id: "dwd-kw")!.parameters
     let lw = RTTYPreset.preset(id: "dwd-lw")!.parameters
@@ -432,7 +443,7 @@ do {
 }
 
 // MARK: - Mittenfrequenz begrenzen
-do {
+if want("audio") {
     let store = RTTYSettingsStore()
     store.select(presetID: "dwd-kw")
     store.setCenter(50)
@@ -486,7 +497,7 @@ do {
     }
     return Double(d[b.count]) / Double(a.count)
 }
-do {
+if want("rtty") {
     let text = "RYRYRY THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG 0123456789 WODL45 EDZW 301200 "
     for preset in RTTYPreset.all where preset.id != "custom" {
         let (got, core) = rttyDecode(preset.parameters, text)
@@ -560,7 +571,7 @@ do {
 }
 
 // MARK: - RTTY-Einstellungen (M5)
-do {
+if want("rtty") {
     let store = RTTYSettingsStore()
     store.select(presetID: "dwd-lw")
     check(store.parameters.ita2 && store.parameters.shift == 85, "DWD LW mit ITA2")
@@ -610,7 +621,7 @@ do {
 }
 
 // MARK: - Anzeige-Text und Log
-do {
+if want("rtty") {
     check(RTTYController.displayText("ZCZC\r\nWODL45\u{07} EDZW\r\r\n") == "ZCZC\nWODL45 EDZW\n", "CR/Klingel entfernt, LF bleibt")
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("digidec_log_\(getpid())", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -631,7 +642,7 @@ do {
 }
 
 // MARK: - Ende-zu-Ende: Pipeline -> fldigi-Kern -> Text (wie in der App)
-do {
+if want("rtty") {
     let pipeline = AudioPipeline()
     let decoder = RTTYDecoder(pipeline: pipeline)
     let params = RTTYPreset.preset(id: "dwd-lw")!.parameters
@@ -660,7 +671,7 @@ do {
 }
 
 // MARK: - Seitenband-Korrektur (M7, wie fldigi: reverse = Rev xor LSB)
-do {
+if want("rtty") {
     let store = RTTYSettingsStore()
     store.select(presetID: "dwd-kw")
     store.sidebandMode = .auto
@@ -685,7 +696,7 @@ do {
 }
 
 // MARK: - rigctld: Antworten auswerten
-do {
+if want("rig") {
     let s = RigctlClient.parse(["4584700", "LSB", "2800"])
     check(s.connected && s.frequencyHz == 4_584_700 && s.mode == "LSB" && s.passbandHz == 2800, "f + m ausgewertet")
     check(s.isLSB == true && s.frequencyText == "4.584,700 kHz", "LSB erkannt, Anzeige \(s.frequencyText ?? "-")")
@@ -703,7 +714,7 @@ do {
 }
 
 // MARK: - GQRX Remote Control (Dialekt)
-do {
+if want("rig") {
     // Antworten, wie GQRX sie liefert: Frequenz, Mode, Bandbreite
     let g = RigctlClient.parse(["161975000", "FM", "10000"])
     check(g.connected && g.frequencyHz == 161_975_000 && g.mode == "FM" && g.passbandHz == 10_000 && g.isLSB == false, "GQRX: f + m (161,975 MHz FM 10 kHz) ausgewertet")
@@ -774,7 +785,7 @@ do {
 }
 
 // MARK: - rigctld: echter TCP-Austausch mit einem Test-Server
-do {
+if want("rig") {
     // Mini-rigctld auf einem freien Port: antwortet auf "f" und "m", protokolliert alle Befehle
     final class FakeRigctld: @unchecked Sendable {
         let port: UInt16
@@ -856,7 +867,7 @@ do {
 }
 
 // MARK: - Unshift on Space je Sender (DWD-SYNOP, beobachtet 30.09.2026 an DDK2)
-do {
+if want("rtty") {
     let dwd = RTTYPreset.preset(id: "dwd-kw")!.parameters
     check(!dwd.unshiftOnSpace && !RTTYPreset.preset(id: "dwd-lw")!.parameters.unshiftOnSpace, "DWD-Presets ohne Unshift on Space")
     check(RTTYPreset.preset(id: "ham")!.parameters.unshiftOnSpace, "Amateur mit Unshift on Space")
@@ -875,7 +886,7 @@ do {
 }
 
 // MARK: - Aufnahme (M6)
-do {
+if want("rtty") {
     let d = ISO8601DateFormatter().date(from: "2026-09-30T19:37:05Z")!
     check(InputRecorder.fileName(date: d, frequencyHz: 4_584_700, mode: "LSB", preset: "dwd-kw")
           == "RTTY_2026-09-30_193705Z_4584700Hz_LSB_DWD-KW.wav", "Dateiname der Aufnahme")
@@ -914,7 +925,7 @@ do {
 }
 
 // MARK: - SYNOP/SHIP-Decoder aus fldigi (empfangen an DDK2 am 30.09.2026, 19:37 UTC)
-do {
+if want("rtty") {
     check(SynopDecoder.loadStations(), "Stationslisten geladen aus \(SynopDecoder.stationDirectory?.path ?? "-")")
     check(SynopDecoder.stationName(wmo: 10655) == "Wuerzburg", "WMO 10655 = Wuerzburg")
     var segs: [TextSegment] = []
@@ -976,7 +987,7 @@ do {
     }
     return (box.text, box.msgs, core.status)
 }
-do {
+if want("navtex") {
     let warning = "GALE WARNING GERMAN BIGHT WEST 7 TO 8"
     let gen = NavtexSignalGenerator()
     let clean = gen.samples(header: "SA01", text: warning)
@@ -1022,7 +1033,7 @@ do {
 }
 
 // MARK: - NAVTEX in der App (Einstellungen, Pipeline 11025 Hz, Nachrichten)
-do {
+if want("navtex") {
     check(NavtexFrequency.allCases.map(\.rawValue) == DecoderModuleInfo.navtex.presetIDs, "NAVTEX-Frequenzen = IDs im URL-Schema")
     check(NavtexFrequency.f518.usbDial(center: 1000) == 517_000, "518 kHz: USB-Dial 517,000 kHz")
     let st = NavtexSettingsStore()
@@ -1122,7 +1133,7 @@ let cwWarmup = "VVV "
 func cwCopied(_ got: String, _ text: String) -> Bool {
     got.trimmingCharacters(in: .whitespaces).hasSuffix(" " + text)
 }
-do {
+if want("cw") {
     let text = "CQ CQ DE DL1ABC DL1ABC PSE K"
     for wpm in [12.0, 18, 22] {
         var g = CWSignalGenerator()
@@ -1183,7 +1194,7 @@ do {
 }
 
 // MARK: - CW-Einstellungen und Pipeline
-do {
+if want("cw") {
     let st = CWSettingsStore()
     st.setCenter(700)
     st.options = FldigiCWCore.Options()
@@ -1276,7 +1287,7 @@ func wefaxError(_ img: WefaxImage, bar: Int, width: Int = 1809) -> (error: Doubl
     }
     return (box.saved, core.status)
 }
-do {
+if want("wefax") {
     let gen = WefaxSignalGenerator()
     let tx = gen.transmission(rows: 240) { r, c in wefaxPattern(r, c) }
     let r = wefaxRun(tx + [Float](repeating: 0, count: 11025 * 5))
@@ -1336,7 +1347,7 @@ do {
 }
 
 // MARK: - WEFAX-Einstellungen, PNG, Pipeline
-do {
+if want("wefax") {
     let st = WefaxSettingsStore()
     st.station = .dwd3855
     check(st.options.shiftHz == 850 && st.tones.mark == st.centerHz + 425, "WEFAX DWD: Hub 850, Weiß oben")
@@ -1401,7 +1412,7 @@ do {
 }
 
 // MARK: - FT8: Meldungen, Locator (M12)
-do {
+if want("ft") {
     let cq = FT8Message("CQ DL1ABC JN49")
     check(cq.kind == .cq(modifier: nil, call: "DL1ABC", grid: "JN49") && cq.isCQ && cq.grid == "JN49", "FT8: CQ mit Locator")
     check(FT8Message("CQ DX 9A7DA JN86").kind == .cq(modifier: "DX", call: "9A7DA", grid: "JN86"), "FT8: CQ DX")
@@ -1441,7 +1452,7 @@ do {
 }
 
 // MARK: - FT8-Decoder ft8mon (synthetisch)
-do {
+if want("ft") {
     check(FT8Core.synthesize("CQ DL1ABC JN49", frequency: 1000)?.count == 79 * 1920, "FT8-Testsignal: 79 Symbole à 1920 Samples")
     check(FT8Core.synthesize("DAS IST ZU LANG FUER FT8", frequency: 1000) == nil || true, "FT8-Testsignal: Freitext-Grenze")
     // Drei Stationen, S/N in 2500 Hz: 0, −10, −16 dB
@@ -1488,7 +1499,7 @@ do {
 }
 
 // MARK: - FT8-Zyklus über die Pipeline (simulierte Uhr)
-do {
+if want("ft") {
     final class FakeClock: @unchecked Sendable { var t = 0.0 }
     let clock = FakeClock()
     let cycle = 1_790_000_010.0 - 1_790_000_010.0.truncatingRemainder(dividingBy: 15)   // Zyklusbeginn
@@ -1532,7 +1543,7 @@ do {
 }
 
 // MARK: - FT4: Bänder, Meldungen, Formate
-do {
+if want("ft") {
     let cq = FT4Decode(cycleStart: Date(), text: "CQ DL1ABC JN49", snrDB: -8, dt: 0.1, freqHz: 1500, correctBits: 174, pass: 0)
     check(cq.message.isCQ && cq.message.grid == "JN49", "FT4: CQ mit Locator")
     check(!cq.isUncertain, "FT4: sicher bei 174 Bits")
@@ -1547,7 +1558,7 @@ do {
 }
 
 // MARK: - FT4-Decoder ft8_lib (synthetisch)
-do {
+if want("ft") {
     let wave = FT4Core.synthesize("CQ DL1ABC JN49", frequency: 1000)
     check(wave?.count == 105 * 576, "FT4-Testsignal: 105 Symbole à 576 Samples (5,04 s), got \(wave?.count ?? 0)")
 
@@ -1574,7 +1585,7 @@ do {
 }
 
 // MARK: - FT4: DT-Konvention, SNR-Schätzung und Empfindlichkeit (synthetisches Weißrauschen)
-do {
+if want("ft") {
     var state: UInt64 = 0x1234567
     func gauss() -> Double {
         state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -1618,7 +1629,7 @@ do {
 }
 
 // MARK: - FT4-Zyklus über die Pipeline (simulierte Uhr)
-do {
+if want("ft") {
     final class FakeClock: @unchecked Sendable { var t = 0.0 }
     let clock = FakeClock()
     let cycle = 1_790_000_000.0 - 1_790_000_000.0.truncatingRemainder(dividingBy: 7.5)   // 7,5-s-Zyklusbeginn
@@ -1659,7 +1670,7 @@ do {
 }
 
 // MARK: - DCF77 Bit-Codierung, Paritätsprüfung und BCD-Decodierung
-do {
+if want("time") {
     // 1. Bitmuster erzeugen für Donnerstag, 01.10.2026, 14:35 MESZ
     let bits = DCF77SignalGenerator.encodeBits(year: 2026, month: 10, day: 1, weekday: 4, hour: 14, minute: 35, isSummer: true, backupAntenna: false)
     check(bits.count == 59, "DCF77: Telegramm hat 59 Bits")
@@ -1720,7 +1731,7 @@ do {
 }
 
 // MARK: - DCF77 DSP-Hüllkurven-Demodulation und Audiosignal-Decodierung
-do {
+if want("time") {
     let bits = DCF77SignalGenerator.encodeBits(year: 2026, month: 10, day: 1, weekday: 4, hour: 14, minute: 35, isSummer: true)
 
     // Signal vorbereiten:
@@ -1777,7 +1788,7 @@ do {
 }
 
 // MARK: - EFR DIN 19244 Frame-Aufbau, Checksumme & Zeitstempel-Parser
-do {
+if want("time") {
     // 1. Telegramm fester Länge (0x10)
     let fixed = EFRSignalGenerator.buildFixedFrame(control: 0x49, address: 0x12)
     check(fixed.count == 5, "EFR Fixed: 5 Bytes")
@@ -1831,7 +1842,7 @@ do {
 }
 
 // MARK: - EFR 200 Baud FSK-Demodulation, 8E1 Framing & Audio-Decodierung
-do {
+if want("time") {
     // 1. Variables Zeittelegramm mit aktueller Uhrzeit (Zeitfelder gelten nur nahe der Systemzeit)
     let testDate = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
     let varFrame = EFRSignalGenerator.buildTimeTelegram(date: testDate, isSummer: false, number: 7)
@@ -1887,7 +1898,7 @@ do {
 }
 
 // MARK: - DXCC-Länder- und Zonenauflösung (AD1C cty.dat)
-do {
+if want("dxcc") {
     let db = DXCCDatabase.shared
     check(db.exactCount > 20_000, "DXCC: Mehr als 20.000 Ausnahmerufzeichen geladen (got \(db.exactCount))")
     check(db.prefixCount > 7_000, "DXCC: Mehr als 7.000 Präfixe geladen (got \(db.prefixCount))")
@@ -2006,7 +2017,7 @@ do {
 }
 
 // MARK: - SSTV (Slow Scan Television) Tests
-do {
+if want("sstv") {
     // 1. Modus-Spezifikationen
     check(SSTVMode.allCases.count == 11, "11 SSTV-Betriebsarten definiert")
     check(Set(SSTVMode.allCases.map { $0.spec.visCode }).count == 11, "VIS-Codes eindeutig")
@@ -2227,7 +2238,7 @@ do {
 }
 
 // MARK: - DCF77 / EFR: Robustheit, Plausibilität, Rauschen (deterministisch)
-do {
+if want("time") {
     var state: UInt64 = 99
     func gauss() -> Double {
         state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -2487,7 +2498,7 @@ do {
 }
 
 // MARK: - Funkgerät abstimmen (rigctld F/M): Ziele, Befehle, Ende-zu-Ende gegen einen nachgebauten rigctld
-do {
+if want("rig") {
     // Ziele je Modul (Dial-Frequenz, nicht Sendefrequenz)
     check(RigTuneTarget.ft8(band: .m20) == RigTuneTarget(dialHz: 14_074_000, mode: "USB"), "QSY: FT8 20 m = 14,074 MHz USB")
     check(RigTuneTarget.ft4(band: .m20) == RigTuneTarget(dialHz: 14_080_000, mode: "USB"), "QSY: FT4 20 m = 14,080 MHz USB")
@@ -2610,7 +2621,7 @@ do {
 }
 
 // MARK: - WEFAX: DWD-Sendeplan (Auslesen, Zeitlogik, automatische Aufnahme, Link-Erkennung)
-do {
+if want("wefax") {
     let planURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Resources/Wefax/sendeplan_fax_092023.txt")
     let text = (try? String(contentsOf: planURL, encoding: .utf8)) ?? ""
@@ -2674,7 +2685,7 @@ do {
 }
 
 // MARK: - WEFAX: Bild verschieben (Umlauf) und Naht-Erkennung
-do {
+if want("wefax") {
     // Umlauf: kleines Beispiel
     let w = 6, h = 2
     let px: [UInt8] = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16]
@@ -2710,7 +2721,7 @@ do {
 }
 
 // MARK: - WEFAX: Frequenz je Sendung und automatische Nahtkorrektur
-do {
+if want("wefax") {
     let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("digidec_wefax_\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: tmp) }
     let store = WefaxScheduleStore(directory: tmp.appendingPathComponent("plan"))
@@ -2758,7 +2769,7 @@ do {
 }
 
 // MARK: - Sendepläne: RTTY (DWD), NAVTEX (IMO-Raster), gemeinsame Zeitrechnung und Entscheidungen der Aufnahmesteuerung
-do {
+if want("schedule") {
     func utc(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     func read(_ path: String) -> String { (try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)) ?? "" }
@@ -2900,7 +2911,7 @@ do {
 }
 
 // MARK: - WSPR: Bänder, Meldungen, URL, Abstimmung, Log
-do {
+if want("ft") {
     check(parse("digidec://decode?mode=wspr&preset=40m") == .success(DecodeRequest(module: .wspr, presetID: "40m")), "WSPR-Auftrag 40 m")
     check(parse("digidec://decode?mode=wspr") == .success(DecodeRequest(module: .wspr, presetID: "20m")), "WSPR-Standard 20 m")
     check(WSPRBand.m20.dialHz == 14_095_600 && WSPRBand.m40.dialHz == 7_038_600 && WSPRBand.m30.dialHz == 10_138_700, "WSPR: Dial-Frequenzen wie WSJT-X")
@@ -2926,7 +2937,7 @@ do {
 }
 
 // MARK: - WSPR: Reste nach Subtraktion starker Signale
-do {
+if want("ft") {
     func mk(_ text: String, _ hz: Double, _ snr: Int) -> WSPRDecode {
         WSPRDecode(slotStart: Date(timeIntervalSince1970: 0), text: text, snrDB: snr, dt: 0, freqHz: hz, drift: 0, sync: 0.5, pass: 1)
     }
@@ -2941,7 +2952,7 @@ do {
 }
 
 // MARK: - WSPR-Decoder wsprd (synthetisch)
-do {
+if want("ft") {
     var state: UInt64 = 0x9876543
     func gauss() -> Double {
         state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -3038,7 +3049,7 @@ do {
 }
 
 // MARK: - WSPR an einer echten Aufnahme (WSJT-X-Beispiel 150426_0918.wav, nur wenn lokal vorhanden)
-do {
+if want("ft") {
     let url = URL(fileURLWithPath: "Vendor/_upstream/wsjtx/samples/WSPR/150426_0918.wav")
     if let data = try? Data(contentsOf: url), data.count > 44 + 2 * 12_000 * 100 {
         let n = (data.count - 44) / 2
@@ -3058,7 +3069,7 @@ do {
 }
 
 // MARK: - WSPR-Zyklus über die Pipeline (simulierte Uhr)
-do {
+if want("ft") {
     final class FakeClock: @unchecked Sendable { var t = 0.0 }
     let clock = FakeClock()
     let slot = 1_790_000_000.0 - 1_790_000_000.0.truncatingRemainder(dividingBy: 120)   // 2-Minuten-Zyklusbeginn
@@ -3103,7 +3114,7 @@ do {
 }
 
 // MARK: - PSK: Betriebsarten, URL, Text, Bänder
-do {
+if want("psk") {
     check(parse("digidec://decode?mode=psk&preset=qpsk63&center=1200") == .success(DecodeRequest(module: .psk, presetID: "qpsk63", centerHz: 1200)), "PSK-Auftrag QPSK63 mit Mitte")
     check(parse("digidec://decode?mode=psk") == .success(DecodeRequest(module: .psk, presetID: "bpsk31")), "PSK-Standard BPSK31")
     check(Set(PSKMode.allCases.map(\.rawValue)) == Set(DecoderModuleInfo.psk.presetIDs), "PSK-Betriebsarten = IDs im URL-Schema")
@@ -3114,7 +3125,7 @@ do {
 }
 
 // MARK: - PSK-Empfänger aus fldigi (synthetisch): alle Betriebsarten, AFC, Rauschen, Squelch
-do {
+if want("psk") {
     var state: UInt64 = 0x5555AAAA
     func gauss() -> Double {
         state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -3211,7 +3222,7 @@ do {
 }
 
 // MARK: - PSK-Zyklus über die Pipeline (48 kHz → 8 kHz)
-do {
+if want("psk") {
     let pipeline = AudioPipeline()
     let decoder = PSKDecoder(pipeline: pipeline)
     var o = FldigiPSKCore.Options()
@@ -3268,7 +3279,7 @@ do {
 }
 
 // MARK: - Olivia, Contestia, MT63: Voreinstellungen, URL, Optionen
-do {
+if want("textmodes") {
     check(parse("digidec://decode?mode=olivia&preset=olivia-16-500&center=1700") == .success(DecodeRequest(module: .olivia, presetID: "olivia-16-500", centerHz: 1700)), "Olivia-Auftrag")
     check(parse("digidec://decode?mode=olivia") == .success(DecodeRequest(module: .olivia, presetID: "olivia-8-500")), "Olivia-Standard 8/500")
     check(parse("digidec://decode?mode=mt63&preset=2000l") == .success(DecodeRequest(module: .mt63, presetID: "2000l")), "MT63-Auftrag 2000 lang")
@@ -3289,7 +3300,7 @@ do {
 }
 
 // MARK: - Olivia, Contestia und MT63 aus fldigi (synthetisch)
-do {
+if want("textmodes") {
     var state: UInt64 = 0x1357BDF1
     func gauss() -> Double {
         state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -3400,7 +3411,7 @@ do {
 }
 
 // MARK: - MFSK, DominoEX, Thor: Voreinstellungen, URL, Betriebsarten
-do {
+if want("textmodes") {
     check(parse("digidec://decode?mode=mfsk&preset=thor22&center=1200") == .success(DecodeRequest(module: .mfsk, presetID: "thor22", centerHz: 1200)), "MFSK-Auftrag Thor 22")
     check(parse("digidec://decode?mode=mfsk") == .success(DecodeRequest(module: .mfsk, presetID: "mfsk16")), "MFSK-Standard MFSK16")
     check(Set(DecoderModuleInfo.mfsk.presetIDs) == Set(MFSKMode.allCases.map(\.rawValue)) && DecoderModuleInfo.mfsk.presetIDs.count == MFSKMode.allCases.count, "MFSK: Kennungen = Betriebsarten (\(MFSKMode.allCases.count))")
@@ -3411,7 +3422,7 @@ do {
 }
 
 // MARK: - MFSK, DominoEX, Thor aus fldigi (synthetisch)
-do {
+if want("textmodes") {
     var state: UInt64 = 0x2468ACE1
     func gauss() -> Double {
         state = state &* 6364136223846793005 &+ 1442695040888963407
@@ -3500,7 +3511,7 @@ do {
 }
 
 // MARK: - MFSK über die Pipeline (48 kHz → 8000 / 11025 Hz)
-do {
+if want("textmodes") {
     let pipeline = AudioPipeline()
     let decoder = MFSKDecoder(pipeline: pipeline)
     pipeline.start(inputRate: 48_000)
@@ -3537,7 +3548,7 @@ do {
 }
 
 // MARK: - Hell: Voreinstellungen, URL, Raster
-do {
+if want("textmodes") {
     check(parse("digidec://decode?mode=hell&preset=fskh245&center=1400") == .success(DecodeRequest(module: .hell, presetID: "fskh245", centerHz: 1400)), "Hell-Auftrag FSK Hell 245")
     check(parse("digidec://decode?mode=hell") == .success(DecodeRequest(module: .hell, presetID: "feld")), "Hell-Standard Feld Hell")
     check(Set(DecoderModuleInfo.hell.presetIDs) == Set(HellMode.allCases.map(\.rawValue)), "Hell: Kennungen = Betriebsarten")
@@ -3546,7 +3557,7 @@ do {
 }
 
 // MARK: - Hell aus fldigi (synthetisch)
-do {
+if want("textmodes") {
     func decode(_ text: String, mode: HellMode, noiseSigma: Double = 0, center: Double = 1500, tweak: (inout FldigiHellCore.Options) -> Void = { _ in }) -> (columns: [[UInt8]], status: FldigiHellCore.Status?) {
         guard var x = FldigiHellCore.synthesize(text, mode: mode, centerHz: center) else { return ([], nil) }
         // Kein Nachlauf: ohne Signal liefert FSK-Hell schwarze Spalten, solange der AGC-Pegel über dem Squelch liegt
@@ -3622,10 +3633,10 @@ do {
     r.clear()
     check(r.image == nil && r.columnCount == 0, "Hell-Raster: gelöscht")
 }
-hellRasterTests()
+if want("textmodes") { hellRasterTests() }
 
 // MARK: - MT63 und Olivia über die Pipeline (48 kHz → 8 kHz)
-do {
+if want("textmodes") {
     let pipeline = AudioPipeline()
     let mtDecoder = MT63Decoder(pipeline: pipeline)
     let olDecoder = OliviaDecoder(pipeline: pipeline)
@@ -3663,7 +3674,7 @@ do {
 }
 
 // MARK: - DSC (ITU-R M.493): Symbole, Nachrichten, Rahmen, Demodulator
-do {
+if want("dsc") {
     check(parse("digidec://decode?mode=dsc&preset=2187&center=1700") == .success(DecodeRequest(module: .dsc, presetID: "2187", centerHz: 1700)), "DSC-Auftrag")
     check(parse("digidec://decode?mode=dsc") == .success(DecodeRequest(module: .dsc, presetID: "8414")), "DSC-Standard 8414,5 kHz")
     check(Set(DSCChannel.allCases.map(\.rawValue)).subtracting(["frei"]) == Set(DecoderModuleInfo.dsc.presetIDs), "DSC-Kanäle = IDs im URL-Schema")
@@ -3850,7 +3861,7 @@ do {
 }
 
 // MARK: - UKW-DSC (Kanal 70, 1200 Bd, 1300/2100 Hz)
-do {
+if want("dsc") {
     let info = DSCSignalGenerator.call(format: 120, body: [0, 23, 71, 0, 4, 100, 23, 82, 30, 0, 0, 109, 126, 8, 41, 45, 126, 126, 126], eos: 117)
     let dist = DSCSignalGenerator.call(format: 112, body: [25, 58, 5, 99, 70, 107, 4, 52, 60, 13, 7, 12, 52, 109])
     func run(_ audio: [Float], chunk: Int = 1200) -> [DSCCall] {
@@ -3902,7 +3913,7 @@ do {
 }
 
 // MARK: - DSC über die Pipeline (48 kHz → 8 kHz)
-do {
+if want("dsc") {
     let pipeline = AudioPipeline()
     let decoder = DSCDecoder(pipeline: pipeline)
     decoder.configure(center: 1700, reversed: false, auto: true)
@@ -3935,7 +3946,7 @@ do {
 }
 
 // MARK: - ALE (MIL-STD-188-141): Golay, Wortcodec, Raster, Demodulator
-do {
+if want("ale") {
     check(parse("digidec://decode?mode=ale&center=1700") == .success(DecodeRequest(module: .ale, presetID: "ale", centerHz: 1700)), "ALE-Auftrag")
     check(parse("digidec://decode?mode=ale") == .success(DecodeRequest(module: .ale, presetID: "ale")), "ALE-Standard")
 
@@ -4105,7 +4116,7 @@ do {
 }
 
 // MARK: - ALE über die Pipeline (48 kHz → 8 kHz) mit Frequenznachführung
-do {
+if want("ale") {
     let pipeline = AudioPipeline()
     let decoder = ALEDecoder(pipeline: pipeline)
     decoder.configure(offset: 0, auto: true, sensitivity: .normal)
@@ -4144,7 +4155,7 @@ do {
 
 
 // MARK: - Geo: Entfernung, Richtung, Locator
-do {
+if want("aprs") {
     let hamburg = GeoPoint(lat: 53.5511, lon: 9.9937), wuerzburg = GeoPoint(lat: 49.7913, lon: 9.9534)
     let d = Geo.distanceKm(hamburg, wuerzburg)
     check(abs(d - 418) < 6, "Hamburg–Würzburg etwa 418 km (\(d))")
@@ -4165,7 +4176,7 @@ do {
 }
 
 // MARK: - AX.25 und APRS
-do {
+if want("aprs") {
     check(HDLC.crc16(Array("123456789".utf8)) == 0x906E, "CRC-16/X.25 Prüfwert 0x906E")
     let f = AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC", ssid: 9),
                       digis: [AX25Address(call: "WIDE1", ssid: 1, repeated: true), AX25Address(call: "WIDE2", ssid: 1)],
@@ -4191,7 +4202,7 @@ func aprsPacket(_ dest: String, _ info: String, source: String = "DL1ABC-9", dig
     return APRSParser.parse(f)
 }
 
-do {
+if want("aprs") {
     // Unkomprimiert mit Kommentar
     let p = aprsPacket("APRS", "!4903.50N/07201.75W-Test 001234")!
     check(p.kind == .position && abs(p.position!.lat - 49.058333) < 1e-5 && abs(p.position!.lon + 72.029167) < 1e-5, "Position unkomprimiert: \(String(describing: p.position))")
@@ -4271,7 +4282,7 @@ func micEEncode(lat: Double, lon: Double, speedKn: Int, course: Int, symbol: Str
     return (dest, info)
 }
 
-do {
+if want("aprs") {
     let cases: [(Double, Double, Int, Int)] = [(33.4273, -112.129, 20, 251), (-33.8688, 151.2093, 0, 0), (49.7913, 9.9534, 55, 180),
                                                (53.55, 9.99, 120, 359), (64.1466, -21.9426, 5, 90), (35.6762, 139.6503, 0, 45),
                                                (-54.8, -68.3, 14, 300), (51.5074, -0.1278, 77, 10), (0.5, -105.5, 3, 123)]
@@ -4307,7 +4318,7 @@ func aprsRoundTrip(_ gen: (Double) -> [Float], rate: Double = 12_000, count: Int
     return (n, texts)
 }
 
-do {
+if want("aprs") {
     let frames: [[UInt8]] = (0..<12).map { i in
         AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC", ssid: i % 15), digis: [AX25Address(call: "WIDE1", ssid: 1)],
                   info: Array(("!4903.50N/07201.75W-Test \(i) " + String(repeating: "xyz", count: 5 + i * 4)).utf8)).encode()
@@ -4346,7 +4357,7 @@ do {
 }
 
 // MARK: - AFSK-Empfänger: flaches und de-emphasiertes Audio, doppelte Rahmen
-do {
+if want("aprs") {
     let one = AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC", ssid: 7), digis: [AX25Address(call: "WIDE1", ssid: 1)],
                         info: Array("!4903.50N/07201.75W-Wiederholung".utf8)).encode()
     func count(_ audio: [Float], _ emphasis: AFSKReceiver.Emphasis) -> Int {
@@ -4371,7 +4382,7 @@ do {
 }
 
 // MARK: - APRS-Controller: Stationsliste, Weg, Nachrichten, Karte
-do {
+if want("aprs") {
     let controller = APRSController(pipeline: AudioPipeline(), settings: APRSSettingsStore())
     controller.logEnabled = false
     let t0 = Date(timeIntervalSince1970: 1_790_000_000)
@@ -4412,7 +4423,7 @@ do {
 }
 
 // MARK: - Karten der übrigen Module
-do {
+if want("aprs") {
     let home = Maidenhead.point("JN49WS")
     let now = Date(timeIntervalSince1970: 1_790_000_000)
     // Gehörte Stationen (FT8, WSPR …): Locator vor DXCC, Zusammenfassung, Alter
@@ -4471,7 +4482,7 @@ do {
 }
 
 // MARK: - SYNOP: Zeilenumbrüche, fehlende Kopfzeile, Wertansicht (echter Empfang DDK2, 02.10.2026 18:37 UTC)
-do {
+if want("weather") {
     SynopDecoder.loadStations()
     func decode(_ text: String) -> (raw: String, klar: String, segments: [TextSegment]) {
         var segs: [TextSegment] = []
@@ -4552,7 +4563,7 @@ do {
 }
 
 // MARK: - Seewetterberichte des DWD (FQEN70, FQEN71, WODL45) für die Karte – echte Berichte vom 02.10.2026
-do {
+if want("weather") {
     let samples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/DWD")
     func sample(_ name: String) -> String { (try? String(contentsOf: samples.appendingPathComponent(name), encoding: .utf8)) ?? "" }
     let fq70 = sample("DWD_FQEN70_20261002_1700.txt"), fq71 = sample("DWD_FQEN71_20261002_1700.txt"), wodl = sample("DWD_WODL45_20261002_1800.txt")
@@ -4663,7 +4674,7 @@ do {
 }
 
 // MARK: - DWD Seewetter 5-Tage-Punktvorhersagen (FQEN75-79) mit SST und RTTY-Mittenfrequenz
-do {
+if want("weather") {
     let pointText = """
     WN.O.IRELAND (54.0N  13.9W) SST: 14 C
     SU  4. 00Z: SW     5-6   6-7  2.5 M //
@@ -4746,7 +4757,7 @@ do {
 }
 
 // MARK: - Schiffs- und Bojenmeldungen mit Weg, Positionen in Warnnachrichten
-do {
+if want("weather") {
     SynopDecoder.loadStations()
     func segments(_ text: String) -> [TextSegment] {
         var segs: [TextSegment] = []
@@ -4800,11 +4811,11 @@ do {
     check(UserDefaults.standard.string(forKey: key) == "JN49WS", "Gültiger Locator wird gespeichert")
     if let saved { UserDefaults.standard.set(saved, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
 }
-homeTests()
+if want("weather") { homeTests() }
 
 
 // MARK: - Funkruf: BCH, POCSAG, FLEX
-do {
+if want("pager") {
     // BCH(31,21): Kodieren, bis zu zwei Fehler korrigieren
     check(PagerBCH.correct(POCSAG.idle)?.errors == 0 && PagerBCH.correct(POCSAG.sync)?.errors == 0, "Leer- und Synchronwort sind gültige Codewörter")
     var allOK = true, doubleOK = true
@@ -4834,7 +4845,7 @@ do {
     check(tripleBad == 0, "BCH: Dreifachfehler werden nicht als Original ausgegeben")
 }
 
-do {
+if want("pager") {
     // Echte Codewörter eines Stapels (POCSAG-1200-Beispiel von multimon-ng, 273040 Funktion 3)
     let real: [UInt32] = [0x10AA5E2E, 0xEAD5AF90, 0x8AC9B659, 0xB46F031E, 0xE0C1858C, 0xF660C063, 0x9B3267AB, 0xADAB57D9,
                           0xEA2B212A, 0xECD1BC11, 0xC18305C9, 0xE1D98716, 0xB06CC954, 0x98B002E6, 0x7A89C197, 0x7A89C197]
@@ -4878,7 +4889,7 @@ func lowpassAudio(_ s: [Float], _ fc: Double, rate: Double = 24_000) -> [Float] 
     return s.map { x in y += k * (x - y); return y }
 }
 
-do {
+if want("pager") {
     let msgs: [(Int, Int, String?, String?)] = [(1234567, 3, nil, "Hallo Welt, Test 1"), (2504, 3, nil, "DAPNET DL1ABC Test"), (400000, 0, "0123456789", nil), (999, 3, nil, "Kurz"),
                                                 (7, 3, nil, String(repeating: "Lange Meldung über mehrere Stapel. ", count: 5))]
     for (i, baud) in POCSAG.rates.enumerated() {
@@ -4913,7 +4924,7 @@ do {
     check(m3.text == "123 45", "Unlesbarer Klartext fällt auf Ziffern zurück")
 }
 
-do {
+if want("pager") {
     // Entzerrer: Prüfung der Codewörter
     check(POCSAGEqualizer.isValid(PagerBCH.encode(0x0F0F0F)) && POCSAGEqualizer.isValid(POCSAG.idle) && POCSAGEqualizer.isValid(POCSAG.sync), "Entzerrer: Codewörter, Leer- und Synchronwort gelten")
     check(!POCSAGEqualizer.isValid(PagerBCH.encode(0x0F0F0F) ^ 0x10) && !POCSAGEqualizer.isValid(PagerBCH.encode(0x0F0F0F) ^ 1), "Entzerrer: ein Bitfehler (auch Parität) gilt nicht ohne Korrektur")
@@ -4995,7 +5006,7 @@ do {
     }
 }
 
-do {
+if want("pager") {
     // FLEX: Synchronisation, Betriebsarten, Rundlauf
     check(FLEXReceiver.syncCheck((UInt64(0x870C) << 48) | (UInt64(FLEXReceiver.syncMarker) << 16) | (~UInt64(0x870C) & 0xFFFF)) == 0x870C, "FLEX: Synchronwort 0x870C erkannt")
     check(FLEXReceiver.syncCheck(0x1234_5678_9ABC_DEF0) == 0, "FLEX: Zufall ist kein Synchronwort")
@@ -5033,7 +5044,7 @@ do {
 }
 
 // MARK: - Töne: DTMF und Selektivrufe
-do {
+if want("pager") {
     func toneRun(_ std: ToneStandard, _ audio: [Float]) -> [String] {
         let d = ToneDecoder(standard: std)
         var out: [String] = []
@@ -5135,7 +5146,7 @@ do {
     if case .success(let r) = parse("digidec://decode?mode=tones") { check(r.module == .tones, "URL tones") } else { check(false, "URL tones abgelehnt") }
     check(DecoderModuleInfo.pager.isAvailable && DecoderModuleInfo.tones.isAvailable && !DecoderModuleInfo.pager.hasMap, "Module Pager und Töne verfügbar, ohne Karte")
 }
-pagerModuleTests()
+if want("pager") { pagerModuleTests() }
 
 // MARK: - Funkruf unter nachgebildeten Funkbedingungen (FM-Kanal bis NF-Kette), Diagnose
 @MainActor func pagerChannelTests() {
@@ -5265,7 +5276,7 @@ pagerModuleTests()
     }
     check(us.skyper, "Skyper: standardmäßig an")
 }
-pagerChannelTests()
+if want("pager") { pagerChannelTests() }
 
 // MARK: - RTTY: DWD-Frequenzwahl und Abstimmziel
 @MainActor func rttyFrequencyTests() {
@@ -5299,11 +5310,11 @@ pagerChannelTests()
     let lw = rs.schedule.frequencies.filter { $0.presetID == "dwd-lw" }.map(\.hz)
     check(kw == [4_583_000, 7_646_000, 10_100_800, 11_039_000, 14_467_300] && lw == [147_300], "RTTY: DWD-Frequenzen aus dem Plan (KW \(kw), LW \(lw))")
 }
-rttyFrequencyTests()
+if want("rtty") { rttyFrequencyTests() }
 
 
 // MARK: - ACARS
-do {
+if want("acars") {
     check(ACARS.crc([UInt8]("123456789".utf8)) == 0x2189, "ACARS-CRC (CRC-16/KERMIT) Prüfwert 0x2189: \(String(ACARS.crc([UInt8]("123456789".utf8)), radix: 16))")
     let blk = ACARSSignalGenerator.block(registration: "D-AIXC", label: "H1", blockID: "3", messageNumber: "M01A", flightID: "LH1234", text: "Hallo ACARS Test EDDF EDDM")
     func decode(_ audio: [Float]) -> [ACARSMessage] {
@@ -5402,7 +5413,7 @@ do {
     if case .success(let r) = parse("digidec://decode?mode=acars&preset=f131725") { check(r.module == .acars && r.presetID == "f131725", "URL acars") } else { check(false, "URL acars abgelehnt") }
     check(DecoderModuleInfo.acars.isAvailable && DecoderModuleInfo.acars.hasMap, "Modul ACARS verfügbar, mit Karte")
 }
-acarsModuleTests()
+if want("acars") { acarsModuleTests() }
 
 // MARK: - ACARS: Positionen aus den Meldungen (Testmeldungen aus der Referenz acars-decoder-typescript, airframes.io, MIT)
 @MainActor func acarsPositionTests() {
@@ -5581,7 +5592,7 @@ acarsModuleTests()
     let dim = ACARSMapBuilder.content(Array(c.aircraft.values), home: nil, now: t0.addingTimeInterval(600 + 2400))
     check(dim.markers.first { $0.id == "ac-D-AIXC" }?.tone == .dim, "ACARS-Karte: Flugzeug ohne Meldung seit 40 min abgedunkelt")
 }
-acarsPositionTests()
+if want("acars") { acarsPositionTests() }
 
 // MARK: - APRS: Weg bewegter Stationen auf der Karte
 @MainActor func aprsTrackTests() {
@@ -5623,7 +5634,7 @@ acarsPositionTests()
     let region = map.region(includeHome: false)
     check(region != nil && region!.latSpan > 0.0005, "Karte: Ausschnitt umfasst den Weg")
 }
-aprsTrackTests()
+if want("aprs") { aprsTrackTests() }
 
 // MARK: - Skimmer: Tabellen, Betriebsarten, URL, Abstimmung, Einstellungen
 @MainActor func skimmerBasicsTests() {
@@ -5685,7 +5696,7 @@ aprsTrackTests()
     let s = SkimStation(id: 1, mode: .cw, audioHz: 700, snrDB: 20, speed: 20, firstHeard: Date(), lastHeard: Date())
     check(s.rfHz(dialHz: 14_020_000, lsb: false) == 14_020_700 && s.rfHz(dialHz: 14_020_000, lsb: true) == 14_019_300 && s.rfHz(dialHz: nil, lsb: false) == nil, "Skimmer: HF-Frequenz aus Dial und NF")
 }
-skimmerBasicsTests()
+if want("skimmer") { skimmerBasicsTests() }
 
 // MARK: - Skimmer-Engine: mehrere Signale gleichzeitig (synthetisch, mit Rauschen)
 
@@ -5837,7 +5848,7 @@ func skimMix(_ mode: SkimMode, _ spec: [(hz: Double, snr: Double, wpm: Double, c
     check(SkimmerEngine.looksLikeText("CQ CQ DE DL1ABC DL1ABC K", mode: .cw) && !SkimmerEngine.looksLikeText("EEETISHETEISE*HETISE*ET", mode: .cw), "Skimmer CW: Text von Rauschen unterscheiden")
     check(SkimmerEngine.looksLikeText("CQ CQ DE DL1ABC PSE K", mode: .psk31) && !SkimmerEngine.looksLikeText("\u{1}\u{2}~~\u{7f}\u{3}\u{4}~~\u{1}\u{2}~~\u{7f}", mode: .psk31), "Skimmer PSK: Text von Rauschen unterscheiden")
 }
-skimmerEngineTests()
+if want("skimmer") { skimmerEngineTests() }
 
 // MARK: - Skimmer-Controller: Stationen, Rufzeichen, Spots, Filter, Karte
 @MainActor func skimmerControllerTests() {
@@ -5914,10 +5925,10 @@ skimmerEngineTests()
     check(c.stations.isEmpty && c.spots.isEmpty && c.selection == nil, "Skimmer: Listen leeren")
     c.setActive(false)
 }
-skimmerControllerTests()
+if want("skimmer") { skimmerControllerTests() }
 
 // MARK: - Skimmer über die Pipeline (48 kHz → 8 kHz)
-do {
+if want("skimmer") {
     let pipeline = AudioPipeline()
     let decoder = SkimmerDecoder(pipeline: pipeline)
     decoder.configure(mode: .cw, thresholdDB: 8)
@@ -6118,7 +6129,7 @@ func sondeFlightAudio(frames count: Int = 20, rate: Double = 48_000, amplitude: 
     rx.reset()
     check(rx.stats == RS41Stats(), "RS41: Zähler nach reset leer")
 }
-sondeTests()
+if want("sonde") { sondeTests() }
 
 // MARK: - Sondenmodul: Flug, Phase, Landeprognose, Karte, Einstellungen, Abstimmung, Pipeline
 @MainActor func sondeModuleTests() {
@@ -6266,7 +6277,7 @@ sondeTests()
         } else { check(false, "RS41 echte Aufnahme: Rahmen 229 fehlt") }
     }
 }
-sondeModuleTests()
+if want("sonde") { sondeModuleTests() }
 
 // MARK: - Sonden-Plan (SondeHub-Startorte): Lesen, Zeiten mit Wochentag, Entfernung, Sendefenster
 @MainActor func sondePlanTests() {
@@ -6369,7 +6380,7 @@ sondeModuleTests()
         check(nearReal.first.map { $0.km < 100 } == true, "Sonden-Plan echte Liste: nächster Startort unter 100 km")
     }
 }
-sondePlanTests()
+if want("sonde") { sondePlanTests() }
 
 // MARK: - Sonden-Suchlauf: Reihenfolge der Frequenzen und Ablauf
 @MainActor func sondeScanTests() {
@@ -6408,7 +6419,7 @@ sondePlanTests()
     var empty = E(frequencies: [])
     check(empty.start(now: t0) == .finished && empty.current == nil, "Suchlauf: leere Liste ist sofort fertig")
 }
-sondeScanTests()
+if want("sonde") { sondeScanTests() }
 
 // MARK: - Sonden-Karte: Zuordnung einer Sonde zu ihrem Startort
 @MainActor func sondeLaunchTests() {
@@ -6438,7 +6449,7 @@ sondeScanTests()
     check(SondePlan.launchSite(firstFix: GeoPoint(lat: 49.4, lon: 11.0), altitude: 300, sondeKHz: nil, layer: layer) == nil || SondePlan.launchSite(firstFix: GeoPoint(lat: 49.4, lon: 11.0), altitude: 300, sondeKHz: nil, layer: layer)?.site.id != "-97", "Startort: Graw (keine RS41) wird nicht zugeordnet")
     check(layer.frequency(stuttgart) == 404_500 && layer.frequency(meiningen) == nil && mine.frequency(meiningen) == 403_000, "Startort: Frequenz eigene Wahl vor Eintrag")
 }
-sondeLaunchTests()
+if want("sonde") { sondeLaunchTests() }
 
 // MARK: - HFDL (High Frequency Data Link)
 
@@ -6659,11 +6670,11 @@ func hfdlDecode(_ audio: [Float], chunk: Int = 1200) -> [HFDLRawFrame] {
     s.frequencyKHz = 13276
     check(s.stationsOnChannel.count >= 3 && s.centerHz == 1440, "HFDL: Stationen auf 13276 kHz, NF-Mitte 1440 Hz")
 }
-hfdlTests()
+if want("hfdl") { hfdlTests() }
 
 
 // MARK: - Wetterauswertung (0.54.0): Feuchte, Gitter, Isobaren, Hoch/Tief, Farbfläche
-do {
+if want("weather") {
     // Relative Luftfeuchte (Magnus-Formel)
     check(WeatherMath.relativeHumidity(temperatureC: 20, dewpointC: 10).map { abs($0 - 52.5) < 1 } == true, "Feuchte: 20 °C / Taupunkt 10 °C ≈ 52,5 %")
     check(WeatherMath.relativeHumidity(temperatureC: 5, dewpointC: 5) == 100, "Feuchte: Taupunkt = Temperatur → 100 %")
@@ -6748,7 +6759,7 @@ do {
 }
 
 // MARK: - Wetterauswertung: Extremwerte, Ebenen, Überlagerung, CSV (Klartext wie vom SYNOP-Decoder)
-do {
+if want("weather") {
     let now = Date()
     func klar(_ id: String, lat: Double, lon: Double, t: Double? = nil, td: Double? = nil, p: Double? = nil, rain: Double? = nil, wind: Int? = nil) -> String {
         var s = "\tShip/Buoy identifier=\(id)\n\tLatitude=\(lat)\n\tLongitude=\(lon)\n"
@@ -6835,7 +6846,7 @@ do {
 }
 
 // MARK: - Isobaren und Temperaturfläche aus den SYNOP-Beobachtungen (mit Zwischenspeicher)
-do {
+if want("weather") {
     let now = Date()
     func pressureAt(_ lat: Double, _ lon: Double) -> Double {
         let h = 25 * exp(-(pow((lat - 48) / 6, 2) + pow((lon - 4) / 9, 2)))
@@ -6901,7 +6912,7 @@ do {
 }
 
 // MARK: - Textfilter für den Empfangstext
-do {
+if want("weather") {
     func run(_ f: ReceiveTextFilter, _ text: String, chunk: Int) -> String {
         var runner = ReceiveTextFilterRunner(filter: f)
         var out = ""
@@ -6947,7 +6958,7 @@ do {
 }
 
 // MARK: - Rohmeldung einer Station im Text finden (Sprung von der Karte)
-do {
+if want("weather") {
     let text = "AAXX 05061\r\n10655 12970 82205 10123 20103 10655 40113=\r\n10015 NIL=\r\n\tWMO Station=10655\r\n\tWMO station=Wuerzburg\r\nBBXX DBCR 05064 99543 10655 11111=\r\nNNNN\r\n"
     func part(_ id: String) -> String? {
         SynopRawLocator.find(id: id, in: text).map { (text as NSString).substring(with: $0) }
@@ -6967,7 +6978,7 @@ do {
 
 
 // MARK: - Freies Funkgerät: Endpunkt, Profile, Verbindung zu beliebigem Rechner (rigctld nachgebaut)
-do {
+if want("rig") {
     // Endpunkt: Rechner und Port prüfen
     check(RigEndpoint(host: "127.0.0.1", port: 4532)?.text == "127.0.0.1:4532" && RigEndpoint(host: " radio.local ", port: 4533)?.host == "radio.local", "Endpunkt: IP und Name, Leerzeichen am Rand fallen weg")
     check(RigEndpoint(host: "::1", port: 4532)?.text == "[::1]:4532" && RigEndpoint(host: "fe80::1", port: 1)?.text == "[fe80::1]:1", "Endpunkt: IPv6 in eckigen Klammern")
@@ -7060,7 +7071,7 @@ do {
 
 
 // MARK: - Funkgerät wählen: Automatik, freies Gerät, Auftrag per URL (RigModel)
-do {
+if want("rig") {
     let m = RigModel()
     check(!m.hasRig && m.rigName == nil && m.description == nil && !m.overriddenByRequest, "RigModel: am Anfang kein Funkgerät")
     m.follow(radio: .pcr1500)
@@ -7084,7 +7095,7 @@ do {
 
 
 // MARK: - Lizenz und Quellen: Dokumente, Markdown-Leser, Vollständigkeit (Projektordner = aktuelles Verzeichnis)
-do {
+if want("license") {
     // Markdown-Leser
     let md = "# Titel\n\nErster Absatz\nzweite Zeile\n\n- Punkt eins\n  - Unterpunkt\n- Punkt zwei\n  weiter\n## Abschnitt\n### Unter\nText\n#kein-Titel\n#### zu tief\n"
     check(MarkdownLite.parse(md) == [.heading(level: 1, text: "Titel"), .paragraph("Erster Absatz zweite Zeile"), .bullet(level: 0, text: "Punkt eins"),
@@ -7336,7 +7347,7 @@ print("\(checks) Prüfungen, \(failures) Fehler" + (skipped > 0 ? ", \(skipped) 
     check(ShipLinks.links(for: ShipQuery(mmsi: 211_000_001)).contains { $0.url.absoluteString.contains("vesselfinder.com/vessels?name=211000001") }, "AIS: Verweise ohne IMO-Nummer")
     check(ShipQuery(mmsi: 5, imo: 9).cacheKey == "5-9" && ShipWebInfo().isEmpty, "AIS: Abfrage-Schlüssel")
 }
-aisTests()
+if want("ais") { aisTests() }
 
 
 // MARK: - AIS: binäre Nachrichten und zwei Kanäle
@@ -7474,7 +7485,7 @@ aisTests()
     check(AISDiagnosis.assess(channels: [.init(letter: "A", stats: good, level: 0.1, inputDB: -25), .init(letter: "B", stats: good, level: 0.1, inputDB: -25)]).severity == .ok, "AIS-Diagnose: beide Kanäle gut")
     check(AISChannel.both.isDual && AISChannel.both.frequencyHz == nil && RigTuneTarget.ais(channel: .both) == nil && DecoderModuleInfo.ais.presetIDs == ["a", "b", "both"], "AIS: Kanalwahl A+B ohne Abstimmziel")
 }
-aisBinaryTests()
+if want("ais") { aisBinaryTests() }
 
 
 // MARK: - AIS: Gebietsmeldungen, Schifffahrtszeichen, Schiffswetter, erweiterte Reisedaten, Personen, Seezeichen-Überwachung
@@ -7578,7 +7589,7 @@ aisBinaryTests()
     // Zeichenbibliothek
     check(AISAreaNotice.noticeText(18) == "Fahrwasser gesperrt" && AISAreaNotice.noticeText(104) == "Seekarte: Fahrwasserhindernis" && AISAreaNotice.noticeText(127) == "Gebietsmeldung" && AISAreaNotice.noticeText(46) == "Gebietsmeldung 46", "AIS: Meldungsarten")
 }
-aisMoreBinaryTests()
+if want("ais") { aisMoreBinaryTests() }
 
 // MARK: - Packet-Radio: Steuerfeld, Monitor, Verbindungen, NET/ROM, Winlink
 @MainActor func packetTests() {
@@ -7926,7 +7937,7 @@ aisMoreBinaryTests()
         check({ if case .failure = parse("digidec://decode?mode=packet&preset=nope") { return true } else { return false } }(), "Packet: unbekannter Kanal wird abgelehnt")
     }
 }
-packetTests()
+if want("packet") { packetTests() }
 
 // MARK: - ADS-B: Prüfsumme, Meldungen, Demodulator, Tracker, Engine
 @MainActor func adsbTests() {
@@ -8276,7 +8287,7 @@ packetTests()
         st.rtlGain = 49.6
     }
 }
-adsbTests()
+if want("adsb") { adsbTests() }
 
 // MARK: - Flugzeugdaten aus dem Netz (adsbdb, planespotters) mit nachgebautem Abruf
 @MainActor func aircraftInfoTests() async {
@@ -8402,7 +8413,7 @@ adsbTests()
     }
 }
 // MARK: - Digitale Sprache: Schnittstelle (Decoder-Sammlung, Rahmen, WAV)
-do {
+if want("voice") {
     struct FakeDecoder: VoiceDecoder {
         let name: String
         let isHardware: Bool
@@ -8448,7 +8459,7 @@ do {
     check((try? VoiceWAV.read(url)) == nil, "Sprache: keine WAV-Datei wird abgelehnt")
 }
 // MARK: - D-Star: Kopf, Rahmen, Langsamdaten, Empfänger
-do {
+if want("voice") {
     struct SplitMix: Sendable {
         var state: UInt64
         mutating func next() -> UInt64 {
@@ -8626,7 +8637,7 @@ do {
     check(receive(cut + [Float](repeating: 0, count: 48000 * 3)).frames.count > 20, "D-Star-Empfänger: abgebrochene Aussendung liefert die bis dahin gesendeten Rahmen")
 }
 // MARK: - Vierpegel-Sprachverfahren: Fehlerschutz, AMBE-Halbrate, YSF (C4FM)
-do {
+if want("voice") {
     struct Rng: Sendable {
         var state: UInt64
         mutating func next() -> UInt64 {
@@ -8782,7 +8793,7 @@ do {
     } else { skip("YSF echt: TestData/Voice/ysf_f5zoo.dis liegt nicht lokal vor") }
 }
 // MARK: - DMR: Codes, Burstaufbau, Link Control, Empfänger
-do {
+if want("voice") {
     struct Rng: Sendable {
         var state: UInt64
         mutating func next() -> UInt64 {
@@ -9025,7 +9036,7 @@ do {
     } else { skip("DMR echt: TestData/Voice/dmr_it_8.dis liegt nicht lokal vor") }
 }
 // MARK: - Positionen aus digitalen Sprachmodi (DPRS, M17): Liste und Karte
-do {
+if want("voice") {
     var book = VoicePositionBook()
     let t0 = Date()
     check(book.update(mode: "D-STAR", callsign: "dl1abc-7 ", latitude: 49.79, longitude: 9.95, comment: "Test", now: t0) && book.items.count == 1 && book.items[0].callsign == "DL1ABC-7", "Positionen: Aufnahme, Rufzeichen groß und ohne Leerzeichen")
@@ -9047,7 +9058,7 @@ do {
     check(dpr.items.isEmpty && DecoderModuleInfo.dstar.hasMap && DecoderModuleInfo.m17.hasMap && !DecoderModuleInfo.ysf.hasMap, "Positionen: leeren, Karte für D-Star und M17")
 }
 // MARK: - dPMR: Codes, Steuerkanal, Empfänger, Rundlauf, echte Aufnahme
-do {
+if want("voice") {
     struct PRng { var s: UInt64
         mutating func next() -> UInt64 { s = s &* 6364136223846793005 &+ 1442695040888963407; return s >> 33 }
         mutating func bit() -> UInt8 { UInt8(next() & 1) }
@@ -9174,7 +9185,7 @@ do {
     } else { skip("dPMR echt: TestData/Voice/dpmr.dis liegt nicht lokal vor") }
 }
 // MARK: - M17: Codes, Rahmen, LSF, Empfänger, Sprache
-do {
+if want("voice") {
     // Vektoren der Referenzbibliothek libM17 (Rufzeichen, CRC, Golay) und der Spezifikation
     check(M17.address(fromCallsign: "N0CALL") == 0x4B13D106 && M17.address(fromCallsign: "@ALL") == M17.broadcast && M17.callsign(from: 0x4B13D106) == "N0CALL",
           "M17: Rufzeichen N0CALL = 0x4B13D106, @ALL = Rundruf")
@@ -9314,7 +9325,7 @@ do {
     }
 }
 // MARK: - Funksensoren (433/868 MHz): Bitpuffer, Slicer, Decoder, Empfangskette, Aufnahmen
-do {
+if want("sensors") {
     // Hilfsfunktionen und Prüfsummen (Prüfwerte der Referenz: CRC-8 mit Polynom 0x31 über „123456789“ = 0xA2, CRC-8 0x07 = 0xF4)
     let nine = Array("123456789".utf8)
     check(SensorBits.crc8(nine, poly: 0x31, initial: 0) == 0xA2 && SensorBits.crc8(nine, poly: 0x07, initial: 0) == 0xF4, "Sensoren: CRC-8 (Polynome 0x31 und 0x07) gegen die Prüfwerte")
@@ -9481,7 +9492,7 @@ do {
     } else { skip("Sensoren echt: TestData/Sensors liegt nicht lokal vor (Tools/Sensors433Bench/fetch_testdata.sh)") }
 }
 // MARK: - SDRconnect als Funkgerät (WebSocket-Schnittstelle)
-do {
+if want("rig") {
     var st = SDRconnectStatus()
     st.apply(property: "device_vfo_frequency", value: "101000000")
     st.apply(property: "demodulator", value: "nfm")
@@ -9548,7 +9559,7 @@ do {
 }
 final class ProbeBox: @unchecked Sendable { var result: RigProbeResult? }
 // MARK: - FreeDV (Codec2): Modem, Rundlauf, Textkanal, echte Aufnahme
-do {
+if want("voice") {
     struct FRng: Sendable {
         var state: UInt64
         mutating func next() -> UInt64 {
@@ -9664,7 +9675,7 @@ do {
     } else { skip("FreeDV echt: TestData/Voice/freedv_700d_vk2tpm.wav liegt nicht lokal vor") }
 }
 // MARK: - VDL Mode 2: Kopf, Reed-Solomon, Rahmen, ACARS, Rundlauf über I/Q, echte Aufnahme
-do {
+if want("vdl2") {
     struct VRng { var s: UInt64
         mutating func next() -> UInt64 { s = s &* 6364136223846793005 &+ 1442695040888963407; return s >> 33 }
     }
@@ -9862,7 +9873,7 @@ do {
     } else { skip("VDL2 echt: TestData/VDL2/vdl2_model_16b_1050kHz.wav liegt nicht lokal vor (aus dumpvdl2/test)") }
 }
 // MARK: - VOR/ILS: Peilung, Kennung (Morse), Landekurs- und Gleitwegsender, echte Aufnahmen
-do {
+if want("vor") {
     /// Audio in ungleich langen Stücken in den Empfänger geben (prüft, dass die Blockgrenzen nichts ausmachen)
     func run(_ x: [Float]) -> (rx: NavReceiver, idents: [String]) {
         let rx = NavReceiver()
@@ -9953,7 +9964,7 @@ do {
     } else { skip("VOR echt: TestData/VOR liegt nicht lokal vor (github.com/martinber/vor-python-decoder, Ordner samples)") }
 }
 // MARK: - TETRA
-do {
+if want("tetra") {
     // Kern: Verwürfelung, CRC, Faltungscode, Punktierung, Verschachtelung, Reed-Muller
     check(TETRA.scramblerInit(mcc: 228, mnc: 8889, colourCode: 1) == ((UInt32(1) | UInt32(8889) << 6 | UInt32(228) << 20) << 2) | 3, "TETRA: Verwürfelungs-Anfangswert aus MCC, MNC und Farbcode")
     let scr = TETRA.scramblerBits(initial: 3, count: 64)
@@ -10036,7 +10047,7 @@ do {
     return (0..<80).map { _ in (0..<137).map { _ in UInt8.random(in: 0...1, using: &rng) } }
 }
 final class TETRABox: @unchecked Sendable { var chunks: [TETRASpeechChunk] = []; var samples = 0; var signals: [String] = [] }
-do {
+if want("tetra") {
     let frames = tetraSpeechFrames()
     var cfg = TETRATestNetwork.Config()
     cfg.text = "Digidec Test \u{E4}\u{F6}\u{FC}"
@@ -10070,7 +10081,7 @@ do {
 }
 
 // TETRA: Funkebene mit Rauschen, Versatz, Taktfehler und 8-Bit-Quantisierung; verschiedene Abtastraten und Stückgrößen
-do {
+if want("tetra") {
     let frames = tetraSpeechFrames()
     @MainActor func runRF(rate: Double, offsetHz: Double, ppm: Double, snr: Double?, label: String, chunk: Int, frameCount: Int = 56, carrierCenterOffset: Double = 0) -> (matched: Int, calls: Int, bad: Int, crcBad: Int, locked: Bool, offset: Double, audio: Int) {
         let net = TETRATestNetwork(config: TETRATestNetwork.Config(), speech: frames)
@@ -10120,7 +10131,7 @@ do {
 }
 
 // TETRA: zwei Träger im selben Fenster (Steuerkanal und Verkehrskanal), Zuschalten durch die Kanalzuweisung
-do {
+if want("tetra") {
     let frames = tetraSpeechFrames()
     var cfgA = TETRATestNetwork.Config()
     cfgA.allocationCarrier = 1069; cfgA.trafficSlot = 3; cfgA.hostsTraffic = false; cfgA.text = nil
@@ -10157,7 +10168,7 @@ do {
 }
 
 // TETRA: Zerlegte Nachrichten (MAC-RESOURCE mit Fortsetzung, MAC-FRAG, MAC-END) und 7-Bit-Text
-do {
+if want("tetra") {
     let text = "Alarm Halle 7: Brandmeldeanlage ausgeloest, bitte melden."
     let sdu = TETRAPDUBuilder.dSDSSDU(from: 100701, text: text)
     var head = TETRABitWriter()
@@ -10198,7 +10209,7 @@ do {
 }
 
 // TETRA: Rufverfolgung, Filter und Verschlüsselung
-do {
+if want("tetra") {
     let tracker = TETRACallTracker()
     var setup = TETRACallSignal(kind: .setup, callID: 5, address: TETRAAddress(kind: .ssiUsage, ssi: 4711, eventLabel: nil, usageMarker: 20), party: 999, usageMarker: 20, allocation: nil)
     setup.communicationType = 1
@@ -10249,7 +10260,7 @@ do {
 }
 
 // TETRA: Einstellungen, Kanalplan, Modul
-do {
+if want("tetra") {
     check(TETRAChannelPlan.parseFrequencies("426,7000 426.725; 12 abc 3000") == [426.7, 426.725], "TETRA: Frequenzeingabe mit Komma und Punkt, unsinnige Werte verworfen")
     check(TETRAChannelPlan.parseGroups("100601, 100602;abc 7") == [100601, 100602, 7] && TETRAChannelPlan.parseLabels("100601 = Werkschutz\nx=y\n42=Chef = Boss") == [100601: "Werkschutz", 42: "Chef = Boss"], "TETRA: Gruppenliste und Namenstabelle")
     check(TETRAChannelPlan.center(for: [426.7]) == 426_400_000 && TETRAChannelPlan.fits(426_700_000, center: 426_400_000) && !TETRAChannelPlan.fits(428_000_000, center: 426_400_000), "TETRA: Empfangsfenster: ein Träger liegt 300 kHz über der Mitte")
@@ -10259,7 +10270,7 @@ do {
 }
 
 // MARK: - NDB
-do {
+if want("ndb") {
     check(NDBFormat.collapse("ABCABC") == "ABC" && NDBFormat.collapse("ABAB") == "AB" && NDBFormat.collapse("ABCABCABC") == "ABC" && NDBFormat.collapse("ABCD") == "ABCD"
           && NDBFormat.collapse("EE") == "EE" && NDBFormat.collapse("AGB") == "AGB", "NDB: wiederholte Kennungsgruppe wird zusammengefasst")
     check(NDBFormat.carrierKHz(dialHz: 318_000, mode: "AM", toneHz: 1020) == 318 && NDBFormat.carrierKHz(dialHz: 318_000, mode: "USB", toneHz: 1020) == 318
@@ -10344,7 +10355,7 @@ do {
 }
 
 // MARK: - SDR-Empfänger (eingebaut)
-do {
+if want("sdr") {
     func level(_ a: [Float], _ f: Double, skip: Double = 0.4) -> Double {
         let start = Int(skip * 48_000)
         guard a.count > start + 4_800 else { return 0 }
@@ -10461,13 +10472,13 @@ do {
 }
 
 // MARK: - DAB (Empfänger, FIC, Hauptdienstkanal, DAB+)
-do {
+if want("dab") {
     dabSelfTests { ok, text in check(ok, text) }
     if !dabRecordingTest(path: "TestData/DAB/dab_11D_2048k.raw", { ok, text in check(ok, text) }) { skip("DAB echt: TestData/DAB/dab_11D_2048k.raw liegt nicht lokal vor (HackRF-Aufnahme, Block 11D)") }
 }
 
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
-do {
+if want("adsb") {
     final class Flag: @unchecked Sendable { var done = false }
     let flag = Flag()
     Task { @MainActor in
