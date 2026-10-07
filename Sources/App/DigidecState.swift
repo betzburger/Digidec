@@ -86,6 +86,8 @@ public final class DigidecState: ObservableObject {
     public let sdrController: SDRController
     public let vdl2 = VDL2SettingsStore()
     public let vdl2Controller: VDL2Controller
+    public let dab = DABSettingsStore()
+    public let dabController: DABController
     public let nav = NavSettingsStore()
     public let navController: NavController
     public let freedv = FreeDVSettingsStore()
@@ -168,6 +170,7 @@ public final class DigidecState: ObservableObject {
         sdrController = SDRController(pipeline: audio.pipeline, settings: sdr)
         audio.sdr = sdrController
         vdl2Controller = VDL2Controller(settings: vdl2)
+        dabController = DABController(settings: dab)
         navController = NavController(pipeline: audio.pipeline, settings: nav)
         freedvController = FreeDVController(pipeline: audio.pipeline, settings: freedv)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
@@ -250,6 +253,7 @@ public final class DigidecState: ObservableObject {
                 self?.m17Controller.setActive(module == .m17)
                 self?.sensorsController.setActive(module == .sensors)
                 self?.vdl2Controller.setActive(module == .vdl2)
+                self?.dabController.setActive(module == .dab)
                 self?.navController.setActive(module == .vor)
                 self?.freedvController.setActive(module == .freedv)
                 self?.hfdlController.setActive(module == .hfdl)
@@ -299,6 +303,7 @@ public final class DigidecState: ObservableObject {
                 self?.rig.follow(radio: kind == .live ? input?.radio : nil)
             }
             .store(in: &cancellables)
+        sdrController.shouldYield = { [unowned self] in self.activeModule.usesOwnIQDevice }
         // Eingebauter SDR-Empfänger als Funkgerät: Frequenz und Betriebsart kommen von ihm, die Module stimmen ihn ab
         sdrController.onRigState = { [weak self] state in
             guard let self else { return }
@@ -402,7 +407,7 @@ public final class DigidecState: ObservableObject {
         case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
-        case .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .vor, .freedv: return nil
+        case .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
@@ -477,6 +482,19 @@ public final class DigidecState: ObservableObject {
                 state.vdl2Controller.fileOverride = URL(fileURLWithPath: path)
                 state.vdl2Controller.fileRealtime = ProcessInfo.processInfo.environment["DIGIDEC_VDL2_REALTIME"] != "0"
             }
+            // Entwicklungshilfe: DIGIDEC_DAB_FILE=/Pfad/aufnahme.raw (8-Bit-I/Q, 2,048 MS/s); DIGIDEC_DAB_SIGNED=1 für HackRF-Rohdaten (vorzeichenbehaftet),
+            // DIGIDEC_DAB_REALTIME=0 schneller, DIGIDEC_DAB_SERVICE=<Name> wählt den Dienst (Teil des Namens)
+            if let path = ProcessInfo.processInfo.environment["DIGIDEC_DAB_FILE"] {
+                state.dabController.fileOverride = URL(fileURLWithPath: path)
+                state.dabController.fileSigned = ProcessInfo.processInfo.environment["DIGIDEC_DAB_SIGNED"] != nil
+                state.dabController.fileRealtime = ProcessInfo.processInfo.environment["DIGIDEC_DAB_REALTIME"] != "0"
+            }
+            if let name = ProcessInfo.processInfo.environment["DIGIDEC_DAB_SERVICE"] { state.dabController.autoSelectName = name }
+            if ProcessInfo.processInfo.environment["DIGIDEC_DAB_MUTE"] != nil { state.dab.muted = true }
+            if ProcessInfo.processInfo.environment["DIGIDEC_DAB_SCAN"] != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated { DigidecState.shared.dabController.startScan() } }
+            }
+            if let b = ProcessInfo.processInfo.environment["DIGIDEC_DAB_BLOCK"], let blk = DABBlock.named(b) { state.dab.blockName = blk.name }
             // Entwicklungshilfe: DIGIDEC_TETRA_FILE=/Pfad/aufnahme.wav (I/Q, WAV oder cu8; ein Träger in der Mitte); DIGIDEC_TETRA_REALTIME=0 schneller
             if let path = ProcessInfo.processInfo.environment["DIGIDEC_TETRA_FILE"] {
                 state.tetraController.fileOverride = URL(fileURLWithPath: path)
@@ -570,6 +588,8 @@ public final class DigidecState: ObservableObject {
                     case "gs": nav.ilsKind = .glideslope
                     default: break
                     }
+                case .dab:
+                    if let preset = request.presetID, let b = DABBlock.named(preset) { dab.blockName = b.name }
                 case .vdl2:
                     switch request.presetID {
                     case "csc": vdl2.channels = [VDL2.commonSignallingChannel / 1e6]
@@ -681,6 +701,7 @@ public final class DigidecState: ObservableObject {
     public func cleanup() {
         if rttyController.isRecording { rttyController.toggleRecording() }   // WAV-Kopf abschließen
         sdrController.stopSource()                                          // Gerät sauber schließen
+        dabController.stopSource()
         audio.cleanup()
     }
 }

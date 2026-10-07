@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "DPMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr && DecoderModuleInfo.Band.hf.modules.contains(.ndb), "HF-Rubrik A–Z")
 }
 
@@ -10458,6 +10458,12 @@ do {
         rig.useInternal(name: nil)
         check(!rig.hasRig && !rig.isInternal, "SDR: nach dem Abmelden gilt wieder kein Funkgerät")
     }
+}
+
+// MARK: - DAB (Empfänger, FIC, Hauptdienstkanal, DAB+)
+do {
+    dabSelfTests { ok, text in check(ok, text) }
+    if !dabRecordingTest(path: "TestData/DAB/dab_11D_2048k.raw", { ok, text in check(ok, text) }) { skip("DAB echt: TestData/DAB/dab_11D_2048k.raw liegt nicht lokal vor (HackRF-Aufnahme, Block 11D)") }
 }
 
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind

@@ -20,15 +20,15 @@ final class SDRSpectrumModel: ObservableObject {
         didSet { UserDefaults.standard.set(rangeDB, forKey: "sdrRangeDB"); needsRedraw = true }
     }
 
-    private let controller: SDRController
+    private let rowSource: @MainActor () -> [[Float]]
     private var pixels: [UInt32]
     private var dbRows: [[Float]] = []
     private var needsRedraw = false
     private var timer: Timer?
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
-    init(controller: SDRController) {
-        self.controller = controller
+    init(rows: @escaping @MainActor () -> [[Float]]) {
+        rowSource = rows
         let saved = UserDefaults.standard.float(forKey: "sdrRangeDB")
         rangeDB = (20...90).contains(saved) ? saved : 55
         pixels = [UInt32](repeating: WaterfallColorMap.lut[0], count: Self.columns * Self.history)
@@ -60,7 +60,7 @@ final class SDRSpectrumModel: ObservableObject {
     }
 
     private func update() {
-        let rows = controller.engine.takeSpectrumRows()
+        let rows = rowSource()
         guard !rows.isEmpty || needsRedraw else { return }
         let width = Self.columns
         for raw in rows {
@@ -300,8 +300,13 @@ final class SDRSpectrumModelBox: ObservableObject {
     let value: SDRSpectrumModel
     private var forward: Any?
 
+    init(rows: @escaping @MainActor () -> [[Float]]) {
+        value = SDRSpectrumModel(rows: rows)
+        forward = value.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
     init(controller: SDRController) {
-        value = SDRSpectrumModel(controller: controller)
+        value = SDRSpectrumModel(rows: { controller.engine.takeSpectrumRows() })
         forward = value.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 }
@@ -319,7 +324,7 @@ enum SDRFormat {
     }
 }
 
-private struct RFAxis: View {
+struct RFAxis: View {
     let range: ClosedRange<Double>
 
     var body: some View {
@@ -344,7 +349,7 @@ private struct RFAxis: View {
     }
 }
 
-private struct RFSpectrumGraph: View {
+struct RFSpectrumGraph: View {
     let spectrum: [Float]
     let floorDB: Float
     let rangeDB: Float

@@ -230,7 +230,7 @@ public enum NDBSignalGenerator {
     ///   - dit: Länge eines Punkts in Sekunden (NDB: etwa 0,1 bis 0,2 s)
     ///   - repeatEvery: Abstand der Wiederholungen
     public static func audio(ident: String, toneHz: Double, dit: Double = 0.12, repeatEvery: Double = 12, seconds: Double, start: Double = 1,
-                             snrDB: Double? = nil, rate: Double = NDBAudio.sampleRate) -> [Float] {
+                             snrDB: Double? = nil, rate: Double = NDBAudio.sampleRate, seed: UInt64 = 2) -> [Float] {
         var out = [Float](repeating: 0, count: Int(seconds * rate))
         let elements = NavSignalGenerator.morseElements(ident, dit: dit)
         var t0 = start
@@ -257,12 +257,16 @@ public enum NDBSignalGenerator {
             // Rauschleistung in 3 kHz so, dass Ton (Effektivwert 0,3/√2) um snr darüber liegt; Bandbreite 4 kHz → Skalierung
             let toneRMS = 0.3 / 2.0.squareRoot()
             let sigma = Float(toneRMS * pow(10, -snrDB / 20) * (4000.0 / 3000.0).squareRoot())
-            for i in 0..<out.count { out[i] += sigma * gauss() }
+            var rng = seed &* 0x9E3779B97F4A7C15 | 1           // feste Folge: die Prüfungen sollen nicht vom Zufall abhängen
+            func uniform() -> Float {
+                rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17
+                return Float(rng >> 40) / Float(1 << 24)
+            }
+            for i in 0..<out.count {
+                let g = (-2 * log(max(uniform(), 1e-7))).squareRoot() * cos(2 * .pi * uniform())
+                out[i] += sigma * g
+            }
         }
         return out
-    }
-
-    private static func gauss() -> Float {
-        (-2 * log(Float.random(in: 1e-7...1))).squareRoot() * cos(2 * .pi * Float.random(in: 0...1))
     }
 }

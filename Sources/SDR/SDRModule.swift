@@ -221,6 +221,8 @@ public final class SDRController: ObservableObject {
     public var onStatus: ((Bool, String, Bool) -> Void)?
     /// Frequenz und Betriebsart als Funkgerät (für Module und Kopfzeile)
     public var onRigState: ((RigState?) -> Void)?
+    /// Hat gerade ein Modul mit eigenem I/Q-Eingang das Gerät (dann bleibt der Empfänger zurück)?
+    public var shouldYield: (() -> Bool)?
     /// Aufnahme als Quelle (Entwicklung und Prüfung)
     public var fileOverride: URL?
     public var fileRealtime = true
@@ -256,6 +258,13 @@ public final class SDRController: ObservableObject {
     /// Eingangswahl „SDR“: Gerät öffnen
     public func select() {
         isSelected = true
+        // Läuft gerade ein Modul mit eigenem I/Q-Eingang, gehört ihm das Gerät: erst nach dem Verlassen des Moduls öffnen
+        if shouldYield?() == true {
+            isSuspended = true
+            status = .idle
+            onStatus?(false, "SDR-Empfänger pausiert: das Modul liest das Gerät selbst", false)
+            return
+        }
         isSuspended = false
         startSource()
     }

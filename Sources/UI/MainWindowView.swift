@@ -55,6 +55,8 @@ public struct MainWindowView: View {
                                 TETRAMainPanel(controller: state.tetraController, settings: state.tetra)
                             } else if state.activeModule == .sensors {
                                 SensorsMainPanel(controller: state.sensorsController, settings: state.sensors)
+                            } else if state.activeModule == .dab {
+                                DABMainPanel(controller: state.dabController, settings: state.dab)
                             } else if state.activeModule == .vdl2 {
                                 VDL2MainPanel(controller: state.vdl2Controller, settings: state.vdl2)
                             } else if state.activeModule == .vor {
@@ -130,6 +132,8 @@ public struct MainWindowView: View {
                                 SensorsScopePanel(controller: state.sensorsController)
                             } else if state.activeModule == .tetra {
                                 TETRAScopePanel(controller: state.tetraController)
+                            } else if state.activeModule == .dab {
+                                DABSpectrumPanel(controller: state.dabController, settings: state.dab)
                             } else if state.activeModule == .vdl2 {
                                 VDL2ScopePanel(controller: state.vdl2Controller)
                             } else if state.activeModule == .vor {
@@ -186,7 +190,7 @@ public struct MainWindowView: View {
                         }
                         }
                         .frame(height: 260)
-                        .radioCard(title: state.activeModule == .adsb || state.activeModule == .sensors || state.activeModule == .vdl2 || state.activeModule == .tetra || state.activeModule == .vor ? "Empfang" : "Wasserfall")
+                        .radioCard(title: state.activeModule == .adsb || state.activeModule == .sensors || state.activeModule == .vdl2 || state.activeModule == .tetra || state.activeModule == .vor || state.activeModule == .dab ? "Empfang" : "Wasserfall")
 
                         Group {
                             switch state.mapLayout(state.activeModule) {
@@ -205,7 +209,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -287,6 +291,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             TETRASettingsPanel(controller: state.tetraController, settings: state.tetra)
                                 .radioCard(title: "TETRA")
+                        } else if state.activeModule == .dab {
+                            DABTuningPanel(controller: state.dabController)
+                                .radioCard(title: "Abstimmanzeige")
+                            DABSettingsPanel(controller: state.dabController, settings: state.dab)
+                                .radioCard(title: "DAB")
                         } else if state.activeModule == .vdl2 {
                             VDL2TuningPanel(controller: state.vdl2Controller, settings: state.vdl2)
                                 .radioCard(title: "Abstimmanzeige")
@@ -424,6 +433,9 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Empfänger")
                         } else if state.activeModule == .tetra {
                             TETRAReceiverCard(controller: state.tetraController)
+                                .radioCard(title: "Empfänger")
+                        } else if state.activeModule == .dab {
+                            DABReceiverCard()
                                 .radioCard(title: "Empfänger")
                         } else if state.activeModule == .vdl2 {
                             VDL2ReceiverCard(controller: state.vdl2Controller)
@@ -1013,6 +1025,7 @@ private struct StatusBar: View {
         case .m17: return "M17 · 4FSK 4800 Bd · Codec2 · FM-Diskriminator-Audio"
         case .sensors: return "SENSOREN · Funksensoren 433,92 und 868,3 MHz · I/Q direkt vom Gerät"
         case .vor: return "VOR/ILS · Peilung und Kennung · AM-Audio 48 kHz (Bandbreite ≥ 25 kHz)"
+        case .dab: return "DAB · Digitalradio Band III · 174 bis 240 MHz · COFDM · DAB+ (HE-AAC) · I/Q direkt vom Gerät"
         case .vdl2: return "VDL2 · VDL Mode 2 · 136,725 bis 136,975 MHz · D8PSK 10 500 Bd · I/Q direkt vom Gerät"
         case .freedv: return "FREEDV · digitale Sprache KW · USB · NF 500 bis 2500 Hz"
         case .packet: return packetCurrent

@@ -31,6 +31,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case m17
     case sensors
     case vdl2
+    case dab
     case vor
     case freedv
     case hfdl
@@ -50,7 +51,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     /// Module, die das SDR-Gerät selbst öffnen (I/Q direkt, kein Audio): der eingebaute SDR-Empfänger gibt es dann ab
     public var usesOwnIQDevice: Bool {
         switch self {
-        case .adsb, .sensors, .vdl2, .tetra: return true
+        case .adsb, .sensors, .vdl2, .tetra, .dab: return true
         default: return false
         }
     }
@@ -82,6 +83,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .m17:    return "M17"
         case .sensors: return "SENSOREN"
         case .vdl2:   return "VDL2"
+        case .dab:    return "DAB"
         case .vor:    return "VOR/ILS"
         case .freedv: return "FREEDV"
         case .hfdl:   return "HFDL"
@@ -129,7 +131,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var band: Band {
         switch self {
-        case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .tetra, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf: return .vhfUhf
+        case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .tetra, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf, .dab: return .vhfUhf
         case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
@@ -137,14 +139,14 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     /// Hat das Modul eine Kartenanzeige? (Ohne Ortsdaten nicht: Bilder, Funkruf, Tonfolgen, ALE)
     public var hasMap: Bool {
         switch self {
-        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .vor, .freedv: return false
+        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .vor, .freedv, .dab: return false
         default: return true
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -172,6 +174,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .tetra: return ["tetra"]
         case .m17: return ["m17"]
         case .vor: return ["vor", "loc", "gs"]   // VOR, Landekurssender, Gleitwegsender (Anzeige und Eichung)
+        case .dab: return ["11d", "5c", "5d", "10a", "5a", "5b", "6a", "6b", "6c", "6d", "7a", "7b", "7c", "7d", "8a", "8b", "8c", "8d", "9a", "9b", "9c", "9d", "10b", "10c", "10d", "11a", "11b", "11c", "12a", "12b", "12c", "12d", "13a", "13b", "13c", "13d", "13e", "13f"]   // Blöcke des Bandes III (= DABBlock.name kleingeschrieben), Standard 11D
         case .vdl2: return ["europa", "csc", "alle"]   // Kanalwahl: EUROPA (6 Kanäle), nur 136,975 MHz, alle Kanäle
         case .sensors: return SensorBand.allCases.map { $0.rawValue }   // = SensorBand.rawValue („433.92“, „868.3“), Standard 433,92 MHz
         case .freedv: return FreeDVMode.allCases.map { $0.title.lowercased() }   // = FreeDVMode.title (kleingeschrieben), Standard 700D
