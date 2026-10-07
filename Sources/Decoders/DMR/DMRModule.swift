@@ -178,6 +178,7 @@ public final class DMRController: ObservableObject {
 
     private let settings: DMRSettingsStore
     private var timer: Timer?
+    private var aliases = [DMRTalkerAlias(), DMRTalkerAlias()]     // Talker Alias je Zeitschlitz
     private var current: [Int?] = [nil, nil]          // Index in `calls` je Zeitschlitz
     private var lastVoice: [Date?] = [nil, nil]
     private var cancellables: Set<AnyCancellable> = []
@@ -282,6 +283,7 @@ public final class DMRController: ObservableObject {
             calls[i].source = "\(sid)"
             calls[i].note = ""
         }
+        if !calls[i].alias.isEmpty { calls[i].note += (calls[i].note.isEmpty ? "" : " · ") + "Alias „\(calls[i].alias)“" }
         if calls[i].isGroup { calls[i].target = "TG \(tid)" }
         else { calls[i].target = db.lookup(tid)?.callsign ?? "ID \(tid)" }
     }
@@ -302,6 +304,7 @@ public final class DMRController: ObservableObject {
             for s in 0..<2 { if let i = current[s] { current[s] = i - removed >= 0 ? i - removed : nil } }
         }
         current[slot] = calls.count - 1
+        aliases[slot] = DMRTalkerAlias()
         lastVoice[slot] = now
         if let lc, lc.isCall { apply(lc, to: calls.count - 1) }
         updateVia(slot: slot)
@@ -319,7 +322,15 @@ public final class DMRController: ObservableObject {
         case .callStart(let slot, let cc, let lc):
             start(slot: slot, colorCode: cc, lc: lc, now: now)
         case .linkControl(let slot, let lc):
-            guard lc.isCall, let i = current[slot], calls.indices.contains(i) else { return }
+            guard let i = current[slot], calls.indices.contains(i) else { return }
+            if DMRTalkerAlias.isAlias(lc) {
+                if aliases[slot].ingest(lc) {
+                    calls[i].alias = aliases[slot].text
+                    refreshNames(of: i)
+                }
+                return
+            }
+            guard lc.isCall else { return }
             apply(lc, to: i)
         case .voice(let burst):
             if current[burst.slot] == nil { start(slot: burst.slot, colorCode: burst.colorCode, lc: nil, now: now) }
@@ -365,6 +376,7 @@ public final class DMRController: ObservableObject {
         if !c.target.isEmpty { line += "  → \(c.target)" }
         if !c.via.isEmpty { line += "  \(c.via)" }
         if !c.isLive { line += String(format: "  %.1f s", c.seconds) }
+        if !c.alias.isEmpty { line += "  Alias „\(c.alias)“" }
         if c.lateEntry { line += "  (später Einstieg)" }
         return line
     }

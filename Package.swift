@@ -123,5 +123,15 @@ let package = Package(
 )
 
 if hasLocalVocoder {
-    package.targets.append(.target(name: "LocalVocoder", dependencies: ["VoiceCore"], path: "Local/Vocoder/Sources"))
+    // Lokale C-Bausteine (liegen unter Local/Vocoder/Native, nicht im Repository)
+    let hasNative = FileManager.default.fileExists(atPath: packageRoot + "/Local/Vocoder/Native")
+    if hasNative {
+        package.targets.append(.target(name: "LocalNative", path: "Local/Vocoder/Native", publicHeadersPath: "include", cSettings: [.unsafeFlags(["-w", "-O3"])]))
+    }
+    package.targets.append(.target(name: "LocalVocoder", dependencies: ["VoiceCore"] + (hasNative ? ["LocalNative"] : []), path: "Local/Vocoder/Sources"))
+    // Lokale Prüfprogramme: jeder Ordner unter Local/Tools/Exec ist ein Programm
+    let execRoot = packageRoot + "/Local/Tools/Exec"
+    for name in (try? FileManager.default.contentsOfDirectory(atPath: execRoot)) ?? [] where !name.hasPrefix(".") {
+        package.targets.append(.executableTarget(name: name, dependencies: ["VoiceCore", "LocalVocoder"], path: "Local/Tools/Exec/" + name))
+    }
 }

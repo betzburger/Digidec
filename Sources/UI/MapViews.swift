@@ -32,7 +32,9 @@ struct ModuleMapView: View {
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
             case .efr:    FixedSiteMapView(sites: Transmitters.efr(state.efr.station), home: state.home, hint: "EFR: Rundsteuersender")
-            case .sstv, .ale, .pager, .tones, .hell, .packet, .dstar, .ysf, .dmr, .m17, .sensors, .vdl2, .vor, .freedv:
+            case .dstar:  DStarMapView(controller: state.dstarController, home: state.home)
+            case .m17:    M17MapView(controller: state.m17Controller, home: state.home)
+            case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .sensors, .vdl2, .vor, .freedv:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -85,6 +87,42 @@ extension DecoderModuleInfo {
         case .ysf: return "Die gehörte Aussendung mit Rufzeichen, Ziel und Repeater, dazu der Verlauf mit Wiedergabe"
         case .dstar: return "Die gehörte Aussendung mit Rufzeichen, Repeater, Text und Position, dazu der Verlauf mit Wiedergabe"
         case .aprs, .acars, .hfdl, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
+        }
+    }
+}
+
+// MARK: - D-Star (DPRS) und M17: Positionen der gehörten Stationen
+
+private struct DStarMapView: View {
+    @ObservedObject var controller: DStarController
+    @ObservedObject var home: HomeLocation
+
+    var body: some View {
+        VoicePositionMapView(book: controller.positions, selection: $controller.selection, home: home,
+                             hint: "Noch keine DPRS-Position empfangen (Langsamdaten der Aussendungen)")
+    }
+}
+
+private struct M17MapView: View {
+    @ObservedObject var controller: M17Controller
+    @ObservedObject var home: HomeLocation
+
+    var body: some View {
+        VoicePositionMapView(book: controller.positions, selection: $controller.selection, home: home,
+                             hint: "Noch keine Position empfangen (M17-Zusatzdaten)")
+    }
+}
+
+private struct VoicePositionMapView: View {
+    let book: VoicePositionBook
+    @Binding var selection: String?
+    let home: HomeLocation
+    let hint: String
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 10)) { ctx in
+            MapPanel(content: book.mapContent(home: home.point, now: ctx.date, selection: selection, hint: hint), home: home, selection: $selection,
+                     legend: "Stationen mit Position und Weg · Farbe nach Alter")
         }
     }
 }

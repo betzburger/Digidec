@@ -25,6 +25,8 @@ public struct VoiceCall: Identifiable, Equatable, Sendable {
     public var sourceID: Int?
     public var targetID: Int?
     public var isGroup = true
+    /// DMR: Talker Alias (Name oder Text, den das Funkgerät mitsendet)
+    public var alias = ""
     /// `nil` = läuft noch
     public var endedBy: Ended?
 

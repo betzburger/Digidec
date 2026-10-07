@@ -287,7 +287,7 @@ public final class DMRFramer {
                 slots[slot].fragments[index - 1] = fragment
                 if index == 4, slots[slot].fragments.allSatisfy({ $0 != nil }), let lc = DMRLinkControl.decodeEmbedded(fragments: slots[slot].fragments.map { $0! }) {
                     stats.embeddedLC += 1
-                    slots[slot].lc = lc
+                    if lc.isCall { slots[slot].lc = lc }
                     onEvent?(.linkControl(slot: slot, lc: lc))
                 }
             }
