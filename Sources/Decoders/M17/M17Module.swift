@@ -18,6 +18,8 @@ public final class M17SettingsStore: ObservableObject {
     @Published public var channelAccessNumber: Int { didSet { UserDefaults.standard.set(channelAccessNumber, forKey: "m17CAN") } }
     @Published public var playAudio: Bool { didSet { UserDefaults.standard.set(playAudio, forKey: "m17PlayAudio") } }
     @Published public var keepCount: Int { didSet { UserDefaults.standard.set(keepCount, forKey: "m17KeepCount") } }
+    /// Öffentliche Schlüssel für die Signaturprüfung: je Zeile „RUFZEICHEN SCHLÜSSEL“ (128 Hexstellen, secp256r1, x und y)
+    @Published public var publicKeys: String { didSet { UserDefaults.standard.set(publicKeys, forKey: "m17PublicKeys") } }
 
     public init() {
         let d = UserDefaults.standard
@@ -26,6 +28,7 @@ public final class M17SettingsStore: ObservableObject {
         playAudio = d.object(forKey: "m17PlayAudio") as? Bool ?? true
         let k = d.integer(forKey: "m17KeepCount")
         keepCount = (10...500).contains(k) ? k : 100
+        publicKeys = d.string(forKey: "m17PublicKeys") ?? ""
     }
 }
 
@@ -120,6 +123,8 @@ public final class M17Decoder: @unchecked Sendable {
             for f in queued { speak(f, l) }
         case .frame(let f):
             if let l = lsf { speak(f, l) } else if held.count < 8 { held.append(f) }
+        case .packet, .bert, .signature:
+            break
         case .callEnd, .lost:
             resetCall()
         }
@@ -320,12 +325,30 @@ public final class M17Controller: ObservableObject {
             guard let i = current, calls.indices.contains(i) else { return }
             lastFrame = now
             calls[i].frames += 2                                // 40 ms je Rahmen
+        case .packet(let packet):
+            guard let i = current, calls.indices.contains(i) else { return }
+            lastFrame = now
+            calls[i].frames += 2 * packet.frames                // 40 ms je Rahmen
+            calls[i].note = (calls[i].note.isEmpty ? "" : calls[i].note + " · ") + packet.summary
+        case .signature(let signed):
+            guard let i = current, calls.indices.contains(i) else { return }
+            let note = M17Signature.resultText(signed, source: currentLSF?.sourceName, keys: M17Signature.parseKeyList(settings.publicKeys))
+            calls[i].note = (calls[i].note.isEmpty ? "" : calls[i].note + " · ") + note
+        case .bert(let bits, let errors, let synced):
+            guard let i = current, calls.indices.contains(i) else { return }
+            lastFrame = now
+            calls[i].frames += 2
+            calls[i].lateEntry = false
+            calls[i].source = "BERT"
+            calls[i].via = "PRBS9"
+            calls[i].note = M17BERTReceiver.text(bits: bits, errors: errors, synced: synced)
         case .callEnd(let lost):
             finish(reason: lost ? .lost : .end, now: now)
         case .lost:
             finish(reason: .lost, now: now)
         }
     }
+
 
     private func apply(_ lsf: M17LSF, to i: Int) {
         calls[i].source = lsf.sourceName

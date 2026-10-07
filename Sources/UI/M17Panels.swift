@@ -85,6 +85,8 @@ struct M17TuningPanel: View {
                 Spacer()
                 readout("LSF", "\(controller.stats.lsfFrames + controller.stats.lsfFromLICH)")
                 Spacer()
+                readout("PAKETE", "\(controller.stats.packets)")
+                Spacer()
                 readout("GESPRÄCHE", "\(controller.stats.calls)")
             }
             diagnosisView
@@ -115,7 +117,7 @@ struct M17TuningPanel: View {
             }
             let s = controller.stats
             if s.syncs > 0 {
-                Text("Synchronisationen \(s.syncs) · Strom-Rahmen \(s.streamFrames), LSF-Rahmen \(s.lsfFrames), LSF aus LICH \(s.lsfFromLICH) · nicht lesbar \(s.badFrames), LSF-Prüfsumme \(s.lsfBad) · Ende-Kennungen \(s.endMarkers) · Verluste \(s.lost)")
+                Text("Synchronisationen \(s.syncs) · Strom-Rahmen \(s.streamFrames), Paket-Rahmen \(s.packetFrames) (Pakete \(s.packets), fehlerhaft \(s.packetsBad)), BERT-Rahmen \(s.bertFrames), LSF-Rahmen \(s.lsfFrames), LSF aus LICH \(s.lsfFromLICH) · nicht lesbar \(s.badFrames), LSF-Prüfsumme \(s.lsfBad) · Ende-Kennungen \(s.endMarkers) · Verluste \(s.lost)")
                     .font(.system(size: 8.5, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
             }
@@ -181,7 +183,19 @@ struct M17SettingsPanel: View {
                 .frame(maxWidth: 90)
                 .help("Kanalzugriffsnummer: nur Gespräche mit dieser Nummer anzeigen und abspielen (trennt mehrere Gespräche auf derselben Frequenz); „alle“ = ohne Filter")
             }
-            Text("FM-Diskriminator-Audio, unbearbeitet (kein Hochpass, keine Entzerrung). Die Polarität wird erkannt. Absender, Ziel und Zusatzdaten (Text, Position) kommen aus dem Link Setup Frame, bei spätem Einstieg aus den LICH-Anteilen der Strom-Rahmen. Nicht unterstützt: Paketdaten, Signaturprüfung, Entschlüsselung.")
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SCHLÜSSEL (Signaturprüfung)")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                TextEditor(text: $settings.publicKeys)
+                    .font(.system(size: 9, design: .monospaced))
+                    .frame(height: 46)
+                    .scrollContentBackground(.hidden)
+                    .background(RadioTheme.bgDeep)
+                    .cornerRadius(4)
+                    .help("Eine Zeile je Station: RUFZEICHEN gefolgt vom öffentlichen Schlüssel (128 Hexstellen, x und y der Kurve secp256r1). Signierte Gespräche dieser Station werden damit geprüft.")
+            }
+            Text("FM-Diskriminator-Audio, unbearbeitet (kein Hochpass, keine Entzerrung). Die Polarität wird erkannt. Absender, Ziel und Zusatzdaten (Text, Position) kommen aus dem Link Setup Frame, bei spätem Einstieg aus den LICH-Anteilen der Strom-Rahmen. Paketmodus (SMS, APRS, IPv4 …) mit CRC-Prüfung, BERT-Test (Bitfehlerrate) und Signaturprüfung mit hinterlegtem Schlüssel sind dabei. Nicht unterstützt: Entschlüsselung.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }
