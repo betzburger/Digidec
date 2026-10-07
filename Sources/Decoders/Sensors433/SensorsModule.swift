@@ -35,8 +35,15 @@ public final class SensorsSettingsStore: ObservableObject {
         let d = UserDefaults.standard
         source = d.string(forKey: "sensSource").flatMap(ADSBSourceKind.init(rawValue:)) ?? .rtlsdr
         band = d.string(forKey: "sensBand").flatMap(SensorBand.init(rawValue:)) ?? .mhz433
-        hackrfLNA = d.object(forKey: "sensHackrfLNA") as? Int ?? 32
-        hackrfVGA = d.object(forKey: "sensHackrfVGA") as? Int ?? 30
+        // Der 8-Bit-Wandler des HackRF braucht für schwache Sensoren viel Verstärkung: mit LNA 32/VGA 28 liegt das Rauschen unter 1 Stufe und die Telegramme gehen unter.
+        // Frühere Fassungen speicherten diese zu niedrigen Werte; einmalig auf 40/40 setzen (danach gilt wieder, was der Nutzer einstellt).
+        if d.object(forKey: "sensHackrfGainV2") == nil {
+            d.set(40, forKey: "sensHackrfLNA")
+            d.set(40, forKey: "sensHackrfVGA")
+            d.set(true, forKey: "sensHackrfGainV2")
+        }
+        hackrfLNA = d.object(forKey: "sensHackrfLNA") as? Int ?? 40
+        hackrfVGA = d.object(forKey: "sensHackrfVGA") as? Int ?? 40
         hackrfAmp = d.object(forKey: "sensHackrfAmp") as? Bool ?? false
         hackrfBias = d.object(forKey: "sensHackrfBias") as? Bool ?? false
         rtlGain = d.object(forKey: "sensRtlGain") as? Double ?? 0

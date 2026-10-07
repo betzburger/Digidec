@@ -291,6 +291,12 @@ struct SensorsTuningPanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.ledRed)
             }
+            if controller.stats.activity > 0 && controller.stats.activity < 2.5 && controller.fileOverride == nil {
+                Text("Zu schwach ausgesteuert (Rauschen unter 2 Stufen des Wandlers): Verstärkung erhöhen, sonst gehen schwache Sensoren unter.")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(RadioTheme.vfdAmber)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if controller.stats.droppedBlocks > 0 {
                 Text("Rechner zu langsam: \(controller.stats.droppedBlocks) Datenblöcke verworfen.")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
