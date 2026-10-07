@@ -56,6 +56,26 @@ public final class VoiceOutput: ObservableObject {
 
     public func hasDecoder(for profile: VoiceProfile) -> Bool { VoiceRegistry.shared.preferred(for: profile) != nil }
 
+    /// Gibt es einen Sprachdecoder für TETRA?
+    public var tetraAvailable: Bool { VoiceRegistry.shared.tetraDecoder != nil }
+
+    /// Wiedergabe für Echtzeitton (TETRA): startet bei Bedarf und gibt den Spieler zurück
+    public func startLivePlayer() -> VoicePlayer? {
+        if !playerRunning {
+            do { try player.start(); playerRunning = true } catch { self.error = "Wiedergabe: \(error)"; return nil }
+        }
+        return player
+    }
+
+    /// Ein gespeichertes TETRA-Gespräch noch einmal abspielen (der Decoder beginnt mit frischem Zustand)
+    public func playTetra(_ chunks: [TETRASpeechChunk]) {
+        guard playAudio, !chunks.isEmpty, let decoder = VoiceRegistry.shared.tetraDecoder, let player = startLivePlayer() else { return }
+        queue.async {
+            decoder.reset()
+            for c in chunks { player.enqueue(decoder.decode(bits: c.bits, badFrame: c.badFrame)) }
+        }
+    }
+
     /// Rahmen (9 Byte im Format des Decoders) in Ton wandeln und abspielen
     public func play(_ frames: [[UInt8]], profile: VoiceProfile) {
         guard playAudio, !frames.isEmpty, let voice = VoiceRegistry.shared.preferred(for: profile) else { return }
