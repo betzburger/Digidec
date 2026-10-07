@@ -9448,6 +9448,84 @@ if want("sensors") {
     box.clear()
     check(box.stations.isEmpty && box.recent.isEmpty, "Sensoren: Liste leeren")
 
+    // Unbekannte Pakete: erfundene Sensoren, die kein Decoder kennt (Pulsanalyse, Modulationsart, Bitzeilen, Wiederholungen)
+    do {
+        let secret = bitsOf([0xA5, 0x3C, 0x91, 0x0F, 0x77])                                        // 40 Bit
+        // PPM: gleiche Pulse, Lücken 1020 µs (0) und 2040 µs (1), dreimal gesendet
+        var ppm: [(on: Double, off: Double)] = []
+        for _ in 0..<3 {
+            for b in secret { ppm.append((on: 480, off: b == 1 ? 2040 : 1020)) }
+            ppm.append((on: 480, off: 9000))                                                      // Schlusspuls mit der Pause zur Wiederholung
+        }
+        ppm[ppm.count - 1].off = 30_000
+        var res = receive(SensorSignalGenerator.ook(ppm, options: SensorSignalGenerator.Options()))
+        var u = res.stats.unknown.first
+        check(res.events.isEmpty && res.stats.unknown.count == 1 && u?.modulation == "OOK PPM", "Unbekannt: PPM erkannt (\(res.stats.unknown.map(\.modulation)))")
+        check(u?.rowBits.first == 40 && u?.rows.first == "{40} a53c910f77" && (u?.repeats ?? 0) >= 3, "Unbekannt: PPM-Bits {40} a53c910f77, dreifach wiederholt (\(u?.rows.first ?? "–"), \(u?.repeats ?? 0)×)")
+        check(abs((u?.pulseBins.first?.mean ?? 0) - 480) < 40 && u?.gapBins.count == 2, "Unbekannt: Pulsbreite 480 µs und zwei Lückenbreiten gemessen (\(u?.pulseBins.map(\.mean) ?? []), \(u?.gapBins.map(\.mean) ?? []))")
+        // PWM: Pulsbreite trägt das Bit (kurz = 1), feste Lücke
+        var pwm: [(on: Double, off: Double)] = []
+        for _ in 0..<3 {
+            for b in secret { pwm.append((on: b == 1 ? 500 : 1100, off: 600)) }
+            pwm[pwm.count - 1].off = 9000
+        }
+        pwm[pwm.count - 1].off = 30_000
+        res = receive(SensorSignalGenerator.ook(pwm, options: SensorSignalGenerator.Options()))
+        u = res.stats.unknown.first
+        check(res.events.isEmpty && u?.modulation == "OOK PWM" && u?.rows.first == "{40} a53c910f77", "Unbekannt: PWM erkannt und Bits gelesen (\(u?.modulation ?? "–") \(u?.rows.first ?? "–"))")
+        // Manchester: Takt 500 µs, 1 = tief-hoch
+        var levels: [Int] = []
+        for _ in 0..<3 { for b in secret { levels += b == 1 ? [0, 1] : [1, 0] }; levels += [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+        var mc: [(on: Double, off: Double)] = []
+        var i = 0
+        while i < levels.count {
+            if levels[i] == 0 { i += 1; continue }
+            var on = 0, off = 0
+            while i < levels.count && levels[i] == 1 { on += 500; i += 1 }
+            while i < levels.count && levels[i] == 0 { off += 500; i += 1 }
+            mc.append((on: Double(on), off: Double(off)))
+        }
+        mc[mc.count - 1].off = 30_000
+        res = receive(SensorSignalGenerator.ook(mc, options: SensorSignalGenerator.Options()))
+        u = res.stats.unknown.first
+        check(res.events.isEmpty && u?.modulation == "OOK Manchester" && !(u?.rows.isEmpty ?? true), "Unbekannt: Manchester erkannt (\(u?.modulation ?? "–"))")
+        // FSK mit 100 µs je Bit (Zeilen ohne Pause)
+        var fskBits: [UInt8] = []
+        for _ in 0..<3 { fskBits += secret }
+        var fo = SensorSignalGenerator.Options(); fo.sampleRate = 2_000_000
+        res = receive(SensorSignalGenerator.fsk(bits: fskBits, bitMicroseconds: 100, deviationHz: 50_000, options: fo), sourceRate: 2_000_000, band: .mhz868)
+        u = res.stats.unknown.first
+        check(res.events.isEmpty && u?.isFSK == true && u?.modulation == "FSK PCM" && (u?.rowBits.max() ?? 0) >= 36, "Unbekannt: FSK-Folge als PCM erkannt (\(u?.modulation ?? "–") \(u?.rowBits.max() ?? 0) Bit)")
+        // Ein bekannter Sensor erscheint nicht als unbekannt
+        res = receive(SensorSignalGenerator.ook(nexus, options: opt))
+        check(!res.events.isEmpty && res.stats.unknown.isEmpty, "Unbekannt: ein erkannter Sensor (Nexus) wird nicht als unbekannt gezeigt")
+        // Rauschen: keine unbekannten Pakete
+        res = receive(hiss)
+        check(res.stats.unknown.isEmpty, "Unbekannt: Rauschen allein erzeugt keine unbekannten Pakete (\(res.stats.unknown.count))")
+        // Gruppen im Controller: gleiche Art zusammen, regelmäßiger Abstand erkannt
+        let ctl = SensorsController(settings: SensorsSettingsStore())
+        ctl.logEnabled = false
+        let base = Date()
+        let package = u.map { _ in SensorAnalyzer.analyze(PulseData(), isFSK: false, time: 0, rssiDB: -20, snrDB: 15, frequencyOffsetHz: 0) }
+        _ = package
+        var sample = res.stats.unknown.first
+        if sample == nil {
+            let r2 = receive(SensorSignalGenerator.ook(ppm, options: SensorSignalGenerator.Options()))
+            sample = r2.stats.unknown.first
+        }
+        if let one = sample {
+            for k in 0..<6 { ctl.ingestUnknown(one, now: base.addingTimeInterval(Double(k) * 30)) }
+            check(ctl.unknownGroups.count == 1 && ctl.unknownGroups[0].count == 6 && ctl.unknownGroups[0].isPeriodic && abs((ctl.unknownGroups[0].intervalSeconds ?? 0) - 30) < 1,
+                  "Unbekannt: sechs gleiche Pakete im Abstand von 30 s bilden eine regelmäßige Gruppe (\(ctl.unknownGroups.first?.intervalSeconds ?? 0) s)")
+            let line = SensorsController.unknownLogLine(one, time: base)
+            check(line.contains("Breiten") && line.contains("{40}"), "Unbekannt: Protokollzeile mit Breiten und Bits")
+            ctl.clear()
+            check(ctl.unknownGroups.isEmpty, "Unbekannt: Liste leeren")
+        } else {
+            check(false, "Unbekannt: Beispielpaket für den Controller")
+        }
+    }
+
     // Aufnahmen der Referenz (nur lokal: TestData/Sensors, Tools/Sensors433Bench/fetch_testdata.sh): erwartete Messwerte je Datei
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Sensors")
     if FileManager.default.fileExists(atPath: root.appendingPathComponent("nexus/01/gfile001.cu8").path) {

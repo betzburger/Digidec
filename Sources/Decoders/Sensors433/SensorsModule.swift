@@ -146,6 +146,40 @@ public struct SensorStation: Identifiable, Equatable, Sendable {
     public var summary: String { SensorFormat.summary(latest) }
 }
 
+/// Gleichartige unbekannte Pakete (gleiche Modulationsart, Breiten und Länge) = vermutlich dieselbe Quelle
+public struct UnknownGroup: Identifiable, Sendable {
+    public var id: String { signature }
+    public var signature: String
+    public var count = 1
+    public var first: Date
+    public var last: Date
+    public var latest: UnknownPackage
+    /// Zeitpunkte der Pakete (die letzten 60)
+    public var times: [Date] = []
+    public var maxRepeats = 0
+    public var strongestDB: Double
+
+    /// Mittlerer Abstand zwischen getrennten Aussendungen (Pausen über 3 s); `nil` bei weniger als drei
+    public var intervalSeconds: Double? {
+        let sorted = times.sorted()
+        var gaps: [Double] = []
+        for i in 1..<max(1, sorted.count) { let d = sorted[i].timeIntervalSince(sorted[i - 1]); if d > 3 { gaps.append(d) } }
+        guard gaps.count >= 2 else { return nil }
+        gaps.sort()
+        return gaps[gaps.count / 2]
+    }
+
+    /// Eine Quelle, die sich regelmäßig meldet (Abstand zwischen 5 s und 30 min, streut höchstens ±20 %), ist ein guter Kandidat für einen Sensor
+    public var isPeriodic: Bool {
+        guard let median = intervalSeconds, median >= 5, median <= 1800 else { return false }
+        let sorted = times.sorted()
+        var gaps: [Double] = []
+        for i in 1..<max(1, sorted.count) { let d = sorted[i].timeIntervalSince(sorted[i - 1]); if d > 3 { gaps.append(d) } }
+        let close = gaps.filter { abs($0 - median) <= median * 0.2 }.count
+        return close >= max(2, gaps.count * 6 / 10)
+    }
+}
+
 public struct SensorLogEntry: Identifiable, Sendable {
     public let id = UUID()
     public var time: Date
@@ -163,6 +197,9 @@ public final class SensorsEngine: @unchecked Sendable {
         public var ookPackages = 0
         public var fskPackages = 0
         public var decoded = 0
+        /// Pakete ohne Treffer (nur die mit genug Pulsen) und ihre Analyse seit dem letzten Abruf
+        public var unknownPackages = 0
+        public var unknown: [UnknownPackage] = []
         /// Mittlere Auslenkung der I/Q-Werte (0 … 127) und Anteil übersteuerter Abtastwerte
         public var activity = 0.0
         public var clippedFraction = 0.0
@@ -179,6 +216,7 @@ public final class SensorsEngine: @unchecked Sendable {
     private var pendingBytes = 0
     private var droppedBlocks = 0
     private var events: [SensorEvent] = []
+    private var unknownBuffer: [UnknownPackage] = []
     private var activity = 0.0
     private var clipped = 0, total = 0
     private var noiseDB = -60.0
@@ -207,6 +245,7 @@ public final class SensorsEngine: @unchecked Sendable {
             let rx = SensorReceiver(sampleRate: processRate, devices: devices, centerFrequency: band.frequencyHz)
             rx.onEvent = { [weak self] e in self?.lock.withLock { self?.events.append(e) } }
             rx.onPackage = { [weak self] _, d in self?.lock.withLock { self?.noiseDB = d.noiseDB } }
+            rx.onUnknown = { [weak self] u in self?.lock.withLock { self?.unknownBuffer.append(u) } }
             receiver = rx
             dcI = 127.5; dcQ = 127.5
         }
@@ -216,7 +255,7 @@ public final class SensorsEngine: @unchecked Sendable {
         queue.async { [self] in
             receiver?.reset()
             decimator.reset()
-            lock.withLock { events.removeAll(); droppedBlocks = 0 }
+            lock.withLock { events.removeAll(); unknownBuffer.removeAll(); droppedBlocks = 0 }
         }
     }
 
@@ -281,11 +320,14 @@ public final class SensorsEngine: @unchecked Sendable {
             s.ookPackages = receiver?.ookPackages ?? 0
             s.fskPackages = receiver?.fskPackages ?? 0
             s.decoded = receiver?.decoded ?? 0
+            s.unknownPackages = receiver?.unknown ?? 0
             s.processRate = processRate
         }
         lock.withLock {
             s.events = events
             events.removeAll()
+            s.unknown = unknownBuffer
+            unknownBuffer.removeAll()
             s.activity = activity
             s.clippedFraction = total > 0 ? Double(clipped) / Double(total) : 0
             s.noiseDB = noiseDB
@@ -303,6 +345,8 @@ public final class SensorsController: ObservableObject {
     public let logger = DecodeLogger(mode: "SENSOR")
     @Published public private(set) var stations: [SensorStation] = []
     @Published public private(set) var recent: [SensorLogEntry] = []
+    @Published public private(set) var unknownGroups: [UnknownGroup] = []
+    public let unknownLogger = DecodeLogger(mode: "SENSOR-UNBEKANNT")
     @Published public private(set) var status = ADSBStatus.idle
     @Published public private(set) var stats = SensorsEngine.Snapshot()
     @Published public private(set) var activityHistory: [Double] = []
@@ -323,6 +367,7 @@ public final class SensorsController: ObservableObject {
     private var recentKeys: [String: (Date, String)] = [:]
     private var cancellables: Set<AnyCancellable> = []
     public static let maxRecent = 300
+    public static let maxUnknownGroups = 200
 
     public init(settings: SensorsSettingsStore) {
         self.settings = settings
@@ -361,6 +406,7 @@ public final class SensorsController: ObservableObject {
         engine.reset()
         stations.removeAll()
         recent.removeAll()
+        unknownGroups.removeAll()
         recentKeys.removeAll()
         activityHistory.removeAll()
         selection = nil
@@ -424,6 +470,7 @@ public final class SensorsController: ObservableObject {
         if activityHistory.count > 240 { activityHistory.removeFirst(activityHistory.count - 240) }
         let now = Date()
         for e in s.events { ingest(e, now: now) }
+        for u in s.unknown { ingestUnknown(u, now: now) }
         if settings.expireMinutes > 0 {
             let limit = Double(settings.expireMinutes) * 60
             stations.removeAll { now.timeIntervalSince($0.lastSeen) > limit }
@@ -464,6 +511,38 @@ public final class SensorsController: ObservableObject {
         recent.append(SensorLogEntry(time: now, event: e, summary: summary))
         if recent.count > Self.maxRecent { recent.removeFirst(recent.count - Self.maxRecent) }
         if logEnabled { logger.append(Self.logLine(e, summary: summary, time: now), now: now) }
+    }
+
+    /// Ein unbekanntes Paket einer Gruppe zuordnen und (auf Wunsch) mit allen Breiten ins Protokoll schreiben
+    public func ingestUnknown(_ u: UnknownPackage, now: Date = Date()) {
+        let key = u.signature
+        if let i = unknownGroups.firstIndex(where: { $0.signature == key }) {
+            unknownGroups[i].count += 1
+            unknownGroups[i].last = now
+            unknownGroups[i].latest = u
+            unknownGroups[i].times.append(now)
+            if unknownGroups[i].times.count > 60 { unknownGroups[i].times.removeFirst() }
+            unknownGroups[i].maxRepeats = max(unknownGroups[i].maxRepeats, u.repeats)
+            unknownGroups[i].strongestDB = max(unknownGroups[i].strongestDB, u.rssiDB)
+        } else {
+            var g = UnknownGroup(signature: key, first: now, last: now, latest: u, strongestDB: u.rssiDB)
+            g.times = [now]
+            g.maxRepeats = u.repeats
+            unknownGroups.append(g)
+            if unknownGroups.count > Self.maxUnknownGroups {
+                if let oldest = unknownGroups.indices.min(by: { unknownGroups[$0].last < unknownGroups[$1].last }) { unknownGroups.remove(at: oldest) }
+            }
+        }
+        unknownGroups.sort { ($0.last, $0.signature) > ($1.last, $1.signature) }
+        if logEnabled { unknownLogger.append(Self.unknownLogLine(u, time: now), now: now) }
+    }
+
+    /// „08:15:02  OOK PPM P500/L1000 40 Bit  −18 dB  Ablage 25 kHz  62 Pulse  Breiten µs: 500/1000 500/2000 …  Zeilen: {40} 1a2b…“
+    nonisolated static func unknownLogLine(_ u: UnknownPackage, time: Date) -> String {
+        var s = timeFormatter.string(from: time) + "  " + u.signature + String(format: "  %.0f dB  Ablage %.0f Hz  %d Pulse  Dauer %d µs", u.rssiDB, u.frequencyOffsetHz, u.numPulses, u.durationMicroseconds)
+        s += "\n    Breiten (Puls/Lücke, µs): " + stride(from: 0, to: min(u.widths.count, 120), by: 2).map { "\(u.widths[$0])/\(u.widths[$0 + 1])" }.joined(separator: " ")
+        for r in u.rows { s += "\n    " + r }
+        return s + "\n"
     }
 
     nonisolated static let timeFormatter: DateFormatter = {
