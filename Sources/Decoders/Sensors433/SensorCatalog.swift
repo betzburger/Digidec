@@ -8,6 +8,7 @@ public enum SensorCatalog {
         // Abstandskodierung (PPM)
         SensorDevicesPPM.nexus, SensorDevicesPPM.nexusSauna, SensorDevicesPPM.prologue,
         SensorDevicesAcurite.th609, SensorDevicesAcurite.tx606, SensorDevicesTFA.twinPlus, SensorDevicesTFA.pool, SensorDevicesOregon.sl109h, SensorDevicesTFA.infactory,
+        SensorDevicesMore.alecto, SensorDevicesMore.tx8300,
         // Pulsbreite (PWM)
         SensorDevicesFineOffset.wh2, SensorDevicesWH1080.ook, SensorDevicesMisc.lacrosseTX141, SensorDevicesTFA.tfa303221,
         SensorDevicesAcurite.tower, SensorDevicesEcowitt.wh53, SensorDevicesTFA.drop,
@@ -16,7 +17,7 @@ public enum SensorCatalog {
         // FSK
         SensorDevicesFineOffset.wh25, SensorDevicesWH1080.fsk, SensorDevicesBresser.fiveInOne, SensorDevicesBresser.sixInOne, SensorDevicesBresser.sevenInOne,
         SensorDevicesEcowitt.wh31, SensorDevicesTFA.tfa303196, SensorDevicesTFA.tfa141504, SensorDevicesTFA.marbella,
-        SensorDevicesLaCrosseIT.tx29, SensorDevicesLaCrosseIT.tx35,
+        SensorDevicesLaCrosseIT.tx29, SensorDevicesLaCrosseIT.tx35, SensorDevicesMore.tfa303151,
     ]
 
     /// Anzahl unterschiedlicher Gerätemodelle (Anzeige)

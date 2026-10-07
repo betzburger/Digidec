@@ -161,6 +161,9 @@ public final class DStarController: ObservableObject {
     public let logger = DecodeLogger(mode: "DSTAR")
     /// Verlauf der Aussendungen, neueste zuletzt
     @Published public private(set) var transmissions: [DStarTransmission] = []
+    /// Positionen (DPRS) der gehörten Stationen für die Karte
+    @Published public private(set) var positions = VoicePositionBook()
+    @Published public var selection: String?
     @Published public private(set) var stats = DStarFramerStats()
     @Published public private(set) var level = 0.0
     @Published public private(set) var inputDB = -120.0
@@ -206,6 +209,8 @@ public final class DStarController: ObservableObject {
 
     public func clear() {
         transmissions.removeAll()
+        positions.clear()
+        selection = nil
         currentIndex = nil
         decoder.resetStats()
         stats = DStarFramerStats()
@@ -279,7 +284,11 @@ public final class DStarController: ObservableObject {
             if frame.index > 0, slow.add(frameIndex: frame.index, bytes: frame.slowData) {
                 if transmissions[i].header == nil, let h = slow.header { transmissions[i].header = h }
                 if let m = slow.message { transmissions[i].message = m }
-                if let p = slow.position { transmissions[i].position = p }
+                if let p = slow.position {
+                    transmissions[i].position = p
+                    let call = p.callsign.isEmpty ? (transmissions[i].header?.myCall ?? "") : p.callsign
+                    positions.update(mode: "D-STAR", callsign: call, latitude: p.latitude, longitude: p.longitude, comment: p.comment, now: now)
+                }
             }
         case .end:
             finishCurrent(.end, now: now)

@@ -49,7 +49,7 @@ public enum DMRSignalGenerator {
     ///   - withHeader: Sprach-Kopf (zwei Wiederholungen) vor dem Gespräch
     ///   - withTerminator: Abschluss nach dem letzten Überrahmen
     public static func bursts(slot: Int, colorCode: Int = 1, lc: DMRLinkControl, frames: [[UInt8]], withHeader: Bool = true,
-                              withTerminator: Bool = true, embedded: Bool = true) -> [[Float]] {
+                              withTerminator: Bool = true, embedded: Bool = true, embeddedCycle: [DMRLinkControl] = []) -> [[Float]] {
         var own: [[Float]] = []
         if withHeader {
             let header = lc.encodeFull(type: .voiceHeader)
@@ -57,9 +57,10 @@ public enum DMRSignalGenerator {
         }
         var padded = frames
         while padded.count % 18 != 0 { padded.append(silentFrame) }
-        let fragments = lc.encodeEmbedded()
+        let cycle = (embeddedCycle.isEmpty ? [lc] : embeddedCycle).map { $0.encodeEmbedded() }
         let empty = [UInt8](repeating: 0, count: 32)
         for superframe in 0..<(padded.count / 18) {
+            let fragments = cycle[superframe % cycle.count]
             for burst in 0..<6 {
                 let f = Array(padded[(superframe * 18 + burst * 3)..<(superframe * 18 + burst * 3 + 3)])
                 let center: [Float]
@@ -99,8 +100,8 @@ public enum DMRSignalGenerator {
 
     /// Ein Gespräch in `slot`; der andere Zeitschlitz bleibt im Leerlauf
     public static func call(slot: Int, colorCode: Int = 1, lc: DMRLinkControl, frames: [[UInt8]], withHeader: Bool = true, withTerminator: Bool = true,
-                            embedded: Bool = true, leadIdleBursts: Int = 4, trailIdleBursts: Int = 6) -> [Float] {
-        let own = bursts(slot: slot, colorCode: colorCode, lc: lc, frames: frames, withHeader: withHeader, withTerminator: withTerminator, embedded: embedded)
+                            embedded: Bool = true, embeddedCycle: [DMRLinkControl] = [], leadIdleBursts: Int = 4, trailIdleBursts: Int = 6) -> [Float] {
+        let own = bursts(slot: slot, colorCode: colorCode, lc: lc, frames: frames, withHeader: withHeader, withTerminator: withTerminator, embedded: embedded, embeddedCycle: embeddedCycle)
         return stream(slot0: slot == 0 ? own : [], slot1: slot == 1 ? own : [], colorCode: colorCode, leadIdleBursts: leadIdleBursts, trailIdleBursts: trailIdleBursts)
     }
 }

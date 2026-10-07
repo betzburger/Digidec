@@ -186,6 +186,9 @@ public final class M17Controller: ObservableObject {
     public let decoder: M17Decoder
     public let logger = DecodeLogger(mode: "M17")
     @Published public private(set) var calls: [VoiceCall] = []
+    /// Positionen der gehörten Stationen für die Karte
+    @Published public private(set) var positions = VoicePositionBook()
+    @Published public var selection: String?
     @Published public private(set) var stats = M17FramerStats()
     @Published public private(set) var level = 0.0
     @Published public private(set) var inputDB = -120.0
@@ -246,6 +249,8 @@ public final class M17Controller: ObservableObject {
 
     public func clear() {
         calls.removeAll()
+        positions.clear()
+        selection = nil
         current = nil
         decoder.resetStats()
         stats = M17FramerStats()
@@ -335,11 +340,12 @@ public final class M17Controller: ObservableObject {
         case .text(let segment, _, let text):
             textSegments[segment] = text
             notes.append("„" + textSegments.sorted { $0.key < $1.key }.map(\.value).joined() + "“")
-        case .position(let lat, let lon, let altitude, let speed, _, let station):
+        case .position(let lat, let lon, let altitude, let speed, let bearing, let station):
             var s = String(format: "%.4f° %@, %.4f° %@", abs(lat), lat >= 0 ? "N" : "S", abs(lon), lon >= 0 ? "O" : "W")
             if let altitude { s += String(format: ", %.0f m", altitude) }
             if let speed, speed > 0 { s += String(format: ", %.0f km/h", speed) }
             notes.append(s + " (\(station))")
+            positions.update(mode: "M17", callsign: lsf.sourceName, latitude: lat, longitude: lon, comment: station, speed: speed, altitude: altitude, bearing: bearing.map(Double.init))
         case .extendedCallsign(let first, let second):
             notes.append("CF1 \(first)" + (second.map { ", CF2 \($0)" } ?? ""))
         case .none, .unknown:

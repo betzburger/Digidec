@@ -253,6 +253,118 @@ public struct DMRLinkControl: Equatable, Sendable {
     }
 }
 
+// MARK: - Talker Alias
+
+/// Talker Alias (ETSI TS 102 361-2, 7.2.19): Name oder Text des Senders, in vier eingebetteten Link-Control-Blöcken (FLCO 4 bis 7, Kennung 0) auf den
+/// Sprachbursts B bis E, also über mehrere Überrahmen verteilt. Block 0 enthält Format (2 Bit), Länge (5 Bit) und die ersten Zeichen,
+/// die Blöcke 1 bis 3 je 56 weitere Bit. Formate: 0 = 7 Bit, 1 = ISO 8859-1, 2 = UTF-8, 3 = UTF-16 (Big Endian).
+/// Motorola sendet dasselbe mit Kennung 0x10 und FLCO 0x14 bis 0x17.
+public struct DMRTalkerAlias: Equatable, Sendable {
+    public private(set) var format = -1
+    /// Länge in Zeichen (Format 0, 1, 3) beziehungsweise Bytes (Format 2); 0 = unbekannt
+    public private(set) var length = 0
+    private var header: [UInt8] = []
+    private var blocks: [[UInt8]?] = [nil, nil, nil]
+
+    public init() {}
+
+    /// Gehört der Link-Control-Block zu einem Talker Alias? Liefert die Blocknummer (0 = Kopf, 1 … 3)
+    public static func blockIndex(of lc: DMRLinkControl) -> Int? {
+        if lc.featureID == 0 || lc.featureID == 0x68, (4...7).contains(lc.flco) { return lc.flco - 4 }
+        if lc.featureID == 0x10, (0x14...0x17).contains(lc.flco) { return lc.flco - 0x14 }
+        return nil
+    }
+
+    public static func isAlias(_ lc: DMRLinkControl) -> Bool { blockIndex(of: lc) != nil }
+
+    private var headerBits: Int { format == 0 ? 49 : 48 }
+    private var characterBits: Int { format == 0 ? 7 : format == 3 ? 16 : 8 }
+
+    /// Einen Block aufnehmen. Rückgabe: Der Text hat sich geändert.
+    @discardableResult
+    public mutating func ingest(_ lc: DMRLinkControl) -> Bool {
+        guard let index = Self.blockIndex(of: lc) else { return false }
+        let bits = DMRLinkControl.bits(ofBytes: lc.bytes)           // 72 Bit: FLCO, FID, 7 Datenbytes
+        let before = text
+        if index == 0 {
+            let f = Int(bits[16]) << 1 | Int(bits[17])
+            let n = (18..<23).reduce(0) { ($0 << 1) | Int(bits[$1]) }
+            if f != format || n != length { blocks = [nil, nil, nil] }
+            format = f
+            length = n
+            header = Array(bits[(f == 0 ? 23 : 24)..<72])
+        } else {
+            blocks[index - 1] = Array(bits[16..<72])
+        }
+        return text != before
+    }
+
+    /// Bitfolge der bisher empfangenen Daten (Kopf, dann zusammenhängende Blöcke)
+    private var stream: [UInt8] {
+        guard format >= 0 else { return [] }
+        var all = header
+        for b in blocks {
+            guard let b else { break }
+            all += b
+        }
+        return all
+    }
+
+    public var isComplete: Bool {
+        guard format >= 0, length > 0 else { return false }
+        return stream.count >= length * characterBits
+    }
+
+    /// Der bisher lesbare Text (Steuerzeichen und Füllbytes entfallen)
+    public var text: String {
+        let s = stream
+        guard format >= 0 else { return "" }
+        var units = s.count / characterBits
+        if length > 0 { units = min(units, length) }
+        func value(_ i: Int, _ width: Int) -> Int { (0..<width).reduce(0) { ($0 << 1) | Int(s[i * width + $1]) } }
+        let text: String
+        switch format {
+        case 0, 1:
+            text = String(String.UnicodeScalarView((0..<units).compactMap { UnicodeScalar(UInt8(value($0, characterBits))) }))
+        case 2:
+            text = String(decoding: (0..<units).map { UInt8(value($0, 8)) }, as: UTF8.self)
+        default:
+            text = String(decoding: (0..<units).map { UInt16(value($0, 16)) }, as: UTF16.self)
+        }
+        return String(String.UnicodeScalarView(text.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F && $0 != "\u{FFFD}" }))
+    }
+
+    // MARK: Für Prüfstände: Text → Link-Control-Blöcke
+
+    /// Alias in die vier Blöcke (FLCO 4 bis 7, Kennung 0) verpacken; Zeichen über den Platz hinaus werden abgeschnitten
+    public static func encode(_ alias: String, format: Int = 0) -> [DMRLinkControl] {
+        var units: [Int]
+        switch format {
+        case 0: units = alias.unicodeScalars.map { Int($0.value) & 0x7F }
+        case 1: units = alias.unicodeScalars.map { Int($0.value) & 0xFF }
+        case 2: units = alias.utf8.map { Int($0) }
+        default: units = alias.utf16.map { Int($0) }
+        }
+        let width = format == 0 ? 7 : format == 3 ? 16 : 8
+        let capacity = ((format == 0 ? 49 : 48) + 168) / width
+        if units.count > capacity { units = Array(units.prefix(capacity)) }
+        var bits: [UInt8] = []
+        for u in units { for k in (0..<width).reversed() { bits.append(UInt8((u >> k) & 1)) } }
+        let headerBits = format == 0 ? 49 : 48
+        while bits.count < headerBits + 168 { bits.append(0) }
+        func lc(flco: Int, payload: ArraySlice<UInt8>, prefix: [UInt8]) -> DMRLinkControl {
+            var all: [UInt8] = (0..<8).map { UInt8(((flco & 0x3F) >> (7 - $0)) & 1) } + [UInt8](repeating: 0, count: 8)
+            all += prefix + Array(payload)
+            return DMRLinkControl(bytes: DMRLinkControl.bytes(ofBits: all[...]))
+        }
+        let length = units.count
+        let prefix = [UInt8((format >> 1) & 1), UInt8(format & 1)] + (0..<5).map { UInt8((length >> (4 - $0)) & 1) }
+        var out = [lc(flco: 4, payload: bits[0..<headerBits], prefix: format == 0 ? prefix : prefix + [0])]
+        for k in 0..<3 { out.append(lc(flco: 5 + k, payload: bits[(headerBits + 56 * k)..<(headerBits + 56 * (k + 1))], prefix: [])) }
+        return out
+    }
+}
+
 // MARK: - Sprachbursts
 
 public enum DMRVoice {

@@ -8981,6 +8981,33 @@ do {
     check(table.count == 2 && table[2621234]?.callsign == "DL1ABC" && table[2621234]?.description == "Peter Betz, Würzburg, Germany" && table[1023007]?.description == "Hans Juergen, Cornwall, Canada",
           "DMR-ID-Liste: Zeilen lesen (Kopfzeile, fehlerhafte und leere Rufzeichen werden übersprungen)")
     check(DMRIDDatabase.describe(count: 331_404, updated: Date(timeIntervalSince1970: 1_790_000_000)).hasPrefix("331.404 Einträge, Stand "), "DMR-ID-Liste: Statuszeile")
+    // Talker Alias: vier Link-Control-Blöcke, alle vier Formate
+    var aliasOK = true
+    for (format, text) in [(0, "DL1ABC Peter Betz"), (1, "Würzburg Müller"), (2, "Straße € Köln"), (3, "Grüße 日本")] {
+        let blocksLC = DMRTalkerAlias.encode(text, format: format)
+        var a = DMRTalkerAlias()
+        for b in blocksLC {
+            // über die eingebettete Übertragung (BPTC 128,77 mit Summe) geschickt
+            guard let back = DMRLinkControl.decodeEmbedded(fragments: b.encodeEmbedded()), back.bytes == b.bytes, DMRTalkerAlias.isAlias(back) else { aliasOK = false; continue }
+            a.ingest(back)
+        }
+        if a.text != text || !a.isComplete || a.format != format { aliasOK = false; print("Alias Format \(format): „\(a.text)“ statt „\(text)“") }
+    }
+    check(aliasOK, "DMR Talker Alias: 7 Bit, ISO 8859-1, UTF-8 und UTF-16 über die eingebettete Übertragung")
+    var partial = DMRTalkerAlias()
+    let aliasBlocks = DMRTalkerAlias.encode("DL1ABC Peter Betz", format: 0)
+    partial.ingest(aliasBlocks[0])
+    let headOnly = partial.text
+    partial.ingest(aliasBlocks[1])
+    check(headOnly == "DL1ABC " && !partial.isComplete && partial.text == "DL1ABC Peter Betz".prefix(partial.text.count) && partial.text.count > headOnly.count && partial.length == 17, "DMR Talker Alias: Teiltext wächst mit jedem Block („\(headOnly)“ → „\(partial.text)“)")
+    check(!DMRTalkerAlias.isAlias(lc) && DMRTalkerAlias.blockIndex(of: DMRLinkControl(flco: 0x15, featureID: 0x10, destination: 0, source: 0)) == 1 && DMRTalkerAlias.blockIndex(of: DMRLinkControl(flco: 8, destination: 0, source: 0)) == nil, "DMR Talker Alias: Erkennung der Blöcke (Standard und Motorola)")
+    // Über die Funkstrecke: der Alias kommt in den eingebetteten Blöcken abwechselnd mit dem Ruf (je Überrahmen ein Block)
+    let aliasFrames: [[UInt8]] = (0..<108).map { _ in AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: (0..<49).map { _ in rng.bit() })) }
+    let aliasSymbols = DMRSignalGenerator.call(slot: 0, colorCode: 3, lc: lc, frames: aliasFrames, embeddedCycle: [lc] + aliasBlocks)
+    let aliasRun = receiveDMR(FourFSKModulator.audio(symbols: aliasSymbols, sampleRate: 48000, bt: 2.0))
+    var rfAlias = DMRTalkerAlias()
+    for (_, l) in aliasRun.lcs where DMRTalkerAlias.isAlias(l) { rfAlias.ingest(l) }
+    check(rfAlias.text == "DL1ABC Peter Betz" && aliasRun.starts.first?.2 == lc && aliasRun.lcs.contains { $0.1 == lc }, "DMR Talker Alias über die Funkstrecke: „\(rfAlias.text)“, Ruf bleibt erhalten")
     // Rauschen: keine Gespräche
     var noiseRng = Rng(state: 8)
     let noiseOnly: [Float] = (0..<(48000 * 30)).map { _ in Float(Double(noiseRng.next() >> 11) / Double(1 << 53) - 0.5) * 0.8 }
@@ -8996,6 +9023,28 @@ do {
               && r.starts.contains { $0.1 == 4 && $0.2?.destination == 19535 && $0.2?.source == 2222223 },
               "DMR echt (Italien): \(r.voice[1].count / 3) Sprachbursts in Zeitschlitz 2, \(r.stats.idleBursts) Leerlaufbursts, Sprach-Kopf (CC 4, TG 19535, Quelle 2222223), \(r.stats.embeddedLC) mal eingebettet")
     } else { skip("DMR echt: TestData/Voice/dmr_it_8.dis liegt nicht lokal vor") }
+}
+// MARK: - Positionen aus digitalen Sprachmodi (DPRS, M17): Liste und Karte
+do {
+    var book = VoicePositionBook()
+    let t0 = Date()
+    check(book.update(mode: "D-STAR", callsign: "dl1abc-7 ", latitude: 49.79, longitude: 9.95, comment: "Test", now: t0) && book.items.count == 1 && book.items[0].callsign == "DL1ABC-7", "Positionen: Aufnahme, Rufzeichen groß und ohne Leerzeichen")
+    check(!book.update(mode: "D-STAR", callsign: "X", latitude: 91, longitude: 0) && !book.update(mode: "D-STAR", callsign: "X", latitude: 0, longitude: 0) && !book.update(mode: "D-STAR", callsign: "", latitude: 10, longitude: 10)
+          && book.items.count == 1, "Positionen: ungültige Werte, Nullpunkt und leeres Rufzeichen werden verworfen")
+    book.update(mode: "D-STAR", callsign: "DL1ABC-7", latitude: 49.79, longitude: 9.95, now: t0.addingTimeInterval(5))           // gleich: kein neuer Wegpunkt
+    book.update(mode: "D-STAR", callsign: "DL1ABC-7", latitude: 49.80, longitude: 9.96, speed: 50, altitude: 300, bearing: 45, now: t0.addingTimeInterval(60))
+    check(book.items.count == 1 && book.items[0].track.count == 1 && book.items[0].count == 3 && book.items[0].speed == 50 && book.items[0].comment == "Test", "Positionen: gleiche Station → Weg wächst nur bei Bewegung")
+    book.update(mode: "M17", callsign: "DL1ABC-7", latitude: 48.1, longitude: 11.5, now: t0)
+    check(book.items.count == 2, "Positionen: je Verfahren getrennt")
+    let home = GeoPoint(lat: 49.79, lon: 9.93)
+    let content = book.mapContent(home: home, now: t0.addingTimeInterval(120), selection: "D-STAR-DL1ABC-7", hint: "leer")
+    check(content.markers.count == 2 && content.lines.count == 1 && content.markers.first?.title == "DL1ABC-7" && content.markers.first?.tone == .highlight && content.markers.first?.track.count == 2
+          && content.markers.first?.subtitle?.contains("D-STAR") == true && content.markers.first?.details.contains { $0.contains("Entfernung") } == true && content.emptyHint == "leer",
+          "Positionen: Karteninhalt (Punkte, Spur, Linie zur Auswahl, Entfernung)")
+    let old = book.mapContent(home: nil, now: t0.addingTimeInterval(7200), selection: nil, hint: "")
+    check(old.markers.allSatisfy { $0.tone == .dim } && old.lines.isEmpty && old.markers[0].subtitle?.contains("vor 2 h") == true, "Positionen: alte Stationen gedämpft")
+    var dpr = book; dpr.clear()
+    check(dpr.items.isEmpty && DecoderModuleInfo.dstar.hasMap && DecoderModuleInfo.m17.hasMap && !DecoderModuleInfo.ysf.hasMap, "Positionen: leeren, Karte für D-Star und M17")
 }
 // MARK: - M17: Codes, Rahmen, LSF, Empfänger, Sprache
 do {
@@ -9269,7 +9318,7 @@ do {
         var total = 0, ok = 0
         var failed: [String] = []
         // Verzeichnisse, deren Decoder fehlen (andere Geräte, in der Referenz deaktiviert oder noch nicht übernommen)
-        let skipDirs = ["KlimaLogg", "TFA_30.3151", "WH41", "WN34L", "eurochron", "wh2/02", "prologue/04", "tfa_30_3211_02", "TFA_Marbella/01"]
+        let skipDirs = ["KlimaLogg", "WH41", "WN34L", "eurochron", "wh2/02", "TFA_Marbella/01"]
         for f in files ?? [] where !skipDirs.contains(where: { f.contains($0) }) {
             let jsonURL = root.appendingPathComponent(f.replacingOccurrences(of: ".cu8", with: ".json"))
             guard let text = try? String(contentsOf: jsonURL, encoding: .utf8) else { continue }
