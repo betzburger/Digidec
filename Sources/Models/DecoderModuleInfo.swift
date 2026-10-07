@@ -17,6 +17,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case hell
     case dsc
     case ale
+    case ndb
     case aprs
     case packet
     case adsb
@@ -59,6 +60,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .hell:   return "HELL"
         case .dsc:    return "DSC"
         case .ale:    return "ALE"
+        case .ndb:    return "NDB"
         case .aprs:   return "APRS"
         case .packet: return "PACKET"
         case .adsb:   return "ADS-B"
@@ -120,7 +122,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     public var band: Band {
         switch self {
         case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .tetra, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf: return .vhfUhf
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
 
@@ -134,7 +136,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return true
         }
     }
 
@@ -150,6 +152,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .olivia: return ["olivia-8-500", "olivia-4-250", "olivia-8-250", "olivia-16-500", "olivia-32-1000", "olivia-64-2000", "olivia-4-125", "olivia-4-500", "olivia-4-1000", "olivia-4-2000", "olivia-8-125", "olivia-8-1000", "olivia-8-2000", "olivia-16-1000", "olivia-16-2000", "olivia-32-2000", "olivia-64-500", "olivia-64-1000",
                          "contestia-8-500", "contestia-4-250", "contestia-4-500", "contestia-8-250", "contestia-16-500", "contestia-16-1000", "contestia-32-1000", "contestia-64-1000"]   // = FldigiOliviaCore.Options.presetID
         case .ale: return ["ale"]
+        case .ndb: return ["ndb"]
         case .aprs: return ["eu", "na", "iss", "au", "jp", "free"]   // = APRSChannel.rawValue
         case .packet: return PacketChannel.allCases.map(\.rawValue)   // = PacketChannel.rawValue
         case .adsb: return ["hackrf", "rtlsdr", "sdrplay", "sdrconnect"]   // = ADSBSourceKind.rawValue (ohne Datei)
