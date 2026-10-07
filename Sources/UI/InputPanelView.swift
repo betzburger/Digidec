@@ -13,16 +13,22 @@ struct InputPanelView: View {
             HStack(spacing: 6) {
                 ForEach(AudioSourceKind.allCases) { kind in
                     Button(kind.label) {
-                        if kind == .live { audio.switchToLive() } else { chooseFile() }
+                        switch kind {
+                        case .live: audio.switchToLive()
+                        case .file: chooseFile()
+                        case .sdr: audio.selectSDR()
+                        }
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: audio.sourceKind == kind))
-                    .help(kind == .live ? "Live-Eingang von der virtuellen Soundkarte" : "Audiodatei (WAV, AIFF, CAF) abspielen und decodieren")
+                    .help(kind == .live ? "Live-Eingang von der virtuellen Soundkarte" : kind == .file ? "Audiodatei (WAV, AIFF, CAF) abspielen und decodieren" : "Eingebauter SDR-Empfänger (HackRF, RTL-SDR, SDRplay): FM, AM, SSB ohne zweites Programm")
                 }
                 Spacer()
-                ForEach(ChannelMode.allCases) { mode in
-                    Button(mode.label) { audio.channelMode = mode }
-                        .buttonStyle(ModeButtonStyle(isSelected: audio.channelMode == mode))
-                        .help("Kanal: \(mode == .left ? "links" : mode == .right ? "rechts" : "Mittelwert beider Kanäle")")
+                if audio.sourceKind != .sdr {
+                    ForEach(ChannelMode.allCases) { mode in
+                        Button(mode.label) { audio.channelMode = mode }
+                            .buttonStyle(ModeButtonStyle(isSelected: audio.channelMode == mode))
+                            .help("Kanal: \(mode == .left ? "links" : mode == .right ? "rechts" : "Mittelwert beider Kanäle")")
+                    }
                 }
             }
 
@@ -54,6 +60,8 @@ struct InputPanelView: View {
                     }
                     DevicePicker(audio: audio)
                 }
+            } else if audio.sourceKind == .sdr, let sdr = audio.sdr {
+                SDRControlView(controller: sdr, settings: sdr.settings)
             } else {
                 FileControls(audio: audio, chooseFile: chooseFile)
             }

@@ -15,6 +15,10 @@ public final class RigModel: ObservableObject {
     /// Ein Auftrag per URL hat die gespeicherte Wahl für diese Sitzung übersteuert
     @Published public private(set) var overriddenByRequest = false
 
+    /// Eingebauter SDR-Empfänger als Funkgerät (hat Vorrang vor rigctld und Automatik): Name und Abstimmfunktion; nil = keiner
+    @Published public private(set) var internalName: String?
+    private var internalTune: (@MainActor (RigTuneTarget) -> RigTuneResult)?
+
     private var client: RigctlClient!
     private var sdrClient: SDRconnectRigClient!
     /// Zustand von SDRconnect, wenn das gewählte Gerät SDRconnect ist (sonst leer)
@@ -26,14 +30,14 @@ public final class RigModel: ObservableObject {
     public init() {
         client = RigctlClient { [weak self] s in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.internalName == nil else { return }
                 self.state = s
                 self.onChange?(s)
             }
         }
         sdrClient = SDRconnectRigClient { [weak self] s, status in
             Task { @MainActor in
-                guard let self, self.customProfile?.dialect == .sdrconnect else { return }
+                guard let self, self.internalName == nil, self.customProfile?.dialect == .sdrconnect else { return }
                 self.state = s
                 self.sdrconnect = status
                 self.onChange?(s)
@@ -54,10 +58,28 @@ public final class RigModel: ObservableObject {
     }
 
     /// Gibt es ein Funkgerät, dessen Frequenz und Mode abgefragt werden (verbunden oder nicht)?
-    public var hasRig: Bool { radio != nil || customProfile != nil }
+    public var hasRig: Bool { internalName != nil || radio != nil || customProfile != nil }
 
     /// Name des Funkgeräts für Anzeige, Log und Dateinamen
-    public var rigName: String? { customProfile?.displayName ?? radio?.displayName }
+    public var rigName: String? { internalName ?? customProfile?.displayName ?? radio?.displayName }
+
+    /// Der eingebaute SDR-Empfänger ist das Funkgerät
+    public var isInternal: Bool { internalName != nil }
+
+    /// Eingebauten Empfänger als Funkgerät anmelden (`name` = nil: abmelden, dann gilt wieder rigctld bzw. die Automatik)
+    public func useInternal(name: String?, tune: (@MainActor (RigTuneTarget) -> RigTuneResult)? = nil) {
+        internalName = name
+        internalTune = name == nil ? nil : tune
+        if name == nil { state = RigState() }
+        updateConnection()
+    }
+
+    /// Frequenz und Mode des eingebauten Empfängers (nil = läuft nicht)
+    public func setInternal(state new: RigState?) {
+        guard internalName != nil else { return }
+        state = new ?? RigState()
+        onChange?(state)
+    }
 
     /// Auftrag eines Programms per URL: Mit einem Commander (`source=pcr1500|ft991a`) gilt wieder die Automatik; jede andere
     /// Quelle mit `rigctl=<Port>` wird als Gerät auf diesem Rechner (127.0.0.1) für diese Sitzung verwendet.
@@ -91,6 +113,11 @@ public final class RigModel: ObservableObject {
     }
 
     private func updateConnection() {
+        if internalName != nil {
+            client.setEndpoint(nil)
+            sdrClient.setEndpoint(nil)
+            return
+        }
         if let profile = customProfile {
             if profile.dialect == .sdrconnect {
                 client.setEndpoint(nil)
@@ -120,6 +147,14 @@ public final class RigModel: ObservableObject {
 
     /// Stellt das Funkgerät auf `target` ein (nur wenn eine Verbindung besteht). Der Aufrufer prüft die Freigabe des Nutzers.
     public func tune(to target: RigTuneTarget) {
+        if internalName != nil, let internalTune {
+            switch internalTune(target) {
+            case .ok: tuneMessage = "SDR → \(target.label)"
+            case .notConnected: tuneMessage = "SDR-Empfänger läuft nicht – nicht abgestimmt"
+            case .rejected(let why): tuneMessage = "SDR lehnt ab (\(why))"
+            }
+            return
+        }
         guard state.connected else {
             tuneMessage = "Funkgerät nicht erreichbar – nicht abgestimmt"
             return

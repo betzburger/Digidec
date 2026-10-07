@@ -10343,6 +10343,123 @@ do {
     settings.fixedToneHz = 0; settings.manualKHz = 0
 }
 
+// MARK: - SDR-Empfänger (eingebaut)
+do {
+    func level(_ a: [Float], _ f: Double, skip: Double = 0.4) -> Double {
+        let start = Int(skip * 48_000)
+        guard a.count > start + 4_800 else { return 0 }
+        let n = a.count - start
+        var re = 0.0, im = 0.0, w = 0.0
+        for k in 0..<n {
+            let win = 0.5 - 0.5 * cos(2 * Double.pi * Double(k) / Double(n))
+            let ph = 2 * Double.pi * f * Double(k) / 48_000
+            re += Double(a[start + k]) * win * cos(ph)
+            im -= Double(a[start + k]) * win * sin(ph)
+            w += win
+        }
+        return 2 * (re * re + im * im).squareRoot() / w
+    }
+    func run(_ s: SDRTestSignal, _ config: SDRChannelConfig, offset: Double, chunk: Int = 262_144) -> [Float] {
+        let demod = SDRDemodulator(sampleRate: s.sampleRate, config: config)
+        demod.setOffset(offset)
+        var audio = [Float]()
+        let bytes = s.quantized()
+        bytes.withUnsafeBufferPointer { b in
+            var i = 0
+            while i < b.count { let e = min(i + chunk, b.count); demod.process(UnsafeBufferPointer(rebasing: b[i..<e]), audio: &audio); i = e }
+        }
+        return audio
+    }
+    let fs = 2_400_000.0
+    // FM mit Nachbarkanal
+    var fm = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    fm.addFM(offsetHz: 300_000, tone: 1000, deviation: 3000, amplitude: 0.4)
+    fm.addFM(offsetHz: 325_000, tone: 2000, deviation: 3000, amplitude: 0.5)
+    fm.addNoise(sigma: 0.003)
+    var cfm = SDRChannelConfig(mode: .nfm); cfm.bandwidthHz = 12_500
+    let fa = run(fm, cfm, offset: 300_000)
+    check(abs(level(fa, 1000) - 0.6) < 0.05, "SDR FM: 3 kHz Hub ergibt Amplitude 0,6 (\(level(fa, 1000)))")
+    check(level(fa, 2000) / level(fa, 1000) < 0.02, "SDR FM: Nachbarkanal in 25 kHz Abstand um mehr als 34 dB unterdrückt")
+    // AM
+    var am = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    am.addAM(offsetHz: -200_000, tone: 1000, depth: 0.5, amplitude: 0.3)
+    am.addNoise(sigma: 0.003)
+    let aa = run(am, SDRChannelConfig(mode: .am), offset: -200_000)
+    check(abs(level(aa, 1000) - 0.5) < 0.05, "SDR AM: Modulationsgrad 50 % ergibt Amplitude 0,5 (\(level(aa, 1000)))")
+    // SSB: oberes Seitenband hörbar, unteres unterdrückt; LSB umgekehrt
+    var ssb = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    ssb.addCarrier(offsetHz: 500_000 + 1500, amplitude: 0.1)
+    ssb.addCarrier(offsetHz: 500_000 - 2000, amplitude: 0.1)
+    ssb.addNoise(sigma: 0.002)
+    var cu = SDRChannelConfig(mode: .usb); cu.agc = false
+    let ua = run(ssb, cu, offset: 500_000)
+    check(level(ua, 1500) > 0.1 && level(ua, 2000) / level(ua, 1500) < 0.003, "SDR USB: Ton im oberen Seitenband, unteres um mehr als 50 dB unterdrückt")
+    cu.mode = .lsb
+    let la = run(ssb, cu, offset: 500_000)
+    check(level(la, 2000) > 0.1 && level(la, 1500) / level(la, 2000) < 0.003, "SDR LSB: Ton im unteren Seitenband, oberes um mehr als 50 dB unterdrückt")
+    // CW: der Träger auf der angezeigten Frequenz wird als 700-Hz-Ton hörbar
+    var cw = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    cw.addCarrier(offsetHz: -400_000, amplitude: 0.1)
+    cw.addNoise(sigma: 0.002)
+    var ccw = SDRChannelConfig(mode: .cw); ccw.agc = false
+    let ca = run(cw, ccw, offset: -400_000)
+    check(level(ca, 700) > 0.1 && level(ca, 1500) / level(ca, 700) < 0.01, "SDR CW: Träger als 700-Hz-Ton")
+    // Rundfunk-FM mit Pilotton
+    var wfm = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    wfm.addFM(offsetHz: -300_000, tone: 1000, deviation: 75_000, amplitude: 0.3)
+    wfm.addNoise(sigma: 0.003)
+    let wa = run(wfm, SDRChannelConfig(mode: .wfm), offset: -300_000)
+    check(abs(level(wa, 1000) - 0.95) < 0.1, "SDR WFM: 75 kHz Hub ergibt etwa Vollaussteuerung (\(level(wa, 1000)))")
+    // Squelch
+    var noise = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    noise.addNoise(sigma: 0.01)
+    var csq = SDRChannelConfig(mode: .nfm); csq.squelchEnabled = true; csq.squelchDB = -50
+    let sq = run(noise, csq, offset: 300_000)
+    check(sq.dropFirst(24_000).allSatisfy { $0 == 0 }, "SDR: Squelch sperrt bei Rauschen")
+    // Blockunabhängigkeit
+    let whole = run(fm, cfm, offset: 300_000, chunk: 4_800_000), parts = run(fm, cfm, offset: 300_000, chunk: 7_000)
+    var maxDiff: Float = 0
+    for k in 0..<min(whole.count, parts.count) { maxDiff = max(maxDiff, abs(whole[k] - parts[k])) }
+    check(whole.count == parts.count && maxDiff < 2e-3, "SDR: Ergebnis hängt nicht von der Blockaufteilung ab (\(maxDiff))")
+    // Betriebsarten und Hamlib-Namen
+    check(SDRMode(hamlib: "FM") == .nfm && SDRMode(hamlib: "WFM") == .wfm && SDRMode(hamlib: "PKTUSB") == .usb && SDRMode(hamlib: "RTTY") == .lsb
+          && SDRMode(hamlib: "CW") == .cw && SDRMode(hamlib: "CWR") == .cwr && SDRMode(hamlib: "xyz") == nil, "SDR: Hamlib-Namen der Betriebsarten")
+    // Spektrum: Träger bei −700 kHz an der richtigen Stelle, Pegel stimmt
+    var sp = SDRTestSignal(sampleRate: fs, seconds: 1)
+    sp.addCarrier(offsetHz: -700_000, amplitude: 0.05)
+    sp.addNoise(sigma: 0.003)
+    let engine = SDRReceiverEngine(sampleRate: fs)
+    let bytes = sp.quantized()
+    bytes.withUnsafeBufferPointer { b in
+        var i = 0
+        while i < b.count { let e = min(i + 262_144, b.count); engine.feed(UnsafeBufferPointer(rebasing: b[i..<e]), wait: true); i = e }
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    let rows = engine.takeSpectrumRows()
+    check(rows.count >= 20 && rows.count <= 30, "SDR: etwa 25 Spektrumzeilen je Sekunde (\(rows.count))")
+    if let row = rows.last {
+        let binHz = fs / Double(SDRSpectrum.size)
+        let center = SDRSpectrum.size / 2 + Int((-700_000 / binHz).rounded())
+        var best = center, v: Float = -200
+        for k in (center - 40)...(center + 40) where row[k] > v { v = row[k]; best = k }
+        check(abs(Double(best - SDRSpectrum.size / 2) * binHz + 700_000) < 3_000 && abs(Double(v) - 20 * log10(0.05)) < 2.5, "SDR: Spektrum zeigt den Träger bei −700 kHz mit richtigem Pegel (\(v) dB)")
+    }
+    // Funkgerät: der eingebaute Empfänger meldet sich an, stimmt ab und gibt frei
+    MainActor.assumeIsolated {
+        let rig = RigModel()
+        var tuned: RigTuneTarget?
+        rig.useInternal(name: "SDR Test", tune: { tuned = $0; return .ok })
+        check(rig.hasRig && rig.isInternal && rig.rigName == "SDR Test", "SDR: als Funkgerät angemeldet")
+        var st = RigState(); st.connected = true; st.frequencyHz = 144_800_000; st.mode = "FM"
+        rig.setInternal(state: st)
+        check(rig.state.connected && rig.state.frequencyHz == 144_800_000, "SDR: Frequenz und Betriebsart als Funkgerät")
+        rig.tune(to: RigTuneTarget(dialHz: 161_975_000, mode: "FM", passbandHz: 25_000))
+        check(tuned?.dialHz == 161_975_000 && tuned?.mode == "FM" && tuned?.passbandHz == 25_000, "SDR: Abstimmziel eines Moduls kommt an")
+        rig.useInternal(name: nil)
+        check(!rig.hasRig && !rig.isInternal, "SDR: nach dem Abmelden gilt wieder kein Funkgerät")
+    }
+}
+
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
 do {
     final class Flag: @unchecked Sendable { var done = false }

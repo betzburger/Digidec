@@ -104,6 +104,7 @@ public struct MainWindowView: View {
 
                 HStack(alignment: .top, spacing: 10) {
                     VStack(spacing: 10) {
+                        SDRWaterfallHost(audio: state.audio, settings: state.sdr, controller: state.sdrController, module: state.activeModule) {
                         Group {
                             if state.activeModule == .navtex {
                                 WaterfallView(model: state.waterfall, rtty: state.navtex, audio: state.audio)
@@ -182,6 +183,7 @@ public struct MainWindowView: View {
                             } else {
                                 WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
                             }
+                        }
                         }
                         .frame(height: 260)
                         .radioCard(title: state.activeModule == .adsb || state.activeModule == .sensors || state.activeModule == .vdl2 || state.activeModule == .tetra || state.activeModule == .vor ? "Empfang" : "Wasserfall")
