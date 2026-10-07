@@ -50,11 +50,14 @@ public final class SensorReceiver {
     public var onEvent: ((SensorEvent) -> Void)?
     /// Pakete (OOK und FSK), auch ohne Treffer: für die Anzeige der Aktivität
     public var onPackage: ((PulsePackage, PulseData) -> Void)?
+    /// Pakete, die kein Decoder erkannt hat (mit Pulsanalyse), sofern sie lang genug sind
+    public var onUnknown: ((UnknownPackage) -> Void)?
     /// Zählt Pakete und Treffer
     public private(set) var packages = 0
     public private(set) var ookPackages = 0
     public private(set) var fskPackages = 0
     public private(set) var decoded = 0
+    public private(set) var unknown = 0
 
     private let baseband = Baseband433()
     private let detector = PulseDetector433()
@@ -121,6 +124,7 @@ public final class SensorReceiver {
         } else {
             offsetHz = Double(ook.fskF1Estimate) / Double(Int16.max) * Double(sampleRate) / 2
         }
+        var anyHit = false
         for priority in priorities {
             var hits = 0
             for device in devices where device.priority == priority && device.timing.modulation.isFSK == (package == .fsk) {
@@ -135,7 +139,11 @@ public final class SensorReceiver {
                     }
                 }
             }
-            if hits > 0 { break }                                    // niedrigere Priorität nur, wenn die höhere nichts fand
+            if hits > 0 { anyHit = true; break }                     // niedrigere Priorität nur, wenn die höhere nichts fand
+        }
+        if !anyHit, let analysis = SensorAnalyzer.analyze(data, isFSK: package == .fsk, time: time, rssiDB: data.rssiDB, snrDB: data.snrDB, frequencyOffsetHz: offsetHz) {
+            unknown += 1
+            onUnknown?(analysis)
         }
     }
 }

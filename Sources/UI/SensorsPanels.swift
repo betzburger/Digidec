@@ -14,10 +14,16 @@ struct SensorsMainPanel: View {
     @State private var tab = Tab.fromEnvironment()
 
     enum Tab: String, CaseIterable, Identifiable {
-        case sensors = "SENSOREN", telegrams = "TELEGRAMME"
+        case sensors = "SENSOREN", telegrams = "TELEGRAMME", unknown = "UNBEKANNT"
         var id: String { rawValue }
-        /// Entwicklungshilfe: DIGIDEC_SENSORS_TAB=telegrams öffnet das Protokoll (für Schnappschüsse)
-        static func fromEnvironment() -> Tab { ProcessInfo.processInfo.environment["DIGIDEC_SENSORS_TAB"] == "telegrams" ? .telegrams : .sensors }
+        /// Entwicklungshilfe: DIGIDEC_SENSORS_TAB=telegrams oder unknown öffnet das Protokoll bzw. die unbekannten Pakete (für Schnappschüsse)
+        static func fromEnvironment() -> Tab {
+            switch ProcessInfo.processInfo.environment["DIGIDEC_SENSORS_TAB"] {
+            case "telegrams": return .telegrams
+            case "unknown": return .unknown
+            default: return .sensors
+            }
+        }
     }
 
     var body: some View {
@@ -28,7 +34,7 @@ struct SensorsMainPanel: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 260)
+                .frame(width: 380)
                 Text(summary)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
@@ -50,6 +56,7 @@ struct SensorsMainPanel: View {
                 switch tab {
                 case .sensors: SensorsTable(controller: controller)
                 case .telegrams: SensorsTelegramTable(entries: controller.recent)
+                case .unknown: SensorsUnknownTable(controller: controller)
                 }
             }
             .background(RadioTheme.bgDeep)
@@ -59,6 +66,10 @@ struct SensorsMainPanel: View {
 
     private var summary: String {
         let n = controller.stations.count
+        if tab == .unknown {
+            let g = controller.unknownGroups.count
+            return g == 0 ? "keine unbekannten Pakete" : "\(g) Art\(g == 1 ? "" : "en") · \(controller.stats.unknownPackages) Pakete ohne Decoder"
+        }
         if n == 0 { return statusText }
         return "\(n) Sensor\(n == 1 ? "" : "en") · \(controller.stats.decoded) Telegramme · \(settings.band.title)"
     }
@@ -183,6 +194,129 @@ struct SensorsTelegramTable: View {
     }
 }
 
+
+// MARK: - Unbekannte Pakete
+
+/// Pakete, die kein Decoder kennt, nach Art gruppiert (Modulation, Breiten, Länge): regelmäßige Sender mit wiederholten Zeilen sind Kandidaten für einen neuen Decoder
+struct SensorsUnknownTable: View {
+    @ObservedObject var controller: SensorsController
+    @State private var selection: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 8) {
+                        Text("ART").frame(width: 190, alignment: .leading)
+                        Text("BREITEN µS").frame(width: 150, alignment: .leading)
+                        Text("BITS").frame(width: 52, alignment: .trailing)
+                        Text("WDH").frame(width: 34, alignment: .trailing)
+                        Text("ABSTAND").frame(width: 62, alignment: .trailing)
+                        Text("N").frame(width: 38, alignment: .trailing)
+                        Text("PEGEL").frame(width: 52, alignment: .trailing)
+                        Text("VOR").frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .font(sensHeaderFont)
+                    .foregroundColor(RadioTheme.textDim)
+                    .padding(.bottom, 3)
+                    if controller.unknownGroups.isEmpty {
+                        Text("Noch nichts Unbekanntes gehört. Hier erscheinen Aussendungen, die kein Decoder erkennt: Fernbedienungen, Klingeln, Reifendrucksensoren und Sensoren, die dem Katalog fehlen. Wiederholte Zeilen und ein gleichmäßiger Abstand sprechen für einen Sensor.")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(RadioTheme.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 8)
+                    }
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        VStack(alignment: .leading, spacing: 1) {
+                            ForEach(controller.unknownGroups) { g in row(g, now: ctx.date) }
+                        }
+                    }
+                }
+                .padding(6)
+            }
+            if let g = controller.unknownGroups.first(where: { $0.id == selection }) {
+                Divider().overlay(RadioTheme.borderSubtle)
+                detail(g)
+            }
+        }
+    }
+
+    private func row(_ g: UnknownGroup, now: Date) -> some View {
+        let age = now.timeIntervalSince(g.last)
+        let u = g.latest
+        let color: Color = g.isPeriodic ? RadioTheme.vfdGreen : age < 30 ? RadioTheme.vfdAmber : RadioTheme.textMuted
+        let widths = (u.pulseBins.map { "\($0.mean)" }.joined(separator: "·")) + " / " + (u.gapBins.map { "\($0.mean)" }.joined(separator: "·"))
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text((g.isPeriodic ? "⏱ " : "") + u.modulation + (u.isFSK ? " · \(Int(u.frequencyOffsetHz / 1000)) kHz" : "")).frame(width: 190, alignment: .leading).lineLimit(1)
+            Text(widths).frame(width: 150, alignment: .leading).lineLimit(1)
+            Text(u.rowBits.max().map { "\($0)" } ?? "–").frame(width: 52, alignment: .trailing)
+            Text(g.maxRepeats > 1 ? "×\(g.maxRepeats)" : "").frame(width: 34, alignment: .trailing)
+            Text(g.intervalSeconds.map { Self.interval($0) } ?? "").frame(width: 62, alignment: .trailing)
+            Text("\(g.count)").frame(width: 38, alignment: .trailing)
+            Text(String(format: "%.0f dB", u.rssiDB)).frame(width: 52, alignment: .trailing)
+            Text(age < 60 ? "\(Int(age)) s" : age < 3600 ? "\(Int(age / 60)) min" : "\(Int(age / 3600)) h").frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .font(sensRowFont)
+        .foregroundColor(color)
+        .padding(.vertical, 2)
+        .background(selection == g.id ? RadioTheme.vfdCyan.opacity(0.12) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { selection = selection == g.id ? nil : g.id }
+        .help("Klick zeigt die Einzelheiten. ⏱ = meldet sich in gleichmäßigem Abstand.")
+    }
+
+    private static func interval(_ s: Double) -> String {
+        s < 90 ? "\(Int(s.rounded())) s" : "\(Int((s / 60).rounded())) min"
+    }
+
+    private func detail(_ g: UnknownGroup) -> some View {
+        let u = g.latest
+        let text = Self.detailText(g)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(g.signature).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.vfdCyan)
+                Spacer()
+                Button("KOPIEREN") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Einzelheiten in die Zwischenablage (zum Weitergeben oder für einen neuen Decoder)")
+                Button { NSWorkspace.shared.activateFileViewerSelecting([controller.unknownLogger.fileURL()]) } label: { Image(systemName: "folder") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Protokoll der unbekannten Pakete mit allen Breiten im Finder zeigen (bei eingeschaltetem LOG)")
+            }
+            ScrollView {
+                Text(text)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textBright)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(height: 120)
+            if u.rows.isEmpty {
+                Text("Die Bits ließen sich nicht ableiten: die Breiten gehören zu keiner der bekannten Modulationsarten.")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.vfdAmber)
+            }
+        }
+        .padding(8)
+    }
+
+    static func detailText(_ g: UnknownGroup) -> String {
+        let u = g.latest
+        func binText(_ b: [PulseBin]) -> String { b.map { "\($0.mean) µs (×\($0.count), \($0.min) bis \($0.max))" }.joined(separator: ", ") }
+        var t = "Art: \(u.modulation)   Pakete: \(g.count)   Pegel: \(String(format: "%.1f", u.rssiDB)) dB   Rauschabstand: \(String(format: "%.1f", u.snrDB)) dB   Ablage: \(Int(u.frequencyOffsetHz)) Hz\n"
+        t += "Pulse: \(u.numPulses)   Dauer: \(u.durationMicroseconds) µs   Pulsbreiten: \(binText(u.pulseBins))\n"
+        t += "Lückenbreiten: \(binText(u.gapBins))\n"
+        if let i = g.intervalSeconds { t += "Abstand der Aussendungen: etwa \(Int(i.rounded())) s" + (g.isPeriodic ? " (gleichmäßig)" : "") + "\n" }
+        if u.shortWidth > 0 { t += "Zeiten für den Decoder: kurz \(u.shortWidth) µs, lang \(u.longWidth) µs\n" }
+        for r in u.rows { t += r + "\n" }
+        t += "Breiten (Puls/Lücke, µs): " + stride(from: 0, to: min(u.widths.count, 160), by: 2).map { "\(u.widths[$0])/\(u.widths[$0 + 1])" }.joined(separator: " ")
+        return t
+    }
+}
+
 // MARK: - Empfang (statt Wasserfall)
 
 struct SensorsScopePanel: View {
@@ -281,6 +415,10 @@ struct SensorsTuningPanel: View {
                 readout("PAKETE FSK", "\(controller.stats.fskPackages)")
             }
             HStack {
+                readout("UNBEKANNT", "\(controller.stats.unknownPackages)")
+                Spacer()
+            }
+            HStack {
                 readout("RAUSCHEN", String(format: "%.0f dB", controller.stats.noiseDB))
                 Spacer()
                 readout("ÜBERSTEUERT", String(format: "%.1f %%", controller.stats.clippedFraction * 100))
@@ -303,7 +441,7 @@ struct SensorsTuningPanel: View {
                     .foregroundColor(RadioTheme.vfdAmber)
             }
             if controller.stats.packages > 20 && controller.stats.decoded == 0 {
-                Text("Pakete ohne Treffer: andere Geräte in der Nähe oder Störungen; die Telegramme der Sensoren sind nicht im Katalog (\(SensorCatalog.all.count) Decoder).")
+                Text("Pakete ohne Treffer: andere Geräte in der Nähe oder Sensoren, die nicht im Katalog stehen (\(SensorCatalog.all.count) Decoder). Reiter UNBEKANNT zeigt sie mit Breiten und Bits.")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
