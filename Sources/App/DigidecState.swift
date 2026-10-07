@@ -74,6 +74,8 @@ public final class DigidecState: ObservableObject {
     public let dmrController: DMRController
     public let dpmr = DPMRSettingsStore()
     public let dpmrController: DPMRController
+    public let ndb = NDBSettingsStore()
+    public let ndbController: NDBController
     public let tetra = TETRASettingsStore()
     public let tetraController: TETRAController
     public let m17 = M17SettingsStore()
@@ -128,6 +130,8 @@ public final class DigidecState: ObservableObject {
     }
     /// Nach einem Auftrag eines Commanders (URL) stimmt dieser das Gerät selbst ab: nicht gegenläufig nachstellen
     private var suppressRigTuneUntil = Date.distantPast
+    /// Dial-Frequenz und Mode des Funkgeräts für das NDB-Modul
+    private var ndbRigState: (hz: Int?, mode: String?) = (nil, nil)
     private var audioStarted = false
     private var cancellables: Set<AnyCancellable> = []
 
@@ -156,6 +160,7 @@ public final class DigidecState: ObservableObject {
         dmrController = DMRController(pipeline: audio.pipeline, settings: dmr)
         dpmrController = DPMRController(pipeline: audio.pipeline, settings: dpmr)
         tetraController = TETRAController(settings: tetra)
+        ndbController = NDBController(pipeline: audio.pipeline, settings: ndb)
         m17Controller = M17Controller(pipeline: audio.pipeline, settings: m17)
         sensorsController = SensorsController(settings: sensors)
         vdl2Controller = VDL2Controller(settings: vdl2)
@@ -180,6 +185,12 @@ public final class DigidecState: ObservableObject {
             rigReady: { [unowned self] in self.rigControlEnabled && self.rig.hasRig && self.rig.state.connected },
             isActive: { [unowned self] in self.activeModule == .sonde },
             knownFrequencies: { [unowned self] in self.sondePlan.knownFrequencies(home: self.home.point) + self.sondeController.heardFrequencies })
+
+        // NDB: Frequenz und Mode des Funkgeräts lesen, Funkgerät abstimmen (Klick auf ein Funkfeuer, Suchlauf)
+        ndbController.rigState = { [unowned self] in self.ndbRigState }
+        ndbController.rigAvailable = { [unowned self] in self.rigControlEnabled && self.rig.hasRig && self.rig.state.connected }
+        ndbController.tuneRig = { [unowned self] target in self.tuneRig(to: target) }
+        ndbController.home = { [unowned self] in self.home.point }
 
         // Standort für die AIS-Entfernungen (weitester Empfang)
         aisController.homePoint = home.point
@@ -229,6 +240,7 @@ public final class DigidecState: ObservableObject {
                 self?.dmrController.setActive(module == .dmr)
                 self?.dpmrController.setActive(module == .dpmr)
                 self?.tetraController.setActive(module == .tetra)
+                self?.ndbController.setActive(module == .ndb)
                 self?.m17Controller.setActive(module == .m17)
                 self?.sensorsController.setActive(module == .sensors)
                 self?.vdl2Controller.setActive(module == .vdl2)
@@ -304,6 +316,7 @@ public final class DigidecState: ObservableObject {
             wefaxController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             navtexController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Double.init) : nil
             dcf77.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
+            ndbRigState = (state.connected ? state.frequencyHz.map { Int($0) } : nil, state.mode)
             efr.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
             sstv.rigIsLSB = state.isLSB
             sstv.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
@@ -370,7 +383,7 @@ public final class DigidecState: ObservableObject {
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
         case .rtty:   return rttyDWDTarget
-        case .cw, .olivia, .mt63, .mfsk, .hell, .ale, .tones: return nil
+        case .cw, .olivia, .mt63, .mfsk, .hell, .ale, .tones, .ndb: return nil
         }
     }
 
@@ -502,7 +515,7 @@ public final class DigidecState: ObservableObject {
                     if let preset = request.presetID, let c = ACARSChannel(rawValue: preset) { acars.channel = c }
                 case .ais:
                     if let preset = request.presetID, let c = AISChannel(rawValue: preset) { ais.channel = c }
-                case .dstar, .ysf, .dmr, .dpmr, .tetra, .m17:
+                case .dstar, .ysf, .dmr, .dpmr, .tetra, .ndb, .m17:
                     break
                 case .sensors:
                     if let preset = request.presetID, let b = SensorBand(rawValue: preset) { sensors.band = b }

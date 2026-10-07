@@ -32,6 +32,7 @@ struct ModuleMapView: View {
                                            hint: "Wetterfax: Sendestelle des DWD")
             case .dcf77:  FixedSiteMapView(sites: Transmitters.dcf77(), home: state.home, hint: "DCF77: Zeitzeichensender")
             case .efr:    FixedSiteMapView(sites: Transmitters.efr(state.efr.station), home: state.home, hint: "EFR: Rundsteuersender")
+            case .ndb:    NDBMapView(controller: state.ndbController, home: state.home)
             case .dstar:  DStarMapView(controller: state.dstarController, home: state.home)
             case .m17:    M17MapView(controller: state.m17Controller, home: state.home)
             case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .vor, .freedv:
@@ -52,7 +53,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .ndb, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
         }
     }
 
@@ -61,7 +62,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .ndb, .m17, .sensors, .vdl2, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
         }
     }
 
@@ -83,6 +84,7 @@ extension DecoderModuleInfo {
         case .vor: return "Peilung (Radial) und Kennung eines VOR oder die Ablage eines ILS mit Kompass, Verlauf und Messwerten"
         case .vdl2: return "Flugzeuge und Bodenstationen am VHF-Datenfunk (VDL Mode 2) mit den ACARS-Meldungen und allen Rahmen"
         case .m17: return "Die gehörte Aussendung mit Rufzeichen, Ziel, Kanalzugriffsnummer, Text und Position, dazu der Verlauf der Gespräche"
+        case .ndb: return "Die gelesene Kennung des Funkfeuers mit Name, Entfernung und Richtung, die Liste der gehörten Funkfeuer, der Umkreis zum Anklicken und der Suchlauf"
         case .tetra: return "Gespräche des eigenen TETRA-Netzes mit Gruppe, Rufer und Sprecher, dazu Netzdaten, Teilnehmer und Kurznachrichten, Wiedergabe unverschlüsselter Gespräche"
         case .dpmr: return "Die gehörte Aussendung mit gerufener und rufender Kennung und Kanalcode, dazu der Verlauf der Gespräche mit Wiedergabe"
         case .dmr: return "Beide Zeitschlitze mit Absender, Ziel und Farbcode, dazu der Verlauf der Gespräche mit Wiedergabe"

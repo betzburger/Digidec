@@ -134,7 +134,7 @@ do {
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
     check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "DPMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
-    check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
+    check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr && DecoderModuleInfo.Band.hf.modules.contains(.ndb), "HF-Rubrik A–Z")
 }
 
 
@@ -10256,6 +10256,91 @@ do {
     let wide = TETRAChannelPlan.center(for: [426.0, 427.0])
     check(abs(wide - 426_500_000) < 30_000 && TETRAChannelPlan.fits(426_000_000, center: wide) && TETRAChannelPlan.fits(427_000_000, center: wide), "TETRA: Empfangsfenster mit zwei weit auseinanderliegenden Trägern")
     check(DecoderModuleInfo.tetra.band == .vhfUhf && !DecoderModuleInfo.tetra.hasMap && DecoderModuleInfo.tetra.isAvailable && DecoderModuleInfo.tetra.displayName == "TETRA", "TETRA: Modul")
+}
+
+// MARK: - NDB
+do {
+    check(NDBFormat.collapse("ABCABC") == "ABC" && NDBFormat.collapse("ABAB") == "AB" && NDBFormat.collapse("ABCABCABC") == "ABC" && NDBFormat.collapse("ABCD") == "ABCD"
+          && NDBFormat.collapse("EE") == "EE" && NDBFormat.collapse("AGB") == "AGB", "NDB: wiederholte Kennungsgruppe wird zusammengefasst")
+    check(NDBFormat.carrierKHz(dialHz: 318_000, mode: "AM", toneHz: 1020) == 318 && NDBFormat.carrierKHz(dialHz: 318_000, mode: "USB", toneHz: 1020) == 318
+          && abs(NDBFormat.carrierKHz(dialHz: 317_300, mode: "USB", toneHz: 700) - 318) < 0.01 && abs(NDBFormat.carrierKHz(dialHz: 319_000, mode: "LSB", toneHz: 800) - 318.2) < 0.01
+          && NDBFormat.carrierKHz(dialHz: 318_000, mode: nil, toneHz: 0) == 318, "NDB: Träger aus Dial-Frequenz, Mode und Ton (AM, A2A in USB, Überlagerungston)")
+    check(NDBFormat.toneKind(1020.4) == "A2A 1020 Hz" && NDBFormat.toneKind(399) == "A2A 400 Hz" && NDBFormat.toneKind(812) == "Ton 812 Hz", "NDB: Tonart")
+
+    // Empfänger mit Testsignalen (getastete Kennung, Rauschen)
+    func read(ident: String, tone: Double, dit: Double, snr: Double?, seconds: Double = 70, fixed: Double? = nil) -> (reads: [String], tone: Double) {
+        final class Box: @unchecked Sendable { var reads: [String] = [] }
+        let box = Box()
+        let audio = NDBSignalGenerator.audio(ident: ident, toneHz: tone, dit: dit, repeatEvery: 11, seconds: seconds, snrDB: snr)
+        let rx = NDBReceiver()
+        rx.fixedToneHz = fixed
+        rx.onIdent = { box.reads.append($0) }
+        var pos = 0
+        while pos < audio.count {
+            let n = min(800, audio.count - pos)
+            audio.withUnsafeBufferPointer { rx.process(UnsafeBufferPointer(rebasing: $0[pos..<(pos + n)])) }
+            pos += n
+        }
+        return (box.reads, rx.reading.toneHz)
+    }
+    let a = read(ident: "AGB", tone: 1020, dit: 0.13, snr: nil)
+    check(a.reads.count >= 5 && a.reads.allSatisfy { $0 == "AGB" } && abs(a.tone - 1020) < 3, "NDB: Kennung AGB, 1020 Hz, sauber: \(a.reads.count) Lesungen, Ton \(Int(a.tone)) Hz")
+    let b = read(ident: "KW", tone: 400, dit: 0.15, snr: 12)
+    check(b.reads.count >= 4 && b.reads.filter { $0 == "KW" }.count >= b.reads.count - 1 && abs(b.tone - 400) < 3, "NDB: Kennung KW, 400 Hz, 12 dB: \(b.reads)")
+    let c = read(ident: "DLS", tone: 812, dit: 0.1, snr: 6)
+    check(c.reads.filter { $0 == "DLS" }.count >= 4 && abs(c.tone - 812) < 3, "NDB: Überlagerungston 812 Hz (A1A in USB), 6 dB: \(c.reads)")
+    let d = read(ident: "OSM", tone: 1020, dit: 0.17, snr: -3, seconds: 100)
+    check(d.reads.filter { $0 == "OSM" }.count >= 5, "NDB: langsame Kennung bei −3 dB Rauschabstand (3 kHz): \(d.reads)")
+    let e = read(ident: "T", tone: 1020, dit: 0.12, snr: 15)
+    check(e.reads.filter { $0 == "T" }.count >= 4, "NDB: einbuchstabige Kennung")
+    let f = read(ident: "ABU", tone: 1020, dit: 0.06, snr: 15, fixed: 1020)
+    check(f.reads.filter { $0 == "ABU" }.count >= 4, "NDB: schnelle Kennung (Punkt 60 ms) mit fest eingestelltem Ton")
+    let silent = read(ident: "", tone: 1020, dit: 0.12, snr: 10, seconds: 30)
+    check(silent.reads.isEmpty, "NDB: nur Rauschen ergibt keine Kennung")
+
+    // Sammeln und Bestätigen
+    var tracker = NDBIdentTracker()
+    check(!tracker.add("AGB") && !tracker.confirmed && tracker.ident == "AGB", "NDB: erste Lesung ist unbestätigt")
+    check(tracker.add("AGB") && tracker.confirmed, "NDB: zweite gleiche Lesung bestätigt")
+    check(!tracker.add("ABB") && tracker.confirmed && tracker.ident == "AGB", "NDB: Fehllesung kippt die bestätigte Kennung nicht")
+    tracker.reset()
+    _ = tracker.add("XY"); _ = tracker.add("XZ"); _ = tracker.add("XY")
+    check(tracker.ident == "XY" && tracker.confirmed, "NDB: Mehrheit entscheidet")
+
+    // Datenbank
+    let db = NDBDatabase(loadCache: false)
+    check(db.count > 1000 && db.count == NDBBuiltinData.count, "NDB: eingebaute Liste (\(db.count) Funkfeuer)")
+    let agb = db.lookup(ident: "AGB", frequencyKHz: 318)
+    check(agb.first?.name == "Augsburg" && agb.first?.country == "DE" && agb.first?.frequencyKHz == 318, "NDB: AGB = Augsburg, 318 kHz")
+    let home = Maidenhead.point("JN49WS")!
+    let near = db.within(km: 300, of: home)
+    check(near.count > 5 && zip(near, near.dropFirst()).allSatisfy { $0.km <= $1.km } && near.allSatisfy { $0.km <= 300 }, "NDB: Umkreis nach Entfernung sortiert (\(near.count) Funkfeuer in 300 km)")
+    if case .confirmed(let s) = NDBMatch.evaluate(ident: "AGB", frequencyKHz: 318, database: db) { check(s.name == "Augsburg", "NDB: Abgleich bestätigt") } else { check(false, "NDB: Abgleich bestätigt") }
+    if case .confirmed = NDBMatch.evaluate(ident: "AGB", frequencyKHz: 318.5, database: db) { check(true, "NDB: halbe kHz Abweichung zählt noch") } else { check(false, "NDB: halbe kHz Abweichung zählt noch") }
+    if case .identOnly(_, let delta) = NDBMatch.evaluate(ident: "AGB", frequencyKHz: 322, database: db) { check(abs(delta - 4) < 0.01, "NDB: Kennung stimmt, Frequenz weicht um 4 kHz ab") } else { check(false, "NDB: Kennung stimmt, Frequenz weicht ab") }
+    if case .frequencyOnly(let l) = NDBMatch.evaluate(ident: "ZZZ", frequencyKHz: 318, database: db) { check(l.contains { $0.ident == "AGB" }, "NDB: Frequenz bekannt, Kennung anders") } else { check(false, "NDB: Frequenz bekannt, Kennung anders") }
+    check(NDBMatch.evaluate(ident: "QQQ", frequencyKHz: 1555, database: db) == .unknown, "NDB: unbekannt")
+    let csv = "id,filename,ident,name,type,frequency_khz,latitude_deg,longitude_deg,elevation_ft,iso_country\n1,x,\"AB\",\"Test, Feuer\",NDB,355,50.5,9.5,100,DE\n2,y,VX,Vor,VOR,114000,50,9,0,DE\n3,z,CD,Zwei,NDB-DME,402,51,8,0,AT\n"
+    let parsed = NDBDatabase.parseCSV(csv)
+    check(parsed.count == 2 && parsed[0].name == "Test, Feuer" && parsed[0].frequencyKHz == 355 && parsed[1].country == "AT", "NDB: CSV (Anführungszeichen, nur NDB und NDB-DME)")
+    if let text = try? String(contentsOfFile: "TestData/NDB/navaids.csv", encoding: .utf8) {
+        let all = NDBDatabase.parseCSV(text)
+        check(all.count > 6000 && all.filter { $0.country == "DE" }.count >= 90, "NDB echt: OurAirports-Liste mit \(all.count) Funkfeuern gelesen")
+    } else { skip("NDB echt: TestData/NDB/navaids.csv liegt nicht lokal vor (ourairports.com/data)") }
+
+    // Controller
+    let settings = NDBSettingsStore()
+    settings.manualKHz = 318
+    let ndb = NDBController(pipeline: AudioPipeline(), settings: settings, database: db)
+    ndb.home = { home }
+    ndb.ingest("AGB"); ndb.ingest("AGBAGB")
+    if case .confirmed(let s) = ndb.match { check(s.ident == "AGB", "NDB: Controller gleicht die bestätigte Kennung mit der Liste ab") } else { check(false, "NDB: Controller gleicht ab (\(ndb.match))") }
+    check(ndb.heard.count == 1 && ndb.heard[0].confirmedByList && (ndb.heard[0].km ?? 0) > 100 && (ndb.heard[0].km ?? 0) < 250, "NDB: gehörtes Funkfeuer mit Entfernung (\(ndb.heard.first?.km ?? 0) km)")
+    let map = ndb.mapContent(now: Date())
+    check(map.markers.contains { $0.title == "AGB" && $0.tone != .dim } && map.markers.count > 20 && !map.lines.isEmpty, "NDB: Karte zeigt Funkfeuer im Umkreis und das gehörte hervorgehoben")
+    settings.setCenter(900)
+    check(settings.centerHz == 900 && settings.fixedToneHz == 900 && DecoderModuleInfo.ndb.band == .hf && DecoderModuleInfo.ndb.hasMap && DecoderModuleInfo.ndb.displayName == "NDB", "NDB: Ton per Klick im Wasserfall, Modul")
+    settings.fixedToneHz = 0; settings.manualKHz = 0
 }
 
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind

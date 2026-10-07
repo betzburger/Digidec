@@ -26,8 +26,8 @@ public final class NDBSettingsStore: ObservableObject {
 
     public init() {
         let d = UserDefaults.standard
-        manualKHz = d.object(forKey: "ndbManualKHz") as? Double ?? 0
-        fixedToneHz = d.object(forKey: "ndbFixedTone") as? Double ?? 0
+        manualKHz = d.object(forKey: "ndbManualKHz") != nil ? d.double(forKey: "ndbManualKHz") : 0
+        fixedToneHz = d.object(forKey: "ndbFixedTone") != nil ? d.double(forKey: "ndbFixedTone") : 0
         radiusKm = d.object(forKey: "ndbRadiusKm") as? Double ?? 400
         dwellSeconds = d.object(forKey: "ndbDwell") as? Double ?? 45
     }
@@ -243,7 +243,7 @@ public final class NDBController: ObservableObject {
             isRecording = false
             return
         }
-        let name = InputRecorder.fileName(frequencyHz: carrierKHz.map { $0 * 1000 }, mode: nil, preset: "ndb", prefix: "NDB")
+        let name = InputRecorder.fileName(frequencyHz: carrierKHz.map { Int($0 * 1000) }, mode: nil, preset: "ndb", prefix: "NDB")
         recorder.start(url: InputRecorder.directory.appendingPathComponent(name))
         isRecording = true
         recordingDuration = 0
@@ -297,6 +297,7 @@ public final class NDBController: ObservableObject {
         reads = tracker.reads
         if logEnabled { logger.append(Self.utc.string(from: now) + "  \(carrierKHz.map { NDBFormat.khzText($0) } ?? "? kHz")  Kennung \(text)" + (tracker.confirmed ? " (bestätigt)" : "") + "\n", now: now) }
         guard tracker.confirmed else { return }
+        if carrierKHz == nil { carrierKHz = currentFrequency().carrier }
         match = NDBMatch.evaluate(ident: ident, frequencyKHz: carrierKHz, database: database)
         var station: NDBStation?
         var listConfirmed = false
