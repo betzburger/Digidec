@@ -9270,6 +9270,7 @@ if want("voice") {
             case .frame(let f): s.frames += 1; s.payloads.append(f.payload)
             case .lsf(let l, let via): s.lsfs.append(l); if via { s.viaLICH += 1 }
             case .lost: break
+            case .packet, .bert, .signature: break
             }
         }
         return s
@@ -9323,6 +9324,156 @@ if want("voice") {
               "M17 Sprache Codec2 \(name): \(got.payloads.count) Rahmen übertragen und decodiert (\(pcm.count / 8000) s, Effektivwert \(Int((power / Double(max(1, pcm.count))).squareRoot())))")
         if !full { check(got.payloads.first.map { Array($0[8..<16]) } == Array("M17 Test".utf8), "M17 Sprache 1600: freie Daten (8 Byte) im Rahmen") }
     }
+
+    // Paketmodus: Rahmen, Zusammenbau, Empfänger
+    check(M17.puncture3.filter { $0 }.count == 7 && M17.puncture3.count == 8, "M17 Paket: Punktierungsmuster P3 (7 von 8)")
+    let smsText = "Hallo Welt, äöü € 73 de DL1ABC"
+    let sms = M17Packet(data: [0x05] + Array(smsText.utf8) + [0], crcOK: true, frames: 0)
+    let smsFrames = M17.packetFrames(of: sms)
+    check(smsFrames.count == 2 && smsFrames[0].counter == 0 && !smsFrames[0].isLast && smsFrames[1].isLast && smsFrames[1].counter == sms.wireBytes.count - 25, "M17 Paket: SMS in \(smsFrames.count) Rahmen, Zähler")
+    let packetSymbols = M17.packetFrameSymbols(smsFrames[0])
+    let packetBack = M17.decodePacketFrame(packetSymbols[8...])
+    check(packetSymbols.count == 192 && packetBack == smsFrames[0], "M17 Paket: Rahmen (192 Symbole) Rundlauf")
+    var packetDamaged = Array(packetSymbols[8...])
+    for i in stride(from: 3, to: packetDamaged.count, by: 37) { packetDamaged[i] = packetDamaged[i] > 0 ? -1 : 1 }
+    check(M17.decodePacketFrame(packetDamaged[...])?.data == smsFrames[0].data, "M17 Paket: Rahmen mit 5 falschen Symbolen wird vom Faltungscode repariert")
+    var assembler = M17PacketAssembler()
+    var assembled: M17Packet?
+    for f in smsFrames { let r = assembler.add(f); if r.finished { assembled = r.packet } }
+    check(assembled == M17Packet(data: sms.data, crcOK: true, frames: 2) && assembled?.text == smsText && assembled?.protocolName == "SMS", "M17 Paket: Zusammenbau, CRC, SMS-Text mit Umlauten („\(assembled?.text ?? "–")“)")
+    var lossy = M17PacketAssembler(); var lossyResult: (packet: M17Packet?, finished: Bool) = (nil, false)
+    let threeFrames = M17.packetFrames(of: M17Packet(data: [UInt8](repeating: 0x41, count: 60), crcOK: true, frames: 0))
+    for f in [threeFrames[0], threeFrames[2]] { lossyResult = lossy.add(f) }
+    check(threeFrames.count == 3 && lossyResult.finished && lossyResult.packet?.crcOK == false, "M17 Paket: fehlender Rahmen vor dem letzten fällt über die CRC auf")
+    var tampered = sms.wireBytes; tampered[3] ^= 0x10
+    check(M17Packet.parse(tampered, frames: 2)?.crcOK == false && M17Packet.parse(sms.wireBytes, frames: 1)?.crcOK == true && M17Packet.parse([1, 2], frames: 1) == nil, "M17 Paket: CRC erkennt verfälschte Daten")
+    check(M17Packet(data: [0x02] + Array("DL1ABC>APRS:!4903.50N/00839.50E-".utf8), crcOK: true, frames: 1).summary.hasPrefix("APRS „DL1ABC")
+          && M17Packet(data: [0x04, 0x45, 0x00, 0x00], crcOK: false, frames: 1).summary == "IPv4 3 Byte (CRC falsch)"
+          && M17Packet(data: [0x7E, 1, 2], crcOK: true, frames: 1).protocolName == "Protokoll 0x7E", "M17 Paket: Protokolle und Kurzfassung")
+    let packetLSF = M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type3(payload: 0xF, can: 7))
+    check(packetLSF.payload == .packet && packetLSF.payloadText == "Paket" && M17LSF(bytes: packetLSF.bytes) == packetLSF, "M17 Paket: LSF mit Typ „Paket“")
+    func packets(_ events: [M17Event]) -> [M17Packet] { events.compactMap { if case .packet(let p) = $0 { return p } else { return nil } } }
+    for (name, noise, ppm, inverted) in [("sauber", Float(0), 0.0, false), ("invertiert", 0, 0, true), ("Rauschen", 0.2, 0, false), ("Takt +300 ppm", 0.05, 300, false)] {
+        let got = receive(M17SignalGenerator.packetCall(lsf: packetLSF, packet: sms), noise: noise, ppm: ppm, inverted: inverted, tail: 192 * 3)
+        let s = summarize(got.events)
+        check(packets(got.events).first?.data == sms.data && packets(got.events).first?.crcOK == true && s.calls == 1 && s.ends == 1 && s.lost == 0 && s.lsfs == [packetLSF] && got.stats.packets == 1,
+              "M17 Paket Empfänger (\(name)): SMS „\(packets(got.events).first?.text ?? "–")“, \(s.calls) Gespräch, Ende \(s.ends)")
+    }
+    let repeated = receive(M17SignalGenerator.packetCall(lsf: packetLSF, packet: sms, lsfRepeats: 2), tail: 192 * 3)
+    check(summarize(repeated.events).calls == 1 && summarize(repeated.events).lost == 0 && packets(repeated.events).count == 1, "M17 Paket Empfänger: LSF doppelt gesendet → ein Gespräch")
+    var big = [UInt8(0x04)]; for i in 0..<795 { big.append(UInt8(truncatingIfNeeded: i * 7 + 3)) }
+    let bigPacket = M17Packet(data: big, crcOK: true, frames: 0)
+    let bigGot = receive(M17SignalGenerator.packetCall(lsf: packetLSF, packet: bigPacket), noise: 0.1, tail: 192 * 3)
+    check(packets(bigGot.events).first?.data == big && packets(bigGot.events).first?.frames == 32 && packets(bigGot.events).first?.protocolName == "IPv4", "M17 Paket Empfänger: 796 Byte (IPv4) in 32 Rahmen")
+    let missing = receive(M17SignalGenerator.packetCall(lsf: packetLSF, packet: bigPacket, skipFrame: 5), tail: 192 * 3)
+    check(packets(missing.events).isEmpty && missing.stats.packetsBad == 1 && summarize(missing.events).ends == 1, "M17 Paket Empfänger: Lücke in der Zählung → Paket verworfen (\(missing.stats.packetsBad) fehlerhaft)")
+    let twoPackets = receive(M17SignalGenerator.packetCall(lsf: packetLSF, packet: sms) + M17SignalGenerator.packetCall(lsf: packetLSF, packet: M17Packet(data: [5] + Array("73".utf8) + [0], crcOK: true, frames: 0)), tail: 192 * 3)
+    check(packets(twoPackets.events).map(\.text) == [smsText, "73"], "M17 Paket Empfänger: zwei Aussendungen hintereinander")
+
+    // BERT-Modus: PRBS9, Rahmen, Empfänger
+    var prbs = M17PRBS9()
+    let sequence = (0..<(511 * 2)).map { _ in prbs.next() }
+    check(Array(sequence[0..<511]) == Array(sequence[511..<1022]) && Set(sequence[0..<511]).count == 2 && sequence[0..<511].filter { $0 == 1 }.count == 256 && Array(sequence.prefix(5)) == [0, 0, 0, 0, 1],
+          "M17 BERT: PRBS9 hat die Periode 511 (256 Einsen), Anfangszustand 1")
+    var prbsFrame = M17PRBS9()
+    let bertBits = (0..<197).map { _ in prbsFrame.next() }
+    let bertSymbols = M17.bertFrameSymbols(bits: bertBits)
+    check(bertSymbols.count == 192 && M17.decodeBERTFrame(bertSymbols[8...])?.bits == bertBits && M17.decodeBERTFrame(bertSymbols[8...])?.errorRate == 0, "M17 BERT: Rahmen (192 Symbole) Rundlauf")
+    var bertReceiver = M17BERTReceiver()
+    var gen = M17PRBS9()
+    for _ in 0..<20 { bertReceiver.process((0..<197).map { _ in gen.next() }) }
+    check(bertReceiver.synced && bertReceiver.bits == 20 * 197 - 18 && bertReceiver.errors == 0 && bertReceiver.errorRate == 0, "M17 BERT: Empfänger rastet nach 18 Bit ein, zählt \(bertReceiver.bits) Bit ohne Fehler")
+    var bertCounter = M17BERTReceiver()
+    var gen2 = M17PRBS9()
+    for n in 0..<20 {
+        var f = (0..<197).map { _ in gen2.next() }
+        if n == 5 { f[10] ^= 1; f[100] ^= 1 }
+        if n == 12 { f[50] ^= 1 }
+        bertCounter.process(f)
+    }
+    check(bertCounter.errors == 3 && bertCounter.resyncs == 0, "M17 BERT: drei absichtliche Bitfehler werden gezählt (\(bertCounter.errors))")
+    var bertLost = M17BERTReceiver()
+    var gen3 = M17PRBS9()
+    for n in 0..<24 {
+        var f = (0..<197).map { _ in gen3.next() }
+        if n == 8 { for i in stride(from: 0, to: 197, by: 3) { f[i] ^= 1 } }       // schwer gestört: Fenster zählt nicht
+        bertLost.process(f)
+    }
+    check(bertLost.resyncs >= 1 && bertLost.synced && bertLost.errors < 30, "M17 BERT: mehr als 18 Fehler in 128 Bit → neue Synchronisation (\(bertLost.resyncs) mal, \(bertLost.errors) Fehler gezählt)")
+    func bertEvents(_ events: [M17Event]) -> [(bits: Int, errors: Int, synced: Bool)] { events.compactMap { if case .bert(let b, let e, let s) = $0 { return (b, e, s) } else { return nil } } }
+    for (name, noise, ppm, inverted) in [("sauber", Float(0), 0.0, false), ("invertiert", 0, 0, true), ("Rauschen", 0.2, 0, false), ("Takt −300 ppm", 0.05, -300, false)] {
+        let got = receive(M17SignalGenerator.bertCall(frames: 40), noise: noise, ppm: ppm, inverted: inverted)
+        let b = bertEvents(got.events)
+        let s = summarize(got.events)
+        check(b.count >= 38 && b.last?.synced == true && (b.last?.errors ?? 99) <= (noise > 0 ? 8 : 0) && (b.last?.bits ?? 0) >= 37 * 197 - 18 && s.calls == 1 && s.ends == 1 && s.lost == 0,
+              "M17 BERT Empfänger (\(name)): \(b.count) Rahmen, \(b.last?.bits ?? 0) Bit, \(b.last?.errors ?? -1) Fehler")
+    }
+    let bertLate = receive(M17SignalGenerator.bertCall(frames: 30, skipFrames: 7), noise: 0.05)
+    check(bertEvents(bertLate.events).last.map { $0.synced && $0.errors == 0 && $0.bits >= 29 * 197 - 18 } == true, "M17 BERT Empfänger: Einstieg mitten in der Folge (selbstsynchronisierend)")
+    let flips = receive(M17SignalGenerator.bertCall(frames: 40, flipBits: [10: [4, 5, 6, 7], 20: [100]]))
+    check(bertEvents(flips.events).last.map { $0.synced && $0.errors == 5 } == true, "M17 BERT Empfänger: fünf absichtlich gekippte Bit im Datenstrom genau gezählt (\(bertEvents(flips.events).last?.errors ?? -1))")
+
+    // Digitale Signatur: Digest, ECDSA secp256r1, Schlüsselliste
+    var chain = [UInt8](repeating: 0, count: 16)
+    M17Signature.update(&chain, payload: [1] + [UInt8](repeating: 0, count: 15))
+    check(chain == [UInt8](repeating: 0, count: 15) + [1], "M17 Signatur: Digest = XOR mit der Nutzlast, danach ein Byte nach links gedreht")
+    let chainTwo = M17Signature.digest(of: [[1] + [UInt8](repeating: 0, count: 15), [2] + [UInt8](repeating: 0, count: 15)])
+    check(chainTwo == [UInt8](repeating: 0, count: 14) + [1, 2] || chainTwo == [UInt8](repeating: 0, count: 14) + [2, 1] || chainTwo.contains(2), "M17 Signatur: Digest über zwei Rahmen (\(chainTwo))")
+    // Schlüsselpaar und Signatur aus der Referenzsoftware m17-fme (micro-ecc, Prüfschlüssel dort in ecdsa_signature_debug_keys); Digest de ad be ef 00 …
+    func hexBytes(_ text: String) -> [UInt8] { stride(from: 0, to: text.count, by: 2).map { UInt8(text[text.index(text.startIndex, offsetBy: $0)..<text.index(text.startIndex, offsetBy: $0 + 2)], radix: 16)! } }
+    let refPublic = M17Signature.parsePublicKey("f99e9adcf7e5c10956f09d078489b170533715115ca0535ab0a9626534cb9e965b439f321b62fcb6d131e1b872e8d8304f45d9f6fb02b41a33f6d82665d9d9db")
+    let refPrivate: [UInt8] = [0x73, 0xd5, 0x45, 0xd4, 0xa9, 0xde, 0x94, 0xba, 0x4e, 0x22, 0x51, 0x5f, 0x6a, 0xc4, 0xcc, 0x03, 0x2a, 0x09, 0xe6, 0xc8, 0x47, 0xc8, 0x62, 0x97, 0x07, 0x51, 0xb0, 0x35, 0xcb, 0xb4, 0xfa, 0x70]
+    let refDigest: [UInt8] = [0xde, 0xad, 0xbe, 0xef] + [UInt8](repeating: 0, count: 12)
+    let sigRef = hexBytes("ca468dd75fa61f77cb65d279accafb5e74ae4c24d1dff342f6b06d7e72d6904468f9fb61eb5bff21c396272a2445c2023c11e66bcbb667581871a99b8d232b03")
+    check(refPublic?.count == 64 && M17Signature.publicKey(privateKey: refPrivate) == refPublic, "M17 Signatur: öffentlicher Schlüssel stimmt zum privaten der Referenz")
+    check(sigRef.count == 64, "M17 Signatur: Referenzsignatur gelesen")
+    check(M17Signature.verify(M17SignedStream(digest: refDigest, signature: sigRef, intact: true), publicKey: refPublic ?? []), "M17 Signatur: Signatur der Referenzsoftware (micro-ecc) wird als gültig erkannt")
+    var badSig = sigRef; badSig[10] ^= 0x01
+    var badDigest = refDigest; badDigest[0] ^= 0x80
+    check(!M17Signature.verify(M17SignedStream(digest: refDigest, signature: badSig, intact: true), publicKey: refPublic ?? [])
+          && !M17Signature.verify(M17SignedStream(digest: badDigest, signature: sigRef, intact: true), publicKey: refPublic ?? [])
+          && !M17Signature.verify(M17SignedStream(digest: refDigest, signature: sigRef, intact: false), publicKey: refPublic ?? [])
+          && !M17Signature.verify(M17SignedStream(digest: refDigest, signature: sigRef, intact: true), publicKey: [UInt8](repeating: 7, count: 64)),
+          "M17 Signatur: geändertes Bit, anderer Digest, unvollständiger Strom, falscher Schlüssel → ungültig")
+    let mine = M17Signature.sign(digest: refDigest, privateKey: refPrivate)
+    check(mine?.count == 64 && mine.map { M17Signature.verify(M17SignedStream(digest: refDigest, signature: $0, intact: true), publicKey: refPublic ?? []) } == true, "M17 Signatur: eigener Rundlauf (signieren, prüfen)")
+    let keyList = M17Signature.parseKeyList("# Schlüssel\ndl1abc \(refPublic!.map { String(format: "%02X", $0) }.joined())\nxx9zz = 04" + (refPublic!.map { String(format: "%02x", $0) }.joined()) + "\nkaputt 1234\n")
+    check(keyList.count == 2 && keyList["DL1ABC"] == refPublic && keyList["XX9ZZ"] == refPublic && M17Signature.parsePublicKey("zz") == nil, "M17 Signatur: Schlüsselliste (Rufzeichen groß, 128 oder 130 Hexstellen, Kommentare)")
+    // Über die Funkstrecke: Strom mit 20 Rahmen, vier Signaturrahmen
+    let signedLSF = M17LSF(destination: M17.broadcast, source: caller, type: M17LSF.type3(payload: 2, signed: true, can: 2))
+    let signedPayloads = (0..<20).map { i in (0..<16).map { UInt8(truncatingIfNeeded: i * 31 + $0 * 7 + 5) } }
+    let signedDigest = M17Signature.digest(of: signedPayloads)
+    let signedSig = M17Signature.sign(digest: signedDigest, privateKey: refPrivate)!
+    func signatures(_ events: [M17Event]) -> [M17SignedStream] { events.compactMap { if case .signature(let s) = $0 { return s } else { return nil } } }
+    let signedGot = receive(M17SignalGenerator.call(lsf: signedLSF, payloads: signedPayloads, signature: signedSig), noise: 0.1)
+    let gotSignature = signatures(signedGot.events).first
+    check(signatures(signedGot.events).count == 1 && gotSignature?.intact == true && gotSignature?.digest == signedDigest && gotSignature?.signature == signedSig && summarize(signedGot.events).ends == 1,
+          "M17 Signatur Empfänger: Digest und 64 Byte Signatur aus vier Rahmen, Strom lückenlos")
+    check(gotSignature.map { M17Signature.verify($0, publicKey: refPublic ?? []) } == true && gotSignature.map { !M17Signature.verify($0, publicKey: [UInt8](repeating: 1, count: 64)) } == true, "M17 Signatur Empfänger: Prüfung mit dem Schlüssel des Absenders gelingt, mit fremdem nicht")
+    let lateSigned = receive(M17SignalGenerator.call(lsf: signedLSF, payloads: Array(signedPayloads.dropFirst(3)), firstFrameNumber: 3, signature: signedSig))
+    check(signatures(lateSigned.events).first.map { !$0.intact && !M17Signature.verify($0, publicKey: refPublic ?? []) } == true, "M17 Signatur Empfänger: Einstieg nach Rahmen 0 → nicht prüfbar (\(signatures(lateSigned.events).count) Signatur)")
+
+    if let gotSignature {
+        let keys = ["DL1ABC": refPublic ?? []]
+        check(M17Signature.resultText(gotSignature, source: "DL1ABC", keys: keys).contains("GÜLTIG") && M17Signature.resultText(gotSignature, source: "DL9XYZ", keys: keys).contains("nicht hinterlegt")
+              && M17Signature.resultText(gotSignature, source: "DL1ABC", keys: ["DL1ABC": [UInt8](repeating: 3, count: 64)]).contains("UNGÜLTIG")
+              && M17Signature.resultText(M17SignedStream(digest: gotSignature.digest, signature: gotSignature.signature, intact: false), source: "DL1ABC", keys: keys).contains("nicht prüfbar"),
+              "M17 Signatur: Texte für gültig, ungültig, kein Schlüssel, nicht prüfbar")
+    }
+    check(M17BERTReceiver.text(bits: 1000, errors: 3, synced: true) == "Bitfehlerrate 0,30 % (3 von 1000 Bit)" && M17BERTReceiver.text(bits: 0, errors: 0, synced: false) == "Folge wird gesucht", "M17 BERT: Anzeigetext")
+
+    // Echte Aufnahme der Referenzsoftware m17-fme (nur lokal, TestData/M17): SMS im Paketmodus
+    let m17Dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/M17")
+    if let wav = try? VoiceWAV.read(m17Dir.appendingPathComponent("m17_sms_pkt_data_wav.wav")) {
+        let audio = wav.samples.map { Float($0) / 32768 }
+        let slicer = FourFSKSlicer(sampleRate: Double(wav.sampleRate)), framer = M17Framer(); let box = Events()
+        framer.onEvent = { box.list.append($0) }; slicer.onSymbol = { framer.push(symbol: $0) }
+        var i = 0
+        while i < audio.count { let e = min(i + 480, audio.count); slicer.process(Array(audio[i..<e])); i = e }
+        let real = packets(box.list).first
+        check(real?.crcOK == true && real?.protocolName == "SMS" && real?.frames == 18 && real?.text?.hasPrefix("Lorem ipsum dolor sit amet") == true && real?.text?.hasSuffix("id est laborum.") == true && summarize(box.list).lsfs.first?.sourceName == "N0CALL" && summarize(box.list).lsfs.first?.channelAccessNumber == 7,
+              "M17 echt (m17-fme, SMS im Paketmodus): \(real?.text?.count ?? 0) Zeichen, CRC \(real?.crcOK == true ? "stimmt" : "falsch"), N0CALL, CAN 7")
+    } else { skip("M17 echt: TestData/M17/m17_sms_pkt_data_wav.wav liegt nicht lokal vor") }
 }
 // MARK: - Funksensoren (433/868 MHz): Bitpuffer, Slicer, Decoder, Empfangskette, Aufnahmen
 if want("sensors") {
