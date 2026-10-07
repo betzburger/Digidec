@@ -334,11 +334,105 @@ func fmmod(_ a: [String]) {
     print(String(format: "%.1f s Audio (%.0f Hz) → I/Q 2,4 MS/s, Träger %.0f Hz, Hub %.0f Hz, %@", Double(n) / rateIn, rateIn, offset, dev, a[1]))
 }
 
+/// Audio-WAV als Amplitudenmodulation in ein I/Q-Fenster legen: amod <audio.wav> <aus.cu8> [--offset Hz] [--depth m] [--amp a] [--noise sigma]
+func amod(_ a: [String]) {
+    func opt(_ n: String) -> String? { a.firstIndex(of: n).flatMap { i in i + 1 < a.count ? a[i + 1] : nil } }
+    guard a.count >= 2, let wav = FileManager.default.contents(atPath: a[0]), wav.count > 44 else { print("Aufruf: amod <audio.wav> <aus.cu8> ..."); exit(2) }
+    let rateIn = wav.withUnsafeBytes { Double($0.loadUnaligned(fromByteOffset: 24, as: UInt32.self)) }
+    let pcm: [Float] = wav.withUnsafeBytes { raw in
+        let p = raw.bindMemory(to: Int16.self)
+        return (22..<(raw.count / 2)).map { Float(Int16(littleEndian: p[$0])) / 32768 }
+    }
+    let n = pcm.count
+    let peak = max(1e-6, pcm.map { abs($0) }.max() ?? 1)
+    let offset = Double(opt("--offset") ?? "") ?? 300_000
+    let depth = Float(opt("--depth") ?? "") ?? 0.5
+    let amp = Float(opt("--amp") ?? "") ?? 0.3
+    let sigma = Float(opt("--noise") ?? "") ?? 0.003
+    let fs = 2_400_000.0
+    let up = Int(fs / rateIn)
+    var phase = 0.0
+    var out = Data(capacity: n * up * 2)
+    var rng = SDRTestSignal.SplitMix(seed: 11)
+    var buf = [UInt8](repeating: 0, count: 2 * up)
+    for k in 0..<n {
+        let x0 = pcm[k] / peak, x1 = k + 1 < n ? pcm[k + 1] / peak : x0
+        for j in 0..<up {
+            let x = x0 + (x1 - x0) * Float(j) / Float(up)
+            phase += 2 * Double.pi * offset / fs
+            if phase > 2 * Double.pi { phase -= 2 * Double.pi }
+            let env = amp * (1 + depth * x)
+            let i = env * Float(cos(phase)) + sigma * rng.gauss()
+            let q = env * Float(sin(phase)) + sigma * rng.gauss()
+            buf[2 * j] = UInt8(max(0, min(255, (i * 127.5 + 127.5).rounded())))
+            buf[2 * j + 1] = UInt8(max(0, min(255, (q * 127.5 + 127.5).rounded())))
+        }
+        out.append(contentsOf: buf)
+    }
+    FileManager.default.createFile(atPath: a[1], contents: out)
+    print(String(format: "%.1f s Audio → AM-I/Q 2,4 MS/s, Träger %.0f Hz, Grad %.2f, %@", Double(n) / rateIn, offset, depth, a[1]))
+}
+
+/// Mehrere I/Q-Dateien (8 Bit) zu einem Fenster überlagern: mix <aus.cu8> <ein1.cu8> <ein2.cu8> … (kürzeste Datei bestimmt die Länge; Rauschen addiert sich)
+func mix(_ a: [String]) {
+    guard a.count >= 3 else { print("Aufruf: mix <aus.cu8> <ein1.cu8> <ein2.cu8> …"); exit(2) }
+    let inputs = a.dropFirst().compactMap { FileManager.default.contents(atPath: $0) }
+    guard inputs.count == a.count - 1, let length = inputs.map(\.count).min() else { print("Eingabe nicht lesbar"); exit(1) }
+    var out = [UInt8](repeating: 0, count: length)
+    for k in 0..<length {
+        var sum = 0.0
+        for d in inputs { sum += Double(d[d.startIndex + k]) - 127.5 }
+        out[k] = UInt8(max(0, min(255, (sum + 127.5).rounded())))
+    }
+    FileManager.default.createFile(atPath: a[0], contents: Data(out))
+    print(String(format: "%d Dateien überlagert, %.1f s → %@", inputs.count, Double(length / 2) / 2_400_000, a[0]))
+}
+
+/// Rechenlast der Kanalbank: bank <Kanäle> <Abtastrate> – wie viel schneller als Echtzeit die Engine n Kanäle über ein Fenster rechnet
+func bankBench(_ a: [String]) {
+    let n = Int(a.first ?? "") ?? 8
+    let rate = Double(a.count > 1 ? a[1] : "") ?? 2_400_000
+    let seconds = 4.0
+    var sig = SDRTestSignal(sampleRate: rate, seconds: seconds)
+    let half = rate * 0.35
+    for k in 0..<n {
+        let off = -half + 2 * half * (Double(k) + 0.5) / Double(n)
+        sig.addFM(offsetHz: off, tone: 700 + 150 * Double(k), deviation: 3_000, amplitude: 0.05)
+    }
+    sig.addNoise(sigma: 0.003)
+    let bytes = sig.quantized()
+    let engine = SDRReceiverEngine(sampleRate: rate)
+    engine.setPrimaryEnabled(false)
+    var cfg = SDRChannelConfig(mode: .nfm); cfg.bandwidthHz = 12_500
+    for k in 0..<n {
+        let off = -half + 2 * half * (Double(k) + 0.5) / Double(n)
+        engine.setExtraChannel(id: k, config: cfg, offsetHz: off, handler: { _ in })
+    }
+    let t0 = Date()
+    bytes.withUnsafeBufferPointer { b in
+        var i = 0
+        while i < b.count { let e = min(i + 262_144, b.count); engine.feed(UnsafeBufferPointer(rebasing: b[i..<e]), wait: true); i = e }
+    }
+    while engine.extraChannelMetrics().isEmpty || engine.snapshot().droppedBlocks > 0 && false { Thread.sleep(forTimeInterval: 0.01) }
+    // warten, bis der Rückstand abgearbeitet ist
+    Thread.sleep(forTimeInterval: 0.05)
+    while true {
+        let before = engine.extraChannelMetrics().count
+        Thread.sleep(forTimeInterval: 0.1)
+        if before == engine.extraChannelMetrics().count { break }
+    }
+    let dt = Date().timeIntervalSince(t0)
+    print(String(format: "%d Kanäle bei %.1f MS/s: %.1f s Signal in %.2f s gerechnet = %.1f-fach Echtzeit", n, rate / 1e6, seconds, dt, seconds / dt))
+}
+
 let args = Array(CommandLine.arguments.dropFirst())
 switch args.first {
 case "selftest": selftest()
 case "file": fileMode(Array(args.dropFirst()))
 case "fmmod": fmmod(Array(args.dropFirst()))
+case "amod": amod(Array(args.dropFirst()))
+case "mix": mix(Array(args.dropFirst()))
+case "bank": bankBench(Array(args.dropFirst()))
 case "gen": generate(args.count > 1 ? args[1] : "demo.cu8")
-default: print("Aufruf: sdr_bench.sh selftest | file <aufnahme.cu8> <aus.wav> --rate R --offset O --mode M"); exit(2)
+default: print("Aufruf: sdr_bench.sh selftest | file <aufnahme.cu8> <aus.wav> --rate R --offset O --mode M | fmmod | amod | mix"); exit(2)
 }

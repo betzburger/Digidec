@@ -273,6 +273,9 @@ public final class M17Controller: ObservableObject {
         recordingDuration = 0
     }
 
+    /// Kanal einer Kanalbank (mehrere Decoder zugleich): keine Sprachausgabe
+    public func silence() { decoder.onSpeech = nil }
+
     public var diagnosis: M17Diagnosis.Result { M17Diagnosis.assess(inputDB: inputDB, stats: stats, locked: locked) }
 
     public var currentCall: VoiceCall? {

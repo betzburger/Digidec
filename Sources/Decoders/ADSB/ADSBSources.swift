@@ -389,7 +389,7 @@ public final class HackRFSource: SDRTunableSource, @unchecked Sendable {
         }
         setFreqFn = setFreq
         try check(setRate(dev, Double(settings.sampleRateHz)), "Abtastrate")
-        try check(setFilter(dev, 1_750_000), "Filterbandbreite")
+        try check(setFilter(dev, settings.sampleRateHz > 2_500_000 ? UInt32(Double(settings.sampleRateHz) * 0.75) : 1_750_000), "Filterbandbreite")
         try check(setFreq(dev, UInt64(settings.centerFrequencyHz)), "Frequenz \(Int((settings.centerFrequencyHz / 1e6).rounded())) MHz")
         try check(setAmp(dev, settings.hackrfAmp ? 1 : 0), "Vorverstärker")
         try check(setLNA(dev, UInt32(max(0, min(40, settings.hackrfLNA / 8 * 8)))), "LNA-Verstärkung")

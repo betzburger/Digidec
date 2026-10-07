@@ -44,6 +44,7 @@ struct AircraftInfoWindow: View {
                 if let route = web?.route { routeCard(route, live) }
                 if settings.webLookup { aircraftFacts(web, loading: loading) } else { offlineHint(icao, live) }
                 liveFacts(icao, live)
+                radioTraffic(live)
                 links(q, web)
                 footer(icao, live)
             }
@@ -51,6 +52,31 @@ struct AircraftInfoWindow: View {
         }
         .task(id: "\(icao)-\(live?.callsign ?? "")-\(settings.webLookup)") {
             if settings.webLookup { await controller.loadDetails(icao, callsign: live?.callsign, photo: true) }
+        }
+    }
+
+    // MARK: Funkverkehr (ACARS) desselben Flugzeugs
+
+    @ViewBuilder
+    private func radioTraffic(_ live: ADSBAircraft?) -> some View {
+        if let live {
+            let messages = DigidecState.shared.acarsMessages(for: live).suffix(8)
+            if !messages.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    sectionTitle("FUNKVERKEHR (ACARS) · \(messages.count) NEUESTE")
+                    ForEach(Array(messages)) { m in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(ACARSController.utc.string(from: m.time)).frame(width: 66, alignment: .leading)
+                            Image(systemName: m.isDownlink ? "arrow.down" : "arrow.up").font(.system(size: 8, weight: .bold)).frame(width: 12)
+                            Text(m.label).frame(width: 24, alignment: .leading)
+                            Text(m.isEmpty ? (ACARSLabels.describe(m.label) ?? "ohne Text") : m.text.replacingOccurrences(of: "\n", with: " ⏎ "))
+                                .frame(maxWidth: .infinity, alignment: .leading).lineLimit(3)
+                        }
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(m.isDownlink ? RadioTheme.vfdGreen : RadioTheme.vfdCyan)
+                    }
+                }
+            }
         }
     }
 

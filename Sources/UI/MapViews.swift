@@ -35,7 +35,7 @@ struct ModuleMapView: View {
             case .ndb:    NDBMapView(controller: state.ndbController, home: state.home)
             case .dstar:  DStarMapView(controller: state.dstarController, home: state.home)
             case .m17:    M17MapView(controller: state.m17Controller, home: state.home)
-            case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .dab, .vor, .freedv:
+            case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .dab, .vor, .freedv, .channels:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -53,7 +53,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr: return "ANZEIGE"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "LISTE"
         }
     }
 
@@ -62,7 +62,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "list.bullet"
         }
     }
 
@@ -91,6 +91,7 @@ extension DecoderModuleInfo {
         case .dmr: return "Beide Zeitschlitze mit Absender, Ziel und Farbcode, dazu der Verlauf der Gespräche mit Wiedergabe"
         case .ysf: return "Die gehörte Aussendung mit Rufzeichen, Ziel und Repeater, dazu der Verlauf mit Wiedergabe"
         case .dstar: return "Die gehörte Aussendung mit Rufzeichen, Repeater, Text und Position, dazu der Verlauf mit Wiedergabe"
+        case .channels: return "Die Kanäle der Kanalbank mit ihren Decodern, alle zugleich aus einem Fenster des SDR"
         case .aprs, .acars, .hfdl, .ft8, .ft4, .wspr, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
     }

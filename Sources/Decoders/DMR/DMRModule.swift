@@ -169,6 +169,8 @@ public final class DMRController: ObservableObject {
     /// Zeitschlitz (0 oder 1), dessen Ton gerade abgespielt wird
     @Published public private(set) var audibleSlot: Int?
     public let output = VoiceOutput.shared
+    /// Kanal einer Kanalbank (mehrere Decoder zugleich): keine Sprachausgabe, der Stick gehört dem Hauptmodul
+    public var silent = false
     public let recorder: InputRecorder
     @Published public private(set) var isRecording = false
     @Published public private(set) var recordingDuration: TimeInterval = 0
@@ -206,7 +208,7 @@ public final class DMRController: ObservableObject {
 
     public func setActive(_ active: Bool) {
         decoder.setEnabled(active)
-        if !active { for slot in 0..<2 { finish(slot: slot, reason: .lost, now: Date()) }; output.stopPlayback() }
+        if !active { for slot in 0..<2 { finish(slot: slot, reason: .lost, now: Date()) }; if !silent { output.stopPlayback() } }
     }
 
     public func clear() {
@@ -253,7 +255,7 @@ public final class DMRController: ObservableObject {
         var toPlay: [[UInt8]] = []
         let now = Date()
         for event in out.events { ingest(event, now: now, audio: &toPlay) }
-        output.play(toPlay, profile: .dmr)
+        if !silent { output.play(toPlay, profile: .dmr) }
         for slot in 0..<2 {
             if current[slot] != nil, let last = lastVoice[slot], now.timeIntervalSince(last) > 3 { finish(slot: slot, reason: .lost, now: now) }
         }

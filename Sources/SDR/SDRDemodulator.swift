@@ -189,9 +189,10 @@ public final class SDRDemodulator {
 
     private func buildFrontEnd() {
         stage5 = nil; stage2 = nil; stageOne = nil
-        if sampleRate == 2_400_000 {
-            // /5 auf 480 kS/s, dann /2 auf 240 kS/s
-            stage5 = ComplexStreamFIR(taps: SDRFilterDesign.lowpass(passband: 105_000 / sampleRate, stopband: 370_000 / sampleRate, attenuationDB: 60), decimation: 5)
+        let ratio = sampleRate / 480_000
+        if ratio >= 2, abs(ratio - ratio.rounded()) < 1e-9 {
+            // ganzzahlig auf 480 kS/s (2,4 MS/s: /5; 4,8 MS/s: /10; 9,6 MS/s: /20), dann /2 auf 240 kS/s
+            stage5 = ComplexStreamFIR(taps: SDRFilterDesign.lowpass(passband: 105_000 / sampleRate, stopband: 370_000 / sampleRate, attenuationDB: 60), decimation: Int(ratio.rounded()))
             stage2 = ComplexStreamFIR(taps: SDRFilterDesign.lowpass(passband: 105_000 / 480_000, stopband: 130_000 / 480_000, attenuationDB: 60), decimation: 2)
         } else if sampleRate != Self.channelRate {
             stageOne = ComplexRateConverter(inputRate: sampleRate, outputRate: Self.channelRate)

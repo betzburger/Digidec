@@ -137,6 +137,8 @@ public final class YSFController: ObservableObject {
     @Published public private(set) var inverted = false
     @Published public private(set) var locked = false
     public let output = VoiceOutput.shared
+    /// Kanal einer Kanalbank (mehrere Decoder zugleich): keine Sprachausgabe, der Stick gehört dem Hauptmodul
+    public var silent = false
     public let recorder: InputRecorder
     @Published public private(set) var isRecording = false
     @Published public private(set) var recordingDuration: TimeInterval = 0
@@ -169,7 +171,7 @@ public final class YSFController: ObservableObject {
 
     public func setActive(_ active: Bool) {
         decoder.setEnabled(active)
-        if !active { finishCurrent(.lost, now: Date()); output.stopPlayback() }
+        if !active { finishCurrent(.lost, now: Date()); if !silent { output.stopPlayback() } }
     }
 
     public func clear() {
@@ -208,7 +210,7 @@ public final class YSFController: ObservableObject {
         output.refresh()
         var toPlay: [[UInt8]] = []
         for event in out.events { ingest(event, audio: &toPlay) }
-        output.play(toPlay, profile: .dmr)
+        if !silent { output.play(toPlay, profile: .dmr) }
         if currentIndex != nil, let last = lastFrameAt, Date().timeIntervalSince(last) > 3 { finishCurrent(.lost, now: Date()) }
     }
 

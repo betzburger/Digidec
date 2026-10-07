@@ -111,6 +111,18 @@ public final class SDRReceiverEngine: @unchecked Sendable {
         public var audioSamples = 0
     }
 
+    /// Zusätzlicher Kanal der Kanalbank: eigener Mischer und Demodulator über denselben I/Q-Strom, eigenes Audio
+    private final class ExtraChannel {
+        var demod: SDRDemodulator
+        var config: SDRChannelConfig
+        var offsetHz: Double
+        var handler: AudioHandler?
+        var scratch: [Float] = []
+        init(demod: SDRDemodulator, config: SDRChannelConfig, offsetHz: Double, handler: AudioHandler?) {
+            self.demod = demod; self.config = config; self.offsetHz = offsetHz; self.handler = handler
+        }
+    }
+
     private let queue = DispatchQueue(label: "com.peterbetz.digidec.sdr", qos: .userInitiated)
     private let lock = NSLock()
     private var demod: SDRDemodulator
@@ -126,6 +138,10 @@ public final class SDRReceiverEngine: @unchecked Sendable {
     private var clipped = 0, total = 0
     private var audioSamples = 0
     private var audioScratch: [Float] = []
+    // Kanalbank (nur auf `queue` verändert; Messwerte über `lock` weitergegeben)
+    private var extras: [Int: ExtraChannel] = [:]
+    private var primaryEnabled = true
+    private var extraMetrics: [Int: SDRMetrics] = [:]
     static let maxPending = 6 * 1024 * 1024
     public private(set) var sampleRate: Double
 
@@ -146,6 +162,11 @@ public final class SDRReceiverEngine: @unchecked Sendable {
             let d = SDRDemodulator(sampleRate: sampleRate, config: channel)
             d.setOffset(offsetHz)
             demod = d
+            for (_, e) in extras {
+                let nd = SDRDemodulator(sampleRate: sampleRate, config: e.config)
+                nd.setOffset(e.offsetHz)
+                e.demod = nd
+            }
             spectrum = SDRSpectrum(sampleRate: sampleRate)
             lock.withLock { rows.removeAll(); droppedBlocks = 0; clipped = 0; total = 0; audioSamples = 0 }
         }
@@ -164,6 +185,48 @@ public final class SDRReceiverEngine: @unchecked Sendable {
             offsetHz = hz
             demod.setOffset(hz)
         }
+    }
+
+    // MARK: Kanalbank
+
+    /// Der erste Kanal (Hörkanal) wird nicht gerechnet, solange die Kanalbank arbeitet
+    public func setPrimaryEnabled(_ on: Bool) {
+        queue.async { [self] in primaryEnabled = on }
+    }
+
+    /// Zusätzlichen Kanal anlegen oder ändern: Abstand von der Mitte des I/Q-Fensters, Betriebsart, Audio (48 kHz) an `handler`
+    public func setExtraChannel(id: Int, config: SDRChannelConfig, offsetHz: Double, handler: AudioHandler?) {
+        queue.async { [self] in
+            if let e = extras[id] {
+                e.demod.configure(config)
+                e.demod.setOffset(offsetHz)
+                e.config = config; e.offsetHz = offsetHz
+                e.handler = handler
+            } else {
+                let d = SDRDemodulator(sampleRate: sampleRate, config: config)
+                d.setOffset(offsetHz)
+                extras[id] = ExtraChannel(demod: d, config: config, offsetHz: offsetHz, handler: handler)
+            }
+        }
+    }
+
+    public func removeExtraChannel(id: Int) {
+        queue.async { [self] in
+            extras[id] = nil
+            lock.withLock { extraMetrics[id] = nil }
+        }
+    }
+
+    public func removeAllExtraChannels() {
+        queue.async { [self] in
+            extras.removeAll()
+            lock.withLock { extraMetrics.removeAll() }
+        }
+    }
+
+    /// Kanalleistung und Rauschsperre der zusätzlichen Kanäle
+    public func extraChannelMetrics() -> [Int: SDRMetrics] {
+        lock.withLock { extraMetrics }
     }
 
     /// Neue I/Q-Daten (vom Faden der Quelle): kopieren und weitergeben, bei Rückstau verwerfen
@@ -196,7 +259,22 @@ public final class SDRReceiverEngine: @unchecked Sendable {
             var newRows: [[Float]] = []
             spectrum.consume(buf, rows: &newRows)
             audioScratch.removeAll(keepingCapacity: true)
-            demod.process(buf, audio: &audioScratch)
+            if primaryEnabled { demod.process(buf, audio: &audioScratch) }
+            // Kanalbank: jeder Kanal rechnet für sich, mehrere zugleich auf allen Kernen
+            if !extras.isEmpty {
+                let list = Array(extras.values)
+                let ids = Array(extras.keys)
+                nonisolated(unsafe) let work = list
+                nonisolated(unsafe) let input = buf
+                DispatchQueue.concurrentPerform(iterations: work.count) { n in
+                    let e = work[n]
+                    e.scratch.removeAll(keepingCapacity: true)
+                    e.demod.process(input, audio: &e.scratch)
+                    if let h = e.handler, !e.scratch.isEmpty { e.scratch.withUnsafeBufferPointer { h($0) } }
+                }
+                let m = Dictionary(uniqueKeysWithValues: zip(ids, list.map { $0.demod.metrics }))
+                lock.withLock { extraMetrics = m }
+            }
             let handler = lock.withLock { () -> AudioHandler? in
                 activity += (Double(sum) / Double(counted) - activity) * 0.2
                 clipped += clip; total += counted

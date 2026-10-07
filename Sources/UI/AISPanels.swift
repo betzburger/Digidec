@@ -170,7 +170,8 @@ struct AISTable: View {
         let id = AISMapBuilder.id(v.mmsi)
         let selected = controller.selection == id
         let age = max(0, now.timeIntervalSince(v.lastHeard))
-        let color: Color = age > 600 && v.kind != .aid && v.kind != .base ? RadioTheme.textMuted : v.kind == .sart ? RadioTheme.ledRed : v.isMoving ? RadioTheme.vfdGreen : RadioTheme.vfdCyan
+        let distress = DigidecState.shared.distressCall(mmsi: v.mmsi)
+        let color: Color = distress != nil ? RadioTheme.ledRed : age > 600 && v.kind != .aid && v.kind != .base ? RadioTheme.textMuted : v.kind == .sart ? RadioTheme.ledRed : v.isMoving ? RadioTheme.vfdGreen : RadioTheme.vfdCyan
         var km = "–", bearing = "–"
         if let p = v.point, let h = home.point {
             km = String(format: "%.1f", Geo.distanceKm(h, p)).replacingOccurrences(of: ".", with: ",")
@@ -189,7 +190,8 @@ struct AISTable: View {
             Circle().fill(age < 5 ? RadioTheme.vfdGreen : RadioTheme.bgPanel)
                 .overlay(Circle().stroke(RadioTheme.borderSubtle, lineWidth: 1))
                 .frame(width: 8, height: 8).frame(width: 10)
-            Text((flag.isEmpty ? "" : flag + " ") + v.displayName).frame(width: 168, alignment: .leading).fontWeight(.bold).lineLimit(1)
+            Text((distress != nil ? "⚠ SEENOT " : "") + (flag.isEmpty ? "" : flag + " ") + v.displayName).frame(width: 168, alignment: .leading).fontWeight(.bold).lineLimit(1)
+                .help(distress.map { "DSC-Seenotruf von dieser MMSI gehört (\(DSCController.utc.string(from: $0.receivedAt)) UTC): \($0.summary)" } ?? "")
             Text(AISFormat.mmsiText(v.mmsi)).frame(width: 78, alignment: .leading)
             Text(typeText).frame(width: 78, alignment: .leading).lineLimit(1)
             Text(v.sog.map { AISFormat.decimal($0, 1) } ?? "–").frame(width: 34, alignment: .trailing)
