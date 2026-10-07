@@ -133,7 +133,7 @@ do {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DMR", "DPMR", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr, "HF-Rubrik A–Z")
 }
 
@@ -9045,6 +9045,133 @@ do {
     check(old.markers.allSatisfy { $0.tone == .dim } && old.lines.isEmpty && old.markers[0].subtitle?.contains("vor 2 h") == true, "Positionen: alte Stationen gedämpft")
     var dpr = book; dpr.clear()
     check(dpr.items.isEmpty && DecoderModuleInfo.dstar.hasMap && DecoderModuleInfo.m17.hasMap && !DecoderModuleInfo.ysf.hasMap, "Positionen: leeren, Karte für D-Star und M17")
+}
+// MARK: - dPMR: Codes, Steuerkanal, Empfänger, Rundlauf, echte Aufnahme
+do {
+    struct PRng { var s: UInt64
+        mutating func next() -> UInt64 { s = s &* 6364136223846793005 &+ 1442695040888963407; return s >> 33 }
+        mutating func bit() -> UInt8 { UInt8(next() & 1) }
+    }
+    var rng = PRng(s: 99)
+    // Verwürfelung, Verschachtelung
+    let raw = (0..<72).map { _ in rng.bit() }
+    check(DPMRCodes.scramble(DPMRCodes.scramble(raw)) == raw && DPMRCodes.scramble(raw) != raw && DPMRCodes.deinterleave(DPMRCodes.interleave(raw)) == raw && DPMRCodes.interleave(raw) != raw,
+          "dPMR: Verwürfelung (x⁹ + x⁵ + 1) und 6×12-Verschachtelung sind umkehrbar")
+    // Hamming (12,8): jeder Einzelbitfehler an jeder der 12 Stellen wird korrigiert
+    var hammingOK = true
+    for _ in 0..<20 {
+        let d = (0..<8).map { _ in rng.bit() }
+        let w = DPMRCodes.hammingEncode(d)
+        if DPMRCodes.hammingDecode(w).data != d || DPMRCodes.hammingDecode(w).corrected { hammingOK = false }
+        for e in 0..<12 {
+            var bad = w; bad[e] ^= 1
+            let r = DPMRCodes.hammingDecode(bad)
+            if r.data != d || !r.correctable || !r.corrected { hammingOK = false }
+        }
+    }
+    check(hammingOK, "dPMR: Hamming (12,8) korrigiert jeden Einzelbitfehler")
+    // CRC-7: mit angehängter Prüfsumme bleibt Rest 0
+    let body = (0..<41).map { _ in rng.bit() }
+    let crc = DPMRCodes.crc7(body[...])
+    let withCRC = body + (0..<7).map { UInt8((crc >> UInt8(6 - $0)) & 1) }
+    check(DPMRCodes.crc7(withCRC[...]) == 0 && DPMRCodes.crc7(body[...]) != 0 || crc == 0, "dPMR: CRC-7 (x⁷ + x³ + 1)")
+    // Kennungen
+    check(DPMR.idText(0) == "0000000" && DPMR.idValue("0010011") != nil && DPMR.idText(DPMR.idValue("0010011")!) == "0010011" && DPMR.idText(DPMR.idValue("123*45*")!) == "123*45*"
+          && DPMR.idValue("12345") == nil && DPMR.idValue("12x4567") == nil && DPMR.idValue("99999999") == nil, "dPMR: Kennung ↔ sieben Zeichen (Stellen 1 bis 3 dezimal, 4 bis 7 zur Basis 11)")
+    var idRoundTrip = true
+    for _ in 0..<200 {
+        let v = UInt32(rng.next() % 14_640_000)
+        if let t = Optional(DPMR.idText(v)), DPMR.idValue(t) != v { idRoundTrip = false }
+    }
+    check(idRoundTrip, "dPMR: 200 Kennungen hin und zurück")
+    // Kanalcode: 64 verschiedene Wörter, Rundlauf, robust gegen gekippte niedrige Dibit-Bits
+    check(Set(DPMR.colorCodeWords).count == 64 && (0..<64).allSatisfy { DPMR.colorCode(ofBits: DPMR.bits(ofColorCode: $0)) == $0 }, "dPMR: 64 Kanalcodes, Rundlauf")
+    var flipped = DPMR.bits(ofColorCode: 17)
+    for i in stride(from: 1, to: 24, by: 2) { flipped[i] ^= 1 }
+    check(DPMR.colorCode(ofBits: flipped) == 17 && DPMR.colorCode(ofBits: [UInt8](repeating: 0, count: 24)) == nil, "dPMR: Kanalcode trotz gekippter niedriger Dibit-Bits (immer 1)")
+    // Steuerkanal
+    let cchBits = DPMRCCH.encode(frameNumber: 2, idPart: 0x8A5, mode: 1, version: 3, format: 2, emergency: true, slowData: 0x2AAAA)
+    let cch = DPMRCCH.decode(cchBits)
+    check(cch.crcOK && cch.frameNumber == 2 && cch.idPart == 0x8A5 && cch.mode == 1 && cch.version == 3 && cch.format == 2 && cch.emergency && cch.slowData == 0x2AAAA && cch.isScrambled && cch.carriesVoice && cch.allReadable,
+          "dPMR: Steuerkanal (Rahmennummer, Kennungsteil, Betriebsart, Version, Format, Notruf, Langsamdaten) hin und zurück")
+    var oneError = cchBits; oneError[17] ^= 1; oneError[40] ^= 1                // zwei Fehler in verschiedenen Hamming-Wörtern
+    check(DPMRCCH.decode(oneError).crcOK && DPMRCCH.decode(oneError).idPart == 0x8A5, "dPMR: Steuerkanal mit zwei Bitfehlern in verschiedenen Wörtern korrigiert")
+    var wrecked = cchBits; for i in 0..<12 { wrecked[i] ^= 1 }
+    check(!DPMRCCH.decode(wrecked).crcOK, "dPMR: zerstörter Steuerkanal fällt durch die Prüfsumme")
+    check(DPMRDiagnosis.assess(inputDB: -120, stats: DPMRFramerStats(), locked: false).severity == .problem && DPMRDiagnosis.assess(inputDB: -30, stats: DPMRFramerStats(), locked: true).severity == .ok
+          && DPMRDiagnosis.assess(inputDB: -30, stats: DPMRFramerStats(), locked: false).severity == .waiting && DecoderModuleInfo.dpmr.band == .vhfUhf && !DecoderModuleInfo.dpmr.hasMap, "dPMR: Diagnose und Modul")
+
+    // Rundlauf über Audio
+    let callFrames: [[UInt8]] = (0..<64).map { _ in AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: (0..<49).map { _ in rng.bit() })) }
+    struct DRun { var frames: [[UInt8]] = []; var called = ""; var calling = ""; var cc = -1; var starts = 0; var ends = 0; var lost = 0; var emergency = false; var scrambled = 0
+        var stats = DPMRFramerStats(); var inverted = false }
+    func receive(_ audio: [Float], rate: Double = 48000) -> DRun {
+        var run = DRun()
+        let rx = DPMRReceiver(sampleRate: rate)
+        rx.onEvent = { e in
+            switch e {
+            case .callStart: run.starts += 1
+            case .voice(let v): run.frames += v.frames; if v.scrambled { run.scrambled += 1 }
+            case .info(let a, let b, let c, let em): if let a { run.called = a }; if let b { run.calling = b }; if let c { run.cc = c }; run.emergency = em
+            case .callEnd(let lost): if lost { run.lost += 1 } else { run.ends += 1 }
+            }
+        }
+        var i = 0
+        let chunk = Int(rate / 100)
+        while i < audio.count { let j = min(i + chunk, audio.count); rx.process(Array(audio[i..<j])); i = j }
+        run.stats = rx.stats; run.inverted = rx.inverted
+        return run
+    }
+    let callSymbols = DPMRSignalGenerator.call(called: "0010011", calling: "0000243", colorCode: 31, frames: callFrames)
+    func scenarioDPMR(_ title: String, rate: Double = 48000, minShare: Double = 0.97, _ edit: (inout FourFSKModulator.Impairments) -> Void) {
+        var im = FourFSKModulator.Impairments(); edit(&im)
+        let r = receiveAudio(FourFSKModulator.audio(symbols: callSymbols, sampleRate: rate, baud: DPMR.baud, bt: 1.0, impairments: im), rate)
+        let right = zip(r.frames, callFrames).filter { $0.0 == $0.1 }.count
+        check(r.starts == 1 && r.called == "0010011" && r.calling == "0000243" && r.cc == 31 && r.ends == 1 && r.lost == 0 && r.frames.count == 64 && Double(right) >= minShare * 64,
+              "dPMR-Empfänger \(title): ein Gespräch, gerufen 0010011, rufend 0000243, Kanalcode 31, Endekennung, \(right) von 64 Sprachrahmen bitgleich")
+    }
+    func receiveAudio(_ a: [Float], _ rate: Double) -> DRun { receive(a, rate: rate) }
+    scenarioDPMR("sauber") { _ in }
+    scenarioDPMR("Pegel umgekehrt") { $0.inverted = true }
+    scenarioDPMR("Gleichanteil 30 %") { $0.dc = 0.3 }
+    scenarioDPMR("Takt +300 ppm", minShare: 0.9) { $0.clockPPM = 300 }
+    scenarioDPMR("Takt −300 ppm", minShare: 0.9) { $0.clockPPM = -300 }
+    scenarioDPMR("Rauschen 0,15", minShare: 0.9) { $0.noise = 0.15; $0.seed = 11 }
+    scenarioDPMR("Abtastrate 24 kHz", rate: 24000) { _ in }
+    scenarioDPMR("Abtastrate 44,1 kHz", rate: 44100) { _ in }
+    scenarioDPMR("Abtastrate 96 kHz", rate: 96000) { _ in }
+    scenarioDPMR("alles zusammen (invers, Gleichanteil, Rauschen, +100 ppm)", minShare: 0.9) { $0.inverted = true; $0.dc = 0.2; $0.noise = 0.1; $0.clockPPM = 100; $0.seed = 4 }
+    // Zwei Gespräche hintereinander mit verschiedenen Kennungen, mit Notruf und Scrambler
+    let call2 = DPMRSignalGenerator.call(called: "1234567", calling: "7654321", colorCode: 5, frames: Array(callFrames[0..<16]), emergency: true)
+    let call3 = DPMRSignalGenerator.call(called: "0000001", calling: "0000002", colorCode: 63, frames: Array(callFrames[16..<32]), version: 3)
+    let gap = [Float](repeating: 0, count: 400)
+    let two = receive(FourFSKModulator.audio(symbols: callSymbols + gap + call2 + gap + call3, sampleRate: 48000, baud: DPMR.baud))
+    check(two.starts == 3 && two.ends == 3 && two.calling == "0000002" && two.called == "0000001" && two.cc == 63 && two.scrambled > 0 && two.stats.calls == 3,
+          "dPMR-Empfänger drei Gespräche hintereinander (Notruf, Scrambler erkannt): \(two.starts) Gespräche, Kanalcodes bis \(two.cc)")
+    var noiseRng = PRng(s: 8)
+    let noiseOnly: [Float] = (0..<(48000 * 30)).map { _ in Float(Double(noiseRng.next() & 0xFFFFF) / Double(1 << 20) - 0.5) * 0.8 }
+    let nothing = receive(noiseOnly)
+    check(nothing.starts == 0 && nothing.frames.isEmpty, "dPMR-Empfänger: 30 s Rauschen ergeben kein Gespräch (\(nothing.stats.syncs) Zufallstreffer verworfen)")
+    // Echte Aufnahme (dsdcc/samples, Frankreich; nur lokal): drei Gespräche von 0000243, 0000255 und 0000261 an 0010011, Kanalcode 31
+    let realDPMR = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("TestData/Voice/dpmr.dis")
+    if let data = try? Data(contentsOf: realDPMR) {
+        let audio = data.withUnsafeBytes { $0.bindMemory(to: Int16.self).map { Float(Int16(littleEndian: $0)) / 32768 } }
+        var callers: [String] = []
+        var ended = 0, voice = 0, clean = 0
+        let rx = DPMRReceiver(sampleRate: 48000)
+        rx.onEvent = { e in
+            switch e {
+            case .info(let a, let b, _, _): if let b, a == "0010011", !callers.contains(b) { callers.append(b) }
+            case .voice(let v): voice += v.frames.count; clean += v.cleanFrames
+            case .callEnd(let lost): if !lost { ended += 1 }
+            case .callStart: break
+            }
+        }
+        var i = 0
+        while i < audio.count { let j = min(i + 480, audio.count); rx.process(Array(audio[i..<j])); i = j }
+        check(callers.contains("0000243") && callers.contains("0000255") && callers.contains("0000261") && ended >= 3 && voice >= 400 && Double(clean) / Double(max(1, voice)) > 0.4,
+              "dPMR echt (Frankreich): Rufende \(callers.joined(separator: ", ")) an 0010011, \(ended) Endekennungen, \(voice) Sprachrahmen (\(clean) ohne Bitfehler)")
+    } else { skip("dPMR echt: TestData/Voice/dpmr.dis liegt nicht lokal vor") }
 }
 // MARK: - M17: Codes, Rahmen, LSF, Empfänger, Sprache
 do {

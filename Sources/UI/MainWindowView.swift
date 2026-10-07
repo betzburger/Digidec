@@ -47,6 +47,8 @@ public struct MainWindowView: View {
                                 YSFMainPanel(controller: state.ysfController, settings: state.ysf, output: state.dstarController.output)
                             } else if state.activeModule == .dmr {
                                 DMRMainPanel(controller: state.dmrController, settings: state.dmr, output: state.dstarController.output)
+                            } else if state.activeModule == .dpmr {
+                                DPMRMainPanel(controller: state.dpmrController, settings: state.dpmr, output: state.dstarController.output)
                             } else if state.activeModule == .sensors {
                                 SensorsMainPanel(controller: state.sensorsController, settings: state.sensors)
                             } else if state.activeModule == .vdl2 {
@@ -137,6 +139,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ysf, audio: state.audio)
                             } else if state.activeModule == .dmr {
                                 WaterfallView(model: state.waterfall, rtty: state.dmr, audio: state.audio)
+                            } else if state.activeModule == .dpmr {
+                                WaterfallView(model: state.waterfall, rtty: state.dpmr, audio: state.audio)
                             } else if state.activeModule == .m17 {
                                 WaterfallView(model: state.waterfall, rtty: state.m17, audio: state.audio)
                             } else if state.activeModule == .freedv {
@@ -191,7 +195,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -258,6 +262,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             DMRSettingsPanel(settings: state.dmr, output: state.dstarController.output)
                                 .radioCard(title: "DMR")
+                        } else if state.activeModule == .dpmr {
+                            DPMRTuningPanel(controller: state.dpmrController, settings: state.dpmr, output: state.dstarController.output)
+                                .radioCard(title: "Abstimmanzeige")
+                            DPMRSettingsPanel(settings: state.dpmr, output: state.dstarController.output)
+                                .radioCard(title: "dPMR")
                         } else if state.activeModule == .sensors {
                             SensorsTuningPanel(controller: state.sensorsController, settings: state.sensors)
                                 .radioCard(title: "Abstimmanzeige")
@@ -974,6 +983,7 @@ private struct StatusBar: View {
         case .ais: return aisCurrent
         case .dstar: return "D-STAR · DV · GMSK 4800 Bd · FM-Diskriminator-Audio"
         case .ysf: return "YSF · C4FM 4800 Bd · FM-Diskriminator-Audio"
+        case .dpmr: return "dPMR · 4FSK 2400 Bd · 6,25 kHz · FM-Diskriminator-Audio"
         case .dmr: return "DMR · 4FSK 4800 Bd · 2 Zeitschlitze · FM-Diskriminator-Audio"
         case .m17: return "M17 · 4FSK 4800 Bd · Codec2 · FM-Diskriminator-Audio"
         case .sensors: return "SENSOREN · Funksensoren 433,92 und 868,3 MHz · I/Q direkt vom Gerät"
