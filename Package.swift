@@ -101,6 +101,27 @@ let package = Package(
                 .unsafeFlags(["-w", "-O3"])
             ]
         ),
+        // FAAD2 (Nero/Ahead Software, GPL-2.0-or-later): AAC-Decoder mit SBR und PS für DAB+.
+        // Herkunft und Abweichungen: Vendor/Faad2/UPSTREAM_FAAD2.md
+        .target(
+            name: "Faad2",
+            path: "Vendor/Faad2",
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("src"),
+                .define("HAVE_INTTYPES_H", to: "1"),
+                .define("HAVE_MEMCPY", to: "1"),
+                .define("HAVE_STRING_H", to: "1"),
+                .define("HAVE_STRINGS_H", to: "1"),
+                .define("HAVE_SYS_STAT_H", to: "1"),
+                .define("HAVE_SYS_TYPES_H", to: "1"),
+                .define("HAVE_LRINTF", to: "1"),
+                .define("APPLY_DRC"),
+                .define("PACKAGE_VERSION", to: "\"2.11.4\""),
+                .unsafeFlags(["-w", "-O3"])
+            ]
+        ),
         // Gemeinsame Schnittstelle für digitale Sprache (Decoder eintragen, Ton ausgeben)
         .target(
             name: "VoiceCore",
@@ -114,7 +135,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["Fldigi", "FT8", "Wspr", "Codec2", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
+            dependencies: ["Fldigi", "FT8", "Wspr", "Codec2", "Faad2", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
             path: "Sources",
             swiftSettings: hasLocalVocoder ? [.define("DIGIDEC_LOCAL_VOCODER")] : []
         )
