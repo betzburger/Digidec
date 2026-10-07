@@ -82,6 +82,8 @@ public final class DigidecState: ObservableObject {
     public let m17Controller: M17Controller
     public let sensors = SensorsSettingsStore()
     public let sensorsController: SensorsController
+    public let sdr = SDRSettingsStore()
+    public let sdrController: SDRController
     public let vdl2 = VDL2SettingsStore()
     public let vdl2Controller: VDL2Controller
     public let nav = NavSettingsStore()
@@ -163,6 +165,8 @@ public final class DigidecState: ObservableObject {
         ndbController = NDBController(pipeline: audio.pipeline, settings: ndb)
         m17Controller = M17Controller(pipeline: audio.pipeline, settings: m17)
         sensorsController = SensorsController(settings: sensors)
+        sdrController = SDRController(pipeline: audio.pipeline, settings: sdr)
+        audio.sdr = sdrController
         vdl2Controller = VDL2Controller(settings: vdl2)
         navController = NavController(pipeline: audio.pipeline, settings: nav)
         freedvController = FreeDVController(pipeline: audio.pipeline, settings: freedv)
@@ -182,13 +186,13 @@ public final class DigidecState: ObservableObject {
         // Suchlauf nach Sonden: stimmt über die Abstimmung des Moduls (QSY AUTO, rigctld) Frequenz für Frequenz ab
         sondeScanner = SondeScanner(
             settings: sonde, controller: sondeController,
-            rigReady: { [unowned self] in self.rigControlEnabled && self.rig.hasRig && self.rig.state.connected },
+            rigReady: { [unowned self] in self.rigCanTune && self.rig.state.connected },
             isActive: { [unowned self] in self.activeModule == .sonde },
             knownFrequencies: { [unowned self] in self.sondePlan.knownFrequencies(home: self.home.point) + self.sondeController.heardFrequencies })
 
         // NDB: Frequenz und Mode des Funkgeräts lesen, Funkgerät abstimmen (Klick auf ein Funkfeuer, Suchlauf)
         ndbController.rigState = { [unowned self] in self.ndbRigState }
-        ndbController.rigAvailable = { [unowned self] in self.rigControlEnabled && self.rig.hasRig && self.rig.state.connected }
+        ndbController.rigAvailable = { [unowned self] in self.rigCanTune && self.rig.state.connected }
         ndbController.tuneRig = { [unowned self] target in self.tuneRig(to: target) }
         ndbController.home = { [unowned self] in self.home.point }
 
@@ -219,6 +223,8 @@ public final class DigidecState: ObservableObject {
         $activeModule
             .receive(on: RunLoop.main)
             .sink { [weak self] module in
+                // Module mit eigenem I/Q-Eingang brauchen das Gerät: der SDR-Empfänger gibt es ab und nimmt es danach wieder
+                if module.usesOwnIQDevice { self?.sdrController.suspend() }
                 self?.rttyController.decoder.setEnabled(module == .rtty)
                 self?.navtexController.setActive(module == .navtex)
                 self?.cwController.setActive(module == .cw)
@@ -257,6 +263,7 @@ public final class DigidecState: ObservableObject {
                 self?.dcf77Controller.setActive(module == .dcf77)
                 self?.efrController.setActive(module == .efr)
                 self?.sstvController.setActive(module == .sstv)
+                if !module.usesOwnIQDevice { self?.sdrController.resume() }
             }
             .store(in: &cancellables)
 
@@ -292,6 +299,23 @@ public final class DigidecState: ObservableObject {
                 self?.rig.follow(radio: kind == .live ? input?.radio : nil)
             }
             .store(in: &cancellables)
+        // Eingebauter SDR-Empfänger als Funkgerät: Frequenz und Betriebsart kommen von ihm, die Module stimmen ihn ab
+        sdrController.onRigState = { [weak self] state in
+            guard let self else { return }
+            if let state {
+                let name = self.sdrController.rigName
+                var justAttached = false
+                if self.rig.internalName != name {
+                    self.rig.useInternal(name: name, tune: { [weak self] target in self?.sdrController.tune(to: target) ?? .notConnected })
+                    justAttached = true
+                }
+                self.rig.setInternal(state: state)
+                // Gerade angemeldet: gleich auf die Frequenz des aktiven Moduls stellen (AIS, APRS, Funkruf …)
+                if justAttached { Task { @MainActor in self.tuneRigForActiveModule() } }
+            } else if self.rig.isInternal {
+                self.rig.useInternal(name: nil)
+            }
+        }
         // Freies Funkgerät aus den Einstellungen: gilt ab Start und bei jeder Änderung der Liste
         rig.use(profile: rigProfiles.active)
         rigProfiles.$list
@@ -407,17 +431,24 @@ public final class DigidecState: ObservableObject {
         if let device { audio.select(device: device) }
     }
 
+    /// Darf Digidec das Funkgerät abstimmen? Der eingebaute SDR-Empfänger folgt den Modulen, solange „FOLGT MODUL“ an ist (eigenes Gerät, keine Gefahr für ein Funkgerät);
+    /// ein Funkgerät hinter rigctld nur mit QSY AUTO.
+    public var rigCanTune: Bool {
+        guard rig.hasRig else { return false }
+        return rig.isInternal ? sdr.followModules : rigControlEnabled
+    }
+
     /// Stimmt das Funkgerät auf ein Ziel ab (geplante Aufnahme) – nur mit Freigabe (QSY AUTO) und Verbindung.
     /// Die Abstimmung nach Modul-/Voreinstellungswechsel wird kurz unterdrückt, damit nicht doppelt gesendet wird.
     public func tuneRig(to target: RigTuneTarget) {
-        guard rigControlEnabled, rig.hasRig else { return }
+        guard rigCanTune else { return }
         suppressRigTuneUntil = Date().addingTimeInterval(3.0)
         rig.tune(to: target)
     }
 
     /// Stellt das Funkgerät auf das Ziel des aktiven Moduls – nur mit Freigabe und Verbindung
     public func tuneRigForActiveModule() {
-        guard rigControlEnabled, Date() >= suppressRigTuneUntil, rig.hasRig,
+        guard rigCanTune, Date() >= suppressRigTuneUntil,
               let target = rigTargetForActiveModule else { return }
         rig.tune(to: target)
     }
@@ -468,6 +499,20 @@ public final class DigidecState: ObservableObject {
                 state.audio.playFile()
             } else if let request = state.currentRequest, RadioSource(requestSource: request.source) != nil || request.deviceUID != nil {
                 state.audio.apply(request: request)
+            } else if ProcessInfo.processInfo.environment["DIGIDEC_SDR_FILE"] != nil || ProcessInfo.processInfo.environment["DIGIDEC_SDR"] != nil || state.sdr.autoStart {
+                // Entwicklungshilfe: DIGIDEC_SDR_FILE=/Pfad/aufnahme.cu8 (8-Bit-I/Q) mit DIGIDEC_SDR_RATE (Standard 2400000), DIGIDEC_SDR_CENTER (Hz),
+                // DIGIDEC_SDR=1 (Gerät statt Aufnahme), DIGIDEC_SDR_FREQ (gehörte Frequenz in Hz), DIGIDEC_SDR_MODE (fm, wfm, am, usb, lsb, cw), DIGIDEC_SDR_REALTIME=0 schneller
+                let env = ProcessInfo.processInfo.environment
+                if let path = env["DIGIDEC_SDR_FILE"] {
+                    state.sdrController.fileOverride = URL(fileURLWithPath: path)
+                    state.sdrController.fileSampleRate = Int(env["DIGIDEC_SDR_RATE"] ?? "") ?? 2_400_000
+                    state.sdrController.fileCenterHz = Double(env["DIGIDEC_SDR_CENTER"] ?? "") ?? 0
+                    state.sdrController.fileRealtime = env["DIGIDEC_SDR_REALTIME"] != "0"
+                }
+                if env["DIGIDEC_SDR_MONITOR"] != nil { state.sdr.monitor = true }
+                if let m = env["DIGIDEC_SDR_MODE"].flatMap({ SDRMode(hamlib: $0) }) { state.sdr.select(mode: m) }
+                if let f = env["DIGIDEC_SDR_FREQ"].flatMap({ Double($0) }) { state.sdr.frequencyHz = f }
+                state.audio.selectSDR()
             } else {
                 state.audio.startLive()
             }
@@ -635,6 +680,7 @@ public final class DigidecState: ObservableObject {
 
     public func cleanup() {
         if rttyController.isRecording { rttyController.toggleRecording() }   // WAV-Kopf abschließen
+        sdrController.stopSource()                                          // Gerät sauber schließen
         audio.cleanup()
     }
 }

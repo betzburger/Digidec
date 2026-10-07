@@ -63,10 +63,20 @@ public protocol ADSBIQSource: AnyObject, Sendable {
     var deviceDescription: String { get }
 }
 
+/// Quelle, deren Mittenfrequenz sich im Betrieb ändern lässt (eingebauter SDR-Empfänger)
+public protocol SDRTunableSource: ADSBIQSource {
+    /// Mittenfrequenz setzen, ohne den Strom anzuhalten; `false`, wenn das Gerät sie nicht annimmt
+    func retune(centerHz: Double) -> Bool
+}
+
 /// Einstellungen der Geräte (vom Controller aus den gespeicherten Werten gebildet)
 public struct ADSBGainSettings: Equatable, Sendable {
     /// Empfangsfrequenz in Hz (ADS-B 1090 MHz, Funksensoren 433,92 oder 868,3 MHz)
     public var centerFrequencyHz = 1_090_000_000.0
+    /// Abtastrate der I/Q-Daten (ADS-B, Sensoren, VDL2, TETRA 2 MS/s; der SDR-Empfänger 2,4 MS/s)
+    public var sampleRateHz = 2_000_000
+    /// SDRplay: langsam nachgeführte Umsetzung der 16 Bit auf 8 Bit (für Empfänger, die auf die Amplitude achten: AM, SSB)
+    public var sdrplayFixedScale = false
     // HackRF
     public var hackrfLNA = 32
     public var hackrfVGA = 20
@@ -187,7 +197,7 @@ public final class ADSBFileSource: ADSBIQSource, @unchecked Sendable {
 // MARK: - RTL-SDR
 
 /// RTL-SDR über librtlsdr. Der Strom läuft in `rtlsdr_read_async` auf einem eigenen Faden.
-public final class RTLSDRSource: ADSBIQSource, @unchecked Sendable {
+public final class RTLSDRSource: SDRTunableSource, @unchecked Sendable {
     typealias OpenFn = @convention(c) (UnsafeMutablePointer<OpaquePointer?>?, UInt32) -> Int32
     typealias CloseFn = @convention(c) (OpaquePointer?) -> Int32
     typealias CountFn = @convention(c) () -> UInt32
@@ -206,8 +216,14 @@ public final class RTLSDRSource: ADSBIQSource, @unchecked Sendable {
     private var onData: (@Sendable (UnsafeBufferPointer<UInt8>) -> Void)?
     private(set) public var deviceDescription = "RTL-SDR"
     private var cancel: (@convention(c) (OpaquePointer?) -> Int32)?
+    private var setFreqFn: SetU32Fn?
 
     public init(settings: ADSBGainSettings) { self.settings = settings }
+
+    public func retune(centerHz: Double) -> Bool {
+        guard let dev = device, let f = setFreqFn, centerHz > 0, centerHz < 4e9 else { return false }
+        return f(dev, UInt32(centerHz)) == 0
+    }
 
     /// Anzahl angeschlossener RTL-SDR (nil: Bibliothek fehlt)
     public static func deviceCount() -> Int? {
@@ -241,7 +257,8 @@ public final class RTLSDRSource: ADSBIQSource, @unchecked Sendable {
         device = dev
         deviceDescription = nameFn(0).map { String(cString: $0) } ?? "RTL-SDR"
 
-        _ = setRate(dev, 2_000_000)
+        _ = setRate(dev, UInt32(settings.sampleRateHz))
+        setFreqFn = setFreq
         guard setFreq(dev, UInt32(settings.centerFrequencyHz)) == 0 else {
             _ = close(dev)
             device = nil
@@ -290,7 +307,7 @@ public final class RTLSDRSource: ADSBIQSource, @unchecked Sendable {
 // MARK: - HackRF
 
 /// HackRF One über libhackrf. Die Daten kommen vorzeichenbehaftet und werden hier in vorzeichenlose umgesetzt.
-public final class HackRFSource: ADSBIQSource, @unchecked Sendable {
+public final class HackRFSource: SDRTunableSource, @unchecked Sendable {
     struct Transfer {
         var device: OpaquePointer?
         var buffer: UnsafeMutablePointer<UInt8>?
@@ -323,7 +340,14 @@ public final class HackRFSource: ADSBIQSource, @unchecked Sendable {
     private var active = false
     private(set) public var deviceDescription = "HackRF One"
 
+    private var setFreqFn: SetU64Fn?
+
     public init(settings: ADSBGainSettings) { self.settings = settings }
+
+    public func retune(centerHz: Double) -> Bool {
+        guard lock.withLock({ active }), let dev = device, let f = setFreqFn, centerHz >= 1e6, centerHz <= 6e9 else { return false }
+        return f(dev, UInt64(centerHz)) == 0
+    }
 
     public func start(onData: @escaping @Sendable (UnsafeBufferPointer<UInt8>) -> Void, onStop: @escaping @Sendable (String?) -> Void) throws {
         guard let lib = DynamicLibrary(names: DynamicLibrary.candidates("libhackrf")),
@@ -363,7 +387,8 @@ public final class HackRFSource: ADSBIQSource, @unchecked Sendable {
                 throw ADSBSourceError.failed("HackRF: \(what) nicht einstellbar (\(rc))")
             }
         }
-        try check(setRate(dev, 2_000_000), "Abtastrate")
+        setFreqFn = setFreq
+        try check(setRate(dev, Double(settings.sampleRateHz)), "Abtastrate")
         try check(setFilter(dev, 1_750_000), "Filterbandbreite")
         try check(setFreq(dev, UInt64(settings.centerFrequencyHz)), "Frequenz \(Int((settings.centerFrequencyHz / 1e6).rounded())) MHz")
         try check(setAmp(dev, settings.hackrfAmp ? 1 : 0), "Vorverstärker")

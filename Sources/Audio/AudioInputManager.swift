@@ -25,9 +25,15 @@ public final class LevelModel: ObservableObject {
 }
 
 public enum AudioSourceKind: String, CaseIterable, Identifiable, Sendable {
-    case live, file
+    case live, file, sdr
     public var id: String { rawValue }
-    public var label: String { self == .live ? "LIVE" : "DATEI" }
+    public var label: String {
+        switch self {
+        case .live: return "LIVE"
+        case .file: return "DATEI"
+        case .sdr: return "SDR"
+        }
+    }
 }
 
 /// Audio-Eingang von Digidec: Live von einer virtuellen Soundkarte (Standard VALHost 2ch) oder aus einer Datei.
@@ -61,6 +67,17 @@ public final class AudioInputManager: ObservableObject {
     private enum Keys {
         static let selection = "audioInputSelection"
         static let channelMode = "audioInputChannelMode"
+    }
+
+    /// Eingebauter SDR-Empfänger (Quelle „SDR“); gesetzt vom Programmzustand
+    public var sdr: SDRController? {
+        didSet {
+            sdr?.onStatus = { [weak self] running, text, warning in
+                guard let self, self.sourceKind == .sdr else { return }
+                self.isRunning = running
+                self.setStatus(text, warning: warning)
+            }
+        }
     }
 
     private let capture: LiveAudioCapture
@@ -109,6 +126,7 @@ public final class AudioInputManager: ObservableObject {
 
     /// Programmstart ohne Auftrag: gespeicherte Wahl, sonst Codec eines angeschlossenen Funkgeräts.
     public func startLive() {
+        leaveSDR()
         stopFile()
         fileSource = nil
         fileName = nil
@@ -129,6 +147,7 @@ public final class AudioInputManager: ObservableObject {
         } else {
             return
         }
+        leaveSDR()
         stopFile()
         fileSource = nil
         fileName = nil
@@ -147,6 +166,7 @@ public final class AudioInputManager: ObservableObject {
 
     private func store(_ newSelection: InputSelection) {
         UserDefaults.standard.set(newSelection.storageValue, forKey: Keys.selection)
+        leaveSDR()
         stopFile()
         fileSource = nil
         fileName = nil
@@ -228,9 +248,40 @@ public final class AudioInputManager: ObservableObject {
         }
     }
 
+    // MARK: - SDR
+
+    /// Eingebauten SDR-Empfänger als Quelle wählen (HackRF, RTL-SDR, SDRplay): Digidec liest die I/Q-Daten selbst
+    public func selectSDR() {
+        guard let sdr else { return }
+        captureUID = nil
+        stopFile()
+        fileSource = nil
+        fileName = nil
+        sourceKind = .sdr
+        isRunning = false
+        setStatus("SDR-Empfänger startet …", warning: false)
+        sdr.settings.autoStart = true
+        // Erst wenn die Aufnahme der Soundkarte beendet ist (sie hält am Ende die Pipeline an), den Empfänger starten
+        capture.stop { [weak self] in
+            Task { @MainActor in
+                guard let self, self.sourceKind == .sdr else { return }
+                self.sdr?.select()
+            }
+        }
+    }
+
+    /// Von der Quelle „SDR“ wechseln: das Gerät freigeben
+    private func leaveSDR() {
+        guard sourceKind == .sdr else { return }
+        sdr?.deselect()
+        sdr?.settings.autoStart = false
+        isRunning = false
+    }
+
     // MARK: - Datei
 
     public func openFile(_ url: URL) {
+        leaveSDR()
         let source: WAVFileSource
         do {
             source = try WAVFileSource(url: url)
@@ -279,6 +330,7 @@ public final class AudioInputManager: ObservableObject {
 
     /// Zurück zum Live-Eingang mit der zuletzt gültigen Wahl.
     public func switchToLive() {
+        leaveSDR()
         stopFile()
         fileSource = nil
         fileName = nil

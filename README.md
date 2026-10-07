@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.75.1). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.76.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -61,6 +61,10 @@ Weitere Merkmale: Sendepläne mit automatischer Aufnahme (Wetterfax, RTTY, NAVTE
 ```
 
 Das baut Digidec im Release-Modus, legt `Digidec.app` im Projektordner an (ad-hoc signiert) und meldet das URL-Schema `digidec://` beim System an. Danach `Digidec.app` öffnen.
+
+## Eingebauter SDR-Empfänger
+
+Mit einem **HackRF**, **RTL-SDR** oder **SDRplay** (RSP1A, RSP1B, RSPdx, RSPduo) braucht Digidec kein zweites Programm: Im Kasten „Eingang“ **SDR** wählen. Digidec liest die I/Q-Daten selbst (2,4 MS/s), demoduliert **WFM, FM, AM, USB, LSB und CW** und gibt das Audio an das gewählte Modul, als käme es von einer virtuellen Soundkarte. Der HF-Wasserfall zeigt 2,4 MHz auf einmal; ein Klick (oder das Mausrad) stimmt ab, Frequenz und Breite lassen sich auch eintippen. Mit **MITHÖREN** hörst du das Audio über den Lautsprecher. Der Empfänger meldet sich als Funkgerät an: Module mit fester Frequenz (AIS, APRS, PACKET, PAGER, ACARS, SONDE, FT8 und die übrigen) stellen ihn selbst ein, solange **FOLGT MODUL** an ist. Module mit eigenem I/Q-Eingang (ADS-B, SENSOREN, VDL2, TETRA) bekommen das Gerät; der Empfänger gibt es ab und nimmt es danach wieder. Bibliotheken wie bei ADS-B: HackRF `brew install hackrf`, RTL-SDR `brew install librtlsdr`, SDRplay-API von sdrplay.com/api. GQRX muss das Gerät freigeben.
 
 ## Funkgerät und Abstimmung
 

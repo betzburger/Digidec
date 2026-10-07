@@ -47,6 +47,14 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
+    /// Module, die das SDR-Gerät selbst öffnen (I/Q direkt, kein Audio): der eingebaute SDR-Empfänger gibt es dann ab
+    public var usesOwnIQDevice: Bool {
+        switch self {
+        case .adsb, .sensors, .vdl2, .tetra: return true
+        default: return false
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .rtty:   return "RTTY"

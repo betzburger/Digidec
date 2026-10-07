@@ -6,10 +6,12 @@ import Foundation
 /// schnell nach oben, langsam nach unten, nie unter 2000 (kein Rauschen aufblasen).
 struct IQ16Scaler {
     private var peak = 4096.0
+    /// Abfall des Spitzenwerts je Block (0,98 = schnell für Burst-Signale; 0,99995 = langsam für Empfänger, die auf die Amplitude achten: AM, SSB)
+    var decay = 0.98
 
     /// Faktor für einen Block mit dem größten Betrag `maxAbs`; der Wert 0 ergibt sich bei 127
     mutating func factor(maxAbs: Int) -> Double {
-        peak = max(2000, max(Double(maxAbs), peak * 0.98))
+        peak = max(2000, max(Double(maxAbs), peak * decay))
         return 110.0 / peak
     }
 
@@ -23,7 +25,7 @@ struct IQ16Scaler {
 /// ihre Lizenz erlaubt keine Weitergabe. Weil Digidec ohne den Header baut, stehen die Lage der Felder in den Strukturen der API hier als
 /// Versätze (gemessen mit dem Header der Version 3.15 unter macOS arm64); andere Versionen der API werden abgelehnt.
 /// Der RSPduo läuft im Einzeltuner-Betrieb (Tuner A oder B) mit 2 MS/s bei 1090 MHz.
-public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
+public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
     typealias Fn0 = @convention(c) () -> Int32
     typealias VersionFn = @convention(c) (UnsafeMutablePointer<Float>?) -> Int32
     typealias GetDevicesFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UInt32>?, UInt32) -> Int32
@@ -50,6 +52,7 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
         static let bw1536: Int32 = 1536, ifZero: Int32 = 0, loAuto: Int32 = 1
         static let tunerA: Int32 = 1, tunerB: Int32 = 2, duoSingleTuner: Int32 = 1
         static let overloadAck: UInt32 = 0x0400_0000
+        static let updateFrf: UInt32 = 0x0002_0000          // sdrplay_api_Update_Tuner_Frf
         static let rspDuoID: UInt8 = 3
     }
 
@@ -72,6 +75,8 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
     private var onStop: (@Sendable (String?) -> Void)?
     private var out = [UInt8](repeating: 0, count: 16_384)
     private var scaler = IQ16Scaler()
+    /// Zeiger auf die Kanalparameter (für das Umstimmen im Betrieb)
+    private var channelParams: UnsafeMutableRawPointer?
     private var retainedSelf: Unmanaged<SDRplayAPISource>?
     private(set) public var deviceDescription = "SDRplay"
     /// Anzahl der Übersteuerungsmeldungen des Geräts seit dem Start (für Diagnose)
@@ -79,7 +84,10 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
 
     private var close: Fn0?, uninit: DeviceFn?, release: DeviceFn?, lockApi: Fn0?, unlockApi: Fn0?, update: UpdateFn?
 
-    public init(settings: ADSBGainSettings) { self.settings = settings }
+    public init(settings: ADSBGainSettings) {
+        self.settings = settings
+        scaler.decay = settings.sdrplayFixedScale ? 0.99995 : 0.98
+    }
 
     /// Bibliothek suchen: Standardpfad des Installers, sonst das Verzeichnis der aktuellen Version
     static func candidates() -> [String] {
@@ -201,7 +209,7 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
               let channel = params.load(fromByteOffset: tuner == Layout.tunerB ? Layout.paramsB : Layout.paramsA, as: UnsafeMutableRawPointer?.self) else {
             throw fail("SDRplay: Geräteparameter nicht lesbar (\(text(rcParams)))")
         }
-        dev.storeBytes(of: 2_000_000.0, toByteOffset: Layout.fsHz, as: Double.self)
+        dev.storeBytes(of: Double(settings.sampleRateHz), toByteOffset: Layout.fsHz, as: Double.self)
         dev.storeBytes(of: Double(settings.sdrplayPPM), toByteOffset: Layout.ppm, as: Double.self)
         channel.storeBytes(of: Layout.bw1536, toByteOffset: Layout.bwType, as: Int32.self)
         channel.storeBytes(of: Layout.ifZero, toByteOffset: Layout.ifType, as: Int32.self)
@@ -209,6 +217,7 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
         channel.storeBytes(of: Int32(max(20, min(59, settings.sdrplayIFGainReduction))), toByteOffset: Layout.gRdB, as: Int32.self)
         channel.storeBytes(of: UInt8(max(0, min(27, settings.sdrplayLNAState))), toByteOffset: Layout.lnaState, as: UInt8.self)
         channel.storeBytes(of: settings.centerFrequencyHz, toByteOffset: Layout.rfHz, as: Double.self)
+        channelParams = channel
         // Verstärkungsregelung: aus (feste Stufen) oder 50 Hz mit dem Standardpegel
         channel.storeBytes(of: Int32(settings.sdrplayAGC ? 2 : 0), toByteOffset: Layout.agcEnable, as: Int32.self)
         if isDuo { channel.storeBytes(of: UInt8(settings.sdrplayBias ? 1 : 0), toByteOffset: Layout.duoBiasT, as: UInt8.self) }
@@ -237,6 +246,14 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
             me.release()
             throw fail("SDRplay: Empfang lässt sich nicht starten (\(text(rcInit)))")
         }
+    }
+
+    /// Mittenfrequenz im Betrieb ändern (Update `Tuner_Frf` der API)
+    public func retune(centerHz: Double) -> Bool {
+        guard lock.withLock({ streaming }), let channel = channelParams, let update,
+              let dev = deviceMemory?.load(fromByteOffset: Layout.handle, as: UnsafeMutableRawPointer?.self), centerHz > 1000, centerHz < 2e9 else { return false }
+        channel.storeBytes(of: centerHz, toByteOffset: Layout.rfHz, as: Double.self)
+        return update(dev, tuner, Layout.updateFrf, 0) == 0
     }
 
     /// Nur für Tests: Empfänger der umgesetzten Daten setzen, ohne ein Gerät zu öffnen
@@ -323,6 +340,7 @@ public final class SDRplayAPISource: ADSBIQSource, @unchecked Sendable {
             Self.activeLock.withLock { Self.active = false }
         }
         // Nach Uninit kommen keine Rückrufe mehr: Speicher freigeben (der Zeiger auf die Quelle mit etwas Nachlauf)
+        channelParams = nil
         if let mem = deviceMemory { deviceMemory = nil; mem.deallocate() }
         if let table = callbacks { callbacks = nil; table.deallocate() }
         if let r = retainedSelf {
