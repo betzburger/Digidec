@@ -153,6 +153,8 @@ public struct MapMarker: Identifiable, Equatable, Sendable {
     public var symbol: String?
     /// Kurzes Zeichen statt Symbol (z. B. Flagge als Emoji)
     public var glyph: String?
+    /// Umriss des Fahrzeugs von oben statt Symbol im Kreis (Flugzeuge, Schiffe); wird um `headingDeg` gedreht
+    public var silhouette: MapSilhouette?
     public var tone: MapTone
     public var heardAt: Date?
     /// Bisherige Wege (älteste zuerst), endet bei `coordinate`
@@ -168,7 +170,8 @@ public struct MapMarker: Identifiable, Equatable, Sendable {
 
     public init(id: String, coordinate: GeoPoint, title: String, subtitle: String? = nil, details: [String] = [],
                 symbol: String? = nil, glyph: String? = nil, tone: MapTone = .normal, heardAt: Date? = nil,
-                track: [GeoPoint] = [], headingDeg: Double? = nil, radiusKm: Double = 0, valueText: String? = nil, valueLevel: Double? = nil) {
+                track: [GeoPoint] = [], headingDeg: Double? = nil, radiusKm: Double = 0, valueText: String? = nil, valueLevel: Double? = nil,
+                silhouette: MapSilhouette? = nil) {
         self.id = id
         self.coordinate = coordinate
         self.title = title
@@ -183,6 +186,7 @@ public struct MapMarker: Identifiable, Equatable, Sendable {
         self.radiusKm = radiusKm
         self.valueText = valueText
         self.valueLevel = valueLevel
+        self.silhouette = silhouette
     }
 }
 

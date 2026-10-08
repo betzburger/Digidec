@@ -456,6 +456,23 @@ struct MapPanel: View {
     }
 }
 
+/// Umriss eines Fahrzeugs (Quadrat −1 … +1 auf die Fläche gespannt)
+struct SilhouetteShape: Shape {
+    let silhouette: MapSilhouette
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let cx = rect.midX, cy = rect.midY, hx = rect.width / 2, hy = rect.height / 2
+        for contour in silhouette.contours {
+            guard let first = contour.first else { continue }
+            path.move(to: CGPoint(x: cx + first.x * hx, y: cy + first.y * hy))
+            for p in contour.dropFirst() { path.addLine(to: CGPoint(x: cx + p.x * hx, y: cy + p.y * hy)) }
+            path.closeSubpath()
+        }
+        return path
+    }
+}
+
 /// Punkt auf der Karte: Kreis in Tonfarbe mit Symbol oder Zeichen, Kursstrich
 struct MarkerBadge: View {
     let marker: MapMarker
@@ -481,6 +498,15 @@ struct MarkerBadge: View {
                     .background(Capsule().fill(color))
                     .overlay(Capsule().stroke(selected ? Color.white : Color.black.opacity(0.4), lineWidth: selected ? 2 : 1))
                     .shadow(color: color.opacity(selected ? 0.8 : 0.35), radius: selected ? 6 : 2)
+            } else if let sil = marker.silhouette {
+                // Umriss von oben, um den Kurs gedreht (Höhe oder Tonfarbe), bei Auswahl größer mit weißem Rand und Schein
+                let side = sil.size * (selected ? 1.3 : 1)
+                SilhouetteShape(silhouette: sil)
+                    .fill(color)
+                    .overlay(SilhouetteShape(silhouette: sil).stroke(selected ? Color.white : Color.black.opacity(0.7), lineWidth: selected ? 1.6 : 0.9))
+                    .frame(width: side, height: side)
+                    .rotationEffect(.degrees(marker.headingDeg ?? 0))
+                    .shadow(color: color.opacity(selected ? 0.9 : 0.35), radius: selected ? 6 : 2)
             } else {
             
             if let h = marker.headingDeg {
@@ -502,7 +528,7 @@ struct MarkerBadge: View {
             }
             }
         }
-        .shadow(color: marker.valueText == nil ? color.opacity(selected ? 0.7 : 0.3) : .clear, radius: selected ? 6 : 2)
+        .shadow(color: marker.valueText == nil && marker.silhouette == nil ? color.opacity(selected ? 0.7 : 0.3) : .clear, radius: selected ? 6 : 2)
     }
 
     /// Farbskala 0 (blau) … 0,5 (grün/gelb) … 1 (rot)

@@ -6619,6 +6619,53 @@ if want("sonde") { sondeMoreTests() }
 }
 if want("packet9600") { packet9600Tests() }
 
+// MARK: - Kartensymbole: Umrisse von Flugzeugen, Einordnung nach Kategorie und Typ
+
+func silhouetteArea(_ c: [CGPoint]) -> Double {
+    var a = 0.0
+    for i in c.indices { let p = c[i], q = c[(i + 1) % c.count]; a += Double(p.x * q.y - q.x * p.y) }
+    return abs(a) / 2
+}
+
+@MainActor func silhouetteTests() {
+    for s in MapSilhouette.allCases {
+        let pts = s.contours.flatMap { $0 }
+        check(!s.contours.isEmpty && s.contours.allSatisfy { $0.count >= 4 && silhouetteArea($0) > 0.003 }, "Umriss \(s.rawValue): Vielecke mit Fläche")
+        check(pts.allSatisfy { abs($0.x) <= 1.05 && abs($0.y) <= 1.05 }, "Umriss \(s.rawValue): im Quadrat −1 … +1")
+        check(!s.label.isEmpty && s.size >= 10 && s.size <= 32, "Umriss \(s.rawValue): Bezeichnung \(s.label), Größe \(s.size)")
+    }
+    // Symmetrie der Flugzeuge (Spiegelung an der Längsachse)
+    for s in [MapSilhouette.airliner, .heavy, .bizjet, .lightProp, .glider, .fighter] {
+        let body = s.contours[0]
+        let ok = body.allSatisfy { p in body.contains { abs($0.x + p.x) < 1e-9 && abs($0.y - p.y) < 1e-9 } }
+        check(ok, "Umriss \(s.rawValue): symmetrisch")
+    }
+    check(MapSilhouette.heavy.size > MapSilhouette.airliner.size && MapSilhouette.airliner.size > MapSilhouette.bizjet.size && MapSilhouette.bizjet.size > MapSilhouette.groundVehicle.size, "Umrisse: größere Flugzeuge erscheinen größer")
+    func expect(_ tc: Int?, _ cat: Int?, _ type: String?, _ want: MapSilhouette) {
+        let got = AircraftClass.classify(category: cat, typeCode: tc, icaoType: type)
+        check(got == want, "Flugzeugklasse (Typ \(tc.map(String.init) ?? "-"), Kategorie \(cat.map(String.init) ?? "-"), \(type ?? "ohne Kürzel")): \(got.rawValue) (erwartet \(want.rawValue))")
+    }
+    // Kategorie aus der Kennungsmeldung
+    expect(4, 1, nil, .lightProp); expect(4, 2, nil, .bizjet); expect(4, 3, nil, .airliner); expect(4, 4, nil, .airliner); expect(4, 5, nil, .heavy)
+    expect(4, 6, nil, .fighter); expect(4, 7, nil, .helicopter); expect(3, 1, nil, .glider); expect(3, 2, nil, .balloon); expect(3, 4, nil, .glider)
+    expect(3, 6, nil, .drone); expect(2, 1, nil, .groundVehicle)
+    // Typkürzel hat Vorrang
+    expect(4, 3, "EC35", .helicopter); expect(4, 3, "A388", .heavy); expect(4, 3, "B744", .heavy); expect(4, 3, "C56X", .bizjet); expect(4, 2, "C172", .lightProp)
+    expect(4, 3, "f16", .fighter); expect(nil, nil, "R44", .helicopter); expect(nil, nil, "PA28", .lightProp); expect(nil, nil, "GLID", .glider)
+    // Typ steht in keiner Liste: die Kategorie entscheidet
+    expect(4, 3, "A320", .airliner); expect(4, 3, "B738", .airliner); expect(4, 5, "XXXX", .heavy)
+    check(AircraftClass.classify(category: nil, typeCode: nil, icaoType: nil, groundSpeedKn: 450, altitudeFt: 36_000) == .airliner, "Flugzeugklasse: schnell und hoch ohne Angabe: Verkehrsflugzeug")
+    check(AircraftClass.classify(category: nil, typeCode: nil, icaoType: nil, groundSpeedKn: 95, altitudeFt: 2_500) == .lightProp, "Flugzeugklasse: langsam und niedrig ohne Angabe: Kleinflugzeug")
+    check(AircraftClass.classify(category: nil, typeCode: nil, icaoType: nil) == .airliner, "Flugzeugklasse: ganz ohne Angabe: Verkehrsflugzeug")
+    // Listen: keine Typkürzel in zwei Klassen mit widersprüchlicher Einordnung (außer den bewussten Überschneidungen)
+    check(AircraftClass.helicopters.isDisjoint(with: AircraftClass.heavies) && AircraftClass.bizjets.isDisjoint(with: AircraftClass.heavies)
+          && AircraftClass.helicopters.isDisjoint(with: AircraftClass.bizjets) && AircraftClass.fighters.isDisjoint(with: AircraftClass.heavies), "Flugzeugklassen: Typlisten ohne Überschneidung")
+    // Markierung: Umriss wird mit dem Punkt gespeichert
+    let m = MapMarker(id: "a", coordinate: GeoPoint(lat: 1, lon: 2), title: "X", headingDeg: 90, silhouette: .heavy)
+    check(m.silhouette == .heavy && MapMarker(id: "b", coordinate: GeoPoint(lat: 1, lon: 2), title: "Y").silhouette == nil, "Kartenpunkt: Umriss optional")
+}
+if want("silhouette") { silhouetteTests() }
+
 // MARK: - QRZ.com-Abfrage: Rufzeichen erkennen, Grundrufzeichen, Adresse
 
 @MainActor func qrzTests() {

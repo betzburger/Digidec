@@ -227,6 +227,12 @@ enum MapSnapshotExporter {
                     drawArrow(at: p, headingDeg: h, color: color)
                 }
                 drawText(text, at: p, size: 10, weight: .black, color: NSColor.black.withAlphaComponent(0.85), background: color, border: NSColor.black.withAlphaComponent(0.4))
+            } else if let sil = m.silhouette {
+                let color = NSColor(m.valueLevel.map { MarkerBadge.scale($0) } ?? m.tone.color)
+                drawSilhouette(sil, at: p, headingDeg: m.headingDeg ?? 0, color: color)
+                if titled {
+                    drawText(m.title, at: CGPoint(x: p.x, y: p.y + sil.size / 2 + 8), size: 9, weight: .semibold, color: .white, background: NSColor.black.withAlphaComponent(0.55))
+                }
             } else {
                 let color = NSColor(m.tone.color)
                 let dot = NSBezierPath(ovalIn: NSRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12))
@@ -266,6 +272,29 @@ enum MapSnapshotExporter {
             path.stroke()
         }
         s.draw(at: NSPoint(x: rect.minX + pad, y: rect.minY + 1))
+    }
+
+    /// Umriss eines Fahrzeugs von oben, um den Kurs gedreht (Bug nach oben bei Kurs 0)
+    @MainActor
+    private static func drawSilhouette(_ sil: MapSilhouette, at p: CGPoint, headingDeg: Double, color: NSColor) {
+        let a = headingDeg * .pi / 180
+        let half = sil.size / 2
+        func map(_ q: CGPoint) -> CGPoint {
+            let x = q.x * half, y = q.y * half
+            return CGPoint(x: p.x + x * CGFloat(cos(a)) - y * CGFloat(sin(a)), y: p.y + x * CGFloat(sin(a)) + y * CGFloat(cos(a)))
+        }
+        let path = NSBezierPath()
+        for contour in sil.contours {
+            guard let first = contour.first else { continue }
+            path.move(to: map(first))
+            for q in contour.dropFirst() { path.line(to: map(q)) }
+            path.close()
+        }
+        color.setFill()
+        path.fill()
+        NSColor.black.withAlphaComponent(0.7).setStroke()
+        path.lineWidth = 0.9
+        path.stroke()
     }
 
     @MainActor

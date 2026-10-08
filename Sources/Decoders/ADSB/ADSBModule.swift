@@ -544,7 +544,10 @@ public enum ADSBMapBuilder {
                     }
                 }
             }
+            let shape = AircraftClass.classify(category: a.category, typeCode: a.typeCode, icaoType: web?.icaoType, groundSpeedKn: a.groundSpeedKn,
+                                               altitudeFt: a.altitudeFt, onGround: a.onGround)
             if let cat = a.categoryText { rows.append(cat) }
+            rows.append("Darstellung: \(shape.label)" + (web?.icaoType.map { " (\($0))" } ?? ""))
             if let alt = a.altitudeFt {
                 rows.append(a.onGround == true ? "Am Boden" : "Höhe \(alt) ft (\(a.altitudeText ?? "")) · \(Int((Double(alt) * 0.3048).rounded())) m" + (a.altitudeIsGNSS ? " (GNSS)" : ""))
             }
@@ -570,7 +573,8 @@ public enum ADSBMapBuilder {
             let track = showTracks ? a.track.map { GeoPoint(lat: $0.lat, lon: $0.lon) } : []
             markers.append(MapMarker(id: "adsb-\(a.icaoText)", coordinate: pos, title: a.callsign ?? a.icaoText, subtitle: sub.joined(separator: " · "),
                                      details: rows, symbol: "airplane", tone: tone, heardAt: a.lastSeen,
-                                     track: track.count > 1 ? track : [], headingDeg: a.trackDeg, valueLevel: a.onGround == true ? nil : altitudeLevel(a.altitudeFt)))
+                                     track: track.count > 1 ? track : [], headingDeg: a.trackDeg, valueLevel: a.onGround == true ? nil : altitudeLevel(a.altitudeFt),
+                                     silhouette: shape))
         }
         // Strecke des gewählten Flugzeugs: geflogener Teil blass, Rest hell, beide Flughäfen
         if let sel = selection, let a = list.first(where: { $0.id == sel }), let pos = a.position, let r = details[sel]?.route {
