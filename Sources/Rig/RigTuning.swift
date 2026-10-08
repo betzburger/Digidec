@@ -65,9 +65,9 @@ public struct RigTuneTarget: Equatable, Sendable {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
     }
 
-    /// Packet-Kanal: FM auf der Kanalfrequenz (frei = nichts)
-    public static func packet(channel: PacketChannel) -> RigTuneTarget? {
-        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
+    /// Packet-Kanal: FM auf der Kanalfrequenz (frei = nichts); 9600 Bd (G3RUH) braucht einen breiten Filter (die Aussendung belegt etwa 20 kHz)
+    public static func packet(channel: PacketChannel, baud: PacketBaud = .baud1200) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM", passbandHz: baud == .baud9600 ? 25_000 : nil) }
     }
 
     /// ACARS-Kanal: AM auf der Kanalfrequenz (frei = nichts)

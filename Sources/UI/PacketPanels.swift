@@ -108,7 +108,7 @@ struct PacketMonitorTable: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    if entries.isEmpty { PacketEmptyHint(text: "Noch kein Rahmen empfangen. Packet-Radio: FM, 1200 Bd, Diskriminator-Audio.") }
+                    if entries.isEmpty { PacketEmptyHint(text: "Noch kein Rahmen empfangen. Packet-Radio: FM, 1200 Bd (AFSK) oder 9600 Bd (G3RUH), Diskriminator-Audio.") }
                     ForEach(entries) { e in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(packetTime(e.time)).frame(width: 56, alignment: .leading)
@@ -599,7 +599,7 @@ struct PacketTuningPanel: View {
                 Text("PACKET")
                     .font(.system(size: 16, weight: .black, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdGreen)
-                Text("AFSK 1200 Bd")
+                Text(settings.baud == .baud9600 ? "G3RUH 9600 Bd" : "AFSK 1200 Bd")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
@@ -677,6 +677,16 @@ struct PacketSettingsPanel: View {
                 .foregroundColor(RadioTheme.textDim)
             channelGrid(PacketChannel.allCases.filter { $0.isUHF } + [.free])
             HStack(spacing: 6) {
+                Text("BITRATE")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                ForEach(PacketBaud.allCases, id: \.self) { b in
+                    Button(b.label) { settings.baud = b }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.baud == b))
+                        .help(b == .baud1200 ? "AFSK 1200 Bd (Bell 202): 2 m und 70 cm, Winlink-Zugangsserver und Digipeater" : "G3RUH 9600 Bd (Basisband, verwürfelt): 70 cm und Satelliten, braucht Diskriminator-Audio ohne starken Hochpass (Datenanschluss, 9k6-Buchse oder SDR) und einen breiten FM-Filter")
+                }
+            }
+            HStack(spacing: 6) {
                 Button("KORREKTUR") { settings.repairBits.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.repairBits))
                     .help("Ein fehlerhaftes Bit umkehren, wenn die Prüfsumme sonst stimmt (nur ungesicherte Rahmen). Solche Rahmen stehen im Monitor (~), nie in Stationen oder Verbindungen")
@@ -690,7 +700,9 @@ struct PacketSettingsPanel: View {
                     .buttonStyle(ModeButtonStyle(isSelected: settings.decodeMail))
                     .help("Winlink-Nachrichten entpacken und lesen. Aus: nur Rahmen, Verbindungen und Weiterleitungs-Vorschläge")
             }
-            Text(verbatim: "FM schmal (Diskriminator-Audio, ohne Rauschsperre), 1200 Bd. 9600 Bd (G3RUH) wird nicht gelesen. Klick in den Wasserfall setzt die Abweichung der Töne (\(Int(settings.offsetHz.rounded())) Hz).")
+            Text(verbatim: settings.baud == .baud9600
+                 ? "FM breit (Diskriminator-Audio, ohne Rauschsperre), 9600 Bd (G3RUH, Basisband). Das Audio muss mindestens 20 kHz breit und gleichspannungsnah gekoppelt sein (Lautsprecher-Audio mit Hochpass liest nichts); Polarität egal."
+                 : "FM schmal (Diskriminator-Audio, ohne Rauschsperre), 1200 Bd. Klick in den Wasserfall setzt die Abweichung der Töne (\(Int(settings.offsetHz.rounded())) Hz).")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }

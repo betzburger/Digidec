@@ -327,9 +327,16 @@ public final class APRSDecoder: @unchecked Sendable {
     }
 
     public static let sampleRate = 12_000.0
+    /// Abtastrate für 9600 Bd (G3RUH): fünf Abtastwerte je Symbol
+    public static let sampleRate9600 = 48_000.0
+
+    /// Bitrate des Empfangs: 1200 Bd (AFSK) oder 9600 Bd (G3RUH-Basisband)
+    public enum Speed: Int, Sendable { case baud1200 = 1200, baud9600 = 9600 }
 
     private let pipeline: AudioPipeline
     private let demod = AFSKReceiver(sampleRate: APRSDecoder.sampleRate)
+    private let demod9600 = G3RUHReceiver(sampleRate: APRSDecoder.sampleRate9600)
+    private var speed = Speed.baud1200
     private var enabled = false
     private let lock = OSAllocatedUnfairLock()
     private var pending: [APRSRawFrame] = []
@@ -343,13 +350,31 @@ public final class APRSDecoder: @unchecked Sendable {
     }
 
     public func configure(_ options: AFSKDemodulator.Options, emphasis: AFSKReceiver.Emphasis) {
-        pipeline.perform { [self] in demod.configure(options: options, emphasis: emphasis) }
+        pipeline.perform { [self] in
+            demod.configure(options: options, emphasis: emphasis)
+            var g = G3RUHDemodulator.Options()
+            g.repairBits = options.repairBits
+            demod9600.configure(options: g)
+        }
+    }
+
+    /// Zwischen 1200 und 9600 Bd umschalten: der Eingang wird auf die passende Abtastrate gestellt
+    public func setSpeed(_ new: Speed) {
+        pipeline.perform { [self] in
+            guard new != speed else { return }
+            speed = new
+            if let id = sinkID { pipeline.removeSink(id) }
+            let rate = new == .baud9600 ? Self.sampleRate9600 : Self.sampleRate
+            sinkID = pipeline.addSink(rate: rate) { [weak self] samples in self?.consume(samples) }
+            demod.reset()
+            demod9600.reset()
+        }
     }
 
     public func setEnabled(_ on: Bool) {
         pipeline.perform { [self] in
             enabled = on
-            if !on { demod.reset() }
+            if !on { demod.reset(); demod9600.reset() }
         }
     }
 
@@ -363,8 +388,14 @@ public final class APRSDecoder: @unchecked Sendable {
     private func consume(_ samples: UnsafeBufferPointer<Float>) {
         guard enabled else { return }
         var found: [APRSRawFrame] = []
-        demod.process(samples) { found.append($0) }
-        let synced = demod.isSynced, level = demod.levelPeak
+        let synced: Bool, level: Double
+        if speed == .baud9600 {
+            demod9600.process(samples) { found.append($0) }
+            synced = demod9600.isSynced; level = demod9600.levelPeak
+        } else {
+            demod.process(samples) { found.append($0) }
+            synced = demod.isSynced; level = demod.levelPeak
+        }
         lock.withLockUnchecked {
             pending.append(contentsOf: found)
             syncedNow = synced

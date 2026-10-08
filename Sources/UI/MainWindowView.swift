@@ -1162,9 +1162,9 @@ private struct StatusBar: View {
         return s
     }
 
-    /// „PACKET · 144,8125 MHz FM · AFSK 1200 Bd · 12 Stationen · 3 Verbindungen · 2 Nachrichten“
+    /// „PACKET · 144,8125 MHz FM · AFSK 1200 Bd (oder G3RUH 9600 Bd) · 12 Stationen · 3 Verbindungen · 2 Nachrichten“
     private var packetCurrent: String {
-        var s = "PACKET · \(packet.channel.label) MHz FM · AFSK 1200 Bd"
+        var s = "PACKET · \(packet.channel.label) MHz FM · " + (packet.baud == .baud9600 ? "G3RUH 9600 Bd" : "AFSK 1200 Bd")
         let c = packetController
         if c.frameCount > 0 {
             s += " · \(c.stations.count) Stationen"

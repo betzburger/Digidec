@@ -55,6 +55,14 @@ public enum PacketChannel: String, CaseIterable, Identifiable, Codable, Sendable
     }
 }
 
+/// Bitrate des Packet-Radios
+public enum PacketBaud: Int, CaseIterable, Sendable {
+    case baud1200 = 1200, baud9600 = 9600
+
+    public var label: String { "\(rawValue) Bd" }
+    var speed: APRSDecoder.Speed { self == .baud9600 ? .baud9600 : .baud1200 }
+}
+
 // MARK: - Einstellungen
 
 @MainActor
@@ -62,6 +70,8 @@ public final class PacketSettingsStore: ObservableObject {
     public static let offsetRange: ClosedRange<Double> = -250...250
 
     @Published public var channel: PacketChannel { didSet { UserDefaults.standard.set(channel.rawValue, forKey: "packetChannel") } }
+    /// 1200 Bd (AFSK, 2 m und 70 cm) oder 9600 Bd (G3RUH-Basisband, meist 70 cm und Satelliten)
+    @Published public var baud: PacketBaud { didSet { UserDefaults.standard.set(baud.rawValue, forKey: "packetBaud") } }
     /// Abweichung der Töne in Hz (Mitte 1700 Hz): Klick im Wasserfall setzt sie
     @Published public private(set) var offsetHz: Double
     @Published public var repairBits: Bool { didSet { UserDefaults.standard.set(repairBits, forKey: "packetRepair") } }
@@ -73,6 +83,7 @@ public final class PacketSettingsStore: ObservableObject {
     public init() {
         let d = UserDefaults.standard
         channel = d.string(forKey: "packetChannel").flatMap(PacketChannel.init(rawValue:)) ?? .v8125
+        baud = PacketBaud(rawValue: d.integer(forKey: "packetBaud")) ?? .baud1200
         offsetHz = Self.offsetRange.contains(d.double(forKey: "packetOffsetHz")) ? d.double(forKey: "packetOffsetHz") : 0
         repairBits = d.object(forKey: "packetRepair") as? Bool ?? true
         emphasis = d.string(forKey: "packetEmphasis").flatMap(AFSKReceiver.Emphasis.init(rawValue:)) ?? .auto
@@ -80,7 +91,7 @@ public final class PacketSettingsStore: ObservableObject {
         decodeMail = d.object(forKey: "packetDecodeMail") as? Bool ?? true
     }
 
-    public var centerHz: Double { 1700 + offsetHz }
+    public var centerHz: Double { baud == .baud9600 ? 2400 : 1700 + offsetHz }
 
     public func setCenter(_ hz: Double) {
         offsetHz = min(max(hz - 1700, Self.offsetRange.lowerBound), Self.offsetRange.upperBound).rounded()
@@ -97,8 +108,9 @@ public final class PacketSettingsStore: ObservableObject {
 }
 
 extension PacketSettingsStore: TuningTarget {
-    public var tones: (mark: Double, space: Double) { (centerHz - 500, centerHz + 500) }
-    public var markerBandwidth: Double { 1300 }
+    public var tones: (mark: Double, space: Double) { baud == .baud9600 ? (0, 4800) : (centerHz - 500, centerHz + 500) }
+    public var markerBandwidth: Double { baud == .baud9600 ? 9600 : 1300 }
+    public var markerStyle: WaterfallMarkerStyle { baud == .baud9600 ? .band("PACKET · Basisband (G3RUH 9600 Bd, bis 4,8 kHz)") : .tones }
 }
 
 // MARK: - Controller
@@ -148,12 +160,14 @@ public final class PacketController: ObservableObject {
         decoder = APRSDecoder(pipeline: pipeline)
         logEnabled = UserDefaults.standard.object(forKey: "packetLogEnabled") as? Bool ?? true
         decoder.configure(settings.options, emphasis: settings.emphasis)
+        decoder.setSpeed(settings.baud.speed)
         markSession()
         settings.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.decoder.configure(self.settings.options, emphasis: self.settings.emphasis)
+                self.decoder.setSpeed(self.settings.baud.speed)
                 self.markSession()
             }
             .store(in: &cancellables)
@@ -176,7 +190,7 @@ public final class PacketController: ObservableObject {
     }
 
     public func markSession() {
-        var h = "PACKET · \(settings.channel.label) MHz · AFSK 1200 Bd · Mitte \(Int(settings.centerHz.rounded())) Hz"
+        var h = "PACKET · \(settings.channel.label) MHz · " + (settings.baud == .baud9600 ? "G3RUH 9600 Bd" : "AFSK 1200 Bd · Mitte \(Int(settings.centerHz.rounded())) Hz")
         if !settings.repairBits { h += " · ohne Bitkorrektur" }
         if settings.emphasis != .auto { h += settings.emphasis == .on ? " · Vorverzerrung" : " · flaches Audio" }
         if let rig = rigDescription { h += " · \(rig)" }

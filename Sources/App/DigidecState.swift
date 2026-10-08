@@ -301,6 +301,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(dsc.$channel)
         observeForTuning(aprs.$channel)
         observeForTuning(packet.$channel)
+        observeForTuning(packet.$baud)
         observeForTuning(acars.$channel)
         observeForTuning(ais.$channel)
         observeForTuning(hfdl.$frequencyKHz)
@@ -455,7 +456,7 @@ public final class DigidecState: ObservableObject {
         case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
         case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
         case .aprs:   return .aprs(channel: aprs.channel)
-        case .packet: return .packet(channel: packet.channel)
+        case .packet: return .packet(channel: packet.channel, baud: packet.baud)
         case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)

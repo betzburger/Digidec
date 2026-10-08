@@ -6491,6 +6491,134 @@ let m10RealFrame = "649f2000000000000000000046503ffffff400000000000249f000000005
 }
 if want("sonde") { sondeMoreTests() }
 
+// MARK: - Packet-Radio 9600 Bd (G3RUH): Verwürfler, Rundlauf mit Störungen, Pipeline, Einstellung, Referenzsignale von direwolf
+
+@MainActor func packet9600Tests() {
+    // --- Verwürfler: selbstsynchronisierend (der Entwürfler findet nach 17 Bits den Takt, auch mit anderem Anfangszustand)
+    var rng = SkimRNG(seed: 4711)
+    let bits = (0..<3000).map { _ in Int(rng.next() & 1) }
+    var tx = G3RUHScrambler()
+    let scrambled = bits.map { tx.scramble($0) }
+    var rx = G3RUHScrambler()
+    _ = (0..<23).map { _ in rx.descramble(Int(rng.next() & 1)) }       // falscher Anfangszustand
+    let back = scrambled.map { rx.descramble($0) }
+    check(Array(back.dropFirst(17)) == Array(bits.dropFirst(17)), "G3RUH: Verwürfeln und Entwürfeln (nach 17 Bits synchron)")
+    var rx2 = G3RUHScrambler()
+    check(scrambled.map { rx2.descramble($0) } == bits, "G3RUH: Entwürfeln mit gleichem Anfangszustand")
+    check(scrambled.filter { $0 == 1 }.count > 1300 && scrambled.filter { $0 == 1 }.count < 1700, "G3RUH: verwürfelte Bits sind gleichverteilt")
+    // Lange Reihen gleicher Bits werden aufgebrochen (deshalb gibt es genug Taktwechsel)
+    var longRun = G3RUHScrambler()
+    for k in 0..<20 { _ = longRun.scramble(k % 3 == 0 ? 1 : 0) }         // Zustand ungleich null (im Betrieb kommen vorher die Flags)
+    let zeros = (0..<400).map { _ in longRun.scramble(0) }
+    var maxRun = 0, run = 0, prev = -1
+    for b in zeros { run = b == prev ? run + 1 : 1; prev = b; maxRun = max(maxRun, run) }
+    check(maxRun < 40, "G3RUH: 400 Nullbits ergeben höchstens \(maxRun) gleiche Bits in Folge")
+
+    // --- Rundlauf
+    let frames: [[UInt8]] = (0..<10).map { i in
+        AX25Frame(dest: AX25Address(call: "APRS"), source: AX25Address(call: "DL1ABC", ssid: i % 15), digis: [AX25Address(call: "WIDE1", ssid: 1)],
+                  info: Array(("!4903.50N/07201.75W-Test \(i) " + String(repeating: "xyz", count: 5 + i * 6)).utf8)).encode()
+    }
+    let want = Set(frames.compactMap { AX25Frame.parse($0)?.tnc2 })
+    func decode(_ audio: [Float], rate: Double = 48_000, options: G3RUHDemodulator.Options = G3RUHDemodulator.Options()) -> (found: Int, repaired: Int) {
+        let r = G3RUHReceiver(sampleRate: rate, options: options)
+        var texts = Set<String>()
+        var repaired = 0
+        var padded = audio
+        padded += [Float](repeating: 0, count: Int(rate * 0.3))
+        padded.withUnsafeBufferPointer { buf in
+            var i = 0
+            while i < buf.count {
+                let m = min(480, buf.count - i)
+                r.process(UnsafeBufferPointer(rebasing: buf[i..<(i + m)])) { f in
+                    if let fr = AX25Frame.parse(f.bytes) { texts.insert(fr.tnc2) }
+                    if f.repaired { repaired += 1 }
+                }
+                i += m
+            }
+        }
+        return (texts.intersection(want).count, repaired)
+    }
+    let clean = G3RUHModulator.modulate(frames: frames)
+    check(decode(clean).found == 10, "G3RUH Rundlauf sauber: \(decode(clean).found) von 10 Rahmen")
+    check(decode(G3RUHModulator.modulate(frames: frames, inverted: true)).found == 10, "G3RUH: umgekehrte Polarität (Entwürfler und NRZI heben sie auf)")
+    check(decode(G3RUHModulator.modulate(frames: frames, offset: 0.12)).found == 10, "G3RUH: Gleichanteil")
+    check(decode(G3RUHModulator.modulate(frames: frames, amplitude: 0.05)).found == 10 && decode(G3RUHModulator.modulate(frames: frames, amplitude: 0.9)).found == 10, "G3RUH: leises und lautes Signal")
+    for (label, ce) in [("Bitrate +1,5 %", 0.015), ("Bitrate −1,5 %", -0.015), ("Bitrate +0,3 %", 0.003)] {
+        let n = decode(G3RUHModulator.modulate(frames: frames, clockError: ce)).found
+        check(n >= 9, "G3RUH \(label): \(n) von 10 Rahmen")
+    }
+    for (label, sm) in [("Rechteckimpulse", 0.0), ("starke Glättung (Bandbegrenzung)", 1.0)] {
+        let n = decode(G3RUHModulator.modulate(frames: frames, smoothing: sm)).found
+        check(n >= 9, "G3RUH \(label): \(n) von 10 Rahmen")
+    }
+    for rate in [44_100.0, 96_000.0] {
+        let n = decode(G3RUHModulator.modulate(frames: frames, sampleRate: rate), rate: rate).found
+        check(n >= 9, "G3RUH bei \(Int(rate / 1000)) kHz Abtastrate: \(n) von 10 Rahmen")
+    }
+    for (snr, minimum) in [(20.0, 10), (14.0, 8), (10.0, 5)] {
+        let n = decode(addNoise(clean, snrDB: snr, signalPower: 0.06)).found
+        check(n >= minimum, "G3RUH Rauschen \(Int(snr)) dB: \(n) von 10 Rahmen (verlangt \(minimum))")
+    }
+    // Rauschen und Gleichspannung ergeben nichts
+    check(decode(addNoise([Float](repeating: 0, count: 48_000 * 10), snrDB: 0, signalPower: 0.06)).found == 0 && decode([Float](repeating: 0.3, count: 48_000 * 3)).found == 0, "G3RUH: Rauschen und Gleichspannung ergeben keinen Rahmen")
+    // Ohne Reparatur und mit Reparatur
+    var noRepair = G3RUHDemodulator.Options()
+    noRepair.repairBits = false
+    check(decode(clean, options: noRepair).found == 10 && decode(clean).repaired == 0, "G3RUH: saubere Rahmen brauchen keine Reparatur")
+    // AFSK-Signal (1200 Bd) liefert über den 9600-Bd-Weg nichts und umgekehrt
+    let afsk = AFSKModulator.modulate(frames: frames, sampleRate: 48_000)
+    check(decode(afsk).found == 0, "G3RUH: 1200-Bd-AFSK ergibt keine Rahmen")
+
+    // --- Über die Pipeline (Umschaltung 1200 → 9600 Bd stellt die Abtastrate des Eingangs um)
+    let pipeline = AudioPipeline()
+    let decoder = APRSDecoder(pipeline: pipeline)
+    decoder.setSpeed(.baud9600)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    Thread.sleep(forTimeInterval: 0.1)
+    var got: [APRSRawFrame] = []
+    var i = 0
+    clean.withUnsafeBufferPointer { buf in
+        while i < buf.count {
+            let n = min(4_800, buf.count - i)
+            pipeline.ring.write(buf.baseAddress! + i, count: n)
+            i += n
+            Thread.sleep(forTimeInterval: 0.004)
+            got += decoder.takeOutput().frames
+        }
+    }
+    Thread.sleep(forTimeInterval: 0.6)
+    got += decoder.takeOutput().frames
+    check(Set(got.compactMap { AX25Frame.parse($0.bytes)?.tnc2 }).intersection(want).count >= 9, "Packet 9600 Bd über die Pipeline: \(got.count) von 10 Rahmen")
+    pipeline.stop()
+
+    // --- Einstellung und Abstimmung
+    check(PacketBaud.allCases.map(\.rawValue) == [1200, 9600] && PacketBaud.baud9600.label == "9600 Bd", "Packet: Bitraten 1200 und 9600")
+    check(RigTuneTarget.packet(channel: .u775)?.passbandHz == nil && RigTuneTarget.packet(channel: .u775, baud: .baud9600)?.passbandHz == 25_000
+          && RigTuneTarget.packet(channel: .u775, baud: .baud9600)?.mode == "FM" && RigTuneTarget.packet(channel: .free, baud: .baud9600) == nil, "Packet: 9600 Bd stimmt FM mit 25 kHz Filter ab, 1200 Bd mit dem Standard")
+
+    // --- Referenzsignale von direwolf (gen_packets -B 9600 -n 30 und 60: steigendes Rauschen; direwolf selbst liest 19 und 37)
+    for (name, minimum, reference) in [("g3ruh9600_direwolf_n30.wav", 17, 19), ("g3ruh9600_direwolf_n60.wav", 34, 37)] {
+        guard let a = sondeLoadWAV("TestData/Packet/" + name) else { continue }
+        let r = G3RUHReceiver(sampleRate: 48_000)
+        var n = 0, fox = 0
+        a.withUnsafeBufferPointer { buf in
+            var i = 0
+            while i < buf.count {
+                let m = min(480, buf.count - i)
+                r.process(UnsafeBufferPointer(rebasing: buf[i..<(i + m)])) { f in
+                    n += 1
+                    if AX25Frame.parse(f.bytes)?.tnc2.contains("The quick brown fox jumps over the lazy dog!") == true { fox += 1 }
+                }
+                i += m
+            }
+        }
+        check(n >= minimum && fox == n, "G3RUH direwolf-Aufnahme \(name): \(n) Rahmen (direwolf \(reference)), davon mit gültigem Text \(fox)")
+    }
+}
+if want("packet9600") { packet9600Tests() }
+
 // MARK: - QRZ.com-Abfrage: Rufzeichen erkennen, Grundrufzeichen, Adresse
 
 @MainActor func qrzTests() {
