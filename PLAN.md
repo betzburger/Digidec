@@ -683,7 +683,7 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - Logiktests: 3694 Prüfungen bestanden.
 - **08.10.2026, Version 0.87.5 Alpha (AF mehrzeilig):** Das waagerechte Scrollen war unzuverlässig (Trackpad/Maus). Die Alternativfrequenzen brechen jetzt um, wenn die Zeile voll ist. Dafür wird das Umbruch-Layout der Modulleiste wiederverwendet (`ModuleFlowLayout` → `FlowLayout`, nicht mehr `private`).
 - Messung mit 25 AF (temporäre Testliste, entfernt): bei 1920 Punkten Breite eine Zeile, bei 1060 Punkten (Mindestbreite) zwei Zeilen.
-- **Offen: AF nach Empfangbarkeit am Standort filtern.** RDS überträgt nur Frequenzen, keine Senderstandorte. Dafür fehlt eine Senderliste mit Koordinaten. Gefunden: FMLIST (Registrierung und Lizenz, Weitergabe unklar), RTR Österreich und BAKOM Schweiz (frei, aber nur dortige Sender). Eine freie deutsche Liste fand sich nicht. Entscheidung des Nutzers nötig, siehe Rückfrage.
+- **Entschieden: AF werden nicht nach Empfangbarkeit am Standort gefiltert.** RDS überträgt nur Frequenzen, keine Senderstandorte, ein Filter bräuchte eine Senderliste mit Koordinaten. Gefunden wurde keine frei nutzbare deutsche Liste: FMLIST verlangt Registrierung und Lizenz (Weitergabe unklar), RTR Österreich und BAKOM Schweiz decken nur dortige Sender ab. Der Nutzer hat das Feature am 08.10.2026 gestrichen, die AF-Karte zeigt weiter alle gemeldeten Frequenzen.
 
 ---
 
