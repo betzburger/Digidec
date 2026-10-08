@@ -6021,9 +6021,9 @@ func sondeFlightAudio(frames count: Int = 20, rate: Double = 48_000, amplitude: 
     return (RS41SignalGenerator.audio(frames: frames, sampleRate: rate, amplitude: amplitude, offset: offset, clockError: clockError), frames, truth)
 }
 
-@MainActor func sondeDecode(_ audio: [Float], rate: Double = 48_000) -> (frames: [RS41Telemetry], stats: RS41Stats) {
+@MainActor func sondeDecode(_ audio: [Float], rate: Double = 48_000) -> (frames: [SondeTelemetry], stats: SondeStats) {
     let rx = RS41Receiver(sampleRate: rate)
-    var got: [RS41Telemetry] = []
+    var got: [SondeTelemetry] = []
     rx.onTelemetry = { got.append($0) }
     audio.withUnsafeBufferPointer { buf in
         var i = 0
@@ -6132,7 +6132,7 @@ func sondeFlightAudio(frames count: Int = 20, rate: Double = 48_000, amplitude: 
     // --- Rahmenzähler des Empfängers bei zweimaligem Aufruf von reset
     let rx = RS41Receiver()
     rx.reset()
-    check(rx.stats == RS41Stats(), "RS41: Zähler nach reset leer")
+    check(rx.stats == SondeStats(), "RS41: Zähler nach reset leer")
 }
 if want("sonde") { sondeTests() }
 
@@ -6149,9 +6149,9 @@ if want("sonde") { sondeTests() }
     // Flug: Aufstieg, Platzen, Sinkflug, Landung
     let launch = (lat: 49.79, lon: 9.95, alt: 180.0)
     let t0 = Date(timeIntervalSince1970: 1_790_000_000)
-    func telemetry(_ k: Int, climb: Double = 5, burst: Double = 8000) -> RS41Telemetry {
+    func telemetry(_ k: Int, climb: Double = 5, burst: Double = 8000) -> SondeTelemetry {
         let st = RS41SignalGenerator.flightState(t: Double(k), launch: launch, climb: climb, burst: burst, wind: (2, 8))
-        var t = RS41Telemetry(serial: "T2610001", frame: 100 + k)
+        var t = SondeTelemetry(serial: "T2610001", frame: 100 + k)
         t.latitude = st.lat; t.longitude = st.lon; t.altitude = st.alt
         t.speed = (st.vN * st.vN + st.vE * st.vE).squareRoot(); t.heading = atan2(st.vE, st.vN) * 180 / .pi; t.climb = st.vU
         t.temperature = 10 - 0.0065 * (st.alt - 180); t.satellites = 9; t.battery = 2.9
@@ -6220,7 +6220,7 @@ if want("sonde") { sondeTests() }
     check(cd.flights[0].track.count > 1500 / 5 && SondeMapBuilder.content(cd.flights, home: nil, now: t0, selection: nil).markers[0].track.count <= 801, "Sonde-Karte: Weg auf höchstens 800 Punkte ausgedünnt")
     // Aufräumen
     c.clear()
-    check(c.flights.isEmpty && c.selection == nil && c.stats == RS41Stats(), "Sonde: Liste leeren")
+    check(c.flights.isEmpty && c.selection == nil && c.stats == SondeStats(), "Sonde: Liste leeren")
     // Logzeile
     var lt = telemetry(10)
     lt.humidity = 45
@@ -6229,9 +6229,9 @@ if want("sonde") { sondeTests() }
     check(parts.count == 15 && parts[1] == "T2610001" && parts[2] == "110" && parts[0].hasSuffix("Z") && parts[10] == "45" && parts[12] == "9", "Sonde: Logzeile mit 15 Feldern (\(line))")
 
     // Diagnose
-    check(SondeDiagnosis.assess(inputDB: -120, stats: RS41Stats()).title == "KEIN AUDIO", "Sonde-Diagnose: kein Audio")
-    check(SondeDiagnosis.assess(inputDB: -30, stats: RS41Stats()).title == "SUCHE SONDE", "Sonde-Diagnose: Suche")
-    var st = RS41Stats(); st.headers = 30
+    check(SondeDiagnosis.assess(inputDB: -120, stats: SondeStats()).title == "KEIN AUDIO", "Sonde-Diagnose: kein Audio")
+    check(SondeDiagnosis.assess(inputDB: -30, stats: SondeStats()).title == "SUCHE SONDE", "Sonde-Diagnose: Suche")
+    var st = SondeStats(); st.headers = 30
     check(SondeDiagnosis.assess(inputDB: -30, stats: st).title == "SIGNAL, ABER NICHTS LESBAR", "Sonde-Diagnose: Kopf ohne Rahmen")
     st.partial = 5
     check(SondeDiagnosis.assess(inputDB: -30, stats: st).title == "NUR TEILE LESBAR", "Sonde-Diagnose: nur Teile")
@@ -6248,7 +6248,7 @@ if want("sonde") { sondeTests() }
         pipeline.start(inputRate: inputRate)
         let f = sondeFlightAudio(frames: 6, rate: inputRate)
         Thread.sleep(forTimeInterval: 0.05)
-        var got: [RS41Telemetry] = []
+        var got: [SondeTelemetry] = []
         var i = 0
         f.audio.withUnsafeBufferPointer { buf in
             while i < buf.count {
@@ -6283,6 +6283,213 @@ if want("sonde") { sondeTests() }
     }
 }
 if want("sonde") { sondeModuleTests() }
+
+// MARK: - Weitere Sonden: Graw DFM, Meteomodem M10, Meteosis M20 (Hamming-Code, Prüfsumme, echte Rahmen, Rundlauf, Störungen, echte Aufnahmen)
+
+/// Alle Sondenarten zugleich (wie im Modul) über Audio
+@MainActor func sondeBankDecode(_ audio: [Float], rate: Double = 48_000) -> (frames: [SondeTelemetry], stats: SondeStats) {
+    let bank = SondeReceiverBank(sampleRate: rate)
+    var got: [SondeTelemetry] = []
+    bank.onTelemetry = { got.append($0) }
+    audio.withUnsafeBufferPointer { buf in
+        var i = 0
+        while i < buf.count { let m = min(480, buf.count - i); bank.process(UnsafeBufferPointer(rebasing: buf[i..<(i + m)])); i += m }
+    }
+    return (got, bank.stats)
+}
+
+func sondeHexBytes(_ hex: String) -> [UInt8] {
+    let h = Array(hex)
+    return stride(from: 0, to: h.count - 1, by: 2).map { UInt8(String(h[$0...($0 + 1)]), radix: 16)! }
+}
+
+/// 16-Bit-WAV (44-Byte-Kopf, mono) als Float; nil, wenn die Datei fehlt
+func sondeLoadWAV(_ path: String) -> [Float]? {
+    guard let data = FileManager.default.contents(atPath: path), data.count > 100_000 else { return nil }
+    let bytes = [UInt8](data)
+    var samples: [Float] = []
+    samples.reserveCapacity(bytes.count / 2)
+    var i = 44
+    while i + 1 < bytes.count { samples.append(Float(Int16(bitPattern: UInt16(bytes[i]) | UInt16(bytes[i + 1]) << 8)) / 32768); i += 2 }
+    return samples
+}
+
+/// Echte Rahmen (aus den Beispielaufnahmen von radiosonde_auto_rx, mit dem Referenzdecoder m10m20mod von zilog80 ausgewertet)
+let m20RealFrame = "4520c858a005c1010024660000000107fb5ff634045e6c95000008abfdee33fa08444896283fd54900000000fd34227254f609e3288e0000d0221f58002000580199f704ca24"
+let m10RealFrame = "649f2000000000000000000046503ffffff400000000000249f00000000500120800000000000000000000000000a77bc671999709d48b09010027240000001aa5f209f2096003125f0b0100080014000000000000e50f1a008201ff00021483dc22bad1b1"
+
+@MainActor func sondeMoreTests() {
+    // --- Hamming(8,4) der DFM: alle 16 Halbbytes, Einzelfehler an jeder Stelle behoben, Doppelfehler erkannt
+    var hammingOK = true, singleOK = true, doubleOK = true
+    for nib in 0..<16 {
+        let word = DFMHamming.encode(UInt8(nib))
+        var w = word
+        if DFMHamming.check(&w) != 0 || w != word { hammingOK = false }
+        for e in 0..<8 {
+            var x = word
+            x[e] ^= 1
+            if DFMHamming.check(&x) != e + 1 || x != word { singleOK = false }
+            for f in (e + 1)..<8 {
+                var y = word
+                y[e] ^= 1; y[f] ^= 1
+                if DFMHamming.check(&y) != -1 { doubleOK = false }
+            }
+        }
+    }
+    check(hammingOK && singleOK && doubleOK, "DFM-Hamming(8,4): Rundlauf (\(hammingOK)), Einzelfehler behoben (\(singleOK)), Doppelfehler erkannt (\(doubleOK))")
+    // Verschachtelung und Block-Rundlauf (7 und 13 Wörter)
+    var blockOK = true
+    for cols in [7, 13] {
+        let nibbles = (0..<cols).map { UInt8(($0 * 5 + 3) & 0xF) }
+        let bits = DFMSignalGenerator.block(nibbles, columns: cols)
+        let r = DFMHamming.decode(bits[0..<bits.count], columns: cols)
+        let back = (0..<cols).map { UInt8(Int(r.data[4 * $0]) << 3 | Int(r.data[4 * $0 + 1]) << 2 | Int(r.data[4 * $0 + 2]) << 1 | Int(r.data[4 * $0 + 3])) }
+        if r.errors != 0 || back != nibbles { blockOK = false }
+        var bad = bits
+        bad[5] ^= 1; bad[bits.count / 2] ^= 1                    // zwei Bitfehler in verschiedenen Wörtern: beide werden behoben
+        let r2 = DFMHamming.decode(bad[0..<bad.count], columns: cols)
+        if r2.errors <= 0 || r2.data != r.data { blockOK = false }
+    }
+    check(blockOK, "DFM: verschachtelter Block mit 7 und 13 Wörtern, Bitfehler behoben")
+    check(DFMDecoder.bitErrors(0b1011) == 3 && DFMDecoder.bitErrors(0) == 0, "DFM: Zahl der behobenen Wörter aus der Fehlermaske")
+    check(DFMDecoder.secondsSince1980(year: 2019, month: 2, day: 10, hour: 5, minute: 32, second: 22) == 1_233_811_942, "DFM: Sekunden seit 6.1.1980 (10.02.2019 05:32:22 UTC)")
+
+    // --- M10/M20: Prüfsumme und Auswertung an echten Rahmen (Sollwerte vom Referenzdecoder)
+    let realM20 = sondeHexBytes(m20RealFrame), realM10 = sondeHexBytes(m10RealFrame)
+    check(realM20.count == 70 && realM10.count == 101, "M10/M20: echte Rahmen mit 70 und 101 Bytes")
+    check(M10Frame.check(realM20, count: 0x44) == (Int(realM20[0x44]) << 8 | Int(realM20[0x45])), "M20: Prüfsumme des echten Rahmens stimmt")
+    check(M10Frame.check(realM10, count: 0x63) == (Int(realM10[0x63]) << 8 | Int(realM10[0x64])), "M10: Prüfsumme des echten Rahmens stimmt")
+    var broken = realM20
+    broken[0x20] ^= 0x04
+    check(M10Frame.check(broken, count: 0x44) != (Int(broken[0x44]) << 8 | Int(broken[0x45])), "M20: ein Bitfehler ändert die Prüfsumme")
+    check(M10Frame.Kind(rawValue: realM20[1]) == .m20 && M10Frame.Kind(rawValue: realM10[1]) == .m10, "M10/M20: Typkennungen 0x20 und 0x9F")
+    // Über die ganze Kette: echter Rahmen als Signal, dann Auswertung
+    let m20Real = sondeBankDecode(SondeFSK.audio(bursts: (0..<3).map { (0.3 + Double($0), M10SignalGenerator.symbols(frame: realM20)) }, symbolRate: 9600, amplitude: 0.25))
+    if let t = m20Real.frames.last {
+        check(t.serial == "M20-911-2-00269" && t.model == "M20", "M20 echter Rahmen: Seriennummer \(t.serial) (\(t.model ?? "-"))")
+        check(abs((t.latitude ?? 0) + 34.72077) < 2e-5 && abs((t.longitude ?? 0) - 138.69276) < 2e-5 && abs((t.altitude ?? 0) - 93.18) < 0.01,
+              "M20 echter Rahmen: Position \(t.latitude ?? 0) \(t.longitude ?? 0) Höhe \(t.altitude ?? 0) (Referenz −34,72077 138,69276 93,18)")
+        check(abs((t.temperature ?? 0) - 19.8) < 0.06 && abs((t.humidity ?? 0) - 63) < 1 && abs((t.pressure ?? 0) - 1010.5) < 0.06,
+              "M20 echter Rahmen: T \(t.temperature ?? 0) rF \(t.humidity ?? 0) p \(t.pressure ?? 0) (Referenz 19,8 °C 63 % 1010,5 hPa)")
+        // Die Sonde sendet GPS-Zeit (Samstag 23.07.2022 01:18:23); Digidec rechnet 18 Schaltsekunden ab
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        let c = t.time.map { cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: $0) }
+        check(c?.year == 2022 && c?.month == 7 && c?.day == 23 && c?.hour == 1 && c?.minute == 18 && c?.second == 5, "M20 echter Rahmen: UTC \(c.map { "\($0.hour ?? -1):\($0.minute ?? -1):\($0.second ?? -1)" } ?? "-") (GPS 01:18:23 − 18 s)")
+    } else { check(false, "M20 echter Rahmen: keine Telemetrie") }
+    let m10Real = sondeBankDecode(SondeFSK.audio(bursts: (0..<3).map { (0.3 + Double($0), M10SignalGenerator.symbols(frame: realM10)) }, symbolRate: 9600, amplitude: 0.25))
+    if let t = m10Real.frames.last {
+        check(t.serial == "M10-803-2-10732" && t.model == "M10", "M10 echter Rahmen: Seriennummer \(t.serial)")
+        check(abs((t.temperature ?? 0) - 23.6) < 0.06 && abs((t.humidity ?? 0) - 50) < 1, "M10 echter Rahmen: T \(t.temperature ?? 0) rF \(t.humidity ?? 0) (Referenz 23,6 °C 50 %)")
+        check(!t.hasPosition, "M10 echter Rahmen: ohne GPS-Lösung (Platzhalter 90° N) keine Position")
+    } else { check(false, "M10 echter Rahmen: keine Telemetrie") }
+
+    // --- Rundlauf M20 und M10 mit Störungen
+    func m10Flight(kind: M10Frame.Kind, seconds: Int = 20, offset: Float = 0, clock: Double = 0, inverted: Bool = false, snr: Double? = nil, rate: Double = 48_000)
+        -> (frames: [SondeTelemetry], stats: SondeStats) {
+        var a = M10SignalGenerator.audio(seconds: seconds, flight: { s in
+            var p = M10SignalGenerator.Parameters()
+            p.kind = kind
+            p.towSeconds = 345_600 + 43_200 + s
+            p.latitude = 49.79 + 0.0001 * Double(s)
+            p.longitude = 9.95 + 0.0002 * Double(s)
+            p.altitude = 180 + 5 * Double(s)
+            p.counter = s
+            if kind == .m20 { p.serialBytes = [0x6D, 0x03, 0x04] }
+            return p
+        }, sampleRate: rate, offset: offset, clockError: clock, inverted: inverted)
+        if let snr { a = addNoise(a, snrDB: snr, signalPower: 0.05) }
+        return sondeBankDecode(a, rate: rate)
+    }
+    for kind in [M10Frame.Kind.m20, .m10] {
+        let name = kind == .m20 ? "M20" : "M10"
+        let r = m10Flight(kind: kind)
+        check(r.frames.count == 20 && r.stats.failed == 0 && r.frames.allSatisfy { $0.serial.hasPrefix(name + "-") }, "\(name) Rundlauf: \(r.frames.count) von 20 Rahmen, verloren \(r.stats.failed)")
+        if let t = r.frames.last {
+            check(abs((t.latitude ?? 0) - (49.79 + 0.0019)) < 2e-6 && abs((t.longitude ?? 0) - (9.95 + 0.0038)) < 2e-6 && abs((t.altitude ?? 0) - 275) < 0.01,
+                  "\(name) Rundlauf: Position \(t.latitude ?? 0) \(t.longitude ?? 0) Höhe \(t.altitude ?? 0)")
+            check(abs((t.speed ?? 0) - 3.6056) < 0.02 && abs((t.heading ?? 0) - 33.69) < 0.1 && abs((t.climb ?? 0) - 5) < 0.02, "\(name) Rundlauf: Geschwindigkeit \(t.speed ?? 0) Kurs \(t.heading ?? 0) Steigen \(t.climb ?? 0)")
+            check(t.satellites == (kind == .m10 ? 9 : nil) && (t.time.map { $0.timeIntervalSince1970 } ?? 0) == Double(2400 * 604_800 + 345_600 + 43_200 + 19 - 18) + 315_964_800, "\(name) Rundlauf: Zeit UTC und Satelliten")
+        }
+        for (label, args) in [("invertiert", (0.0 as Float, 0.0, true, nil as Double?)), ("Gleichanteil 0,15", (0.15, 0.0, false, nil)), ("Bitrate +1,6 ‰ (M10 mit 9615 Bd)", (0, 0.0016, false, nil)),
+                              ("Bitrate −5 ‰", (0, -0.005, false, nil)), ("Rauschen 9 dB", (0, 0, false, 9)), ("alles zusammen", (0.1, 0.0016, true, 9))] as [(String, (Float, Double, Bool, Double?))] {
+            let x = m10Flight(kind: kind, offset: args.0, clock: args.1, inverted: args.2, snr: args.3)
+            check(x.frames.count >= 17 && x.frames.allSatisfy { $0.serial.hasPrefix(name + "-") }, "\(name) \(label): \(x.frames.count) von 20 Rahmen")
+        }
+        let weak = m10Flight(kind: kind, snr: 6)
+        check(weak.frames.count >= 14, "\(name) bei 6 dB: \(weak.frames.count) von 20 Rahmen")
+    }
+    // M10 mit anderer Abtastrate des Audios
+    check(m10Flight(kind: .m20, rate: 96_000).frames.count == 20 && m10Flight(kind: .m10, rate: 96_000).frames.count == 20, "M10/M20 Rundlauf bei 96 kHz Abtastrate")
+
+    // --- Rundlauf DFM
+    func dfmFlight(seconds: Int = 40, offset: Float = 0, clock: Double = 0, inverted: Bool = false, snr: Double? = nil) -> (frames: [SondeTelemetry], stats: SondeStats) {
+        var a = DFMSignalGenerator.audio(seconds: seconds, flight: { s in
+            var p = DFMSignalGenerator.Parameters()
+            p.latitude = 49.79 + 0.0001 * Double(s)
+            p.longitude = 9.95 + 0.0002 * Double(s)
+            p.altitude = 180 + 5 * Double(s)
+            p.minute = s / 60
+            p.second = s % 60
+            return p
+        }, offset: offset, clockError: clock, inverted: inverted)
+        if let snr { a = addNoise(a, snrDB: snr, signalPower: 0.05) }
+        return sondeBankDecode(a)
+    }
+    let dfm = dfmFlight()
+    check(dfm.frames.count >= 28 && dfm.stats.failed == 0 && dfm.frames.allSatisfy { $0.serial == "DFM-637797" && $0.model == "DFM-09" }, "DFM Rundlauf: \(dfm.frames.count) von 40 s, verloren \(dfm.stats.failed) (die Seriennummer braucht einen Zyklus von 40 Rahmen)")
+    if let t = dfm.frames.last, let when = t.time {
+        let start = Double(DFMDecoder.secondsSince1980(year: 2026, month: 10, day: 3, hour: 12, minute: 0, second: 0)) + 315_964_800
+        let s = Int(when.timeIntervalSince1970 - start)
+        check(abs((t.latitude ?? 0) - (49.79 + 0.0001 * Double(s))) < 2e-7 && abs((t.longitude ?? 0) - (9.95 + 0.0002 * Double(s))) < 2e-7 && abs((t.altitude ?? 0) - (180 + 5 * Double(s))) < 0.01,
+              "DFM Rundlauf: Position \(t.latitude ?? 0) \(t.longitude ?? 0) Höhe \(t.altitude ?? 0) bei \(s) s")
+        check(abs((t.speed ?? 0) - 3) < 0.01 && abs((t.heading ?? 0) - 90) < 0.01 && abs((t.climb ?? 0) - 5) < 0.01 && t.satellites == 9, "DFM Rundlauf: Geschwindigkeit \(t.speed ?? 0) Kurs \(t.heading ?? 0) Steigen \(t.climb ?? 0) Satelliten \(t.satellites ?? 0)")
+        check(abs((t.temperature ?? 0) - 15) < 0.05 && abs((t.battery ?? 0) - 5.9) < 0.01, "DFM Rundlauf: Temperatur \(t.temperature ?? 0) Batterie \(t.battery ?? 0)")
+    } else { check(false, "DFM Rundlauf: keine Telemetrie") }
+    for (label, x) in [("invertiert", dfmFlight(inverted: true)), ("Gleichanteil 0,15", dfmFlight(offset: 0.15)), ("Bitrate +3 ‰", dfmFlight(clock: 0.003)),
+                       ("Rauschen 9 dB", dfmFlight(snr: 9)), ("Rauschen 3 dB", dfmFlight(snr: 3))] {
+        check(x.frames.count >= 26 && x.frames.allSatisfy { $0.serial == "DFM-637797" }, "DFM \(label): \(x.frames.count) Rahmen")
+    }
+
+    // --- Verwechslung: jede Sondenart wird von den anderen Empfängern in Ruhe gelassen
+    let rs = sondeFlightAudio(frames: 10)
+    let mixed = sondeBankDecode(rs.audio)
+    check(mixed.frames.count >= 9 && mixed.frames.allSatisfy { $0.serial == "T2610001" }, "Sondenbank: RS41-Signal ergibt nur RS41 (\(mixed.frames.count) Rahmen, \(Set(mixed.frames.map(\.serial))))")
+    // Rauschen und Gleichspannung ergeben nichts
+    let noise = addNoise([Float](repeating: 0, count: 48_000 * 20), snrDB: 0, signalPower: 0.05)
+    check(sondeBankDecode(noise).frames.isEmpty && sondeBankDecode([Float](repeating: 0.2, count: 48_000 * 5)).frames.isEmpty, "Sondenbank: Rauschen und Gleichspannung ergeben keine Telemetrie")
+    // Zähler: die Summe zählt nur Empfänger, die etwas lesen
+    let dfmStats = dfm.stats
+    check(dfmStats.frames > 150 && dfmStats.failed == 0, "Sondenbank: Zähler einer DFM (\(dfmStats.frames) Rahmen, \(dfmStats.failed) verloren)")
+    // Zwei Sonden nacheinander auf derselben Frequenz
+    let dfmPart = DFMSignalGenerator.audio(seconds: 20, flight: { s in var p = DFMSignalGenerator.Parameters(); p.second = s; return p })
+    let m20Part = M10SignalGenerator.audio(seconds: 6, flight: { s in var p = M10SignalGenerator.Parameters(); p.kind = .m20; p.towSeconds = 345_600 + s; p.serialBytes = [1, 2, 3]; return p })
+    let two = sondeBankDecode(dfmPart + [Float](repeating: 0, count: 24_000) + m20Part)
+    check(Set(two.frames.map { $0.model ?? "" }) == ["DFM-09", "M20"], "Sondenbank: zwei Arten nacheinander (\(Set(two.frames.map { $0.model ?? "" })))")
+
+    // --- Echte Aufnahmen (nur wenn lokal vorhanden, TestData/Sonde, aus dem Beispielsatz von radiosonde_auto_rx als FM-Audio umgesetzt)
+    if let a = sondeLoadWAV("TestData/Sonde/dfm09_fm48.wav") {
+        let r = sondeBankDecode(a)
+        check(r.stats.frames >= 530 && r.stats.failed == 0 && r.frames.count >= 85 && r.frames.allSatisfy { $0.serial == "DFM-637797" && $0.model == "DFM-09" }, "DFM echte Aufnahme: \(r.stats.frames) Rahmen (von 535), \(r.frames.count) Sekunden Telemetrie (Referenz 96)")
+        if let t = r.frames.last {
+            check(abs((t.latitude ?? 0) + 34.7207) < 3e-4 && abs((t.longitude ?? 0) - 138.6928) < 3e-4 && abs((t.altitude ?? 0) - 100) < 6 && abs((t.temperature ?? 0) - 61) < 4 && abs((t.battery ?? 0) - 5.9) < 0.05,
+                  "DFM echte Aufnahme: \(t.latitude ?? 0) \(t.longitude ?? 0) Höhe \(t.altitude ?? 0) T \(t.temperature ?? 0) U \(t.battery ?? 0) (Referenz −34,7207 138,6928 ~100 m 60 °C 5,9 V)")
+        }
+    }
+    if let a = sondeLoadWAV("TestData/Sonde/m20_fm48.wav") {
+        let r = sondeBankDecode(a)
+        check(r.stats.frames >= 112 && r.frames.count >= 112 && r.frames.allSatisfy { $0.serial == "M20-911-2-00269" }, "M20 echte Aufnahme: \(r.stats.frames) Rahmen (Referenz bei 48 kHz 108), verloren \(r.stats.failed)")
+        if let t = r.frames.last {
+            check(abs((t.latitude ?? 0) + 34.72078) < 1e-4 && abs((t.longitude ?? 0) - 138.69276) < 1e-4 && abs((t.temperature ?? 0) - 19.8) < 0.5 && abs((t.humidity ?? 0) - 63) < 3 && abs((t.pressure ?? 0) - 1010.5) < 0.5,
+                  "M20 echte Aufnahme: \(t.latitude ?? 0) \(t.longitude ?? 0) T \(t.temperature ?? 0) rF \(t.humidity ?? 0) p \(t.pressure ?? 0)")
+        }
+    }
+    if let a = sondeLoadWAV("TestData/Sonde/m10_fm48.wav") {
+        let r = sondeBankDecode(a)
+        check(r.stats.frames >= 105 && r.frames.count >= 85 && r.frames.allSatisfy { $0.serial == "M10-803-2-10732" && !$0.hasPosition }, "M10 echte Aufnahme: \(r.stats.frames) Rahmen (Referenz bei 48 kHz 17, bei 96 kHz 91), \(r.frames.count) Telemetrie")
+        if let t = r.frames.last { check(abs((t.temperature ?? 0) - 23.6) < 0.5 && abs((t.humidity ?? 0) - 50) < 2, "M10 echte Aufnahme: T \(t.temperature ?? 0) rF \(t.humidity ?? 0)") }
+    }
+}
+if want("sonde") { sondeMoreTests() }
 
 // MARK: - Sonden-Plan (SondeHub-Startorte): Lesen, Zeiten mit Wochentag, Entfernung, Sendefenster
 @MainActor func sondePlanTests() {

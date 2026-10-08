@@ -135,38 +135,6 @@ enum RS41ReedSolomon {
     }
 }
 
-// MARK: - Telemetrie
-
-/// Ein gelesener RS41-Rahmen (eine Sekunde Flug). Felder ohne Wert fehlen, wenn der zugehörige Block ungültig war oder noch Kalibrierdaten fehlen.
-public struct RS41Telemetry: Equatable, Sendable {
-    public var serial: String
-    public var frame: Int
-    /// UTC aus GPS-Woche und -Zeit (Schaltsekunden abgezogen)
-    public var time: Date?
-    public var latitude: Double?
-    public var longitude: Double?
-    /// Höhe über dem Ellipsoid in m
-    public var altitude: Double?
-    /// Horizontale Geschwindigkeit (m/s), Richtung (Grad, woher es geht: Kurs über Grund) und Steigen (m/s)
-    public var speed: Double?
-    public var heading: Double?
-    public var climb: Double?
-    public var satellites: Int?
-    public var battery: Double?
-    public var temperature: Double?
-    public var humidity: Double?
-    public var pressure: Double?
-    /// Sendefrequenz laut Kalibrierdaten (kHz) und Typ („RS41-SG“, „RS41-SGP“ …)
-    public var frequencyKHz: Int?
-    public var model: String?
-    /// Zähler bis zum Abschalten (Burst-/Kill-Timer), Sekunden
-    public var killCountdown: Int?
-    /// Anzahl der von der Reed-Solomon-Korrektur behobenen Bytes in diesem Rahmen
-    public var correctedBytes = 0
-
-    public var hasPosition: Bool { latitude != nil && longitude != nil && altitude != nil }
-}
-
 // MARK: - Kalibrierdaten
 
 /// Die Sonde schickt in jedem Rahmen ein 16-Byte-Stück ihrer 51 Kalibrierblöcke; mit denen werden aus den Rohmessungen Temperatur, Feuchte und Druck.
@@ -325,7 +293,7 @@ struct RS41FrameParser {
     static let leapSeconds = 18.0
 
     /// Position und Geschwindigkeit aus ECEF in Zentimetern und cm/s
-    static func applyPosition(_ p: ArraySlice<UInt8>, to t: inout RS41Telemetry) {
+    static func applyPosition(_ p: ArraySlice<UInt8>, to t: inout SondeTelemetry) {
         let x = Double(i32(p, 0)) / 100, y = Double(i32(p, 4)) / 100, z = Double(i32(p, 8)) / 100
         let g = geodetic(x: x, y: y, z: z)
         guard g.alt > -1000, g.alt < 80_000, g.lat.isFinite, abs(g.lat) <= 90 else { return }
@@ -346,8 +314,8 @@ struct RS41FrameParser {
 
     /// Entwürfelter, fehlerkorrigierter Rahmen → Telemetrie (nil, wenn nicht einmal der Statusblock mit Seriennummer gültig ist).
     /// `calibration` wird mit dem 16-Byte-Stück dieses Rahmens ergänzt.
-    static func parse(_ f: [UInt8], calibration: inout RS41Calibration, previousSerial: String?) -> RS41Telemetry? {
-        var telemetry: RS41Telemetry?
+    static func parse(_ f: [UInt8], calibration: inout RS41Calibration, previousSerial: String?) -> SondeTelemetry? {
+        var telemetry: SondeTelemetry?
         var meas: [Double] = []
         var pressureAux = 0
         var gpsWeek: Int?, gpsMillis: Int?
@@ -359,7 +327,7 @@ struct RS41FrameParser {
             case 0x79 where p.count >= 40:
                 let serial = String(decoding: p[(p.startIndex + 2)..<(p.startIndex + 10)].map { $0 >= 0x20 && $0 < 0x7F ? $0 : UInt8(ascii: "?") }, as: UTF8.self)
                 if serial != previousSerial { calibration = RS41Calibration() }
-                var t = RS41Telemetry(serial: serial, frame: u16(p, 0))
+                var t = SondeTelemetry(serial: serial, frame: u16(p, 0))
                 t.battery = Double(p[p.startIndex + 10]) / 10
                 let index = Int(p[p.startIndex + 23])
                 calibration.store(index: index, data: p[(p.startIndex + 24)..<(p.startIndex + 40)])

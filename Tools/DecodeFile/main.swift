@@ -35,7 +35,7 @@ func usage() -> Never {
       --aprs                APRS/Packet-Radio (AFSK 1200 Bd, AX.25); Ausgabe je Paket als TNC2-Zeile mit Ort. --nofix schaltet die Ein-Bit-Reparatur ab,
                             --slicers <n> (Standard 7), --pre auto|off|on Vorverzerrung für de-emphasiertes Audio (Standard auto: beide Wege), --center <Mitte-Hz> (Standard 1700), --home <Locator> für Entfernungen
 
-      --sonde               Radiosonde RS41 (FM-Diskriminator-Audio, 4800 Bd): je Rahmen eine Zeile mit Position, Höhe, Messwerten; am Ende Zähler
+      --sonde               Radiosonde RS41, DFM, M10, M20 (FM-Diskriminator-Audio): je Rahmen eine Zeile mit Position, Höhe, Messwerten und Sondentyp; am Ende Zähler
 
       --pager               Funkruf (POCSAG 512/1200/2400, FLEX): je Meldung eine Zeile; --rates 512,1200 schränkt die Baudraten ein
       --tones [normen]      DTMF und Selektivrufe (dtmf, zvei1, zvei2, zvei3, dzvei, pzvei, ccir, eea, eia, selcal), Normen durch Komma getrennt (Standard: dtmf,zvei1)
@@ -344,10 +344,10 @@ if sondeMode {
         print("Datei nicht lesbar: \(wavPath)")
         exit(1)
     }
-    print("Radiosonde · RS41 4800 Bd")
-    let rx = RS41Receiver(sampleRate: SondeDecoder.sampleRate)
+    print("Radiosonde · RS41 (4800 Bd), DFM (2500 Bd), M10/M20 (9600 Bd)")
+    let rx = SondeReceiverBank(sampleRate: SondeDecoder.sampleRate)
     var samples = 0
-    rx.onTelemetry = { t in print(String(format: "%7.1f s  ", Double(samples) / SondeDecoder.sampleRate) + SondeController.logLine(t) + (t.correctedBytes < 0 ? "  [nur Teile gültig]" : "")) }
+    rx.onTelemetry = { t in print(String(format: "%7.1f s  ", Double(samples) / SondeDecoder.sampleRate) + SondeController.logLine(t) + ";" + (t.model ?? "") + (t.correctedBytes < 0 ? "  [nur Teile gültig]" : "")) }
     let began = Date()
     let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 48_000)!
     while true {

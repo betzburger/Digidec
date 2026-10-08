@@ -42,14 +42,14 @@ public struct SondeFlight: Identifiable, Equatable, Sendable {
     public var lastHeard: Date
     public var frames = 0
     /// Letzter Rahmen mit Position (die übrigen Messwerte sind die zuletzt bekannten)
-    public var latest: RS41Telemetry
+    public var latest: SondeTelemetry
     public var track: [SondeFix] = []
     public var maxAltitude = -1000.0
     public var launchAltitude: Double?
 
     public static let maxTrack = 20_000
 
-    public init(first t: RS41Telemetry, at now: Date) {
+    public init(first t: SondeTelemetry, at now: Date) {
         serial = t.serial
         firstHeard = now
         lastHeard = now
@@ -60,7 +60,7 @@ public struct SondeFlight: Identifiable, Equatable, Sendable {
 
     /// Einen Rahmen aufnehmen. Rückgabe `false`, wenn er schon bekannt war (gleiche Rahmennummer wie der letzte).
     @discardableResult
-    public mutating func ingest(_ t: RS41Telemetry, at now: Date) -> Bool {
+    public mutating func ingest(_ t: SondeTelemetry, at now: Date) -> Bool {
         if frames > 0, t.frame == latest.frame, t.hasPosition == latest.hasPosition, now.timeIntervalSince(lastHeard) < 2 { return false }
         frames += 1
         lastHeard = now
@@ -147,7 +147,7 @@ public enum SondeLanding {
 
 @MainActor
 public final class SondeSettingsStore: ObservableObject {
-    /// Empfangsfrequenz in kHz (400000 … 406000, Raster der RS41: 10 kHz)
+    /// Empfangsfrequenz in kHz (400000 … 406000, Raster der Sonden: RS41 10 kHz)
     @Published public var frequencyKHz: Int { didSet { UserDefaults.standard.set(frequencyKHz, forKey: "sondeFrequencyKHz") } }
     /// ZF-Filter des Empfängers in kHz (15 oder 50)
     @Published public var filterKHz: Int { didSet { UserDefaults.standard.set(filterKHz, forKey: "sondeFilterKHz") } }
@@ -188,16 +188,16 @@ extension SondeSettingsStore: TuningTarget {
     public var tones: (mark: Double, space: Double) { (0, 0) }
     public var markerBandwidth: Double { 4800 }
     public func setCenter(_ hz: Double) {}
-    public var markerStyle: WaterfallMarkerStyle { .band("SONDE · Basisband (RS41: 4800 Bd, bis 4,8 kHz)") }
+    public var markerStyle: WaterfallMarkerStyle { .band("SONDE · Basisband (RS41 4800 Bd, DFM 2500 Bd, M10/M20 9600 Bd)") }
 }
 
 // MARK: - Decoder
 
-/// RS41-Empfänger als 48-kHz-Senke an der Pipeline
+/// Sondenempfänger (RS41, DFM, M10, M20 zugleich) als 48-kHz-Senke an der Pipeline
 public final class SondeDecoder: @unchecked Sendable {
     public struct Output: Sendable {
-        public var telemetry: [RS41Telemetry]
-        public var stats: RS41Stats
+        public var telemetry: [SondeTelemetry]
+        public var stats: SondeStats
         public var level: Double
         /// Pegel des Eingangs (Effektivwert) in dBFS
         public var inputDB: Double
@@ -206,11 +206,11 @@ public final class SondeDecoder: @unchecked Sendable {
     public static let sampleRate = 48_000.0
 
     private let pipeline: AudioPipeline
-    private let receiver = RS41Receiver(sampleRate: SondeDecoder.sampleRate)
+    private let receiver = SondeReceiverBank(sampleRate: SondeDecoder.sampleRate)
     private var enabled = false
     private let lock = OSAllocatedUnfairLock()
-    private var pending: [RS41Telemetry] = []
-    private var statsNow = RS41Stats()
+    private var pending: [SondeTelemetry] = []
+    private var statsNow = SondeStats()
     private var levelNow = 0.0
     private var meanSquare = 0.0
     private var inputDBNow = -120.0
@@ -232,7 +232,7 @@ public final class SondeDecoder: @unchecked Sendable {
     public func resetStats() {
         pipeline.perform { [self] in
             receiver.resetStats()
-            lock.withLockUnchecked { statsNow = RS41Stats() }
+            lock.withLockUnchecked { statsNow = SondeStats() }
         }
     }
 
@@ -275,18 +275,18 @@ public enum SondeDiagnosis {
 
     public static let silenceDB = -70.0
 
-    public static func assess(inputDB: Double, stats: RS41Stats) -> Result {
+    public static func assess(inputDB: Double, stats: SondeStats) -> Result {
         if inputDB < silenceDB && stats.headers == 0 {
             return Result(severity: .problem, title: "KEIN AUDIO",
                           advice: "Am Eingang liegt kein Signal an. Richtiger Kanal (L, R oder L+R) und Eingang gewählt? Rauschsperre offen?")
         }
         if stats.headers == 0 {
             return Result(severity: .waiting, title: "SUCHE SONDE",
-                          advice: "Audio kommt an, aber noch kein RS41-Signal. Frequenz (400 … 406 MHz, Raster 10 kHz), Betriebsart FM mit 15-kHz- oder 50-kHz-Filter und offene Rauschsperre prüfen. Sonden senden jede Sekunde.")
+                          advice: "Audio kommt an, aber noch kein Sondensignal (RS41, DFM, M10 oder M20). Frequenz (400 … 406 MHz, Raster 10 kHz), Betriebsart FM mit 15-kHz-Filter (RS41, DFM) oder 50-kHz-Filter (M10, M20) und offene Rauschsperre prüfen. Sonden senden jede Sekunde.")
         }
         if stats.frames == 0 && stats.partial == 0 {
             return Result(severity: .problem, title: "SIGNAL, ABER NICHTS LESBAR",
-                          advice: "Der Rahmenkopf wird gefunden, aber die Daten sind nicht lesbar: Signal zu schwach (Antenne, Standort), übersteuert (Pegel senken) oder keine RS41 (andere Sondenart).")
+                          advice: "Der Rahmenkopf wird gefunden, aber die Daten sind nicht lesbar: Signal zu schwach (Antenne, Standort), übersteuert (Pegel senken) oder eine nicht unterstützte Sondenart (RS41, DFM, M10 und M20 sind möglich).")
         }
         if stats.frames == 0 {
             return Result(severity: .problem, title: "NUR TEILE LESBAR",
@@ -411,7 +411,7 @@ public final class SondeController: ObservableObject {
     public let logger = DecodeLogger(mode: "SONDE")
     @Published public private(set) var flights: [SondeFlight] = []
     @Published public var selection: String?
-    @Published public private(set) var stats = RS41Stats()
+    @Published public private(set) var stats = SondeStats()
     @Published public private(set) var inputDB = -120.0
     @Published public private(set) var level = 0.0
     /// Aufnahme des Eingangs (zur Fehlersuche und zum Nachdecodieren mit `decode_file.sh --sonde`)
@@ -462,7 +462,7 @@ public final class SondeController: ObservableObject {
         flights.removeAll()
         selection = nil
         decoder.resetStats()
-        stats = RS41Stats()
+        stats = SondeStats()
     }
 
     /// Eingang aufnehmen (WAV in Quell-Abtastrate unter ~/Documents/Digidec/Recordings)
@@ -472,7 +472,7 @@ public final class SondeController: ObservableObject {
             isRecording = false
             return
         }
-        let name = InputRecorder.fileName(frequencyHz: settings.frequencyKHz * 1000, mode: "FM", preset: "RS41", prefix: "SONDE")
+        let name = InputRecorder.fileName(frequencyHz: settings.frequencyKHz * 1000, mode: "FM", preset: "Sonde", prefix: "SONDE")
         recorder.start(url: InputRecorder.directory.appendingPathComponent(name))
         isRecording = true
         recordingDuration = 0
@@ -481,7 +481,7 @@ public final class SondeController: ObservableObject {
     public var diagnosis: SondeDiagnosis.Result { SondeDiagnosis.assess(inputDB: inputDB, stats: stats) }
 
     public func markSession() {
-        var h = "SONDE · \(settings.frequencyText) FM \(settings.filterKHz) kHz · RS41"
+        var h = "SONDE · \(settings.frequencyText) FM \(settings.filterKHz) kHz · RS41/DFM/M10/M20"
         if let rig = rigDescription { h += " · \(rig)" }
         logger.markSession(h)
     }
@@ -502,7 +502,10 @@ public final class SondeController: ObservableObject {
     }
 
     /// Einen Rahmen aufnehmen (auch für Tests und Dateiwiedergabe)
-    public func ingest(_ t: RS41Telemetry, at now: Date = Date()) {
+    public func ingest(_ rawTelemetry: SondeTelemetry, at now: Date = Date()) {
+        var t = rawTelemetry
+        // Nur die RS41 meldet ihre Sendefrequenz; bei den anderen gilt die eingestellte
+        if t.frequencyKHz == nil { t.frequencyKHz = settings.frequencyKHz }
         if let i = flights.firstIndex(where: { $0.serial == t.serial }) {
             guard flights[i].ingest(t, at: now) else { return }
         } else {
@@ -527,7 +530,7 @@ public final class SondeController: ObservableObject {
     }
 
     /// „2026-10-03 20:45:12;N3920808;112;48.76543;9.12345;1234.5;5.1;123.4;4.8;-12.3;45;650.2;9;3.0;403500“
-    nonisolated public static func logLine(_ t: RS41Telemetry) -> String {
+    nonisolated public static func logLine(_ t: SondeTelemetry) -> String {
         func f(_ v: Double?, _ digits: Int) -> String { v.map { String(format: "%.\(digits)f", $0) } ?? "" }
         let time: String
         if let d = t.time {

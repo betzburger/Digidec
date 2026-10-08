@@ -452,26 +452,10 @@ final class RS41Demodulator {
 
 // MARK: - Empfänger
 
-/// Zähler für die Anzeige und die Diagnose
-public struct RS41Stats: Equatable, Sendable {
-    /// Kopf (Synchronwort) gefunden
-    public var headers = 0
-    /// Rahmen mit bestandener Fehlerkorrektur
-    public var frames = 0
-    /// Nur Teile mit gültiger Prüfsumme lesbar (Fehlerkorrektur scheiterte)
-    public var partial = 0
-    /// Kopf gefunden, aber nichts Lesbares
-    public var failed = 0
-    /// Von der Fehlerkorrektur behobene Bytes (Summe)
-    public var corrected = 0
-    /// Zeitpunkt (Audiozeit in s) des letzten Rahmens
-    public var lastFrameTime: Double?
-}
-
 /// Sondenempfänger für 4800-Bd-RS41-Rahmen aus FM-Audio
 public final class RS41Receiver {
-    public var onTelemetry: ((RS41Telemetry) -> Void)?
-    public private(set) var stats = RS41Stats()
+    public var onTelemetry: ((SondeTelemetry) -> Void)?
+    public private(set) var stats = SondeStats()
     /// Eingangspegel (Mittelwert des Betrags nach Abzug des Gleichanteils)
     public var level: Double { Double(demod.level) }
     public let sampleRate: Double
@@ -494,12 +478,12 @@ public final class RS41Receiver {
         demod.reset()
         calibration = RS41Calibration()
         lastSerial = nil
-        stats = RS41Stats()
+        stats = SondeStats()
         pendingFailures.removeAll()
         time = 0
     }
 
-    public func resetStats() { stats = RS41Stats() }
+    public func resetStats() { stats = SondeStats() }
 
     public func process(_ samples: UnsafeBufferPointer<Float>) {
         demod.process(samples)
@@ -591,3 +575,5 @@ public final class RS41Receiver {
         }
     }
 }
+
+extension RS41Receiver: SondeReceiving {}

@@ -50,7 +50,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 | PACKET | Packet-Radio 1200 Bd: Monitor aller AX.25-Rahmen, Stationen und Digipeater, Verbindungen mit Gesprächsverlauf, Mailbox-Weiterleitung und **Winlink** (Nachrichten werden entpackt und gelesen, Anhänge speicherbar), NET/ROM-Knoten. Nachrichten anderer bitte vertraulich behandeln |
 | ACARS | Flugzeugmeldungen mit Positionen, OOOI-Berichten und Flughäfen |
 | PAGER | Funkruf POCSAG und FLEX (z. B. DAPNET) |
-| SONDE | Radiosonden Vaisala RS41 mit Flugweg, Landeprognose, Startorten und Sendeplan |
+| SONDE | Radiosonden Vaisala RS41, Graw DFM (06, 09, 17), Meteomodem M10 und Meteosis M20, Typ automatisch erkannt; Flugweg, Landeprognose, Startorte und Sendeplan (Sendeplan nur für RS41) |
 | TÖNE | DTMF, ZVEI, CCIR, EEA, EIA und SELCAL |
 
 Weitere Merkmale: Sendepläne mit automatischer Aufnahme (Wetterfax, RTTY, NAVTEX, Radiosonden), Aufnahme des Eingangs als WAV (REC), Tagesprotokolle unter `~/Documents/Digidec/Logs`, Standort als Maidenhead-Locator für alle Entfernungen, Kartenbild-Export.

@@ -265,7 +265,7 @@ struct SondeTuningPanel: View {
                 Text("SONDE")
                     .font(.system(size: 16, weight: .black, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdGreen)
-                Text("RS41 · 4800 Bd")
+                Text("RS41 · DFM · M10 · M20")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
             }
@@ -391,7 +391,7 @@ struct SondeSettingsPanel: View {
                 ForEach([15, 50], id: \.self) { w in
                     Button("\(w) kHz") { settings.filterKHz = w }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.filterKHz == w))
-                        .help(w == 15 ? "Schmaler ZF-Filter: weniger Rauschen, empfohlen für RS41" : "Breiter Filter: unempfindlicher, verträgt aber eine Sonde, die um mehrere kHz neben der Frequenz liegt")
+                        .help(w == 15 ? "Schmaler ZF-Filter: weniger Rauschen, geeignet für RS41 und DFM; M10 und M20 (breiteres Signal) verlieren damit einige Rahmen" : "Breiter Filter: empfohlen für M10 und M20, verträgt außerdem eine Sonde, die um mehrere kHz neben der Frequenz liegt")
                 }
             }
             HStack(spacing: 6) {

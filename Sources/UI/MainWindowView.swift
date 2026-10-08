@@ -1178,9 +1178,9 @@ private struct StatusBar: View {
         return s
     }
 
-    /// „SONDE · 403,500 MHz FM 15 kHz · RS41 4800 Bd · 2 Sonden · 118 Rahmen“
+    /// „SONDE · 403,500 MHz FM 15 kHz · RS41/DFM/M10/M20 · 2 Sonden · 118 Rahmen“
     private var sondeCurrent: String {
-        var s = "SONDE · \(sonde.frequencyText) FM \(sonde.filterKHz) kHz · RS41 4800 Bd"
+        var s = "SONDE · \(sonde.frequencyText) FM \(sonde.filterKHz) kHz · RS41/DFM/M10/M20"
         let n = sondeController.flights.count
         if n > 0 { s += " · \(n) Sonde" + (n == 1 ? "" : "n") }
         s += " · \(sondeController.stats.frames) Rahmen"
