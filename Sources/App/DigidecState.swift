@@ -90,6 +90,8 @@ public final class DigidecState: ObservableObject {
     public let vdl2Controller: VDL2Controller
     public let dab = DABSettingsStore()
     public let dabController: DABController
+    public let rds = RDSSettingsStore()
+    public let rdsController: RDSController
     public let nav = NavSettingsStore()
     public let navController: NavController
     public let freedv = FreeDVSettingsStore()
@@ -173,6 +175,7 @@ public final class DigidecState: ObservableObject {
         audio.sdr = sdrController
         vdl2Controller = VDL2Controller(settings: vdl2)
         dabController = DABController(settings: dab)
+        rdsController = RDSController(settings: rds)
         navController = NavController(pipeline: audio.pipeline, settings: nav)
         freedvController = FreeDVController(pipeline: audio.pipeline, settings: freedv)
         hfdlController = HFDLController(pipeline: audio.pipeline, settings: hfdl)
@@ -259,6 +262,7 @@ public final class DigidecState: ObservableObject {
                 self?.sensorsController.setActive(module == .sensors)
                 self?.vdl2Controller.setActive(module == .vdl2)
                 self?.dabController.setActive(module == .dab)
+                self?.rdsController.setActive(module == .rds)
                 self?.navController.setActive(module == .vor)
                 self?.freedvController.setActive(module == .freedv)
                 self?.hfdlController.setActive(module == .hfdl)
@@ -301,12 +305,13 @@ public final class DigidecState: ObservableObject {
         observeForTuning(navtex.$frequency)
         observeForTuning(rtty.$presetID)
         observeForTuning(rtty.$dwdFrequencyHz)
+        observeForTuning(rds.$frequencyHz)
 
         // rigctld des Funkgeräts, dessen Codec gerade gelesen wird (bei Dateiwiedergabe keins)
         audio.$activeInput.combineLatest(audio.$sourceKind)
             .receive(on: RunLoop.main)
             .sink { [weak self] input, kind in
-                self?.rig.follow(radio: kind == .live ? input?.radio : nil)
+                self?.rig.follow(radio: kind == .audio ? input?.radio : nil)
             }
             .store(in: &cancellables)
         sdrController.shouldYield = { [unowned self] in self.activeModule.usesOwnIQDevice }
@@ -327,6 +332,28 @@ public final class DigidecState: ObservableObject {
                 self.rig.useInternal(name: nil)
             }
         }
+        // FM-Diskriminator-Audio bei 240 kS/s an das RDS-Modul weiterleiten
+        sdrController.onDiscriminator = { [weak self] buf, rate in
+            self?.rdsController.feedDiscriminator(samples: buf, sampleRate: rate)
+        }
+        sdrController.$snapshot
+            .receive(on: RunLoop.main)
+            .sink { [weak self] snap in
+                if self?.activeModule == .rds {
+                    self?.rdsController.updateSignal(db: Float(snap.metrics.signalDB))
+                }
+            }
+            .store(in: &cancellables)
+        sdr.$frequencyHz
+            .receive(on: RunLoop.main)
+            .sink { [weak self] hz in
+                guard let self, self.activeModule == .rds else { return }
+                if (87_500_000...108_000_000).contains(hz) && abs(self.rds.frequencyHz - hz) >= 50_000 {
+                    self.rds.frequencyHz = hz
+                    self.rdsController.clear()
+                }
+            }
+            .store(in: &cancellables)
         // Freies Funkgerät aus den Einstellungen: gilt ab Start und bei jeder Änderung der Liste
         rig.use(profile: rigProfiles.active)
         rigProfiles.$list
@@ -421,6 +448,7 @@ public final class DigidecState: ObservableObject {
         case .adsb:   return nil
         case .acars:  return .acars(channel: acars.channel)
         case .ais:    return .ais(channel: ais.channel)
+        case .rds:    return .rds(frequencyHz: rds.frequencyHz)
         case .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .channels: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
@@ -615,6 +643,10 @@ public final class DigidecState: ObservableObject {
                     }
                 case .dab:
                     if let preset = request.presetID, let b = DABBlock.named(preset) { dab.blockName = b.name }
+                case .rds:
+                    if let preset = request.presetID, let mhz = Double(preset) {
+                        rdsController.tune(frequencyHz: mhz * 1e6)
+                    }
                 case .vdl2:
                     switch request.presetID {
                     case "csc": vdl2.channels = [VDL2.commonSignallingChannel / 1e6]

@@ -4,7 +4,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// Karte „Eingang“: Quelle (Live/Datei), Gerät, Kanal, Pegel, Status.
+/// Karte „Eingang“: Quelle (Audio/Datei/SDR), Gerät, Kanal, Pegel, Status.
 struct InputPanelView: View {
     @ObservedObject var audio: AudioInputManager
 
@@ -14,13 +14,13 @@ struct InputPanelView: View {
                 ForEach(AudioSourceKind.allCases) { kind in
                     Button(kind.label) {
                         switch kind {
-                        case .live: audio.switchToLive()
+                        case .audio: audio.switchToAudio()
                         case .file: chooseFile()
                         case .sdr: audio.selectSDR()
                         }
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: audio.sourceKind == kind))
-                    .help(kind == .live ? "Live-Eingang von der virtuellen Soundkarte" : kind == .file ? "Audiodatei (WAV, AIFF, CAF) abspielen und decodieren" : "Eingebauter SDR-Empfänger (HackRF, RTL-SDR, SDRplay): FM, AM, SSB ohne zweites Programm")
+                    .help(kind == .audio ? "Audio-Eingang vom Funkgerät-Codec oder einer virtuellen Soundkarte" : kind == .file ? "Audiodatei (WAV, AIFF, CAF) abspielen und decodieren" : "Eingebauter SDR-Empfänger (HackRF, RTL-SDR, SDRplay): FM, AM, SSB ohne zweites Programm")
                 }
                 Spacer()
                 if audio.sourceKind != .sdr {
@@ -32,7 +32,7 @@ struct InputPanelView: View {
                 }
             }
 
-            if audio.sourceKind == .live {
+            if audio.sourceKind == .audio {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
                         Text("AUDIOQUELLE / GERÄT")

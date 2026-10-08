@@ -149,6 +149,9 @@ public final class SDRDemodulator {
     private var squelchIsOpen = true
     private var powerAvg = 1e-12
 
+    /// Optionaler Rückruf für unfiltriertes FM-Diskriminator-Audio bei 240 kS/s (z. B. für 57-kHz-RDS-Unterträger)
+    public var onDiscriminator: (@Sendable (UnsafeBufferPointer<Float>, Double) -> Void)?
+
     public init(sampleRate: Double, config: SDRChannelConfig = SDRChannelConfig()) {
         self.sampleRate = sampleRate
         self.config = config
@@ -303,6 +306,9 @@ public final class SDRDemodulator {
         prevI = pi; prevQ = pq
         // Leistung des Kanals (ohne Filter, Näherung)
         updateMeter(i: cI, q: cQ, rate: Self.channelRate)
+        dem.withUnsafeBufferPointer { b in
+            onDiscriminator?(b, Self.channelRate)
+        }
         guard let conv = wfmConv, let lp = wfmLP else { return }
         var a48 = [Float]()
         dem.withUnsafeBufferPointer { b in conv.process(b) { a48.append(contentsOf: $0) } }

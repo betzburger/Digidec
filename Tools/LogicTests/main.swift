@@ -147,7 +147,7 @@ if want("url") {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "KANÄLE", "M17", "PACKET", "PAGER", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "KANÄLE", "M17", "PACKET", "PAGER", "RDS", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr && DecoderModuleInfo.Band.hf.modules.contains(.ndb), "HF-Rubrik A–Z")
 }
 
@@ -10807,6 +10807,133 @@ if want("adsb") {
     let limit = Date().addingTimeInterval(120)
     while !flag.done && Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
     check(flag.done, "Flugzeugdaten: asynchrone Prüfungen fertig")
+}
+
+// MARK: - RDS (Radio Data System, UKW-Rundfunk WFM)
+if want("rds") {
+    // 1. Syndrome und Paritäts-Berechnung (Generatorpolynom g(x) = 0x5B9)
+    let testData: UInt16 = 0xD311 // BR Bayern 3
+    let encA = RDSSyndrome.encodeBlock(data: testData, offset: .a)
+    check((encA >> 10) == UInt32(testData), "RDS: Datenbits in Block A unverändert oben")
+    let decA = RDSSyndrome.decode(word: encA, expected: .a)
+    check(decA?.data == testData && decA?.corrected == 0, "RDS: Syndrom und Offset A fehlerfrei erkannt")
+
+    let encB = RDSSyndrome.encodeBlock(data: 0x0210, offset: .b)
+    let decB = RDSSyndrome.decode(word: encB, expected: .b)
+    check(decB?.data == 0x0210 && decB?.corrected == 0, "RDS: Block B fehlerfrei erkannt")
+
+    let encC = RDSSyndrome.encodeBlock(data: 0x4321, offset: .c)
+    let decC = RDSSyndrome.decode(word: encC, expected: .c)
+    check(decC?.data == 0x4321 && decC?.corrected == 0, "RDS: Block C fehlerfrei erkannt")
+
+    let encD = RDSSyndrome.encodeBlock(data: 0x5678, offset: .d)
+    let decD = RDSSyndrome.decode(word: encD, expected: .d)
+    check(decD?.data == 0x5678 && decD?.corrected == 0, "RDS: Block D fehlerfrei erkannt")
+
+    let encCPrime = RDSSyndrome.encodeBlock(data: 0xABCD, offset: .cPrime)
+    let decCPrime = RDSSyndrome.decode(word: encCPrime, expected: .cPrime)
+    check(decCPrime?.data == 0xABCD && decCPrime?.corrected == 0, "RDS: Block C' fehlerfrei erkannt")
+
+    // Offset-Erkennung ohne Vorwissen
+    let detectedA = RDSSyndrome.detectOffset(word: encA)
+    check(detectedA?.offset == .a && detectedA?.data == testData, "RDS: detectOffset erkennt Offset A")
+    let detectedB = RDSSyndrome.detectOffset(word: encB)
+    check(detectedB?.offset == .b && detectedB?.data == 0x0210, "RDS: detectOffset erkennt Offset B")
+
+    // 2. 1-Bit-Fehlerkorrektur
+    for bit in 0..<26 {
+        let flipped = encA ^ (1 << bit)
+        let repaired = RDSSyndrome.decode(word: flipped, expected: .a)
+        check(repaired?.data == testData && repaired?.corrected == 1, "RDS: 1-Bit-Fehlerkorrektur Bit \(bit)")
+    }
+    // 2-Bit-Fehler wird abgewiesen
+    let twoBitsFlipped = encA ^ 0x03
+    let failed = RDSSyndrome.decode(word: twoBitsFlipped, expected: .a)
+    check(failed == nil, "RDS: 2-Bit-Fehler wird abgewiesen")
+
+    // 3. Gruppe 0A (Programm-Service-Name PS)
+    let g0a = RDSSignalGenerator.makeGroup0A(pi: 0xD311, ps: "BAYERN 3", tp: true, ta: false, pty: 10, afMHz: [98.0, 99.3])
+    check(g0a.count == 4, "RDS: Gruppe 0A hat 4 Segmente für 8 Zeichen")
+    check(g0a[0].pi == 0xD311, "RDS: Gruppe 0A PI-Code")
+    check(g0a[0].tp == true, "RDS: Gruppe 0A TP gesetzt")
+    check(g0a[0].pty == 10, "RDS: Gruppe 0A PTY 10 (Popmusik)")
+    check(RDSPTY.name(for: 10) == "Popmusik", "RDS: PTY-Name für 10 ist Popmusik")
+    check(RDSCountry.name(for: 0xD311) == "Deutschland", "RDS: Länderkennung 0xD ist Deutschland")
+
+    // 4. Gruppe 2A (Radiotext RT)
+    let rtText = "BAYERN 3 - MEHR MUSIK-HITS"
+    let g2a = RDSSignalGenerator.makeGroup2A(pi: 0xD311, text: rtText, tp: true, pty: 10)
+    check(g2a.count == 16, "RDS: Gruppe 2A hat 16 Segmente für 64 Zeichen")
+    check(g2a[0].groupType == 2 && !g2a[0].isVersionB, "RDS: Gruppe 2A Typ")
+
+    // 5. Gruppe 4A (Senderuhr CT)
+    let date = Date(timeIntervalSince1970: 1728388800)
+    let g4a = RDSSignalGenerator.makeGroup4A(pi: 0xD311, date: date, offsetHalfHours: 4)
+    check(g4a.groupType == 4 && !g4a.isVersionB, "RDS: Gruppe 4A Typ")
+
+    // 6. Framer & Stream-Decoder Zusammenbau
+    final class GroupBox: @unchecked Sendable {
+        var groups: [RDSGroup] = []
+        let lock = NSLock()
+        func add(_ g: RDSGroup) { lock.withLock { groups.append(g) } }
+        var count: Int { lock.withLock { groups.count } }
+        var list: [RDSGroup] { lock.withLock { groups } }
+    }
+
+    let streamDec = RDSStreamDecoder()
+    let receivedBox = GroupBox()
+    streamDec.onGroup = { receivedBox.add($0) }
+
+    // Bits aus g0a erzeugen und einspeisen
+    for g in g0a {
+        let words = [
+            RDSSyndrome.encodeBlock(data: g.blockA.data, offset: g.blockA.offset),
+            RDSSyndrome.encodeBlock(data: g.blockB.data, offset: g.blockB.offset),
+            RDSSyndrome.encodeBlock(data: g.blockC.data, offset: g.blockC.offset),
+            RDSSyndrome.encodeBlock(data: g.blockD.data, offset: g.blockD.offset)
+        ]
+        for w in words {
+            for i in (0..<26).reversed() {
+                streamDec.process(bit: Int((w >> i) & 1))
+            }
+        }
+    }
+    check(receivedBox.count == 4, "RDS Stream-Decoder: 4 Gruppen 0A synchron empfangen")
+    check(streamDec.syncState == .synced, "RDS Stream-Decoder: Status SYNCHRONISIERT")
+    if receivedBox.count == 4 {
+        check(receivedBox.list[0].pi == 0xD311, "RDS Stream-Decoder: PI-Code stimmt")
+    }
+
+    // 7. Modul-Controller Test (Zusammensetzen von PS und RT)
+    let rdsSettings = RDSSettingsStore()
+    let rdsCtrl = RDSController(settings: rdsSettings)
+    rdsCtrl.setActive(true)
+    for g in g0a + g2a {
+        for w in [g.blockA, g.blockB, g.blockC, g.blockD] {
+            let enc = RDSSyndrome.encodeBlock(data: w.data, offset: w.offset)
+            for i in (0..<26).reversed() {
+                rdsCtrl.demodulator.streamDecoder.process(bit: Int((enc >> i) & 1))
+            }
+        }
+    }
+    RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    check(rdsCtrl.info.pi == 0xD311, "RDS Controller: PI empfangen (0xD311)")
+    check(rdsCtrl.info.programService == "BAYERN 3", "RDS Controller: PS-Name 'BAYERN 3' korrekt assembliert")
+    check(rdsCtrl.info.radioText == rtText, "RDS Controller: Radiotext korrekt assembliert")
+    check(rdsCtrl.info.tp == true, "RDS Controller: TP Flag aktiv")
+    check(rdsCtrl.info.pty == 10, "RDS Controller: PTY 10")
+    check(rdsCtrl.info.alternativeFrequencies.contains(98.0), "RDS Controller: Alternativfrequenz 98.0 MHz")
+
+    // 8. DSP End-to-End Demodulation
+    var testGroups: [RDSGroup] = []
+    for _ in 0..<8 { testGroups.append(contentsOf: g0a) }
+    let mpx = RDSSignalGenerator.modulate(groups: testGroups)
+    check(!mpx.isEmpty, "RDS Signalgenerator: 240-kS/s-MPX erzeugt")
+    let dspDemod = RDSDemodulator()
+    let dspBox = GroupBox()
+    dspDemod.streamDecoder.onGroup = { dspBox.add($0) }
+    mpx.withUnsafeBufferPointer { b in dspDemod.process(mpx: b) }
+    check(dspDemod.streamDecoder.syncState == .synced || dspBox.count > 0, "RDS DSP Demodulator: Costas + Biphase rastet ein und decodiert")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

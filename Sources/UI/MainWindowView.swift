@@ -57,6 +57,8 @@ public struct MainWindowView: View {
                                 SensorsMainPanel(controller: state.sensorsController, settings: state.sensors)
                             } else if state.activeModule == .dab {
                                 DABMainPanel(controller: state.dabController, settings: state.dab)
+                            } else if state.activeModule == .rds {
+                                RDSPanelView(controller: state.rdsController, settings: state.rds, sdr: state.sdrController)
                             } else if state.activeModule == .vdl2 {
                                 VDL2MainPanel(controller: state.vdl2Controller, settings: state.vdl2)
                             } else if state.activeModule == .vor {
@@ -136,6 +138,8 @@ public struct MainWindowView: View {
                                 TETRAScopePanel(controller: state.tetraController)
                             } else if state.activeModule == .dab {
                                 DABSpectrumPanel(controller: state.dabController, settings: state.dab)
+                            } else if state.activeModule == .rds {
+                                WaterfallView(model: state.waterfall, rtty: state.rds, audio: state.audio)
                             } else if state.activeModule == .vdl2 {
                                 VDL2ScopePanel(controller: state.vdl2Controller)
                             } else if state.activeModule == .vor {
@@ -301,6 +305,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             DABSettingsPanel(controller: state.dabController, settings: state.dab)
                                 .radioCard(title: "DAB")
+                        } else if state.activeModule == .rds {
+                            RDSTuningPanel(controller: state.rdsController, settings: state.rds)
+                                .radioCard(title: "Abstimmanzeige")
+                            RDSSettingsPanel(controller: state.rdsController, settings: state.rds, sdr: state.sdrController)
+                                .radioCard(title: "RDS")
                         } else if state.activeModule == .vdl2 {
                             VDL2TuningPanel(controller: state.vdl2Controller, settings: state.vdl2)
                                 .radioCard(title: "Abstimmanzeige")
@@ -1032,6 +1041,7 @@ private struct StatusBar: View {
         case .sensors: return "SENSOREN · Funksensoren 433,92 und 868,3 MHz · I/Q direkt vom Gerät"
         case .vor: return "VOR/ILS · Peilung und Kennung · AM-Audio 48 kHz (Bandbreite ≥ 25 kHz)"
         case .dab: return "DAB · Digitalradio Band III · 174 bis 240 MHz · COFDM · DAB+ (HE-AAC) · I/Q direkt vom Gerät"
+        case .rds: return "RDS · \(String(format: "%.1f MHz", state.rds.frequencyHz / 1e6).replacingOccurrences(of: ".", with: ",")) · WFM 240 kS/s · 57 kHz Hilfsträger · UKW-Rundfunk (87,5–108 MHz)"
         case .vdl2: return "VDL2 · VDL Mode 2 · 136,725 bis 136,975 MHz · D8PSK 10 500 Bd · I/Q direkt vom Gerät"
         case .freedv: return "FREEDV · digitale Sprache KW · USB · NF 500 bis 2500 Hz"
         case .packet: return packetCurrent

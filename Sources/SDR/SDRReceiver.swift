@@ -101,6 +101,7 @@ public final class SDRSpectrum {
 /// Der Empfänger auf eigenem Faden: nimmt I/Q-Blöcke vom Gerät entgegen, demoduliert sie und liefert Audio, Spektrumzeilen und Messwerte
 public final class SDRReceiverEngine: @unchecked Sendable {
     public typealias AudioHandler = @Sendable (UnsafeBufferPointer<Float>) -> Void
+    public typealias DiscriminatorHandler = @Sendable (UnsafeBufferPointer<Float>, Double) -> Void
 
     public struct Snapshot: Sendable {
         public var metrics = SDRMetrics()
@@ -128,6 +129,7 @@ public final class SDRReceiverEngine: @unchecked Sendable {
     private var demod: SDRDemodulator
     private var spectrum: SDRSpectrum
     private var onAudio: AudioHandler?
+    private var onDiscriminator: DiscriminatorHandler?
     private var channel = SDRChannelConfig()
     private var offsetHz = 0.0
     private var pendingBytes = 0
@@ -147,12 +149,26 @@ public final class SDRReceiverEngine: @unchecked Sendable {
 
     public init(sampleRate: Double = 2_400_000) {
         self.sampleRate = sampleRate
-        demod = SDRDemodulator(sampleRate: sampleRate)
+        let d = SDRDemodulator(sampleRate: sampleRate)
+        demod = d
         spectrum = SDRSpectrum(sampleRate: sampleRate)
+        wireDemodulator(d)
     }
 
     public func setAudioHandler(_ handler: AudioHandler?) {
         lock.withLock { onAudio = handler }
+    }
+
+    public func setDiscriminatorHandler(_ handler: DiscriminatorHandler?) {
+        lock.withLock { onDiscriminator = handler }
+    }
+
+    private func wireDemodulator(_ d: SDRDemodulator) {
+        d.onDiscriminator = { [weak self] buf, rate in
+            guard let self else { return }
+            let handler = self.lock.withLock { self.onDiscriminator }
+            handler?(buf, rate)
+        }
     }
 
     /// Neu aufsetzen (neue Abtastrate oder neuer Strom); Kanal und Abstand bleiben
@@ -161,6 +177,7 @@ public final class SDRReceiverEngine: @unchecked Sendable {
             self.sampleRate = sampleRate
             let d = SDRDemodulator(sampleRate: sampleRate, config: channel)
             d.setOffset(offsetHz)
+            wireDemodulator(d)
             demod = d
             for (_, e) in extras {
                 let nd = SDRDemodulator(sampleRate: sampleRate, config: e.config)

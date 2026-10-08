@@ -16,8 +16,28 @@ public struct RadioTheme {
     public static let ledYellow     = Color(red: 1.00, green: 0.80, blue: 0.00)
 
     public static let textBright    = Color(red: 0.95, green: 0.97, blue: 1.00)
+    public static let textLight     = textBright
     public static let textMuted     = Color(red: 0.60, green: 0.65, blue: 0.75)
     public static let textDim       = Color(red: 0.40, green: 0.45, blue: 0.52)
+}
+
+public struct RadioBox<Content: View>: View {
+    private let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+            .padding(10)
+            .background(RadioTheme.bgCard)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(RadioTheme.borderSubtle, lineWidth: 1)
+            )
+    }
 }
 
 public struct RadioCardModifier: ViewModifier {

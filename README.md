@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.80.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.81.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Was Digidec kann
 
@@ -24,6 +24,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 
 | Modul | Inhalt |
 |---|---|
+| **RDS** | Radio Data System im UKW-Rundfunk (87,5 bis 108,0 MHz, WFM mit 57-kHz-Unterträger): Sendername (PS 8 Zeichen), Radiotext (RT 64 Zeichen mit Verlauf), Programmtyp (PTY nach CENELEC/RBDS), Verkehrsfunk (TP/TA), Musik/Sprache, Senderuhr (CT mit MJD) und Alternativfrequenzen (AF) mit Direktabstimmung. Demoduliert direkt aus dem 240-kS/s-Diskriminator-Audio des SDR-Empfängers mit Costas-Schleife, Biphase-Matched-Filter und Syndrom-Fehlerkorrektur (1 Bit repariert, 2 Bit abgewiesen) |
 | **D-STAR** | Digitale Sprache (DV) im Amateurfunk: Kopf mit Rufzeichen, Gegenstation und Repeater, Textnachricht und GPS-Position aus den Langsamdaten, Verlauf der Aussendungen, später Einstieg ohne Kopf; der Ton kommt aus einem Sprachstick mit DVSI AMBE-3000R (in den Einstellungen wählen), ohne Stick bleibt es bei den Steuerdaten. Braucht das Diskriminator-Audio eines FM-Empfängers (4800 Bd); die DPRS-Positionen der gehörten Stationen erscheinen mit Weg auf der Karte |
 | **YSF** | Yaesu System Fusion (C4FM, Betriebsart V/D 2): Rufzeichen, Ziel und Repeater aus Kopf und Datenkanal, Verlauf der Aussendungen; der Ton kommt aus dem Sprachstick (derselbe wie bei D-STAR), ohne Stick bleibt es bei den Rufzeichen. Braucht das Diskriminator-Audio eines FM-Empfängers (4800 Symbole/s) |
 | **DMR** | Digital Mobile Radio (Repeater mit zwei Zeitschlitzen oder Direktmodus): Gespräche je Zeitschlitz mit Absender, Ziel (Gruppe oder Einzelruf) und Farbcode aus Sprach-Kopf und eingebetteter Information (auch bei spätem Einstieg); auf Wunsch Rufzeichen, Name und Ort aus der DMR-ID-Liste von radioid.net; der Ton eines Zeitschlitzes kommt aus dem Sprachstick (der Chip hat nur einen Kanal). Braucht das Diskriminator-Audio eines FM-Empfängers (4800 Symbole/s); der Talker Alias (Name oder Text, den das Funkgerät mitsendet) wird gelesen |
@@ -92,7 +93,7 @@ Digidec ruft von sich aus nichts im Netz ab, bis auf die Kartenkacheln von Apple
 ## Tests und Werkzeuge
 
 ```bash
-Tools/LogicTests/run_logic_tests.sh      # rund 2500 Prüfungen der Rechenlogik, Exit-Code 0 = bestanden
+Tools/LogicTests/run_logic_tests.sh      # über 3300 Prüfungen der Rechenlogik, Exit-Code 0 = bestanden
 ```
 
 Die Logiktests laufen ohne Audio und ohne Oberfläche (etwa 5 Minuten). Prüfungen, die echte Aufnahmen brauchen, werden übersprungen, wenn `TestData/` fehlt (die Aufnahmen gehören nicht ins Repository).

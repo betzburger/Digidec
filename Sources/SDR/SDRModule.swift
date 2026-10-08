@@ -240,6 +240,10 @@ public final class SDRController: ObservableObject {
     public var onRigState: ((RigState?) -> Void)?
     /// Hat gerade ein Modul mit eigenem I/Q-Eingang das Gerät (dann bleibt der Empfänger zurück)?
     public var shouldYield: (() -> Bool)?
+    /// Rückruf für unfiltriertes FM-Diskriminator-Audio bei 240 kS/s (z. B. für RDS)
+    public var onDiscriminator: SDRReceiverEngine.DiscriminatorHandler? {
+        didSet { engine.setDiscriminatorHandler(onDiscriminator) }
+    }
     /// Aufnahme als Quelle (Entwicklung und Prüfung)
     public var fileOverride: URL?
     public var fileRealtime = true
