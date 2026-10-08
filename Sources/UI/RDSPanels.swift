@@ -332,6 +332,7 @@ public struct RDSPanelView: View {
                         .foregroundColor(RadioTheme.textDim)
                     Spacer(minLength: 0)
                 } else {
+                    // Breite auf den Rest der Karte begrenzen, sonst wächst die Liste über den Rand statt zu scrollen
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 4) {
                             ForEach(info.alternativeFrequencies, id: \.self) { af in
@@ -345,6 +346,7 @@ public struct RDSPanelView: View {
                         }
                         .padding(.vertical, 2)
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .padding(4)
