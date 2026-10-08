@@ -43,6 +43,67 @@ public struct SDRTestSignal {
         }
     }
 
+    /// Frequenzmodulation mit beliebigem Basisband, z. B. dem Multiplexsignal des UKW-Rundfunks. `baseband` liegt mit `basebandRate` vor und wird
+    /// linear auf die Abtastrate des Fensters hochgerechnet; 1,0 entspricht `deviation` Hz Hub.
+    public mutating func addFM(offsetHz: Double, baseband: [Float], basebandRate: Double, deviation: Double, amplitude: Float) {
+        var phase = 0.0
+        let ratio = basebandRate / sampleRate
+        for n in 0..<count {
+            let pos = Double(n) * ratio
+            let k = Int(pos)
+            let x: Double
+            if k + 1 < baseband.count {
+                let f = pos - Double(k)
+                x = Double(baseband[k]) * (1 - f) + Double(baseband[k + 1]) * f
+            } else {
+                x = k < baseband.count ? Double(baseband[k]) : 0
+            }
+            phase += 2 * Double.pi * (offsetHz + deviation * x) / sampleRate
+            if phase > 2 * Double.pi { phase -= 2 * Double.pi }
+            i[n] += amplitude * Float(cos(phase))
+            q[n] += amplitude * Float(sin(phase))
+        }
+    }
+
+    /// Oberes Seitenband: ein NF-Signal (z. B. RTTY-Töne) wird als USB-Aussendung mit dem unterdrückten Träger bei `offsetHz` (Dial) in das Fenster gelegt.
+    /// Mit `lower` das untere Seitenband. `amplitude` ist die Spitze des Hüllkurvenwertes bei NF-Amplitude 1.
+    public mutating func addSSB(offsetHz: Double, audio: [Float], audioRate: Double, amplitude: Float, lower: Bool = false) {
+        // Hilbert-Transformation mit einem Fenster-FIR (ungerade Länge, Hamming)
+        let taps = 255, mid = taps / 2
+        var h = [Double](repeating: 0, count: taps)
+        for k in 0..<taps where (k - mid) % 2 != 0 {
+            let n = Double(k - mid)
+            h[k] = 2 / (Double.pi * n) * (0.54 + 0.46 * cos(Double.pi * n / Double(mid + 1)))
+        }
+        let count = audio.count
+        var analytic = [(Double, Double)](repeating: (0, 0), count: count)
+        for n in 0..<count {
+            var q = 0.0
+            for k in 0..<taps where h[k] != 0 {
+                let j = n + mid - k
+                if j >= 0 && j < count { q += Double(audio[j]) * h[k] }
+            }
+            analytic[n] = (Double(audio[n]), lower ? -q : q)
+        }
+        var phase = 0.0
+        let step = 2 * Double.pi * offsetHz / sampleRate
+        let ratio = audioRate / sampleRate
+        for m in 0..<self.count {
+            let pos = Double(m) * ratio
+            let k = Int(pos)
+            if k + 1 < count {
+                let f = pos - Double(k)
+                let re = analytic[k].0 * (1 - f) + analytic[k + 1].0 * f
+                let im = analytic[k].1 * (1 - f) + analytic[k + 1].1 * f
+                let c = cos(phase), sn = sin(phase)
+                i[m] += amplitude * Float(re * c - im * sn)
+                q[m] += amplitude * Float(re * sn + im * c)
+            }
+            phase += step
+            if phase > 2 * Double.pi { phase -= 2 * Double.pi }
+        }
+    }
+
     /// Amplitudenmodulation mit einem Ton (Träger mit Modulationsgrad `depth`)
     public mutating func addAM(offsetHz: Double, tone: Double, depth: Double, amplitude: Float) {
         var phase = 0.0

@@ -138,9 +138,9 @@ public final class ScheduleAutoRecorder: ObservableObject {
             break
         case .begin:
             guard let due else { return }
-            guard state.audio.sourceKind == .live else {
+            guard state.audio.sourceKind == .audio else {
                 handled.insert(due.key)
-                note = "Geplante Aufnahme übersprungen: es läuft keine Live-Quelle"
+                note = "Geplante Aufnahme übersprungen: es läuft keine Audio-Quelle"
                 return
             }
             begin(due, previous: state.activeModule)

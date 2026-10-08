@@ -41,8 +41,12 @@ public final class RTTYSettingsStore: ObservableObject {
         static let dwdFrequency = "rttyDwdFrequencyHz"
     }
 
-    public init() {
-        let d = UserDefaults.standard
+    /// Einstellungen; `defaults` ist beim Mehrkanalbetrieb ein eigener Speicher je Kanal, damit ein Kanal die Einstellungen des Moduls nicht verändert
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let d = defaults
         presetID = d.string(forKey: Keys.preset).flatMap { RTTYPreset.preset(id: $0)?.id } ?? "ham"
         customParameters = d.data(forKey: Keys.custom).flatMap { try? JSONDecoder().decode(RTTYParameters.self, from: $0) }
             ?? RTTYPreset.preset(id: "custom")!.parameters
@@ -120,7 +124,7 @@ public final class RTTYSettingsStore: ObservableObject {
     public func selectDWDFrequency(_ hz: Double?, presetID id: String) {
         guard id == "dwd-kw" || id == "dwd-lw" else { return }
         dwdFrequencyHz[id] = hz
-        UserDefaults.standard.set(dwdFrequencyHz, forKey: Keys.dwdFrequency)
+        defaults.set(dwdFrequencyHz, forKey: Keys.dwdFrequency)
     }
 
     /// Gewählte DWD-Frequenz des aktuellen Presets (nil = Automatik oder kein DWD-Preset)
@@ -175,7 +179,7 @@ public final class RTTYSettingsStore: ObservableObject {
     }
 
     private func save() {
-        let d = UserDefaults.standard
+        let d = defaults
         d.set(presetID, forKey: Keys.preset)
         d.set(centerHz, forKey: Keys.center)
         d.set(reverseByPreset, forKey: Keys.reverse)

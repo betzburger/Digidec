@@ -124,7 +124,11 @@ enum SnapshotHelper {
         let wanted = ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_WINDOW"]
         guard let window = NSApplication.shared.windows.first(where: { $0.contentView != nil && $0.canBecomeMain && (wanted == nil || $0.title == wanted) }) else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
-        if wanted == nil { window.setContentSize(NSSize(width: 1400, height: 900)) }
+        if wanted == nil {
+            // DIGIDEC_SNAPSHOT_SIZE=1920x1080 prüft das Layout in der Größe, die jeder Bildschirm hergibt
+            let size = (ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_SIZE"] ?? "").split(separator: "x").compactMap { Double($0) }
+            window.setContentSize(size.count == 2 ? NSSize(width: size[0], height: size[1]) : NSSize(width: 1400, height: 900))
+        }
         window.orderFrontRegardless()
         let id = CGWindowID(window.windowNumber)
         if let img = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]), img.width > 1000 {

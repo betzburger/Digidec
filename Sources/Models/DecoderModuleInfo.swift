@@ -46,6 +46,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case efr
     case sstv
     case channels
+    case rds
 
     public var id: String { rawValue }
 
@@ -98,7 +99,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dcf77:  return "DCF77"
         case .efr:    return "EFR"
         case .sstv:   return "SSTV"
-        case .channels: return "KANÄLE"
+        case .channels: return "MEHRKANAL"
+        case .rds:      return "RDS"
         }
     }
 
@@ -123,17 +125,20 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
             }
         }
 
-        /// Module dieses Bereichs, nach Namen A–Z (Umlaute wie ihr Grundbuchstabe)
+        /// Module dieses Bereichs, nach Namen A–Z (Umlaute wie ihr Grundbuchstabe); das Mehrkanal-Modul steht in keinem Bereich, es deckt beide ab
         public var modules: [DecoderModuleInfo] {
             DecoderModuleInfo.allCases
-                .filter { $0.band == self }
+                .filter { $0.band == self && !$0.coversAllBands }
                 .sorted { $0.displayName.compare($1.displayName, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }
         }
     }
 
+    /// Das Modul gehört zu keinem Bereich allein: MEHRKANAL arbeitet im ganzen Fenster des SDR, von Langwelle bis UHF
+    public var coversAllBands: Bool { self == .channels }
+
     public var band: Band {
         switch self {
-        case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .tetra, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf, .dab, .channels: return .vhfUhf
+        case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .tetra, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf, .dab, .channels, .rds: return .vhfUhf
         case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv: return .hf
         }
     }
@@ -141,14 +146,14 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     /// Hat das Modul eine Kartenanzeige? (Ohne Ortsdaten nicht: Bilder, Funkruf, Tonfolgen, ALE)
     public var hasMap: Bool {
         switch self {
-        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .vor, .freedv, .dab, .channels: return false
+        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .vor, .freedv, .dab, .channels, .rds: return false
         default: return true
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv, .channels: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .dcf77, .efr, .sstv, .channels, .rds: return true
         }
     }
 
@@ -200,6 +205,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .efr: return ["dcf49", "dcf39", "hga22", "custom"]
         case .sstv: return ["20m", "40m", "80m", "10m", "iss", "2m", "custom"]
         case .channels: return ["bank"]
+        case .rds: return ["98.0", "87.6", "89.5", "90.9", "92.4", "94.4", "96.0", "99.3", "100.6", "102.0", "104.0", "105.7", "107.9"]
         }
     }
 }

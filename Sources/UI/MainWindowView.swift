@@ -57,6 +57,8 @@ public struct MainWindowView: View {
                                 SensorsMainPanel(controller: state.sensorsController, settings: state.sensors)
                             } else if state.activeModule == .dab {
                                 DABMainPanel(controller: state.dabController, settings: state.dab)
+                            } else if state.activeModule == .rds {
+                                RDSPanelView(controller: state.rdsController, settings: state.rds, sdr: state.sdrController)
                             } else if state.activeModule == .vdl2 {
                                 VDL2MainPanel(controller: state.vdl2Controller, settings: state.vdl2)
                             } else if state.activeModule == .vor {
@@ -102,6 +104,7 @@ public struct MainWindowView: View {
         ZStack {
             RadioTheme.bgPanel.ignoresSafeArea()
 
+            HStack(spacing: 0) {
             VStack(spacing: 10) {
                 HeaderBar(state: state)
                 ModuleBar(state: state)
@@ -136,6 +139,8 @@ public struct MainWindowView: View {
                                 TETRAScopePanel(controller: state.tetraController)
                             } else if state.activeModule == .dab {
                                 DABSpectrumPanel(controller: state.dabController, settings: state.dab)
+                            } else if state.activeModule == .rds {
+                                WaterfallView(model: state.waterfall, rtty: state.rds, audio: state.audio)
                             } else if state.activeModule == .vdl2 {
                                 VDL2ScopePanel(controller: state.vdl2Controller)
                             } else if state.activeModule == .vor {
@@ -211,7 +216,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Kanäle" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -295,12 +300,17 @@ public struct MainWindowView: View {
                                 .radioCard(title: "TETRA")
                         } else if state.activeModule == .channels {
                             ChannelsSettingsPanel(bank: state.sdrController.bank, settings: state.sdr, controller: state.sdrController)
-                                .radioCard(title: "KANÄLE")
+                                .radioCard(title: "MEHRKANAL")
                         } else if state.activeModule == .dab {
                             DABTuningPanel(controller: state.dabController)
                                 .radioCard(title: "Abstimmanzeige")
                             DABSettingsPanel(controller: state.dabController, settings: state.dab)
                                 .radioCard(title: "DAB")
+                        } else if state.activeModule == .rds {
+                            RDSTuningPanel(controller: state.rdsController, settings: state.rds)
+                                .radioCard(title: "Abstimmanzeige")
+                            RDSSettingsPanel(controller: state.rdsController, settings: state.rds, sdr: state.sdrController)
+                                .radioCard(title: "RDS")
                         } else if state.activeModule == .vdl2 {
                             VDL2TuningPanel(controller: state.vdl2Controller, settings: state.vdl2)
                                 .radioCard(title: "Abstimmanzeige")
@@ -459,6 +469,9 @@ public struct MainWindowView: View {
                 StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
+            PropagationRuler(service: state.propagation, home: state.home, sdr: state.sdrController, settings: state.sdr)
+                .ignoresSafeArea()
+            }
         }
         .frame(minWidth: 1060, minHeight: 730)
         .task {
@@ -737,13 +750,50 @@ private struct UTCClock: View {
 private struct ModuleBar: View {
     @ObservedObject var state: DigidecState
 
+    /// Breite des Mehrkanal-Knopfes: etwa zwei gewöhnliche Knöpfe
+    private static let multiWidth: CGFloat = 132
+    private static let labelWidth: CGFloat = 52
+
     var body: some View {
+        // Die Rubriken reservieren links Platz für den Mehrkanal-Knopf; er liegt als Überlagerung darüber und hat damit genau die Höhe der Zeilen:
+        // vom oberen Rand des ersten bis zum unteren Rand des letzten Knopfes
         VStack(spacing: 6) {
             ForEach(DecoderModuleInfo.Band.allCases) { band in
                 bandRow(band)
             }
         }
+        .overlay(alignment: .topLeading) {
+            multiButton
+                .padding(.leading, 11 + Self.labelWidth + 8)
+        }
         .padding(.horizontal, 14)
+    }
+
+    /// Ein Knopf für beide Rubriken: Rand von Bernstein (HF) nach Grün (VHF/UHF)
+    private var multiButton: some View {
+        let module = DecoderModuleInfo.channels
+        let selected = state.activeModule == module
+        return Button { state.select(module: module) } label: {
+            VStack(spacing: 3) {
+                Text(module.displayName)
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                Text("HF + VHF/UHF")
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .opacity(0.75)
+            }
+            .frame(width: Self.multiWidth)
+            .frame(maxHeight: .infinity)
+            .foregroundColor(selected ? RadioTheme.vfdCyan : RadioTheme.textMuted)
+            .background(selected ? RadioTheme.vfdCyan.opacity(0.2) : RadioTheme.bgPanel)
+            .cornerRadius(5)
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(LinearGradient(colors: [RadioTheme.vfdAmber, RadioTheme.vfdGreen], startPoint: .top, endPoint: .bottom), lineWidth: selected ? 2 : 1.4)
+            )
+            .shadow(color: selected ? RadioTheme.vfdCyan.opacity(0.3) : .clear, radius: 4)
+        }
+        .buttonStyle(.plain)
+        .help("MEHRKANAL · mehrere Decoder zugleich aus einem Fenster des SDR, auf Kurzwelle wie auf UKW")
     }
 
     /// Eine Rubrik: farbige Leiste links, Kürzel des Bereichs, dann die Module A–Z
@@ -754,9 +804,11 @@ private struct ModuleBar: View {
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(color)
                 .tracking(0.8)
-                .frame(width: 52, alignment: .leading)
+                .frame(width: Self.labelWidth, alignment: .leading)
                 .padding(.top, 8)
                 .help(band.detail)
+            // Platz für den Mehrkanal-Knopf
+            Color.clear.frame(width: Self.multiWidth, height: 1)
             ModuleFlowLayout(spacing: 6, lineSpacing: 6) {
                 ForEach(band.modules) { module in
                     Button(module.displayName) {
@@ -1012,7 +1064,7 @@ private struct StatusBar: View {
 
     private var currentLine: String {
         switch state.activeModule {
-        case .channels: return "KANÄLE · \(state.sdrController.bank.slots.filter(\.enabled).count) Decoder zugleich aus einem Fenster des SDR"
+        case .channels: return "MEHRKANAL · \(state.sdrController.bank.slots.filter(\.enabled).count) Decoder zugleich aus einem Fenster des SDR"
         case .navtex: return navtexCurrent
         case .cw: return cwCurrent
         case .psk: return pskCurrent
@@ -1032,6 +1084,7 @@ private struct StatusBar: View {
         case .sensors: return "SENSOREN · Funksensoren 433,92 und 868,3 MHz · I/Q direkt vom Gerät"
         case .vor: return "VOR/ILS · Peilung und Kennung · AM-Audio 48 kHz (Bandbreite ≥ 25 kHz)"
         case .dab: return "DAB · Digitalradio Band III · 174 bis 240 MHz · COFDM · DAB+ (HE-AAC) · I/Q direkt vom Gerät"
+        case .rds: return "RDS · \(String(format: "%.1f MHz", state.rds.frequencyHz / 1e6).replacingOccurrences(of: ".", with: ",")) · WFM 230 kHz · Stereo · 57 kHz RDS-Unterträger · UKW-Rundfunk (87,5–108 MHz)"
         case .vdl2: return "VDL2 · VDL Mode 2 · 136,725 bis 136,975 MHz · D8PSK 10 500 Bd · I/Q direkt vom Gerät"
         case .freedv: return "FREEDV · digitale Sprache KW · USB · NF 500 bis 2500 Hz"
         case .packet: return packetCurrent

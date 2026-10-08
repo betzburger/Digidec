@@ -70,8 +70,12 @@ public final class WefaxSettingsStore: ObservableObject {
     /// Kehrlage laut Funkgerät (rigctld): WEFAX braucht USB
     @Published public var rigIsLSB: Bool?
 
-    public init() {
-        let d = UserDefaults.standard
+    /// Einstellungen; `defaults` ist beim Mehrkanalbetrieb ein eigener Speicher je Kanal, damit ein Kanal die Einstellungen des Moduls nicht verändert
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let d = defaults
         station = d.string(forKey: "wefaxStation").flatMap(WefaxStation.init(rawValue:)) ?? .dwd7880
         options = d.data(forKey: "wefaxOptions").flatMap { try? JSONDecoder().decode(FldigiWefaxCore.Options.self, from: $0) }
             ?? Self.defaults(for: .dwd7880)
@@ -95,7 +99,7 @@ public final class WefaxSettingsStore: ObservableObject {
     }
 
     private func save() {
-        let d = UserDefaults.standard
+        let d = defaults
         d.set(station.rawValue, forKey: "wefaxStation")
         if let data = try? JSONEncoder().encode(options) { d.set(data, forKey: "wefaxOptions") }
     }

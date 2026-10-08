@@ -25,11 +25,12 @@ public final class LevelModel: ObservableObject {
 }
 
 public enum AudioSourceKind: String, CaseIterable, Identifiable, Sendable {
-    case live, file, sdr
+    case audio, file, sdr
+    public static let live: AudioSourceKind = .audio
     public var id: String { rawValue }
     public var label: String {
         switch self {
-        case .live: return "LIVE"
+        case .audio: return "AUDIO"
         case .file: return "DATEI"
         case .sdr: return "SDR"
         }
@@ -56,7 +57,7 @@ public final class AudioInputManager: ObservableObject {
             UserDefaults.standard.set(channelMode.rawValue, forKey: Keys.channelMode)
         }
     }
-    @Published public private(set) var sourceKind: AudioSourceKind = .live
+    @Published public private(set) var sourceKind: AudioSourceKind = .audio
     @Published public private(set) var isRunning = false
     @Published public private(set) var statusText = "Audio-Eingang aus"
     @Published public private(set) var statusIsWarning = false
@@ -130,7 +131,7 @@ public final class AudioInputManager: ObservableObject {
         stopFile()
         fileSource = nil
         fileName = nil
-        sourceKind = .live
+        sourceKind = .audio
         selection = savedSelection
         uidHint = nil
         resolveAndStart(force: true)
@@ -151,7 +152,7 @@ public final class AudioInputManager: ObservableObject {
         stopFile()
         fileSource = nil
         fileName = nil
-        sourceKind = .live
+        sourceKind = .audio
         resolveAndStart(force: false)
     }
 
@@ -170,7 +171,7 @@ public final class AudioInputManager: ObservableObject {
         stopFile()
         fileSource = nil
         fileName = nil
-        sourceKind = .live
+        sourceKind = .audio
         selection = newSelection
         uidHint = nil
         resolveAndStart(force: false)
@@ -189,7 +190,7 @@ public final class AudioInputManager: ObservableObject {
     /// Gerät zur aktuellen Wahl bestimmen und die Aufnahme (neu) starten, wenn es sich geändert hat.
     /// Wird auch bei jedem An- und Abstecken aufgerufen: So wird ein Funkgerät an einem anderen USB-Port wiedergefunden.
     private func resolveAndStart(force: Bool) {
-        guard sourceKind == .live else { return }
+        guard sourceKind == .audio else { return }
         refreshDevices()
         let resolved = AudioDeviceSelection.resolve(selection, uidHint: uidHint, devices: devices, ports: ports)
         // Ein Hinweis, der nicht (mehr) passt, darf die Hub-Suche nicht dauerhaft übersteuern
@@ -226,7 +227,7 @@ public final class AudioInputManager: ObservableObject {
         setStatus("Starte \(input.displayName) …", warning: false)
         capture.start(deviceUID: uid) { [weak self] result in
             Task { @MainActor in
-                guard let self, self.captureUID == uid, self.sourceKind == .live else { return }
+                guard let self, self.captureUID == uid, self.sourceKind == .audio else { return }
                 switch result {
                 case .success:
                     self.isRunning = true
@@ -328,14 +329,19 @@ public final class AudioInputManager: ObservableObject {
         }
     }
 
-    /// Zurück zum Live-Eingang mit der zuletzt gültigen Wahl.
-    public func switchToLive() {
+    /// Zurück zum Audio-Eingang mit der zuletzt gültigen Wahl.
+    public func switchToAudio() {
         leaveSDR()
         stopFile()
         fileSource = nil
         fileName = nil
-        sourceKind = .live
+        sourceKind = .audio
         resolveAndStart(force: true)
+    }
+
+    /// Abwärtskompatibler Alias für switchToAudio().
+    public func switchToLive() {
+        switchToAudio()
     }
 
     public func cleanup() {
@@ -366,7 +372,7 @@ public final class AudioInputManager: ObservableObject {
     }
 
     private func devicesChanged() {
-        guard sourceKind == .live else {
+        guard sourceKind == .audio else {
             refreshDevices()
             return
         }

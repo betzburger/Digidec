@@ -125,8 +125,12 @@ public final class SSTVSettingsStore: ObservableObject {
     @Published public var rigIsLSB: Bool?
     @Published public var rigDialHz: Int?
 
-    public init() {
-        let d = UserDefaults.standard
+    /// Einstellungen; `defaults` ist beim Mehrkanalbetrieb ein eigener Speicher je Kanal, damit ein Kanal die Einstellungen des Moduls nicht verändert
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let d = defaults
         channel = d.string(forKey: "sstvChannel").flatMap(SSTVChannel.init(rawValue:)) ?? .twenty
         if let modeRaw = d.string(forKey: "sstvManualMode"), let m = SSTVMode(rawValue: modeRaw) {
             manualMode = m
@@ -148,7 +152,7 @@ public final class SSTVSettingsStore: ObservableObject {
     }
 
     private func save() {
-        let d = UserDefaults.standard
+        let d = defaults
         d.set(channel.rawValue, forKey: "sstvChannel")
         d.set(manualMode?.rawValue, forKey: "sstvManualMode")
         d.set(autoSync, forKey: "sstvAutoSync")

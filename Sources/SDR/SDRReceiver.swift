@@ -5,17 +5,19 @@ import Accelerate
 
 /// Leistungsspektrum des I/Q-Fensters für den HF-Wasserfall: Blöcke zu 4096 Punkten (Hann-Fenster), über 40 ms gemittelt, Mitte = Fenstermitte
 public final class SDRSpectrum {
+    /// Punkte der FFT bei Abtastraten bis 5 MS/s; darüber 16384 (gleiche Auflösung von etwa 600 Hz je Bin, schmale Träger bleiben im Rauschen sichtbar)
     public static let size = 4096
     public static let rowsPerSecond = 25.0
 
     private let sampleRate: Double
-    private let log2n = vDSP_Length(12)
+    public let bins: Int
+    private let log2n: vDSP_Length
     private let setup: FFTSetup
-    private var window = [Float](repeating: 0, count: SDRSpectrum.size)
-    private var re = [Float](repeating: 0, count: SDRSpectrum.size)
-    private var im = [Float](repeating: 0, count: SDRSpectrum.size)
-    private var power = [Float](repeating: 0, count: SDRSpectrum.size)
-    private var acc = [Float](repeating: 0, count: SDRSpectrum.size)
+    private var window: [Float]
+    private var re: [Float]
+    private var im: [Float]
+    private var power: [Float]
+    private var acc: [Float]
     private var accBlocks = 0
     private var fill = 0
     private var inRow = 0
@@ -23,16 +25,20 @@ public final class SDRSpectrum {
 
     public init(sampleRate: Double) {
         self.sampleRate = sampleRate
+        bins = sampleRate > 5_000_000 ? 16_384 : Self.size
+        log2n = bins == Self.size ? 12 : 14
+        window = [Float](repeating: 0, count: bins)
+        re = window; im = window; power = window; acc = window
         rowLength = Int(sampleRate / Self.rowsPerSecond)
         setup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2))!
-        vDSP_hann_window(&window, vDSP_Length(Self.size), Int32(vDSP_HANN_NORM))
+        vDSP_hann_window(&window, vDSP_Length(bins), Int32(vDSP_HANN_NORM))
     }
 
     deinit { vDSP_destroy_fftsetup(setup) }
 
     /// Rohdaten (8 Bit I/Q) aufnehmen; fertige Zeilen (dB zur Vollaussteuerung, −Fs/2 … +Fs/2) werden angehängt
     public func consume(_ bytes: UnsafeBufferPointer<UInt8>, rows: inout [[Float]]) {
-        let n = Self.size
+        let n = bins
         let pairs = bytes.count / 2
         var k = 0
         while k < pairs {
@@ -56,7 +62,7 @@ public final class SDRSpectrum {
     }
 
     private func accumulateBlock() {
-        let n = Self.size
+        let n = bins
         window.withUnsafeBufferPointer { w in
             re.withUnsafeMutableBufferPointer { r in vDSP_vmul(r.baseAddress!, 1, w.baseAddress!, 1, r.baseAddress!, 1, vDSP_Length(n)) }
             im.withUnsafeMutableBufferPointer { i in vDSP_vmul(i.baseAddress!, 1, w.baseAddress!, 1, i.baseAddress!, 1, vDSP_Length(n)) }
@@ -73,7 +79,7 @@ public final class SDRSpectrum {
     }
 
     private func finishRow() -> [Float] {
-        let n = Self.size
+        let n = bins
         var scale = 1 / Float(accBlocks) / Float(n) / Float(n)      // |X|² / N² (Fenster mit Summe N)
         var mean = [Float](repeating: 0, count: n)
         vDSP_vsmul(acc, 1, &scale, &mean, 1, vDSP_Length(n))
@@ -94,13 +100,16 @@ public final class SDRSpectrum {
 
     public func reset() {
         fill = 0; inRow = 0; accBlocks = 0
-        acc = [Float](repeating: 0, count: Self.size)
+        acc = [Float](repeating: 0, count: bins)
     }
 }
 
 /// Der Empfänger auf eigenem Faden: nimmt I/Q-Blöcke vom Gerät entgegen, demoduliert sie und liefert Audio, Spektrumzeilen und Messwerte
 public final class SDRReceiverEngine: @unchecked Sendable {
     public typealias AudioHandler = @Sendable (UnsafeBufferPointer<Float>) -> Void
+    public typealias DiscriminatorHandler = @Sendable (UnsafeBufferPointer<Float>, Double) -> Void
+    /// Verschachtelte Stereo-Abtastwerte (L, R) mit 48 kS/s
+    public typealias StereoHandler = @Sendable (UnsafeBufferPointer<Float>) -> Void
 
     public struct Snapshot: Sendable {
         public var metrics = SDRMetrics()
@@ -128,6 +137,8 @@ public final class SDRReceiverEngine: @unchecked Sendable {
     private var demod: SDRDemodulator
     private var spectrum: SDRSpectrum
     private var onAudio: AudioHandler?
+    private var onDiscriminator: DiscriminatorHandler?
+    private var onStereo: StereoHandler?
     private var channel = SDRChannelConfig()
     private var offsetHz = 0.0
     private var pendingBytes = 0
@@ -138,6 +149,7 @@ public final class SDRReceiverEngine: @unchecked Sendable {
     private var clipped = 0, total = 0
     private var audioSamples = 0
     private var audioScratch: [Float] = []
+    private var stereoScratch: [Float] = []
     // Kanalbank (nur auf `queue` verändert; Messwerte über `lock` weitergegeben)
     private var extras: [Int: ExtraChannel] = [:]
     private var primaryEnabled = true
@@ -147,12 +159,31 @@ public final class SDRReceiverEngine: @unchecked Sendable {
 
     public init(sampleRate: Double = 2_400_000) {
         self.sampleRate = sampleRate
-        demod = SDRDemodulator(sampleRate: sampleRate)
+        let d = SDRDemodulator(sampleRate: sampleRate)
+        demod = d
         spectrum = SDRSpectrum(sampleRate: sampleRate)
+        wireDemodulator(d)
     }
 
     public func setAudioHandler(_ handler: AudioHandler?) {
         lock.withLock { onAudio = handler }
+    }
+
+    public func setDiscriminatorHandler(_ handler: DiscriminatorHandler?) {
+        lock.withLock { onDiscriminator = handler }
+    }
+
+    /// Stereo-Audio des Hörkanals (Mithören); UKW-Rundfunk liefert echtes Stereo, alle anderen Betriebsarten Mono auf beiden Kanälen
+    public func setStereoHandler(_ handler: StereoHandler?) {
+        lock.withLock { onStereo = handler }
+    }
+
+    private func wireDemodulator(_ d: SDRDemodulator) {
+        d.onDiscriminator = { [weak self] buf, rate in
+            guard let self else { return }
+            let handler = self.lock.withLock { self.onDiscriminator }
+            handler?(buf, rate)
+        }
     }
 
     /// Neu aufsetzen (neue Abtastrate oder neuer Strom); Kanal und Abstand bleiben
@@ -161,6 +192,7 @@ public final class SDRReceiverEngine: @unchecked Sendable {
             self.sampleRate = sampleRate
             let d = SDRDemodulator(sampleRate: sampleRate, config: channel)
             d.setOffset(offsetHz)
+            wireDemodulator(d)
             demod = d
             for (_, e) in extras {
                 let nd = SDRDemodulator(sampleRate: sampleRate, config: e.config)
@@ -259,7 +291,11 @@ public final class SDRReceiverEngine: @unchecked Sendable {
             var newRows: [[Float]] = []
             spectrum.consume(buf, rows: &newRows)
             audioScratch.removeAll(keepingCapacity: true)
+            let stereoHandler = lock.withLock { onStereo }
+            demod.produceStereo = stereoHandler != nil
+            demod.stereoOut.removeAll(keepingCapacity: true)
             if primaryEnabled { demod.process(buf, audio: &audioScratch) }
+            swap(&stereoScratch, &demod.stereoOut)
             // Kanalbank: jeder Kanal rechnet für sich, mehrere zugleich auf allen Kernen
             if !extras.isEmpty {
                 let list = Array(extras.values)
@@ -286,6 +322,9 @@ public final class SDRReceiverEngine: @unchecked Sendable {
             }
             if let handler, !audioScratch.isEmpty {
                 audioScratch.withUnsafeBufferPointer { handler($0) }
+            }
+            if let stereoHandler, !stereoScratch.isEmpty {
+                stereoScratch.withUnsafeBufferPointer { stereoHandler($0) }
             }
         }
     }

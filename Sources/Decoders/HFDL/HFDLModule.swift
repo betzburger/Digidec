@@ -81,16 +81,20 @@ public enum HFDLChannels {
 @MainActor
 public final class HFDLSettingsStore: ObservableObject {
     /// Zugewiesene Frequenz des Kanals in kHz (Dial im USB; das Signal liegt bei 1440 Hz im NF)
-    @Published public var frequencyKHz: Double { didSet { UserDefaults.standard.set(frequencyKHz, forKey: "hfdlFrequencyKHz") } }
+    @Published public var frequencyKHz: Double { didSet { defaults.set(frequencyKHz, forKey: "hfdlFrequencyKHz") } }
     /// Meldungen vom Boden zum Flugzeug zeigen
-    @Published public var showUplink: Bool { didSet { UserDefaults.standard.set(showUplink, forKey: "hfdlUplink") } }
+    @Published public var showUplink: Bool { didSet { defaults.set(showUplink, forKey: "hfdlUplink") } }
     /// Squitter (Kennung der Bodenstationen, alle 32 s) in der Liste zeigen
-    @Published public var showSquitters: Bool { didSet { UserDefaults.standard.set(showSquitters, forKey: "hfdlSquitters") } }
+    @Published public var showSquitters: Bool { didSet { defaults.set(showSquitters, forKey: "hfdlSquitters") } }
     /// Nur Meldungen mit Inhalt (ACARS, Ort) zeigen, keine Anmeldungen und Quittungen
-    @Published public var onlyContent: Bool { didSet { UserDefaults.standard.set(onlyContent, forKey: "hfdlOnlyContent") } }
+    @Published public var onlyContent: Bool { didSet { defaults.set(onlyContent, forKey: "hfdlOnlyContent") } }
 
-    public init() {
-        let d = UserDefaults.standard
+    /// Einstellungen; `defaults` ist beim Mehrkanalbetrieb ein eigener Speicher je Kanal, damit ein Kanal die Einstellungen des Moduls nicht verändert
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let d = defaults
         let f = d.double(forKey: "hfdlFrequencyKHz")
         frequencyKHz = f > 0 && HFDLStations.channels.contains(where: { abs($0.kHz - f) < 0.5 }) ? f : HFDLChannels.defaultKHz
         showUplink = d.object(forKey: "hfdlUplink") as? Bool ?? true

@@ -75,6 +75,11 @@ public final class SampleRateConverter {
     /// Feste Verzögerung in Ausgabesamples
     public var latencyOutputSamples: Double { Double(halfTaps) / step }
 
+    public func reset() {
+        history = [Float](repeating: 0, count: halfTaps - 1)
+        position = Double(halfTaps - 1)
+    }
+
     /// Wandelt einen Block; `output` wird mit dem Ergebnis aufgerufen (entfällt, wenn noch kein Sample fällig ist).
     public func process(_ input: UnsafeBufferPointer<Float>, output: (UnsafeBufferPointer<Float>) -> Void) {
         guard !input.isEmpty else { return }

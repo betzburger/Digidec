@@ -54,11 +54,19 @@ public final class SynopDecoder {
 
     // MARK: - Stationslisten
 
-    /// Stationslisten laden (einmal je Programmlauf, dauert einige Zehntelsekunden)
+    private static let loadLock = NSLock()
+    nonisolated(unsafe) private static var stationsLoaded = false
+
+    /// Stationslisten laden (einmal je Programmlauf, dauert einige Zehntelsekunden). Die Liste ist ein Zustand des C++-Kerns:
+    /// mehrere RTTY-Decoder (Modul und Mehrkanal-Kanäle) laden sie nacheinander, nicht gleichzeitig, und nur das erste Mal.
     @discardableResult
     public static func loadStations(from directory: URL? = stationDirectory) -> Bool {
+        loadLock.lock()
+        defer { loadLock.unlock() }
+        if stationsLoaded { return true }
         guard let dir = directory else { return false }
-        return fldigi_synop_load_stations(dir.path + "/") == 1
+        stationsLoaded = fldigi_synop_load_stations(dir.path + "/") == 1
+        return stationsLoaded
     }
 
     /// `Contents/Resources/Stations` im App-Bundle, sonst `Resources/Stations` im Projektordner (Tests, Werkzeuge)
