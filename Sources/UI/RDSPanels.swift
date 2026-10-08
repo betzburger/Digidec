@@ -19,34 +19,37 @@ public struct RDSPanelView: View {
     private var info: RDSInfo { controller.info }
 
     public var body: some View {
-        VStack(spacing: 8) {
-            // Kopfbereich: Station & Frequenz
-            stationHeaderCard
+        // Vertikal scrollbar: Wächst der Inhalt mit den empfangenen Daten (RT+, AF, Warnungen), bleibt das Fenster trotzdem im Bildschirm
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 8) {
+                // Kopfbereich: Station & Frequenz
+                stationHeaderCard
 
-            // Hauptbereich: Radiotext, Details & Statistik
-            HStack(alignment: .top, spacing: 8) {
-                // Linke Spalte: Radiotext & Historie
-                VStack(spacing: 8) {
-                    radioTextCard
-                    radioTextHistoryCard
-                }
-                .frame(maxWidth: .infinity)
+                // Hauptbereich: Radiotext, Details & Statistik
+                HStack(alignment: .top, spacing: 8) {
+                    // Linke Spalte: Radiotext & Historie
+                    VStack(spacing: 8) {
+                        radioTextCard
+                        radioTextHistoryCard
+                    }
+                    .frame(maxWidth: .infinity)
 
-                // Rechte Spalte: Details & Statistik
-                VStack(spacing: 8) {
-                    detailsCard
-                    statsCard
+                    // Rechte Spalte: Details & Statistik
+                    VStack(spacing: 8) {
+                        detailsCard
+                        statsCard
+                    }
+                    .frame(width: 280)
                 }
-                .frame(width: 280)
+
+                // Alternativfrequenzen: volle Breite, eine Zeile
+                afCard
+
+                // Unterer Bereich: Schnellauswahl / Presets
+                presetsCard
             }
-
-            // Alternativfrequenzen: volle Breite, eine Zeile, damit das Fenster nicht in die Höhe wächst
-            afCard
-
-            // Unterer Bereich: Schnellauswahl / Presets
-            presetsCard
+            .padding(8)
         }
-        .padding(8)
         .onAppear {
             freqText = String(format: "%.3f", settings.frequencyHz / 1e6).replacingOccurrences(of: ".", with: ",")
         }

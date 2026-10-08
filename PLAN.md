@@ -676,7 +676,9 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 - Logiktests: 3694 Prüfungen, alle bestanden (Exit 0). `swift build` ohne Fehler.
 - Zweiter Schritt, Höhe: Die Schnellauswahl stand doppelt (rechte Karte „RDS“ im Grid und unten in der Presets-Leiste). Die rechte Karte zeigt jetzt nur noch Frequenz und LEEREN. `RDSQuickPicks` hat dafür den Gittermodus verloren und ist nur noch eine Zeile.
 - **Messung 1920 × 1080 (RDS-Modul, Schnappschuss):** Der nutzbare Bildschirmbereich ist 977 Punkte hoch (Menüleiste und Dock abgezogen). Das Fenster passt jetzt vollständig, die Statusleiste ist sichtbar. Die höchste Spalte ist die Eingangskarte mit rund 330 Punkten unter der Abstimmanzeige, sie endet deutlich über dem Fensterrand.
-- Die Versionsnummer bleibt 0.87.3, weil beide Änderungen noch nicht committet sind.
+- Dritter Schritt, Daten: Der Inhalt des RDS-Panels ist jetzt vertikal scrollbar (`ScrollView`). Mit Live-Daten (RT+-Zeilen, elf AF, Warnungen) wuchs das Panel über den Bildschirm, die Statusleiste war weg. Jetzt bestimmt der Inhalt nicht mehr die Fensterhöhe. Bei 11 AF ist die Schnellauswahl am unteren Rand angeschnitten und per Scrollen erreichbar.
+- **Messung mit Live-Daten (SDRplay, 104,4 MHz, RDS synchron), 1920 × 1080, `Digidec.app` aus `build_app.sh`:** Statusleiste sichtbar, Fenster passt.
+- Die Versionsnummer bleibt 0.87.3, weil die Änderungen noch nicht committet sind.
 
 ---
 
