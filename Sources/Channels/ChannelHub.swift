@@ -9,56 +9,6 @@ import Combine
 // AIS A und B, drei ACARS-Kanäle und eine Sonde gleichzeitig aus einem einzigen HackRF-Fenster. Die Einstellungen der Decoder werden aus den Modulen
 // gelesen und nicht verändert; Sprachausgabe der digitalen Sprachverfahren ist in den Kanälen aus (der Stick gehört dem Hauptmodul).
 
-/// Voreinstellung für einen neuen Kanal
-public struct ChannelPreset: Identifiable, Equatable, Sendable {
-    public var id: String { module.rawValue + "/" + title }
-    public let module: DecoderModuleInfo
-    public let title: String
-    public let frequencyHz: Double
-    public let mode: SDRMode
-    public let bandwidthHz: Double
-}
-
-public enum ChannelCatalog {
-    /// Module, die als Kanal laufen können (Audio aus dem SDR, eigener Decoder)
-    public static let modules: [DecoderModuleInfo] = [.aprs, .packet, .ais, .acars, .pager, .sonde, .dsc, .vor, .tones, .dmr, .dstar, .ysf, .dpmr, .m17]
-
-    /// Betriebsart und Breite eines Kanals für ein Modul
-    public static func defaults(for module: DecoderModuleInfo) -> (mode: SDRMode, bandwidthHz: Double) {
-        switch module {
-        case .acars, .vor: return (.am, 10_000)
-        case .ais: return (.nfm, 25_000)
-        case .sonde: return (.nfm, 25_000)
-        case .dmr, .dstar, .ysf, .dpmr, .m17: return (.nfm, 12_500)
-        default: return (.nfm, 15_000)
-        }
-    }
-
-    /// Bekannte Frequenzen je Modul (für die Auswahl beim Anlegen)
-    public static func presets(for module: DecoderModuleInfo) -> [ChannelPreset] {
-        let d = defaults(for: module)
-        func p(_ title: String, _ hz: Double?) -> ChannelPreset? {
-            hz.map { ChannelPreset(module: module, title: title, frequencyHz: $0, mode: d.mode, bandwidthHz: d.bandwidthHz) }
-        }
-        switch module {
-        case .aprs: return APRSChannel.allCases.compactMap { p("APRS \($0.label) MHz", $0.frequencyHz) }
-        case .packet: return PacketChannel.allCases.compactMap { p("Packet \($0.label) MHz", $0.frequencyHz) }
-        case .ais: return [p("AIS A 161,975 MHz", AISChannel.frequencyA), p("AIS B 162,025 MHz", AISChannel.frequencyB)].compactMap { $0 }
-        case .acars: return ACARSChannel.allCases.compactMap { p("ACARS \($0.label) MHz", $0.frequencyHz) }
-        case .pager: return PagerChannel.allCases.compactMap { p("\($0.name) \($0.label) MHz", $0.frequencyHz) }
-        case .dsc: return [p("DSC Kanal 70, 156,525 MHz", 156_525_000)].compactMap { $0 }
-        case .sonde: return [p("Sonde 403,000 MHz", 403_000_000), p("Sonde 404,500 MHz", 404_500_000), p("Sonde 405,100 MHz", 405_100_000)].compactMap { $0 }
-        default: return []
-        }
-    }
-
-    /// Anzeigename eines Kanals: Voreinstellung, sonst Modul und Frequenz
-    public static func title(module: DecoderModuleInfo, frequencyHz: Double) -> String {
-        if let preset = presets(for: module).first(where: { abs($0.frequencyHz - frequencyHz) < 1 }) { return preset.title }
-        return module.displayName + " " + String(format: "%.4f MHz", frequencyHz / 1e6).replacingOccurrences(of: ".", with: ",")
-    }
-}
-
 /// Ein laufender Decoder zu einem Kanal der Bank
 @MainActor
 public final class ChannelInstance: ObservableObject, Identifiable {
@@ -147,6 +97,7 @@ public final class ChannelHub: ObservableObject {
         for (id, instance) in instances where !ids.contains(id) {
             instance.setRunning(false)
             instances[id] = nil
+            UserDefaults.standard.removePersistentDomain(forName: Self.domain(slotID: id))
         }
         for slot in bank.slots {
             if let existing = instances[slot.id], existing.module.rawValue != slot.moduleID {
@@ -164,6 +115,13 @@ public final class ChannelHub: ObservableObject {
     }
 
     // MARK: Decoder je Modul
+
+    /// Eigener Einstellungsspeicher eines Kanals: die Kurzwellen-Decoder lesen und schreiben ihre Einstellungen dort, nicht in die des Moduls
+    static func domain(slotID: Int) -> String { "com.peterbetz.digidec.channel.\(slotID)" }
+
+    private func isolatedDefaults(_ slot: SDRBankSlot) -> UserDefaults {
+        UserDefaults(suiteName: Self.domain(slotID: slot.id)) ?? .standard
+    }
 
     private func make(slot: SDRBankSlot, module: DecoderModuleInfo) -> ChannelInstance? {
         let pipeline = AudioPipeline()
@@ -201,9 +159,44 @@ public final class ChannelHub: ObservableObject {
             let c = SondeController(pipeline: pipeline, settings: settings)
             return build(c, activate: { c.setActive($0) }, summary: { "\(c.flights.count) Sonden" }, view: { AnyView(SondeMainPanel(controller: c, settings: settings, home: home)) })
         case .dsc:
-            let settings = DSCSettingsStore()
+            let settings = DSCSettingsStore(defaults: isolatedDefaults(slot))
+            if let o = slot.preset, let ch = DSCChannel(rawValue: o) { settings.channel = ch }
+            settings.setCenter(ChannelCatalog.audioCenter(for: .dsc))
             let c = DSCController(pipeline: pipeline, settings: settings)
             return build(c, activate: { c.setActive($0) }, summary: { "\(c.messages.count) Meldungen" }, view: { AnyView(DSCMessagePanel(controller: c)) })
+        case .rtty:
+            let settings = RTTYSettingsStore(defaults: isolatedDefaults(slot))
+            settings.select(presetID: slot.preset ?? "ham")
+            settings.setCenter(ChannelCatalog.audioCenter(for: .rtty))
+            // Der SYNOP-Decoder ist ein einziger Zustand im C++-Kern und gehört dem Modul RTTY; die Kanäle zeigen den Text
+            var options = settings.options
+            options.synopDecoding = false
+            settings.options = options
+            let c = RTTYController(pipeline: pipeline, settings: settings)
+            return build(c, activate: { c.decoder.setEnabled($0) }, summary: { "\(c.textModel.characterCount) Zeichen" }, view: { AnyView(ReceivePanel(controller: c, settings: settings)) })
+        case .navtex:
+            let settings = NavtexSettingsStore(defaults: isolatedDefaults(slot))
+            if let o = slot.preset, let f = NavtexFrequency(rawValue: o) { settings.frequency = f }
+            settings.setCenter(ChannelCatalog.audioCenter(for: .navtex))
+            let c = NavtexController(pipeline: pipeline, settings: settings)
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.entries.count) Meldungen" }, view: { AnyView(NavtexReceivePanel(controller: c)) })
+        case .wefax:
+            let settings = WefaxSettingsStore(defaults: isolatedDefaults(slot))
+            if let o = slot.preset, let st = WefaxStation(rawValue: o) { settings.station = st }
+            let c = WefaxController(pipeline: pipeline, settings: settings)
+            let state = self.state
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.gallery.count) Bilder" },
+                         view: { AnyView(WefaxImagePanel(controller: c, schedule: state.wefaxSchedule, auto: state.autoRecorder, openSchedule: { state.scheduleSheet = .wefax })) })
+        case .hfdl:
+            let settings = HFDLSettingsStore(defaults: isolatedDefaults(slot))
+            if let o = slot.preset, let k = HFDLChannels.kHz(presetID: o) { settings.frequencyKHz = k }
+            let c = HFDLController(pipeline: pipeline, settings: settings)
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.aircraft.count) Flugzeuge" }, view: { AnyView(HFDLMessagePanel(controller: c, settings: settings)) })
+        case .sstv:
+            let settings = SSTVSettingsStore(defaults: isolatedDefaults(slot))
+            if let o = slot.preset, let ch = SSTVChannel(rawValue: o) { settings.channel = ch }
+            let c = SSTVController(pipeline: pipeline, settings: settings)
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.gallery.count) Bilder" }, view: { AnyView(SSTVImagePanel(controller: c)) })
         case .vor:
             let settings = NavSettingsStore()
             let c = NavController(pipeline: pipeline, settings: settings)

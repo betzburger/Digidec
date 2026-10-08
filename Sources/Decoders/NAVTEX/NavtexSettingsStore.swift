@@ -59,8 +59,12 @@ public final class NavtexSettingsStore: ObservableObject {
         static let ita2 = "navtexITA2", sideband = "navtexSidebandMode", locator = "navtexLocator"
     }
 
-    public init() {
-        let d = UserDefaults.standard
+    /// Einstellungen; `defaults` ist beim Mehrkanalbetrieb ein eigener Speicher je Kanal, damit ein Kanal die Einstellungen des Moduls nicht verändert
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let d = defaults
         let c = d.double(forKey: Keys.center)
         centerHz = Self.centerRange.contains(c) ? c : 1000
         frequency = d.string(forKey: Keys.freq).flatMap(NavtexFrequency.init(rawValue:)) ?? .f518
@@ -101,7 +105,7 @@ public final class NavtexSettingsStore: ObservableObject {
         let c = min(max(hz, Self.centerRange.lowerBound), Self.centerRange.upperBound)
         guard abs(c - centerHz) >= 0.05 else { return }
         centerHz = c
-        UserDefaults.standard.set(centerHz, forKey: Keys.center)
+        defaults.set(centerHz, forKey: Keys.center)
     }
 
     public func cycleSidebandMode() {
@@ -110,7 +114,7 @@ public final class NavtexSettingsStore: ObservableObject {
     }
 
     private func save() {
-        let d = UserDefaults.standard
+        let d = defaults
         d.set(centerHz, forKey: Keys.center)
         d.set(frequency.rawValue, forKey: Keys.freq)
         d.set(reverse, forKey: Keys.reverse)

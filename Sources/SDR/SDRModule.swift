@@ -14,8 +14,14 @@ import os
 @MainActor
 public final class SDRSettingsStore: ObservableObject {
     public static let sampleRate = 2_400_000
-    /// Wählbare Abtastraten des HackRF (RTL-SDR und SDRplay laufen mit 2,4 MS/s); ganzzahlige Vielfache von 480 kS/s
-    public static let sampleRateChoices = [2_400_000, 4_800_000, 9_600_000]
+    /// Wählbare Abtastraten des HackRF (RTL-SDR und SDRplay laufen mit 2,4 MS/s). Vielfache von 480 kS/s teilen sich ganzzahlig herunter;
+    /// 20 MS/s (Höchstwert des HackRF) geht erst auf 1 MS/s und dann über den Wandler.
+    public static let sampleRateChoices = [2_400_000, 4_800_000, 9_600_000, 14_400_000, 19_200_000, 20_000_000]
+
+    /// Abtastraten, die ein Gerät bietet (die anderen Geräte sind nur mit 2,4 MS/s geprüft)
+    public static func sampleRateChoices(for source: ADSBSourceKind) -> [Int] {
+        source == .hackrf ? sampleRateChoices : [sampleRate]
+    }
     /// Wie weit sich die gehörte Frequenz von der Mitte des I/Q-Fensters entfernen darf, bevor das Gerät umgestimmt wird
     static let window = 850_000.0
     /// Nutzbare halbe Fensterbreite bei einer Abtastrate (bei 2,4 MS/s 850 kHz: die Ränder des Geräts fallen ab)
@@ -49,6 +55,10 @@ public final class SDRSettingsStore: ObservableObject {
     @Published public var deemphasis: Bool { didSet { save(deemphasis, "sdrDeemphasis") } }
     @Published public var agc: Bool { didSet { save(agc, "sdrAGC") } }
     @Published public var afc: Bool { didSet { save(afc, "sdrAFC") } }
+    /// UKW-Rundfunk: Stereo decodieren (aus: Mono)
+    @Published public var wfmStereo: Bool { didSet { save(wfmStereo, "sdrWfmStereo") } }
+    /// UKW-Rundfunk: De-Emphase 75 µs (Amerika, Japan) statt 50 µs (Europa)
+    @Published public var wfmDeemphasis75: Bool { didSet { save(wfmDeemphasis75, "sdrWfmDeemph75") } }
     @Published public var cwPitchHz: Double { didSet { save(cwPitchHz, "sdrCwPitch") } }
     /// Schrittweite der Abstimmung in Hz
     @Published public var stepHz: Double { didSet { save(stepHz, "sdrStep") } }
@@ -91,6 +101,8 @@ public final class SDRSettingsStore: ObservableObject {
         deemphasis = d.object(forKey: "sdrDeemphasis") as? Bool ?? false
         agc = d.object(forKey: "sdrAGC") as? Bool ?? true
         afc = d.object(forKey: "sdrAFC") as? Bool ?? true
+        wfmStereo = d.object(forKey: "sdrWfmStereo") as? Bool ?? true
+        wfmDeemphasis75 = d.object(forKey: "sdrWfmDeemph75") as? Bool ?? false
         cwPitchHz = d.object(forKey: "sdrCwPitch") as? Double ?? 700
         stepHz = d.object(forKey: "sdrStep") as? Double ?? 12_500
         monitor = d.object(forKey: "sdrMonitor") as? Bool ?? false
@@ -98,6 +110,11 @@ public final class SDRSettingsStore: ObservableObject {
         followModules = d.object(forKey: "sdrFollow") as? Bool ?? true
         autoStart = d.object(forKey: "sdrAutoStart") as? Bool ?? false
         showRFWaterfall = d.object(forKey: "sdrShowRF") as? Bool ?? true
+        // Bis 0.81 hörte der UKW-Empfänger mit höchstens 180 kHz; der Rundfunk braucht rund 230 kHz für Stereo und RDS
+        if mode == .wfm, !d.bool(forKey: "sdrWfmBandwidthV2") {
+            if bandwidthHz < 230_000 { bandwidthHz = 230_000; d.set(230_000.0, forKey: "sdrBandwidth") }
+            d.set(true, forKey: "sdrWfmBandwidthV2")
+        }
     }
 
     /// Tatsächliche Abtastrate: höhere Raten gibt es nur am HackRF
@@ -112,6 +129,8 @@ public final class SDRSettingsStore: ObservableObject {
         c.agc = agc
         c.afc = afc
         c.cwPitchHz = cwPitchHz
+        c.stereo = wfmStereo
+        c.wfmDeemphasisSeconds = wfmDeemphasis75 ? 75e-6 : 50e-6
         return c
     }
 
@@ -149,15 +168,24 @@ public final class SDRSettingsStore: ObservableObject {
 
 // MARK: - Mithören
 
-/// Das demodulierte Audio über den Standard-Ausgang hörbar machen
+/// Das demodulierte Audio über den Standard-Ausgang hörbar machen (Stereo; Mono läuft auf beiden Kanälen)
 public final class SDRSpeaker: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private var node: AVAudioSourceNode?
-    private let ring = FloatRingBuffer(capacity: 48_000)
+    /// Verschachtelt L, R: 0,5 s
+    private let ring = FloatRingBuffer(capacity: 96_000)
     private let gain = OSAllocatedUnfairLock(initialState: Float(0.6))
+    private let chunkFrames = 4096
+    private let scratch: UnsafeMutablePointer<Float>
+    private var duplicated: [Float] = []
     private var running = false
 
-    public init() {}
+    public init() {
+        scratch = .allocate(capacity: 2 * chunkFrames)
+        scratch.initialize(repeating: 0, count: 2 * chunkFrames)
+    }
+
+    deinit { scratch.deallocate() }
 
     public var volume: Float {
         get { gain.withLock { $0 } }
@@ -169,19 +197,35 @@ public final class SDRSpeaker: @unchecked Sendable {
         ring.clear()
         let ring = self.ring
         let gain = self.gain
-        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let scratch = self.scratch
+        let chunk = chunkFrames
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
         let n = AVAudioSourceNode(format: format) { _, _, frames, list in
             let buffers = UnsafeMutableAudioBufferListPointer(list)
-            guard let out = buffers.first?.mData?.assumingMemoryBound(to: Float.self) else { return noErr }
+            guard buffers.count >= 2,
+                  let left = buffers[0].mData?.assumingMemoryBound(to: Float.self),
+                  let right = buffers[1].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
             // Staut sich zu viel an (Takte von Gerät und Ausgang laufen auseinander): auf eine kurze Verzögerung zurück
-            if ring.available > 14_400 {
-                var skip = [Float](repeating: 0, count: ring.available - 4_800)
+            if ring.available > 28_800 {
+                var skip = [Float](repeating: 0, count: ring.available - 9_600)
                 _ = skip.withUnsafeMutableBufferPointer { ring.read(into: $0.baseAddress!, maxCount: $0.count) }
             }
-            let got = ring.read(into: out, maxCount: Int(frames))
-            if got < Int(frames) { (out + got).update(repeating: 0, count: Int(frames) - got) }
             let g = gain.withLock { $0 }
-            for k in 0..<Int(frames) { out[k] *= g }
+            var done = 0
+            let total = Int(frames)
+            while done < total {
+                let nFrames = min(chunk, total - done)
+                let got = ring.read(into: scratch, maxCount: 2 * nFrames) / 2
+                for k in 0..<got {
+                    left[done + k] = scratch[2 * k] * g
+                    right[done + k] = scratch[2 * k + 1] * g
+                }
+                if got < nFrames {
+                    (left + done + got).update(repeating: 0, count: nFrames - got)
+                    (right + done + got).update(repeating: 0, count: nFrames - got)
+                }
+                done += nFrames
+            }
             return noErr
         }
         node = n
@@ -205,9 +249,21 @@ public final class SDRSpeaker: @unchecked Sendable {
         ring.clear()
     }
 
+    /// Mono: auf beide Kanäle
     public func write(_ samples: UnsafeBufferPointer<Float>) {
-        guard running, let base = samples.baseAddress else { return }
-        ring.write(base, count: samples.count)
+        guard running, !samples.isEmpty else { return }
+        if duplicated.count < 2 * samples.count { duplicated = [Float](repeating: 0, count: 2 * samples.count) }
+        for k in 0..<samples.count {
+            duplicated[2 * k] = samples[k]
+            duplicated[2 * k + 1] = samples[k]
+        }
+        duplicated.withUnsafeBufferPointer { ring.write($0.baseAddress!, count: 2 * samples.count) }
+    }
+
+    /// Verschachtelt L, R
+    public func writeStereo(_ samples: UnsafeBufferPointer<Float>) {
+        guard running, let base = samples.baseAddress, samples.count >= 2 else { return }
+        ring.write(base, count: samples.count & ~1)
     }
 }
 
@@ -368,8 +424,8 @@ public final class SDRController: ObservableObject {
         pipeline.start(inputRate: SDRDemodulator.audioRate)
         engine.setAudioHandler { buf in
             if let base = buf.baseAddress { pipeline.ring.write(base, count: buf.count) }
-            speaker.write(buf)
         }
+        engine.setStereoHandler { buf in speaker.writeStereo(buf) }
         do {
             try src.start(onData: { engine.feed($0, wait: wait) }, onStop: { [weak self] reason in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.sourceStopped(reason, token: token) } }
@@ -409,6 +465,7 @@ public final class SDRController: ObservableObject {
         source = nil
         startedGain = nil
         engine.setAudioHandler(nil)
+        engine.setStereoHandler(nil)
         engine.removeAllExtraChannels()
         engine.setPrimaryEnabled(true)
         speaker.stop()

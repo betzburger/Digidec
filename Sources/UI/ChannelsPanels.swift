@@ -88,8 +88,10 @@ struct ChannelsMainPanel: View {
 
     private func add() {
         guard let f = parsedFrequency else { return }
+        // Passt die Frequenz zur gewählten Voreinstellung, gelten deren Betriebsart, Breite und Decoder-Einstellung
         let d = ChannelCatalog.defaults(for: module)
-        let slot = bank.add(moduleID: module.rawValue, frequencyHz: f, mode: d.mode, bandwidthHz: d.bandwidthHz)
+        let p = presets.first { $0.id == presetID && abs($0.frequencyHz - f) < 1 }
+        let slot = bank.add(moduleID: module.rawValue, frequencyHz: f, mode: p?.mode ?? d.mode, bandwidthHz: p?.bandwidthHz ?? d.bandwidthHz, preset: p?.option)
         bank.pendingFrequencyHz = nil
         if let slot { bank.selectedID = slot.id }
     }
@@ -262,21 +264,7 @@ struct ChannelsSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("FENSTER")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(RadioTheme.textDim)
-                    .frame(width: 56, alignment: .leading)
-                ForEach(SDRSettingsStore.sampleRateChoices, id: \.self) { rate in
-                    Button(String(format: "%.1f", Double(rate) / 1e6).replacingOccurrences(of: ".", with: ",")) { settings.sampleRateHz = rate }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.effectiveSampleRate == rate))
-                        .disabled(settings.source != .hackrf && rate != SDRSettingsStore.sampleRate)
-                        .help("Abtastrate des I/Q-Stroms in MS/s: nutzbar etwa \(Int(SDRSettingsStore.window(forRate: rate) * 2 / 1000)) kHz Breite. Über 2,4 MS/s nur am HackRF; mehr Rechenlast je Kanal.")
-                }
-                Text("MS/s")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(RadioTheme.textMuted)
-            }
+            SDRWindowPicker(settings: settings)
             HStack(spacing: 6) {
                 Text("KANÄLE")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))

@@ -36,6 +36,8 @@ public final class DigidecState: ObservableObject {
     @Published public var showAbout = false
     /// Eigener Standort für alle Karten und Entfernungen
     public let home = HomeLocation()
+    /// Kurzwellen-Ausbreitung für das Lineal am rechten Fensterrand
+    public let propagation = PropagationService()
     public let navtex = NavtexSettingsStore()
     public let navtexController: NavtexController
     public let cw = CWSettingsStore()
@@ -333,6 +335,7 @@ public final class DigidecState: ObservableObject {
             }
         }
         // FM-Diskriminator-Audio bei 240 kS/s an das RDS-Modul weiterleiten
+        propagation.start()
         sdrController.onDiscriminator = { [weak self] buf, rate in
             self?.rdsController.feedDiscriminator(samples: buf, sampleRate: rate)
         }
@@ -569,14 +572,16 @@ public final class DigidecState: ObservableObject {
                     state.sdrController.fileCenterHz = Double(env["DIGIDEC_SDR_CENTER"] ?? "") ?? 0
                     state.sdrController.fileRealtime = env["DIGIDEC_SDR_REALTIME"] != "0"
                 }
-                // DIGIDEC_BANK="aprs@144.8,acars@131.55": Kanäle der Kanalbank (Modul@MHz), ersetzen die gespeicherten
+                // DIGIDEC_BANK="aprs@144.8,acars@131.55": Kanäle der Kanalbank (Modul@MHz; passt die Frequenz zu einer Voreinstellung, gilt diese), ersetzen die gespeicherten
                 if let list = env["DIGIDEC_BANK"] {
                     state.sdrController.bank.removeAll()
                     for item in list.split(separator: ",") {
                         let parts = item.split(separator: "@")
                         guard parts.count == 2, let module = DecoderModuleInfo(rawValue: String(parts[0])), let mhz = Double(parts[1]) else { continue }
                         let d = ChannelCatalog.defaults(for: module)
-                        state.sdrController.bank.add(moduleID: module.rawValue, frequencyHz: (mhz * 1e6).rounded(), mode: d.mode, bandwidthHz: d.bandwidthHz)
+                        let hz = (mhz * 1e6).rounded()
+                        let p = ChannelCatalog.presets(for: module).first { abs($0.frequencyHz - hz) < 1 }
+                        state.sdrController.bank.add(moduleID: module.rawValue, frequencyHz: hz, mode: p?.mode ?? d.mode, bandwidthHz: p?.bandwidthHz ?? d.bandwidthHz, preset: p?.option)
                     }
                 }
                 if let n = env["DIGIDEC_BANK_SELECT"].flatMap({ Int($0) }), state.sdrController.bank.slots.indices.contains(n - 1) { state.sdrController.bank.selectedID = state.sdrController.bank.slots[n - 1].id }

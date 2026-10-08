@@ -318,6 +318,43 @@ final class SDRSpectrumModelBox: ObservableObject {
     }
 }
 
+/// Breite des I/Q-Fensters: beim HackRF bis 20 MS/s wählbar, die anderen Geräte laufen fest mit 2,4 MS/s
+struct SDRWindowPicker: View {
+    @ObservedObject var settings: SDRSettingsStore
+
+    var body: some View {
+        let rate = settings.effectiveSampleRate
+        let choices = SDRSettingsStore.sampleRateChoices(for: settings.source)
+        HStack(spacing: 6) {
+            Text("FENSTER")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+            Menu {
+                ForEach(choices, id: \.self) { r in
+                    Button("\(Self.rateText(r)) MS/s · nutzbar \(Self.widthText(r))") { settings.sampleRateHz = r }
+                }
+            } label: {
+                Text("\(Self.rateText(rate)) MS/s · \(Self.widthText(rate))")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(choices.count < 2)
+            .help(choices.count < 2 ? "Dieses Gerät läuft fest mit 2,4 MS/s (nur dort geprüft)" : "Breite des I/Q-Fensters, das der HackRF liefert: der HF-Wasserfall zeigt so viel auf einmal, Mehrkanalbetrieb nutzt es für mehrere Decoder. Höhere Raten brauchen mehr Rechenzeit und einen schnellen USB-Anschluss; 20 MS/s braucht USB 3 oder einen guten USB-2-Anschluss ohne Hub.")
+            Spacer(minLength: 0)
+            if rate >= 14_400_000 {
+                Text("viel Rechenlast")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.ledYellow)
+            }
+        }
+    }
+
+    static func rateText(_ r: Int) -> String { String(format: "%g", Double(r) / 1e6).replacingOccurrences(of: ".", with: ",") }
+    /// Nutzbare Breite (die Ränder des Geräts fallen ab): etwa 70 % der Abtastrate
+    static func widthText(_ r: Int) -> String { String(format: "%.1f MHz", SDRSettingsStore.window(forRate: r) * 2 / 1e6).replacingOccurrences(of: ".", with: ",") }
+}
+
 enum SDRFormat {
     /// 145,500000 (MHz, sechs Nachkommastellen)
     static func frequency(_ hz: Double) -> String {
@@ -489,7 +526,7 @@ struct SDRControlView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if bank.isActive {
-                Text("KANALBANK · \(bank.slots.filter(\.enabled).count) Kanäle zugleich, Mitte \(SDRFormat.frequency(controller.loHz)) MHz. Frequenzen, Betriebsarten und Decoder je Kanal stehen im Modul KANÄLE.")
+                Text("KANALBANK · \(bank.slots.filter(\.enabled).count) Kanäle zugleich, Mitte \(SDRFormat.frequency(controller.loHz)) MHz. Frequenzen, Betriebsarten und Decoder je Kanal stehen im Modul MEHRKANAL.")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdCyan)
                     .fixedSize(horizontal: false, vertical: true)
@@ -573,7 +610,7 @@ struct SDRControlView: View {
 
     private static func modeHelp(_ m: SDRMode) -> String {
         switch m {
-        case .wfm: return "UKW-Rundfunk (Mono, 50 µs De-Emphase)"
+        case .wfm: return "UKW-Rundfunk mit Stereo-Decoder (19-kHz-Pilot), 230 kHz Kanalbreite und De-Emphase; liefert das Multiplexsignal für RDS"
         case .nfm: return "Schmalband-FM: Sprechfunk, AIS, APRS, Funkruf, Radiosonden (Diskriminator-Audio ohne De-Emphase)"
         case .am: return "Amplitudenmodulation: Flugfunk, ACARS, VOR/ILS"
         case .usb: return "Oberes Seitenband (Dial = Trägerfrequenz bei unterdrücktem Träger)"
@@ -589,13 +626,14 @@ struct SDRControlView: View {
                 Button(Self.bwText(b)) { settings.bandwidthHz = b }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.bandwidthHz == b))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .scaleEffect(0.9)
             }
         }
     }
 
     private static func bwText(_ b: Double) -> String {
-        b >= 1000 ? String(format: "%g k", b / 1000).replacingOccurrences(of: ".", with: ",") : String(format: "%g", b)
+        b >= 1000 ? String(format: "%gk", b / 1000).replacingOccurrences(of: ".", with: ",") : String(format: "%g", b)
     }
 
     private var levelRow: some View {
@@ -608,6 +646,19 @@ struct SDRControlView: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdCyan)
                     .frame(width: 44, alignment: .trailing)
+            }
+            if settings.mode == .wfm {
+                HStack(spacing: 6) {
+                    label("STEREO")
+                    let m = controller.snapshot.metrics
+                    Text(!settings.wfmStereo ? "MONO (aus)" : m.stereoLocked ? (m.stereoBlend > 0.9 ? "STEREO" : "STEREO · MISCHT (\(Int(m.stereoBlend * 100)) %)") : "MONO · KEIN PILOT")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(m.stereoLocked && settings.wfmStereo ? RadioTheme.vfdGreen : RadioTheme.textMuted)
+                    Spacer(minLength: 0)
+                    Text(String(format: "PILOT %.1f kHz", m.pilotKHz))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(RadioTheme.textMuted)
+                }
             }
             HStack(spacing: 6) {
                 Button("SQUELCH") { settings.squelchEnabled.toggle() }
@@ -640,11 +691,21 @@ struct SDRControlView: View {
                 .scaleEffect(0.85, anchor: .leading)
                 .help("Das gewählte Modul (AIS, APRS, Funkruf, FT8 …) stellt Frequenz, Betriebsart und Breite ein, wenn es eine feste Frequenz hat")
             Spacer(minLength: 0)
+            if settings.mode == .wfm {
+                Button("STEREO") { settings.wfmStereo.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.wfmStereo))
+                    .scaleEffect(0.85)
+                    .help("Stereo decodieren, sobald der 19-kHz-Pilot da ist; bei schwachem Empfang wird langsam auf Mono übergeblendet")
+                Button(settings.wfmDeemphasis75 ? "75 µs" : "50 µs") { settings.wfmDeemphasis75.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .scaleEffect(0.85)
+                    .help("Zeitkonstante der De-Emphase: 50 µs in Europa, 75 µs in Amerika und Japan")
+            }
             if settings.mode == .nfm || settings.mode == .wfm {
                 Button("DE-EMPH") { settings.deemphasis.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.deemphasis))
                     .scaleEffect(0.85)
-                    .help("De-Emphase für Sprache (75 µs). Für Digitalverfahren aus.")
+                    .help(settings.mode == .wfm ? "De-Emphase des Rundfunks (hell = an; Rundfunk braucht sie)" : "De-Emphase für Sprache (75 µs). Für Digitalverfahren aus.")
             }
             if settings.mode == .nfm {
                 Button("AFC") { settings.afc.toggle() }
@@ -678,6 +739,7 @@ struct SDRControlView: View {
                     .scaleEffect(0.9, anchor: .trailing)
                     .help("Verstärkung und Zusatzfunktionen des Geräts")
             }
+            SDRWindowPicker(settings: settings)
             if showGain { gainControls }
         }
     }

@@ -87,9 +87,9 @@ public struct RigTuneTarget: Equatable, Sendable {
 
     public static func wspr(band: WSPRBand) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
 
-    /// RDS: UKW-Rundfunk in WFM auf der Frequenz (Hz) mit 200 kHz Bandbreite
+    /// RDS: UKW-Rundfunk in WFM auf der Frequenz (Hz) mit 230 kHz Bandbreite (voller Hub samt Stereo-Differenzsignal und 57-kHz-RDS)
     public static func rds(frequencyHz: Double) -> RigTuneTarget {
-        RigTuneTarget(dialHz: Int64(frequencyHz.rounded()), mode: "WFM", passbandHz: 200_000)
+        RigTuneTarget(dialHz: Int64(frequencyHz.rounded()), mode: "WFM", passbandHz: 230_000)
     }
 
     public static func sstv(channel: SSTVChannel) -> RigTuneTarget? {

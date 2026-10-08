@@ -392,7 +392,7 @@ func mix(_ a: [String]) {
 func bankBench(_ a: [String]) {
     let n = Int(a.first ?? "") ?? 8
     let rate = Double(a.count > 1 ? a[1] : "") ?? 2_400_000
-    let seconds = 4.0
+    let seconds = Double(ProcessInfo.processInfo.environment["SDRBENCH_SECONDS"] ?? "") ?? 4.0
     var sig = SDRTestSignal(sampleRate: rate, seconds: seconds)
     let half = rate * 0.35
     for k in 0..<n {

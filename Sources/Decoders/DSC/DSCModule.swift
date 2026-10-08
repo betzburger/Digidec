@@ -56,13 +56,17 @@ public final class DSCSettingsStore: ObservableObject {
     @Published public private(set) var centerHz: Double
     @Published public private(set) var manualCenterRevision = 0
     /// Mitte automatisch aus den beiden Tönen nachführen (Standard an)
-    @Published public var autoCenter: Bool { didSet { UserDefaults.standard.set(autoCenter, forKey: "dscAuto") } }
+    @Published public var autoCenter: Bool { didSet { defaults.set(autoCenter, forKey: "dscAuto") } }
     /// Seitenband umgekehrt (LSB)
-    @Published public var reversed: Bool { didSet { UserDefaults.standard.set(reversed, forKey: "dscReversed") } }
-    @Published public var channel: DSCChannel { didSet { UserDefaults.standard.set(channel.rawValue, forKey: "dscChannel") } }
+    @Published public var reversed: Bool { didSet { defaults.set(reversed, forKey: "dscReversed") } }
+    @Published public var channel: DSCChannel { didSet { defaults.set(channel.rawValue, forKey: "dscChannel") } }
 
-    public init() {
-        let d = UserDefaults.standard
+    /// Einstellungen; `defaults` ist beim Mehrkanalbetrieb ein eigener Speicher je Kanal, damit ein Kanal die Einstellungen des Moduls nicht verändert
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let d = defaults
         let c = d.double(forKey: "dscCenterHz")
         centerHz = Self.centerRange.contains(c) ? c : 1700
         autoCenter = d.object(forKey: "dscAuto") as? Bool ?? true
@@ -76,7 +80,7 @@ public final class DSCSettingsStore: ObservableObject {
         centerHz = min(max(hz, Self.centerRange.lowerBound), Self.centerRange.upperBound).rounded()
         manualCenterRevision += 1
         autoCenter = false
-        UserDefaults.standard.set(centerHz, forKey: "dscCenterHz")
+        defaults.set(centerHz, forKey: "dscCenterHz")
     }
 
     /// Die Automatik hat die Mitte verschoben (Anzeige folgt)

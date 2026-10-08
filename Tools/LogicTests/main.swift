@@ -140,14 +140,16 @@ if want("url") {
         check(!m.presetIDs.isEmpty, "\(m.displayName): verfügbares Modul braucht Presets")
     }
 
-    // Modul-Leiste: jedes Modul in genau einer Rubrik, darin A–Z
+    // Modul-Leiste: jedes Modul in genau einer Rubrik, darin A–Z; MEHRKANAL steht als eigener Knopf vor beiden
     let bars = DecoderModuleInfo.Band.allCases.flatMap(\.modules)
-    check(Set(bars).count == bars.count && Set(bars) == Set(DecoderModuleInfo.allCases), "Modul-Leiste: jedes Modul genau einmal")
+    check(Set(bars).count == bars.count && Set(bars + [.channels]) == Set(DecoderModuleInfo.allCases) && !bars.contains(.channels), "Modul-Leiste: jedes Modul genau einmal (MEHRKANAL als eigener Knopf)")
     for band in DecoderModuleInfo.Band.allCases {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "KANÄLE", "M17", "PACKET", "PAGER", "RDS", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "M17", "PACKET", "PAGER", "RDS", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.channels.coversAllBands && DecoderModuleInfo.channels.displayName == "MEHRKANAL" && DecoderModuleInfo.Band.allCases.allSatisfy { !$0.modules.contains(.channels) }
+          && DecoderModuleInfo.allCases.filter(\.coversAllBands) == [.channels], "MEHRKANAL gehört zu keiner Rubrik allein")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr && DecoderModuleInfo.Band.hf.modules.contains(.ndb), "HF-Rubrik A–Z")
 }
 
@@ -10811,67 +10813,6 @@ if want("adsb") {
 
 // MARK: - RDS (Radio Data System, UKW-Rundfunk WFM)
 if want("rds") {
-    // 1. Syndrome und Paritäts-Berechnung (Generatorpolynom g(x) = 0x5B9)
-    let testData: UInt16 = 0xD311 // BR Bayern 3
-    let encA = RDSSyndrome.encodeBlock(data: testData, offset: .a)
-    check((encA >> 10) == UInt32(testData), "RDS: Datenbits in Block A unverändert oben")
-    let decA = RDSSyndrome.decode(word: encA, expected: .a)
-    check(decA?.data == testData && decA?.corrected == 0, "RDS: Syndrom und Offset A fehlerfrei erkannt")
-
-    let encB = RDSSyndrome.encodeBlock(data: 0x0210, offset: .b)
-    let decB = RDSSyndrome.decode(word: encB, expected: .b)
-    check(decB?.data == 0x0210 && decB?.corrected == 0, "RDS: Block B fehlerfrei erkannt")
-
-    let encC = RDSSyndrome.encodeBlock(data: 0x4321, offset: .c)
-    let decC = RDSSyndrome.decode(word: encC, expected: .c)
-    check(decC?.data == 0x4321 && decC?.corrected == 0, "RDS: Block C fehlerfrei erkannt")
-
-    let encD = RDSSyndrome.encodeBlock(data: 0x5678, offset: .d)
-    let decD = RDSSyndrome.decode(word: encD, expected: .d)
-    check(decD?.data == 0x5678 && decD?.corrected == 0, "RDS: Block D fehlerfrei erkannt")
-
-    let encCPrime = RDSSyndrome.encodeBlock(data: 0xABCD, offset: .cPrime)
-    let decCPrime = RDSSyndrome.decode(word: encCPrime, expected: .cPrime)
-    check(decCPrime?.data == 0xABCD && decCPrime?.corrected == 0, "RDS: Block C' fehlerfrei erkannt")
-
-    // Offset-Erkennung ohne Vorwissen
-    let detectedA = RDSSyndrome.detectOffset(word: encA)
-    check(detectedA?.offset == .a && detectedA?.data == testData, "RDS: detectOffset erkennt Offset A")
-    let detectedB = RDSSyndrome.detectOffset(word: encB)
-    check(detectedB?.offset == .b && detectedB?.data == 0x0210, "RDS: detectOffset erkennt Offset B")
-
-    // 2. 1-Bit-Fehlerkorrektur
-    for bit in 0..<26 {
-        let flipped = encA ^ (1 << bit)
-        let repaired = RDSSyndrome.decode(word: flipped, expected: .a)
-        check(repaired?.data == testData && repaired?.corrected == 1, "RDS: 1-Bit-Fehlerkorrektur Bit \(bit)")
-    }
-    // 2-Bit-Fehler wird abgewiesen
-    let twoBitsFlipped = encA ^ 0x03
-    let failed = RDSSyndrome.decode(word: twoBitsFlipped, expected: .a)
-    check(failed == nil, "RDS: 2-Bit-Fehler wird abgewiesen")
-
-    // 3. Gruppe 0A (Programm-Service-Name PS)
-    let g0a = RDSSignalGenerator.makeGroup0A(pi: 0xD311, ps: "BAYERN 3", tp: true, ta: false, pty: 10, afMHz: [98.0, 99.3])
-    check(g0a.count == 4, "RDS: Gruppe 0A hat 4 Segmente für 8 Zeichen")
-    check(g0a[0].pi == 0xD311, "RDS: Gruppe 0A PI-Code")
-    check(g0a[0].tp == true, "RDS: Gruppe 0A TP gesetzt")
-    check(g0a[0].pty == 10, "RDS: Gruppe 0A PTY 10 (Popmusik)")
-    check(RDSPTY.name(for: 10) == "Popmusik", "RDS: PTY-Name für 10 ist Popmusik")
-    check(RDSCountry.name(for: 0xD311) == "Deutschland", "RDS: Länderkennung 0xD ist Deutschland")
-
-    // 4. Gruppe 2A (Radiotext RT)
-    let rtText = "BAYERN 3 - MEHR MUSIK-HITS"
-    let g2a = RDSSignalGenerator.makeGroup2A(pi: 0xD311, text: rtText, tp: true, pty: 10)
-    check(g2a.count == 16, "RDS: Gruppe 2A hat 16 Segmente für 64 Zeichen")
-    check(g2a[0].groupType == 2 && !g2a[0].isVersionB, "RDS: Gruppe 2A Typ")
-
-    // 5. Gruppe 4A (Senderuhr CT)
-    let date = Date(timeIntervalSince1970: 1728388800)
-    let g4a = RDSSignalGenerator.makeGroup4A(pi: 0xD311, date: date, offsetHalfHours: 4)
-    check(g4a.groupType == 4 && !g4a.isVersionB, "RDS: Gruppe 4A Typ")
-
-    // 6. Framer & Stream-Decoder Zusammenbau
     final class GroupBox: @unchecked Sendable {
         var groups: [RDSGroup] = []
         let lock = NSLock()
@@ -10879,61 +10820,681 @@ if want("rds") {
         var count: Int { lock.withLock { groups.count } }
         var list: [RDSGroup] { lock.withLock { groups } }
     }
+    func feed(_ framer: RDSStreamDecoder, bits: [Int]) { for b in bits { framer.process(bit: b) } }
+    func feed(_ framer: RDSStreamDecoder, groups: [RDSGroup]) { feed(framer, bits: RDSSignalGenerator.bits(of: groups)) }
+    func decodeAll(_ groups: [RDSGroup], quality: Double = 1) -> RDSInfo {
+        let d = RDSDecoder()
+        for g in groups { d.handle(g, quality: quality) }
+        return d.snapshot
+    }
 
-    let streamDec = RDSStreamDecoder()
-    let receivedBox = GroupBox()
-    streamDec.onGroup = { receivedBox.add($0) }
+    // 1. Prüfwort: Offset-Wörter und Kodierung
+    let pi: UInt16 = 0xD318
+    for off in RDSOffset.allCases {
+        let w = RDSSyndrome.encodeBlock(data: 0xA5C3, offset: off)
+        check(RDSSyndrome.syndrome(of: w) == off.rawValue, "RDS: Syndrom des Blocks \(off.name) ist das Offset-Wort")
+        check(RDSSyndrome.decode(word: w, expected: off, maxBurst: 0)?.data == 0xA5C3, "RDS: Block \(off.name) fehlerfrei gelesen")
+        check(RDSSyndrome.detectOffset(word: w, maxBurst: 0)?.offset == off, "RDS: Offset \(off.name) ohne Vorwissen erkannt")
+    }
+    check(RDSOffset.allCases.map(\.rawValue) == [0x0FC, 0x198, 0x168, 0x350, 0x1B4], "RDS: Offset-Wörter nach EN 50067")
+    let wordA = RDSSyndrome.encodeBlock(data: pi, offset: .a)
+    // 2. Fehlerkorrektur: alle Einzel- und Doppelbitfehler
+    var single = 0, burst2 = 0, rejected = 0
+    for bit in 0..<26 {
+        if let r = RDSSyndrome.decode(word: wordA ^ (1 << UInt32(bit)), expected: .a, maxBurst: 1), r.data == pi, r.corrected == 1 { single += 1 }
+        if RDSSyndrome.decode(word: wordA ^ (1 << UInt32(bit)), expected: .a, maxBurst: 0) == nil { rejected += 1 }
+    }
+    for bit in 0..<25 {
+        if let r = RDSSyndrome.decode(word: wordA ^ (3 << UInt32(bit)), expected: .a, maxBurst: 2), r.data == pi, r.corrected == 2 { burst2 += 1 }
+    }
+    check(single == 26, "RDS: jeder Einzelbitfehler wird repariert (\(single)/26)")
+    check(burst2 == 25, "RDS: jeder Doppelfehler benachbarter Bits wird repariert (\(burst2)/25)")
+    check(rejected == 26, "RDS: ohne Reparatur wird jeder Fehler abgewiesen")
+    check(RDSSyndrome.decode(word: wordA ^ 0x03, expected: .a, maxBurst: 1) == nil, "RDS: Doppelfehler wird bei Einzelreparatur abgewiesen")
+    check(RDSSyndrome.decode(word: wordA ^ 0x15, expected: .a, maxBurst: 2) == nil, "RDS: drei verteilte Fehler werden nicht repariert")
 
-    // Bits aus g0a erzeugen und einspeisen
-    for g in g0a {
-        let words = [
-            RDSSyndrome.encodeBlock(data: g.blockA.data, offset: g.blockA.offset),
-            RDSSyndrome.encodeBlock(data: g.blockB.data, offset: g.blockB.offset),
-            RDSSyndrome.encodeBlock(data: g.blockC.data, offset: g.blockC.offset),
-            RDSSyndrome.encodeBlock(data: g.blockD.data, offset: g.blockD.offset)
-        ]
-        for w in words {
-            for i in (0..<26).reversed() {
-                streamDec.process(bit: Int((w >> i) & 1))
-            }
+    // 3. Zeichensatz, Programmart, Land
+    check(RDSCharset.character(0x91) == "ä" && RDSCharset.character(0x97) == "ö" && RDSCharset.character(0x99) == "ü" && RDSCharset.character(0xD1) == "Ä"
+          && RDSCharset.character(0xD7) == "Ö" && RDSCharset.character(0xD9) == "Ü" && RDSCharset.character(0x8D) == "ß", "RDS: Umlaute und ß im RDS-Zeichensatz")
+    check(RDSCharset.character(0x41) == "A" && RDSCharset.character(0x0D) == " " && RDSCharset.character(0x24) == "¤" && RDSCharset.character(0xA9) == "€", "RDS: ASCII, Steuerzeichen, Währungszeichen")
+    check((0x80...0xFF).allSatisfy { RDSCharset.character(UInt8($0)) != " " || $0 == 0xFF }, "RDS: alle 128 oberen Zeichen belegt")
+    check(RDSPTY.names.count == 32 && RDSPTY.name(for: 10) == "Popmusik" && RDSPTY.name(for: 1) == "Nachrichten" && RDSPTY.name(for: 31) == "ALARM!", "RDS: 32 Programmarten")
+    check(RDSCountry.name(for: 0xD318, ecc: 0xE0) == "Deutschland" && RDSCountry.name(for: 0x4123, ecc: 0xE1) == "Schweiz" && RDSCountry.name(for: 0xA123, ecc: 0xE0) == "Österreich"
+          && RDSCountry.name(for: 0xF123, ecc: 0xE1) == "Frankreich" && RDSCountry.name(for: 0xC123, ecc: 0xE1) == "Großbritannien" && RDSCountry.name(for: 0x8123, ecc: 0xE3) == "Niederlande",
+          "RDS: Land aus ECC und PI")
+    check(RDSCountry.name(for: 0xD318) == "Deutschland" && RDSCountry.isGuess(ecc: nil) && !RDSCountry.isGuess(ecc: 0xE0), "RDS: ohne ECC wird auf E0 geraten (als Vermutung gekennzeichnet)")
+
+    // 4. Blocksynchronisation
+    let g0a = RDSSignalGenerator.makeGroup0A(pi: pi, ps: "ANTENNE", tp: true, ta: false, pty: 10, afMHz: [98.0, 99.3, 104.4], stereo: true)
+    let g2a = RDSSignalGenerator.makeGroup2A(pi: pi, text: "Wir lieben Bayern, wir lieben Musik")
+    check(g0a.count == 4 && g2a.count == 9 && g0a[0].pi == pi && g0a[0].groupType == 0 && g2a[0].groupType == 2 && g0a[0].tp == true && g0a[0].pty == 10, "RDS: Gruppen 0A und 2A aus dem Generator")
+    check(g0a.allSatisfy { $0.isComplete } && g0a[0].name == "0A" && g2a[0].isVersionB == false, "RDS: Gruppenname und Vollständigkeit")
+    do {
+        let framer = RDSStreamDecoder()
+        let box = GroupBox()
+        framer.onGroup = { box.add($0) }
+        feed(framer, groups: g0a + g2a + g0a + g2a)
+        check(framer.syncState == .synced, "RDS Framer: SYNCHRON nach einigen Gruppen")
+        check(box.count >= 2 * (g0a.count + g2a.count) - 2, "RDS Framer: fast alle Gruppen geliefert (\(box.count) von \(2 * (g0a.count + g2a.count)))")
+        check(box.list.allSatisfy { $0.pi == pi || $0.pi == nil } && box.list.filter({ $0.isComplete }).count >= box.count - 1, "RDS Framer: Gruppen vollständig (bis auf die erste, die mitten im Block beginnt), PI stimmt")
+    }
+    do {
+        // Beginn mitten im Strom: 37 beliebige Bits vorweg
+        var rng = SDRTestSignal.SplitMix(seed: 5)
+        let junk = (0..<37).map { _ in Int(rng.next() & 1) }
+        let framer = RDSStreamDecoder()
+        let box = GroupBox()
+        framer.onGroup = { box.add($0) }
+        feed(framer, bits: junk + RDSSignalGenerator.bits(of: g0a + g2a + g0a))
+        check(framer.syncState == .synced && box.count >= g0a.count + g2a.count, "RDS Framer: findet den Takt nach beliebigem Vorlauf (\(box.count) Gruppen)")
+    }
+    do {
+        // Zufallsbits: keine Gruppen, keine dauerhafte Synchronisation
+        var rng = SDRTestSignal.SplitMix(seed: 99)
+        let framer = RDSStreamDecoder()
+        let box = GroupBox()
+        framer.onGroup = { box.add($0) }
+        feed(framer, bits: (0..<200_000).map { _ in Int(rng.next() & 1) })
+        check(box.count == 0, "RDS Framer: 200000 Zufallsbits ergeben keine Gruppe (\(box.count))")
+    }
+    do {
+        // Bitschlupf: ein Bit fehlt mitten im Strom, ein anderes kommt dazu
+        let stream = RDSSignalGenerator.bits(of: g0a + g2a + g0a + g2a + g0a + g2a)
+        for (label, edit) in [("fehlt", { (b: inout [Int], at: Int) in b.remove(at: at) }), ("zusätzlich", { (b: inout [Int], at: Int) in b.insert(1, at: at) })] {
+            var bits = stream
+            edit(&bits, 1000)
+            let framer = RDSStreamDecoder()
+            let box = GroupBox()
+            framer.onGroup = { box.add($0) }
+            feed(framer, bits: bits)
+            let expect = stream.count / 104
+            check(box.count >= expect - 5 && framer.syncState == .synced, "RDS Framer: Bitschlupf (Bit \(label)) wird überwunden (\(box.count) von \(expect) Gruppen)")
+            check(framer.currentStats.resyncs >= 1, "RDS Framer: Bitschlupf (Bit \(label)) wird als Neusynchronisation gezählt")
         }
     }
-    check(receivedBox.count == 4, "RDS Stream-Decoder: 4 Gruppen 0A synchron empfangen")
-    check(streamDec.syncState == .synced, "RDS Stream-Decoder: Status SYNCHRONISIERT")
-    if receivedBox.count == 4 {
-        check(receivedBox.list[0].pi == 0xD311, "RDS Stream-Decoder: PI-Code stimmt")
+    do {
+        // Fehler: ein Einzelbitfehler wird repariert, ein zerstörter Block C ergibt eine Teilgruppe ohne Block C (kein alter Block rutscht herein)
+        var groups = g2a + g2a
+        var bits = RDSSignalGenerator.bits(of: groups)
+        bits[26 * 4 * 3 + 40] ^= 1          // Gruppe 3, Block B: ein Bit
+        for k in 0..<10 { bits[26 * 4 * 5 + 52 + 3 + k] ^= 1 }   // Gruppe 5, Block C: Bündelfehler
+        let framer = RDSStreamDecoder()
+        let box = GroupBox()
+        framer.onGroup = { box.add($0) }
+        feed(framer, bits: bits)
+        let list = box.list
+        check(list.contains { $0.correctedBits == 1 }, "RDS Framer: Einzelbitfehler repariert und gemeldet")
+        let broken = list.filter { $0.blockC == nil }
+        check(broken.count == 1 && broken[0].blockA != nil && broken[0].blockB != nil && broken[0].blockD != nil, "RDS Framer: zerstörter Block C fehlt in der Teilgruppe, die anderen bleiben (\(broken.count))")
+        groups.removeAll()
+    }
+    do {
+        // Rauschen nach den Daten: Synchronisation geht verloren
+        var rng = SDRTestSignal.SplitMix(seed: 7)
+        let framer = RDSStreamDecoder()
+        feed(framer, groups: g0a + g2a + g0a + g2a)
+        check(framer.syncState == .synced, "RDS Framer: vor dem Rauschen synchron")
+        feed(framer, bits: (0..<6000).map { _ in Int(rng.next() & 1) })
+        check(framer.syncState == .search, "RDS Framer: nach Rauschen wieder in der Suche")
+        feed(framer, groups: g0a + g2a + g0a)
+        check(framer.syncState == .synced, "RDS Framer: und danach wieder synchron")
     }
 
-    // 7. Modul-Controller Test (Zusammensetzen von PS und RT)
-    let rdsSettings = RDSSettingsStore()
-    let rdsCtrl = RDSController(settings: rdsSettings)
-    rdsCtrl.setActive(true)
-    for g in g0a + g2a {
-        for w in [g.blockA, g.blockB, g.blockC, g.blockD] {
-            let enc = RDSSyndrome.encodeBlock(data: w.data, offset: w.offset)
-            for i in (0..<26).reversed() {
-                rdsCtrl.demodulator.streamDecoder.process(bit: Int((enc >> i) & 1))
-            }
+    // 5. Decoder: Programmname, Radiotext, Uhrzeit, Zusatzdaten
+    let date = Date(timeIntervalSince1970: 1_791_450_840)       // 2026-10-08 09:14:00 UTC
+    var all: [RDSGroup] = []
+    for _ in 0..<3 {
+        all += g0a + g2a
+        all.append(RDSSignalGenerator.makeGroup4A(pi: pi, date: date, offsetHalfHours: 4))
+        all.append(RDSSignalGenerator.makeGroup1A(pi: pi, ecc: 0xE0))
+        all.append(RDSSignalGenerator.makeGroup1A(pi: pi, language: 0x08))
+        all += RDSSignalGenerator.makeGroup10A(pi: pi, name: "Pop")
+    }
+    let info = decodeAll(all)
+    check(info.pi == pi && info.piHex == "D318" && info.country == "Deutschland" && !info.countryIsGuess, "RDS Decoder: PI und Land (mit ECC E0)")
+    check(info.programService == "ANTENNE" && !info.programServiceComplete == false || info.programService == "ANTENNE", "RDS Decoder: Programmname ANTENNE")
+    check(info.radioText == "Wir lieben Bayern, wir lieben Musik" && info.radioTextComplete, "RDS Decoder: Radiotext (\(info.radioText))")
+    check(info.pty == 10 && info.ptyName == "Popmusik" && info.tp && !info.ta && info.music == true, "RDS Decoder: PTY, TP, TA, Musik/Sprache")
+    check(info.diStereo == true && info.diCompressed == false, "RDS Decoder: Decoder-Kennung Stereo")
+    check(info.alternativeFrequencies == [98.0, 99.3, 104.4], "RDS Decoder: Alternativfrequenzen \(info.alternativeFrequencies)")
+    check(info.languageCode == 0x08 && info.language == "Deutsch", "RDS Decoder: Sprache Deutsch")
+    check(info.programTypeName == "Pop", "RDS Decoder: Programmtyp-Name (10A)")
+    check(info.clockUTC == date && info.clockOffsetHalfHours == 4, "RDS Decoder: Uhrzeit UTC und Versatz")
+    check(info.clockFormatted == "08.10.2026 11:14 (UTC+2)", "RDS Decoder: Uhrzeit in Ortszeit (\(info.clockFormatted ?? "-"))")
+    check(info.groupCounts["0A"] == 12 && info.groupCounts["2A"] == 27 && info.totalGroups == all.count, "RDS Decoder: Gruppenzähler")
+    do {
+        // Umlaute im Radiotext, A/B-Wechsel und Verlauf
+        var seq: [RDSGroup] = []
+        for _ in 0..<2 { seq += RDSSignalGenerator.makeGroup2A(pi: pi, text: "Größe Äpfel für Özil ß", textAB: false) }
+        let first = decodeAll(seq)
+        check(first.radioText == "Größe Äpfel für Özil ß", "RDS Decoder: Umlaute im Radiotext (\(first.radioText))")
+        let d = RDSDecoder()
+        for g in seq { d.handle(g, quality: 1) }
+        for _ in 0..<2 { for g in RDSSignalGenerator.makeGroup2A(pi: pi, text: "Zweiter Text", textAB: true) { d.handle(g, quality: 1) } }
+        let after = d.snapshot
+        check(after.radioText == "Zweiter Text" && after.radioTextHistory == ["Zweiter Text", "Größe Äpfel für Özil ß"], "RDS Decoder: A/B-Wechsel startet neuen Text, der alte bleibt im Verlauf (\(after.radioTextHistory))")
+    }
+    do {
+        // Teilgruppen: nur Block B und D (Block C verloren) liefern trotzdem Programmnamen-Zeichen; Block A verloren: PI aus C' bzw. früheren Gruppen
+        let d = RDSDecoder()
+        for _ in 0..<2 { for g in g0a { d.handle(RDSGroup(blocks: [g.blockA, g.blockB, nil, g.blockD]), quality: 1) } }
+        check(d.snapshot.programService == "ANTENNE" && d.snapshot.pi == pi, "RDS Decoder: Programmname aus Gruppen ohne Block C")
+        for g in g2a { d.handle(RDSGroup(blocks: [nil, g.blockB, g.blockC, g.blockD]), quality: 1) }
+        check(d.snapshot.pi == pi, "RDS Decoder: Gruppen ohne Block A ändern den PI nicht")
+    }
+    do {
+        // Reparierte Blöcke bei schlechter Lage: ein falscher Wert ersetzt nicht sofort, erst die Wiederholung
+        let d = RDSDecoder()
+        for _ in 0..<2 { for g in g0a { d.handle(g, quality: 1) } }
+        var bad = g0a[1]
+        bad.blocks[3] = RDSBlock(data: (UInt16(UInt8(ascii: "Z")) << 8) | UInt16(UInt8(ascii: "Z")), offset: .d, correctedBits: 1)
+        d.handle(bad, quality: 0.5)
+        check(d.snapshot.programService == "ANTENNE", "RDS Decoder: einzelner reparierter Block ändert den Namen nicht")
+        d.handle(bad, quality: 0.5)
+        check(d.snapshot.programService == "ANTZZNE" || d.snapshot.programService.contains("ZZ"), "RDS Decoder: zweite gleiche Beobachtung übernimmt (\(d.snapshot.programService))")
+    }
+    do {
+        // Senderwechsel: ein fremder PI-Code zählt erst nach drei Beobachtungen
+        let d = RDSDecoder()
+        for g in g0a + g0a { d.handle(g, quality: 1) }
+        let other = RDSSignalGenerator.makeGroup0A(pi: 0xD315, ps: "BR24", pty: 1, afMHz: [])
+        d.handle(other[0], quality: 1)
+        check(d.snapshot.pi == pi && d.snapshot.programService == "ANTENNE", "RDS Decoder: ein fremder PI schaltet nicht um")
+        for g in other + other + other { d.handle(g, quality: 1) }
+        check(d.snapshot.pi == 0xD315 && d.snapshot.programService == "BR24" && d.snapshot.alternativeFrequencies.isEmpty, "RDS Decoder: nach drei Beobachtungen neuer Sender, alte Daten weg (\(d.snapshot.programService))")
+    }
+    do {
+        // RT+: Ankündigung in 3A, Markierungen in 11A
+        let text = "Juliane Krebs: Deutschlandreportage"
+        var seq: [RDSGroup] = []
+        seq.append(RDSSignalGenerator.makeGroup3A(pi: pi, groupTypeCode: 22))
+        for _ in 0..<2 { seq += RDSSignalGenerator.makeGroup2A(pi: pi, text: text) }
+        seq.append(RDSSignalGenerator.makeRTPlus(pi: pi, groupType: 11, tag1: (type: 4, start: 0, length: 13), tag2: (type: 1, start: 15, length: 20)))
+        let rt = decodeAll(seq)
+        check(rt.radioTextPlus == [RDSTag(label: "Interpret", text: "Juliane Krebs"), RDSTag(label: "Titel", text: "Deutschlandreportage")], "RDS Decoder: RT+ Interpret und Titel (\(rt.radioTextPlus))")
+        check(rt.applicationNames == ["RT+"], "RDS Decoder: RT+ als Zusatzdienst angekündigt")
+    }
+
+    // 6. Signalweg: Multiplexsignal mit 57-kHz-Träger → Bits → Gruppen
+    func demodulate(_ mpx: [Float], rate: Double, chunk: Int = 100_000) -> (groups: [RDSGroup], demod: RDSDemodulator) {
+        let demod = RDSDemodulator()
+        let box = GroupBox()
+        demod.streamDecoder.onGroup = { box.add($0) }
+        mpx.withUnsafeBufferPointer { b in
+            var i = 0
+            while i < b.count { let e = min(i + chunk, b.count); demod.process(mpx: UnsafeBufferPointer(rebasing: b[i..<e]), sampleRate: rate); i = e }
+        }
+        return (box.list, demod)
+    }
+    var stream: [RDSGroup] = []
+    for _ in 0..<12 { stream += g0a + g2a }
+    let expectedGroups = stream.count
+    for rate in [480_000.0, 240_000.0] {
+        let mpx = RDSSignalGenerator.modulate(groups: stream, sampleRate: rate)
+        let r = demodulate(mpx, rate: rate)
+        check(r.demod.streamDecoder.syncState == .synced && r.groups.count >= expectedGroups - 6, "RDS Signalweg \(Int(rate / 1000)) kS/s: \(r.groups.count) von \(expectedGroups) Gruppen")
+        let i2 = decodeAll(r.groups)
+        check(i2.programService == "ANTENNE" && i2.pi == pi && i2.radioText == "Wir lieben Bayern, wir lieben Musik", "RDS Signalweg \(Int(rate / 1000)) kS/s: PI, Name und Radiotext stimmen")
+    }
+    do {
+        let mpx = RDSSignalGenerator.modulate(groups: stream)
+        let whole = demodulate(mpx, rate: 480_000, chunk: mpx.count).groups.count
+        let parts = demodulate(mpx, rate: 480_000, chunk: 977).groups.count
+        let tiny = demodulate(mpx, rate: 480_000, chunk: 13).groups.count
+        check(whole == parts && whole == tiny, "RDS Signalweg: Ergebnis hängt nicht von der Blockaufteilung ab (\(whole)/\(parts)/\(tiny))")
+    }
+    for (label, offset, ppm, phase) in [("Träger +9 Hz", 9.0, 0.0, 0.3), ("Träger −9 Hz", -9.0, 0.0, 2.1), ("Takt +100 ppm", 0.0, 100.0, 4.0), ("Takt −100 ppm", 0.0, -100.0, 5.5), ("beides", 6.0, 60.0, 1.0)] {
+        let mpx = RDSSignalGenerator.modulate(groups: stream, carrierOffsetHz: offset, clockPPM: ppm, startPhase: phase)
+        let r = demodulate(mpx, rate: 480_000)
+        check(r.groups.count >= expectedGroups - 8 && r.groups.allSatisfy { $0.pi == pi || $0.pi == nil }, "RDS Signalweg: \(label): \(r.groups.count) von \(expectedGroups) Gruppen")
+    }
+    do {
+        // Pegel: RDS mit 0,5 kHz und mit 4 kHz Hub
+        for (label, amp) in [("0,5 kHz Hub", Float(0.0067)), ("4 kHz Hub", Float(0.053))] {
+            let mpx = RDSSignalGenerator.modulate(groups: stream, amplitude: amp)
+            let r = demodulate(mpx, rate: 480_000)
+            check(r.groups.count >= expectedGroups - 6, "RDS Signalweg: \(label): \(r.groups.count) von \(expectedGroups) Gruppen")
         }
     }
-    RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
-    check(rdsCtrl.info.pi == 0xD311, "RDS Controller: PI empfangen (0xD311)")
-    check(rdsCtrl.info.programService == "BAYERN 3", "RDS Controller: PS-Name 'BAYERN 3' korrekt assembliert")
-    check(rdsCtrl.info.radioText == rtText, "RDS Controller: Radiotext korrekt assembliert")
-    check(rdsCtrl.info.tp == true, "RDS Controller: TP Flag aktiv")
-    check(rdsCtrl.info.pty == 10, "RDS Controller: PTY 10")
-    check(rdsCtrl.info.alternativeFrequencies.contains(98.0), "RDS Controller: Alternativfrequenz 98.0 MHz")
+    do {
+        // Störer: Stereo-Differenzsignal bis 53 kHz und Pilot neben dem RDS-Träger
+        var mpx = RDSSignalGenerator.modulate(groups: stream)
+        for k in 0..<mpx.count {
+            let t = Double(k) / 480_000
+            mpx[k] += Float(0.4 * sin(2 * Double.pi * 52_000 * t) + 0.1 * sin(2 * Double.pi * 19_000 * t) + 0.3 * sin(2 * Double.pi * 1_000 * t))
+        }
+        let r = demodulate(mpx, rate: 480_000)
+        check(r.groups.count >= expectedGroups - 8, "RDS Signalweg: starker Stereoanteil bei 52 kHz stört nicht (\(r.groups.count) von \(expectedGroups))")
+    }
+    do {
+        // Rauschen: bei mäßigem Rauschen vollständig, bei starkem Rauschen graceful und ohne Unsinn
+        var rng = SDRTestSignal.SplitMix(seed: 11)
+        let clean = RDSSignalGenerator.modulate(groups: stream)
+        var results: [Int] = []
+        for sigma in [Float(0.02), Float(0.05), Float(0.12)] {
+            var noisy = clean
+            for k in 0..<noisy.count { noisy[k] += sigma * rng.gauss() }
+            let r = demodulate(noisy, rate: 480_000)
+            results.append(r.groups.count)
+            check(r.groups.filter({ $0.isComplete }).allSatisfy { $0.pi == pi || $0.correctedBits > 0 }, "RDS Signalweg: Rauschen σ=\(sigma): vollständige Gruppen ohne Fehlbilder")
+        }
+        check(results[0] >= expectedGroups - 8, "RDS Signalweg: leichtes Rauschen \(results[0]) von \(expectedGroups)")
+        check(results[1] >= expectedGroups / 2, "RDS Signalweg: mittleres Rauschen \(results[1]) von \(expectedGroups)")
+        var onlyNoise = [Float](repeating: 0, count: 480_000 * 10)
+        for k in 0..<onlyNoise.count { onlyNoise[k] = 0.1 * rng.gauss() }
+        let rn = demodulate(onlyNoise, rate: 480_000)
+        check(rn.groups.count == 0, "RDS Signalweg: nur Rauschen ergibt keine Gruppen (\(rn.groups.count))")
+    }
+    do {
+        // Controller (Oberfläche): Gruppen über Bits einspeisen, Stand abholen
+        let ctrl = RDSController(settings: RDSSettingsStore())
+        ctrl.setActive(true)
+        for b in RDSSignalGenerator.bits(of: g0a + g2a + g0a + g2a + g0a + g2a) { ctrl.demodulator.streamDecoder.process(bit: b) }
+        ctrl.refresh()
+        check(ctrl.info.pi == pi && ctrl.info.programService == "ANTENNE" && ctrl.stats.syncState == .synced && ctrl.stats.groupsReceived > 10, "RDS Controller: Stand übernommen (\(ctrl.info.programService), \(ctrl.stats.groupsReceived) Gruppen)")
+        ctrl.clear()
+        check(ctrl.info.pi == nil && ctrl.stats.groupsReceived == 0, "RDS Controller: LEEREN setzt zurück")
+        ctrl.setActive(false)
+    }
 
-    // 8. DSP End-to-End Demodulation
-    var testGroups: [RDSGroup] = []
-    for _ in 0..<8 { testGroups.append(contentsOf: g0a) }
-    let mpx = RDSSignalGenerator.modulate(groups: testGroups)
-    check(!mpx.isEmpty, "RDS Signalgenerator: 240-kS/s-MPX erzeugt")
-    let dspDemod = RDSDemodulator()
-    let dspBox = GroupBox()
-    dspDemod.streamDecoder.onGroup = { dspBox.add($0) }
-    mpx.withUnsafeBufferPointer { b in dspDemod.process(mpx: b) }
-    check(dspDemod.streamDecoder.syncState == .synced || dspBox.count > 0, "RDS DSP Demodulator: Costas + Biphase rastet ein und decodiert")
+    do {
+        // Schnellauswahl: eigene Sender mit Programmnamen, sortiert, gespeichert
+        UserDefaults.standard.removeObject(forKey: "rdsFavorites")
+        let st = RDSSettingsStore()
+        check(st.favorites.isEmpty, "RDS Schnellauswahl: anfangs leer")
+        st.addFavorite(frequencyHz: 105_700_000, name: "BR24 ")
+        st.addFavorite(frequencyHz: 104_400_020, name: "ANTENNE")
+        st.addFavorite(frequencyHz: 104_400_000, name: "")
+        check(st.favorites.map(\.title) == ["104,4 ANTENNE", "105,7 BR24"], "RDS Schnellauswahl: sortiert, Name getrimmt, Doppelte (auch leerer Name) ändern nichts (\(st.favorites.map(\.title)))")
+        st.addFavorite(frequencyHz: 104_400_000, name: "ANTENNE BY")
+        check(st.favorite(at: 104_400_000)?.name == "ANTENNE BY", "RDS Schnellauswahl: neuer Name wird nachgeführt")
+        check(RDSSettingsStore().favorites == st.favorites, "RDS Schnellauswahl: bleibt über einen Neustart erhalten")
+        let ctrl = RDSController(settings: st)
+        ctrl.setActive(true)
+        st.frequencyHz = 104_400_000
+        for b in RDSSignalGenerator.bits(of: g0a + g2a + g0a + g2a + g0a + g2a) { ctrl.demodulator.streamDecoder.process(bit: b) }
+        ctrl.refresh()
+        check(st.favorite(at: 104_400_000)?.name == "ANTENNE", "RDS Schnellauswahl: Name folgt dem gelesenen Programmnamen (\(st.favorite(at: 104_400_000)?.name ?? "-"))")
+        ctrl.toggleFavorite()
+        check(st.favorite(at: 104_400_000) == nil && st.favorites.count == 1, "RDS Schnellauswahl: ★ entfernt den eingestellten Sender")
+        ctrl.toggleFavorite()
+        check(st.favorite(at: 104_400_000)?.name == "ANTENNE", "RDS Schnellauswahl: ★ merkt ihn wieder mit dem gelesenen Namen")
+        ctrl.setActive(false)
+        st.removeFavorite(frequencyHz: 105_700_000)
+        UserDefaults.standard.removeObject(forKey: "rdsFavorites")
+    }
+
+    // 7. Echte Aufnahme (nur wenn vorhanden): 104,4 MHz, HackRF, 8 Bit
+    let recording = "TestData/RDS/fm104400_c104700_2400k_l32g8.cu8"
+    if let handle = FileManager.default.contents(atPath: recording) {
+        var cfg = SDRChannelConfig(mode: .wfm)
+        cfg.bandwidthHz = 230_000
+        let sdr = SDRDemodulator(sampleRate: 2_400_000, config: cfg)
+        sdr.setOffset(-300_000)
+        let rds = RDSDemodulator()
+        let box = GroupBox()
+        rds.streamDecoder.onGroup = { box.add($0) }
+        sdr.onDiscriminator = { buf, r in rds.process(mpx: buf, sampleRate: r) }
+        var audio = [Float]()
+        let n = min(handle.count, 2_400_000 * 2 * 10)
+        handle.withUnsafeBytes { raw in
+            let b = raw.bindMemory(to: UInt8.self)
+            var i = 0
+            while i < n { let e = min(i + 262_144, n); sdr.process(UnsafeBufferPointer(rebasing: b[i..<e]), audio: &audio); i = e }
+        }
+        let real = decodeAll(box.list)
+        check(box.count >= 100 && real.pi == 0xD318 && real.programService == "ANTENNE" && real.country == "Deutschland", "RDS echte Aufnahme 104,4 MHz: \(box.count) Gruppen, PI \(real.piHex ?? "-"), Name \(real.programService)")
+        check(real.radioTextComplete && real.radioText.contains("ANTENNE BAYERN"), "RDS echte Aufnahme: Radiotext (\(real.radioText))")
+        check(sdr.metrics.stereoLocked && sdr.metrics.pilotKHz > 6 && sdr.metrics.pilotKHz < 7.5, String(format: "RDS echte Aufnahme: Stereo-Pilot %.2f kHz gefunden", sdr.metrics.pilotKHz))
+    } else {
+        print("  (RDS: Aufnahme \(recording) fehlt, übersprungen)")
+    }
+}
+
+// MARK: - UKW-Rundfunk: Stereodecoder, Kanalbreite, RDS im Gesamtsignal
+if want("wfm") {
+    let fs = 2_400_000.0
+    /// Multiplexsignal bei 480 kS/s: (L+R)/2 und (L−R)/2·sin(2Φ) mit 90 % Aussteuerung, Pilot, RDS (1,0 = 75 kHz Hub)
+    func makeMPX(seconds: Double, left: (Double) -> Double, right: (Double) -> Double, pilot: Double = 0.09, rds: [Float] = []) -> [Float] {
+        let n = Int(seconds * 480_000)
+        var x = [Float](repeating: 0, count: n)
+        for k in 0..<n {
+            let t = Double(k) / 480_000
+            let l = left(t), r = right(t)
+            let phi = 2 * Double.pi * 19_000 * t
+            var v = 0.45 * (l + r) + 0.45 * (l - r) * sin(2 * phi) + pilot * sin(phi)
+            if k < rds.count { v += Double(rds[k]) }
+            x[k] = Float(v)
+        }
+        return x
+    }
+    func iq(_ mpx: [Float], rate: Double = fs, offset: Double = -300_000, amplitude: Float = 0.3, noise: Float = 0.003, seed: UInt64 = 1) -> SDRTestSignal {
+        var s = SDRTestSignal(sampleRate: rate, seconds: Double(mpx.count) / 480_000)
+        s.addFM(offsetHz: offset, baseband: mpx, basebandRate: 480_000, deviation: 75_000, amplitude: amplitude)
+        if noise > 0 { s.addNoise(sigma: noise, seed: seed) }
+        return s
+    }
+    struct Result { var mono: [Float]; var stereo: [Float]; var metrics: SDRMetrics }
+    func receive(_ s: SDRTestSignal, config: SDRChannelConfig, offset: Double = -300_000, chunk: Int = 262_144, discriminator: (@Sendable (UnsafeBufferPointer<Float>, Double) -> Void)? = nil) -> Result {
+        let d = SDRDemodulator(sampleRate: s.sampleRate, config: config)
+        d.setOffset(offset)
+        d.produceStereo = true
+        d.onDiscriminator = discriminator
+        var mono = [Float](), stereo = [Float]()
+        let bytes = s.quantized()
+        bytes.withUnsafeBufferPointer { b in
+            var i = 0
+            while i < b.count {
+                let e = min(i + chunk, b.count)
+                d.process(UnsafeBufferPointer(rebasing: b[i..<e]), audio: &mono)
+                stereo.append(contentsOf: d.stereoOut); d.stereoOut.removeAll(keepingCapacity: true)
+                i = e
+            }
+        }
+        return Result(mono: mono, stereo: stereo, metrics: d.metrics)
+    }
+    func channel(_ r: Result, _ ch: Int) -> [Float] { stride(from: ch, to: r.stereo.count, by: 2).map { r.stereo[$0] } }
+    /// Amplitude eines Tons (Goertzel über 1 s nach der Einschwingzeit)
+    func tone(_ x: [Float], _ f: Double, from: Int = 60_000, length: Int = 48_000) -> Double {
+        guard x.count >= from + length else { return 0 }
+        var re = 0.0, im = 0.0
+        for k in 0..<length {
+            let w = 2 * Double.pi * f * Double(k) / 48_000
+            let win = 0.5 - 0.5 * cos(2 * Double.pi * Double(k) / Double(length))
+            re += Double(x[from + k]) * win * cos(w)
+            im -= Double(x[from + k]) * win * sin(w)
+        }
+        return 2 * (re * re + im * im).squareRoot() / (Double(length) * 0.5)
+    }
+    func db(_ r: Double) -> Double { 20 * log10(max(r, 1e-12)) }
+    var wcfg = SDRChannelConfig(mode: .wfm)
+    wcfg.bandwidthHz = 230_000
+
+    // Stereo: nur links, nur rechts, beides gleich
+    let tL = { (t: Double) in 0.8 * sin(2 * Double.pi * 1_000 * t) }
+    let tR = { (t: Double) in 0.8 * sin(2 * Double.pi * 3_000 * t) }
+    let zero = { (_: Double) in 0.0 }
+    let onlyLeft = receive(iq(makeMPX(seconds: 2.5, left: tL, right: zero)), config: wcfg)
+    let l1 = tone(channel(onlyLeft, 0), 1_000), r1 = tone(channel(onlyLeft, 1), 1_000)
+    check(onlyLeft.metrics.stereoLocked && abs(onlyLeft.metrics.pilotKHz - 6.75) < 0.4, String(format: "WFM Stereo: Pilot gefunden (%.2f kHz Hub, nominal 6,75)", onlyLeft.metrics.pilotKHz))
+    check(abs(l1 - 0.69) < 0.04, String(format: "WFM Stereo: linker Kanal %.3f (erwartet 0,69: 90 %% Aussteuerung, De-Emphase)", l1))
+    check(db(r1 / l1) < -35, String(format: "WFM Stereo: Übersprechen links → rechts %.1f dB", db(r1 / l1)))
+    let onlyRight = receive(iq(makeMPX(seconds: 2.5, left: zero, right: tR)), config: wcfg)
+    let r3 = tone(channel(onlyRight, 1), 3_000), l3 = tone(channel(onlyRight, 0), 3_000)
+    check(db(l3 / r3) < -35, String(format: "WFM Stereo: Übersprechen rechts → links %.1f dB", db(l3 / r3)))
+    check(onlyRight.metrics.stereoBlend > 0.95, "WFM Stereo: volle Überblendung bei starkem Pilot")
+    let both = receive(iq(makeMPX(seconds: 2.5, left: tL, right: tL)), config: wcfg)
+    check(abs(tone(channel(both, 0), 1_000) - tone(channel(both, 1), 1_000)) < 0.01, "WFM Stereo: gleiches Signal links und rechts")
+    check(abs(tone(both.mono, 1_000) - 0.69) < 0.04, "WFM: Mono-Ausgang (L+R) für die Decoder")
+    // Gegenphase: L = −R ergibt reines Differenzsignal
+    let anti = receive(iq(makeMPX(seconds: 2.5, left: tL, right: { -tL($0) })), config: wcfg)
+    check(tone(anti.mono, 1_000) < 0.02 && tone(channel(anti, 0), 1_000) > 0.6 && tone(channel(anti, 1), 1_000) > 0.6, "WFM Stereo: Gegenphase landet nur im Differenzsignal")
+    // ohne Pilot: Mono
+    let noPilot = receive(iq(makeMPX(seconds: 2.5, left: tL, right: zero, pilot: 0)), config: wcfg)
+    let npL = channel(noPilot, 0), npR = channel(noPilot, 1)
+    check(!noPilot.metrics.stereoLocked && noPilot.metrics.stereoBlend < 0.01 && zip(npL, npR).allSatisfy { abs($0 - $1) < 1e-6 }, "WFM: ohne Pilot Mono (beide Kanäle gleich, nicht eingerastet)")
+    // Stereo ausgeschaltet
+    var mono = wcfg; mono.stereo = false
+    let forced = receive(iq(makeMPX(seconds: 2.5, left: tL, right: zero)), config: mono)
+    check(zip(channel(forced, 0), channel(forced, 1)).allSatisfy { abs($0 - $1) < 1e-6 } && !forced.metrics.stereoLocked, "WFM: Stereo aus → Mono")
+    // De-Emphase 75 µs dämpft 3 kHz stärker als 50 µs
+    var us75 = wcfg; us75.wfmDeemphasisSeconds = 75e-6
+    let d50 = tone(channel(onlyRight, 1), 3_000), d75 = tone(channel(receive(iq(makeMPX(seconds: 2.5, left: zero, right: tR)), config: us75), 1), 3_000)
+    check(db(d75 / d50) < -1.5 && db(d75 / d50) > -3.5, String(format: "WFM: De-Emphase 75 µs gegen 50 µs bei 3 kHz %.1f dB (erwartet −2,2)", db(d75 / d50)))
+    var flat = wcfg; flat.deemphasis = false
+    let fl = tone(channel(receive(iq(makeMPX(seconds: 2.5, left: tL, right: zero)), config: flat), 0), 1_000)
+    check(abs(fl - 0.72) < 0.04, String(format: "WFM: ohne De-Emphase %.3f (erwartet 0,72)", fl))
+    // Blockunabhängigkeit
+    let sig = iq(makeMPX(seconds: 1.5, left: tL, right: zero))
+    let wholeR = receive(sig, config: wcfg, chunk: 8_000_000), partsR = receive(sig, config: wcfg, chunk: 7_000)
+    var maxDiff: Float = 0
+    for k in 0..<min(wholeR.stereo.count, partsR.stereo.count) { maxDiff = max(maxDiff, abs(wholeR.stereo[k] - partsR.stereo[k])) }
+    check(min(wholeR.stereo.count, partsR.stereo.count) > 100_000 && maxDiff < 2e-3 && abs(wholeR.stereo.count - partsR.stereo.count) <= 4, "WFM Stereo: Ergebnis hängt nicht von der Blockaufteilung ab (\(maxDiff), \(wholeR.stereo.count)/\(partsR.stereo.count))")
+    // andere Abtastraten des Geräts
+    for rate in [4_800_000.0, 9_600_000.0, 2_048_000.0] {
+        let s = iq(makeMPX(seconds: 2.5, left: tL, right: zero), rate: rate, offset: rate == 2_048_000 ? -250_000 : -300_000)
+        let r = receive(s, config: wcfg, offset: rate == 2_048_000 ? -250_000 : -300_000)
+        let l = tone(channel(r, 0), 1_000), x = tone(channel(r, 1), 1_000)
+        check(abs(l - 0.69) < 0.05 && db(x / l) < -30, String(format: "WFM Stereo bei %.3f MS/s: links %.3f, Übersprechen %.1f dB", rate / 1e6, l, db(x / l)))
+    }
+    // Empfangsgüte: je schlechter das Signal, desto weniger Differenzsignal (Mono bleibt sauber); gemessen am Rauschen im Differenzsignal
+    var blends: [Double] = [], noises: [Double] = []
+    for (amp, sigma) in [(Float(0.3), Float(0.003)), (Float(0.05), Float(0.01)), (Float(0.03), Float(0.012)), (Float(0.02), Float(0.012))] {
+        let r = receive(iq(makeMPX(seconds: 3, left: tL, right: tL), amplitude: amp, noise: sigma, seed: 3), config: wcfg)
+        blends.append(r.metrics.stereoBlend); noises.append(r.metrics.stereoNoise)
+    }
+    check(zip(blends, blends.dropFirst()).allSatisfy { $0 >= $1 } && zip(noises, noises.dropFirst()).allSatisfy { $0 <= $1 }, "WFM: schlechterer Empfang → mehr Rauschen, weniger Stereo (Rauschen \(noises.map { String(format: "%.4f", $0) }), Mischung \(blends.map { String(format: "%.2f", $0) }))")
+    check(blends[0] > 0.95 && blends[3] < 0.2, "WFM: starkes Signal volles Stereo, schwaches Mono")
+    let weakSig = receive(iq(makeMPX(seconds: 3, left: tL, right: tL), amplitude: 0.02, noise: 0.012, seed: 3), config: wcfg)
+    check(tone(weakSig.mono, 1_000) > 0.4, "WFM: Mono-Ton bleibt bei schwachem Signal erhalten")
+    // Kanalbreite: voller Hub (71 kHz) mit 3-kHz-Ton; je enger das Kanalfilter, desto mehr Oberwellen (Klirrfaktor)
+    do {
+        let loud = { (t: Double) in 0.95 * sin(2 * Double.pi * 3_000 * t) }
+        var cfg = wcfg; cfg.deemphasis = false; cfg.stereo = false
+        func thd(_ bw: Double) -> Double {
+            cfg.bandwidthHz = bw
+            let a = receive(iq(makeMPX(seconds: 2.5, left: loud, right: loud, pilot: 0)), config: cfg).mono
+            let f = tone(a, 3_000)
+            let h = [6_000.0, 9_000, 12_000, 15_000].map { tone(a, $0) }
+            return (h.map { $0 * $0 }.reduce(0, +)).squareRoot() / f
+        }
+        let t230 = thd(230_000), t180 = thd(180_000), t120 = thd(120_000)
+        check(t230 < 0.005, String(format: "WFM: Klirrfaktor bei 230 kHz Kanalbreite %.3f %%", t230 * 100))
+        check(t120 > 3 * t230 && t180 < t120, String(format: "WFM: enge Filter verzerren stärker (230 kHz %.2f %%, 180 kHz %.2f %%, 120 kHz %.2f %%)", t230 * 100, t180 * 100, t120 * 100))
+    }
+    // Nachbarsender im Raster von 200 kHz
+    do {
+        var s = iq(makeMPX(seconds: 2.5, left: tL, right: tL, pilot: 0.09), amplitude: 0.1)
+        let nb = makeMPX(seconds: 2.5, left: { 0.8 * sin(2 * Double.pi * 2_200 * $0) }, right: { 0.8 * sin(2 * Double.pi * 2_200 * $0) })
+        s.addFM(offsetHz: -300_000 + 200_000, baseband: nb, basebandRate: 480_000, deviation: 75_000, amplitude: 0.2)   // doppelt so stark, 200 kHz weiter
+        let r = receive(s, config: wcfg)
+        let want = tone(r.mono, 1_000), leak = tone(r.mono, 2_200)
+        check(db(leak / want) < -35, String(format: "WFM: Nachbarsender 200 kHz daneben (+6 dB): Störton %.1f dB", db(leak / want)))
+    }
+    // Gesamtsignal: Stereo und RDS zugleich über Funk, 8 Bit und Rauschen
+    do {
+        var groups: [RDSGroup] = []
+        let text = "Stereo und RDS zugleich"
+        for _ in 0..<14 { groups += RDSSignalGenerator.makeGroup0A(pi: 0xD318, ps: "ANTENNE", afMHz: [98.0]) + RDSSignalGenerator.makeGroup2A(pi: 0xD318, text: text) }
+        let rdsMPX = RDSSignalGenerator.modulate(groups: groups, amplitude: 0.02)
+        let secs = Double(rdsMPX.count) / 480_000
+        let mpx = makeMPX(seconds: secs, left: tL, right: tR, rds: rdsMPX)
+        let demod = RDSDemodulator()
+        let dec = RDSDecoder()
+        let framer = demod.streamDecoder
+        framer.onGroup = { dec.handle($0, quality: framer.currentStats.quality) }
+        let r = receive(iq(mpx, amplitude: 0.25, noise: 0.01), config: wcfg, discriminator: { buf, rate in demod.process(mpx: buf, sampleRate: rate) })
+        let info = dec.snapshot
+        check(info.pi == 0xD318 && info.programService == "ANTENNE" && info.radioText == text, "WFM + RDS über Funk (8 Bit, Rauschen): \(info.programService) / \(info.radioText) / \(framer.currentStats.groupsReceived) Gruppen")
+        let lA = tone(channel(r, 0), 1_000), rB = tone(channel(r, 1), 3_000)
+        check(lA > 0.5 && rB > 0.5 && r.metrics.stereoLocked, String(format: "WFM + RDS: beide Kanäle getrennt (L 1 kHz %.2f, R 3 kHz %.2f)", lA, rB))
+    }
+    // Modi, Breiten
+    check(SDRMode.wfm.bandwidthChoices.contains(230_000) && SDRMode.wfm.defaultBandwidthHz == 230_000 && SDRMode.wfm.bandwidthChoices.allSatisfy { $0 <= 256_000 }, "WFM: Kanalbreiten bis 256 kHz, Standard 230 kHz")
+    check(RigTuneTarget.rds(frequencyHz: 104_400_000).passbandHz == 230_000 && RigTuneTarget.rds(frequencyHz: 104_400_000).mode == "WFM", "RDS-Abstimmziel: WFM mit 230 kHz")
+}
+
+// MARK: - Mehrkanalbetrieb mit Kurzwellen-Decodern (RTTY, DSC, NAVTEX, Wetterfax, HFDL, SSTV)
+if want("hfbank") {
+    // Voreinstellungen: Dial = Sendefrequenz minus NF-Mitte des Decoders
+    let rtty = ChannelCatalog.presets(for: .rtty)
+    check(rtty.count == 6 && rtty.first?.frequencyHz == 4_582_000 && rtty.contains { abs($0.frequencyHz - 10_099_800) < 1 && $0.option == "dwd-kw" && $0.mode == .usb } && rtty.last?.option == "dwd-lw" && abs(rtty.last!.frequencyHz - 146_300) < 1,
+          "Kanäle RTTY: DWD-Frequenzen als USB-Dial 1 kHz darunter (\(rtty.map { $0.frequencyHz }))")
+    let dsc = ChannelCatalog.presets(for: .dsc)
+    check(dsc.count == 7 && dsc.contains { abs($0.frequencyHz - 8_412_800) < 1 && $0.mode == .usb && $0.option == "8414" } && dsc.contains { $0.frequencyHz == 156_525_000 && $0.mode == .nfm }, "Kanäle DSC: Kurzwelle in USB (Ruf 1,7 kHz über dem Dial), Kanal 70 in FM")
+    let nav = ChannelCatalog.presets(for: .navtex)
+    check(nav.count == 3 && nav.contains { abs($0.frequencyHz - 517_000) < 1 && $0.option == "518" } && nav.contains { abs($0.frequencyHz - 4_208_500) < 1 }, "Kanäle NAVTEX: 518, 490 und 4209,5 kHz")
+    let fax = ChannelCatalog.presets(for: .wefax)
+    check(fax.count == 3 && fax.contains { abs($0.frequencyHz - 7_878_100) < 1 && $0.option == "dwd-7880" }, "Kanäle Wetterfax: DWD 3855, 7880, 13882,5 kHz (Dial 1,9 kHz darunter)")
+    let hfdl = ChannelCatalog.presets(for: .hfdl)
+    check(hfdl.count > 20 && hfdl.allSatisfy { $0.mode == .usb && $0.option != nil && HFDLChannels.kHz(presetID: $0.option!) != nil && abs(HFDLChannels.kHz(presetID: $0.option!)! * 1000 - $0.frequencyHz) < 1 }, "Kanäle HFDL: \(hfdl.count) Frequenzen, Dial = Frequenz")
+    let sstv = ChannelCatalog.presets(for: .sstv)
+    check(sstv.contains { $0.frequencyHz == 7_171_000 && $0.mode == .lsb } && sstv.contains { $0.frequencyHz == 14_230_000 && $0.mode == .usb } && sstv.contains { $0.frequencyHz == 145_800_000 && $0.mode == .nfm }, "Kanäle SSTV: 40 m in LSB, 20 m in USB, ISS in FM")
+    check(ChannelCatalog.modules.contains(.rtty) && ChannelCatalog.modules.contains(.hfdl) && ChannelCatalog.defaults(for: .rtty).mode == .usb && ChannelCatalog.defaults(for: .rtty).bandwidthHz == 3_000, "Kanäle: HF-Decoder in der Auswahl, Standard USB 3 kHz")
+    check(ChannelCatalog.title(module: .rtty, frequencyHz: 10_099_800).contains("DDK9") && ChannelCatalog.title(module: .rtty, frequencyHz: 5_000_000).hasPrefix("RTTY"), "Kanäle: Anzeigename aus der Voreinstellung")
+    // Alte gespeicherte Kanäle (ohne Voreinstellung) lassen sich weiter lesen
+    let old = #"[{"id":3,"moduleID":"aprs","frequencyHz":144800000,"mode":"nfm","bandwidthHz":12500,"enabled":true,"label":""}]"#
+    let decoded = try? JSONDecoder().decode([SDRBankSlot].self, from: Data(old.utf8))
+    check(decoded?.first?.preset == nil && decoded?.first?.id == 3, "Kanalbank: alte Einträge ohne Voreinstellung bleiben lesbar")
+    let withPreset = SDRBankSlot(id: 1, moduleID: "rtty", frequencyHz: 1, mode: .usb, bandwidthHz: 3000, preset: "dwd-kw")
+    check((try? JSONDecoder().decode(SDRBankSlot.self, from: JSONEncoder().encode(withPreset)))?.preset == "dwd-kw", "Kanalbank: Voreinstellung wird gespeichert")
+
+    // Einstellungen eines Kanals liegen in einem eigenen Speicher und ändern die des Moduls nicht
+    MainActor.assumeIsolated {
+        let suite = "com.peterbetz.digidec.test.channel"
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        let own = UserDefaults(suiteName: suite)!
+        let before = UserDefaults.standard.string(forKey: "rttyPresetID")
+        let st = RTTYSettingsStore(defaults: own)
+        st.select(presetID: "dwd-kw")
+        st.setCenter(1234)
+        check(own.string(forKey: "rttyPresetID") == "dwd-kw" && UserDefaults.standard.string(forKey: "rttyPresetID") == before, "Kanal-Einstellungen: RTTY schreibt in den eigenen Speicher, nicht in den des Moduls")
+        check(RTTYSettingsStore(defaults: own).presetID == "dwd-kw" && RTTYSettingsStore(defaults: own).centerHz == 1234, "Kanal-Einstellungen: beim nächsten Start wieder da")
+        let nv = NavtexSettingsStore(defaults: own); nv.frequency = .f4209
+        check(own.string(forKey: "navtexFrequency") == "4209" && UserDefaults.standard.string(forKey: "navtexFrequency") != "4209", "Kanal-Einstellungen: NAVTEX ebenso")
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+    }
+
+    // Zwei RTTY-Aussendungen (DWD DDH7 auf 7646 und DDK9 auf 10100,8 kHz) in einem Fenster um 10 MHz, zwei Kanäle, jeder liest seinen Text
+    final class Collector: @unchecked Sendable {
+        let lock = NSLock(); var samples: [Float] = []
+        func add(_ b: UnsafeBufferPointer<Float>) { lock.lock(); samples.append(contentsOf: b); lock.unlock() }
+        var all: [Float] { lock.lock(); defer { lock.unlock() }; return samples }
+    }
+    let dwd = RTTYPreset.preset(id: "dwd-kw")!.parameters
+    func audio(for text: String) -> [Float] {
+        var g = RTTYSignalGenerator(parameters: dwd, centerHz: 1000)
+        g.ita2 = true
+        return g.samples(for: text, leadIn: 0.4, tail: 0.6)
+    }
+    let a1 = audio(for: "CQ CQ DE DDH7 TEST 1234"), a2 = audio(for: "WODL45 EDZW DDK9 GALE WARNING")
+    let seconds = Double(max(a1.count, a2.count)) / 8000 + 0.2
+    let rate = 9_600_000.0
+    var win = SDRTestSignal(sampleRate: rate, seconds: seconds)
+    let centerHz = 10_000_000.0
+    let dialA = 7_646_000.0 - 1000, dialB = 10_100_800.0 - 1000
+    win.addSSB(offsetHz: dialA - centerHz, audio: a1, audioRate: 8000, amplitude: 0.15)
+    win.addSSB(offsetHz: dialB - centerHz, audio: a2, audioRate: 8000, amplitude: 0.15)
+    win.addCarrier(offsetHz: 3_100_000, amplitude: 0.2)       // ein starker Rundfunkträger im Fenster
+    win.addNoise(sigma: 0.003)
+    let engine = SDRReceiverEngine(sampleRate: rate)
+    engine.setPrimaryEnabled(false)
+    var cusb = SDRChannelConfig(mode: .usb); cusb.bandwidthHz = 3_000; cusb.agc = true
+    let outA = Collector(), outB = Collector()
+    engine.setExtraChannel(id: 1, config: cusb, offsetHz: dialA - centerHz, handler: { outA.add($0) })
+    engine.setExtraChannel(id: 2, config: cusb, offsetHz: dialB - centerHz, handler: { outB.add($0) })
+    let raw = win.quantized()
+    raw.withUnsafeBufferPointer { b in
+        var i = 0
+        while i < b.count { let e = min(i + 524_288, b.count); engine.feed(UnsafeBufferPointer(rebasing: b[i..<e]), wait: true); i = e }
+    }
+    Thread.sleep(forTimeInterval: 1.5)
+    func decode(_ x: [Float]) -> String {
+        guard let conv = SampleRateConverter(inputRate: 48_000, outputRate: 8_000) else { return "" }
+        var out = [Float]()
+        x.withUnsafeBufferPointer { b in conv.process(b) { out.append(contentsOf: $0) } }
+        final class Box: @unchecked Sendable { var s = "" }
+        let box = Box()
+        let core = FldigiRTTYCore(parameters: dwd, options: .init(), centerHz: 1000) { box.s.append($0) }
+        out.withUnsafeBufferPointer { buf in
+            var i = 0
+            while i < buf.count { let n = min(160, buf.count - i); core.process(UnsafeBufferPointer(rebasing: buf[i..<(i + n)])); i += n }
+        }
+        return box.s
+    }
+    let tA = decode(outA.all), tB = decode(outB.all)
+    check(tA.contains("CQ CQ DE DDH7 TEST 1234") && !tA.contains("DDK9"), "Kanäle: RTTY DDH7 auf 7646 kHz im 9,6-MS/s-Fenster gelesen (\(tA.filter { !$0.isNewline }))")
+    check(tB.contains("WODL45 EDZW DDK9 GALE WARNING") && !tB.contains("DDH7"), "Kanäle: RTTY DDK9 auf 10100,8 kHz zugleich gelesen (\(tB.filter { !$0.isNewline }))")
+    // 20 MS/s (Höchstwert des HackRF): zwei FM-Träger am Rand des nutzbaren Fensters kommen mit richtigem Pegel an
+    do {
+        let r20 = 20_000_000.0
+        var w = SDRTestSignal(sampleRate: r20, seconds: 0.8)
+        let edge = SDRSettingsStore.window(forRate: 20_000_000) - 200_000
+        w.addFM(offsetHz: edge, tone: 1000, deviation: 3_000, amplitude: 0.2)
+        w.addFM(offsetHz: -edge, tone: 2000, deviation: 3_000, amplitude: 0.2)
+        w.addNoise(sigma: 0.004)
+        let e20 = SDRReceiverEngine(sampleRate: r20)
+        e20.setPrimaryEnabled(false)
+        var c = SDRChannelConfig(mode: .nfm); c.bandwidthHz = 12_500
+        let hi = Collector(), lo = Collector()
+        e20.setExtraChannel(id: 1, config: c, offsetHz: edge, handler: { hi.add($0) })
+        e20.setExtraChannel(id: 2, config: c, offsetHz: -edge, handler: { lo.add($0) })
+        let bytes = w.quantized()
+        bytes.withUnsafeBufferPointer { b in
+            var k = 0
+            while k < b.count { let e = min(k + 1_048_576, b.count); e20.feed(UnsafeBufferPointer(rebasing: b[k..<e]), wait: true); k = e }
+        }
+        Thread.sleep(forTimeInterval: 1.0)
+        func lvl(_ x: [Float], _ f: Double) -> Double {
+            guard x.count > 30_000 else { return 0 }
+            var re = 0.0, im = 0.0
+            for k in 0..<24_000 { let ph = 2 * Double.pi * f * Double(k) / 48_000; re += Double(x[6_000 + k]) * cos(ph); im -= Double(x[6_000 + k]) * sin(ph) }
+            return 2 * (re * re + im * im).squareRoot() / 24_000
+        }
+        check(abs(lvl(hi.all, 1000) - 0.6) < 0.08 && lvl(hi.all, 2000) < 0.03 && abs(lvl(lo.all, 2000) - 0.6) < 0.08 && lvl(lo.all, 1000) < 0.03,
+              "Kanäle bei 20 MS/s: beide Randkanäle (±\(Int(edge / 1000)) kHz) mit richtigem Pegel (\(lvl(hi.all, 1000)), \(lvl(lo.all, 2000)))")
+        let spec = SDRSpectrum(sampleRate: r20)
+        check(spec.bins == 16_384 && SDRSpectrum(sampleRate: 2_400_000).bins == 4_096, "Spektrum: 16384 Punkte ab 5 MS/s, sonst 4096")
+        check(SDRSettingsStore.sampleRateChoices.last == 20_000_000 && SDRSettingsStore.sampleRateChoices(for: .rtlsdr) == [2_400_000] && SDRSettingsStore.sampleRateChoices(for: .hackrf).count == 6, "Fenster: HackRF bis 20 MS/s wählbar, die anderen Geräte fest 2,4")
+    }
+}
+
+// MARK: - Kurzwellen-Ausbreitung (Lineal am rechten Fensterrand)
+if want("prop") {
+    // Antwort von HamQSL vom 08.10.2026 (gekürzt)
+    let xml = """
+    <?xml version="1.0" encoding="UTF-8" ?>
+    <solar><solardata><source url="http://www.hamqsl.com/solar.html">N0NBH</source>
+    <updated> 08 Oct 2026 1049 GMT</updated><solarflux>114</solarflux><aindex> 6</aindex><kindex> 1</kindex><sunspots>92</sunspots>
+    <calculatedconditions>
+    <band name="80m-40m" time="day">Fair</band><band name="30m-20m" time="day">Good</band><band name="17m-15m" time="day">Fair</band><band name="12m-10m" time="day">Poor</band>
+    <band name="80m-40m" time="night">Good</band><band name="30m-20m" time="night">Good</band><band name="17m-15m" time="night">Fair</band><band name="12m-10m" time="night">Poor</band>
+    </calculatedconditions></solardata></solar>
+    """
+    let data = PropagationParser.parse(xml: Data(xml.utf8))
+    check(data?.groups.count == 4 && data?.solarFlux == 114 && data?.aIndex == 6 && data?.kIndex == 1 && data?.sunspots == 92, "Ausbreitung: Werte aus der HamQSL-Antwort gelesen")
+    check(data?.groups[0].day == .fair && data?.groups[0].night == .good && data?.groups[3].day == .poor && data?.groups[1].centerMHz == 12, "Ausbreitung: Bandgruppen mit Tag- und Nachtwert")
+    var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+    check(data?.updated == cal.date(from: DateComponents(year: 2026, month: 10, day: 8, hour: 10, minute: 49)), "Ausbreitung: Zeitstempel (UTC)")
+    check(PropagationParser.parse(xml: Data("<solar></solar>".utf8)) == nil && PropagationParser.parse(xml: Data("kein XML".utf8)) == nil, "Ausbreitung: Antwort ohne Bandwerte wird abgewiesen")
+
+    // Sonnenstand am Standort JN49WS (49,8° N, 9,9° O): Höchst- und Tiefstwerte im Jahr
+    func extremes(_ y: Int, _ m: Int, _ d: Int) -> (max: Double, min: Double) {
+        var hi = -90.0, lo = 90.0
+        for k in 0..<144 {
+            let date = cal.date(from: DateComponents(year: y, month: m, day: d, hour: k / 6, minute: (k % 6) * 10))!
+            let e = SunPosition.elevationDegrees(latitude: 49.8, longitude: 9.9, date: date)
+            hi = max(hi, e); lo = min(lo, e)
+        }
+        return (hi, lo)
+    }
+    let summer = extremes(2026, 6, 21), winter = extremes(2026, 12, 21)
+    check(abs(summer.max - 63.6) < 0.8 && abs(summer.min + 16.7) < 0.8, String(format: "Sonnenstand Sommer: Mittag %.1f° (63,6), Mitternacht %.1f° (−16,7)", summer.max, summer.min))
+    check(abs(winter.max - 16.8) < 0.8 && abs(winter.min + 63.6) < 0.8, String(format: "Sonnenstand Winter: Mittag %.1f° (16,8), Mitternacht %.1f° (−63,6)", winter.max, winter.min))
+    check(abs(SunPosition.declinationDegrees(date: cal.date(from: DateComponents(year: 2026, month: 6, day: 21, hour: 12))!) - 23.4) < 0.3, "Sonnenstand: Deklination zur Sonnenwende")
+    // Mittag um 11:20 UTC (Sonnenhöchststand bei 9,9° O) im Frühling: Höhe = 90 − Breite + Deklination
+    let noon = SunPosition.elevationDegrees(latitude: 49.8, longitude: 9.9, date: cal.date(from: DateComponents(year: 2026, month: 3, day: 20, hour: 11, minute: 20))!)
+    check(abs(noon - 40.2) < 1.5, String(format: "Sonnenstand: Tagundnachtgleiche mittags %.1f° (40,2)", noon))
+
+    // Modell
+    if let d = data {
+        let day = PropagationModel.score(frequencyMHz: 12, data: d, elevation: 40), night = PropagationModel.score(frequencyMHz: 5, data: d, elevation: -30)
+        check(day == 1 && night == 1, "Ausbreitungsmodell: 30–20 m Tag gut, 80–40 m Nacht gut")
+        check(PropagationModel.score(frequencyMHz: 5, data: d, elevation: 40) == 0.5 && PropagationModel.score(frequencyMHz: 27.3, data: d, elevation: 40) == 0, "Ausbreitungsmodell: 80–40 m Tag mittel, 12–10 m schlecht")
+        let mid = PropagationModel.score(frequencyMHz: 5, data: d, elevation: 0)
+        check(mid > 0.5 && mid < 1, String(format: "Ausbreitungsmodell: in der Dämmerung zwischen Tag (0,5) und Nacht (1,0): %.2f", mid))
+        let s8 = PropagationModel.score(frequencyMHz: 8.6, data: d, elevation: 40)      // zwischen 80–40 (0,5) und 30–20 (1,0)
+        check(s8 > 0.5 && s8 < 1, "Ausbreitungsmodell: zwischen den Bandgruppen wird interpoliert (\(s8))")
+        check(PropagationModel.score(frequencyMHz: 2, data: d, elevation: -30) > PropagationModel.score(frequencyMHz: 2, data: d, elevation: 40), "Ausbreitungsmodell: unter 3,5 MHz nachts besser als am Tag")
+        let sum = PropagationModel.score(frequencyMHz: 3, data: d, elevation: -30, declination: 23, latitude: 50)
+        let win = PropagationModel.score(frequencyMHz: 3, data: d, elevation: -30, declination: -23, latitude: 50)
+        let sumSouth = PropagationModel.score(frequencyMHz: 3, data: d, elevation: -30, declination: 23, latitude: -35)
+        check(sum < win && sumSouth == win, "Ausbreitungsmodell: im Sommer mehr Rauschen auf den tiefen Bändern, auf der Südhalbkugel umgekehrt")
+        check((0..<300).allSatisfy { let v = PropagationModel.score(frequencyMHz: Double($0) / 10, data: d, elevation: Double($0) - 150); return v >= 0 && v <= 1 }, "Ausbreitungsmodell: Werte immer zwischen 0 und 1")
+    }
+    check(PropagationModel.dayWeight(elevation: -20) == 0 && PropagationModel.dayWeight(elevation: 20) == 1 && abs(PropagationModel.dayWeight(elevation: 0) - 0.5) < 1e-9, "Ausbreitungsmodell: Tagesanteil nach der Sonnenhöhe")
+    let red = PropagationModel.color(score: 0), white = PropagationModel.color(score: 0.5), green = PropagationModel.color(score: 1)
+    check(red.r > 0.8 && red.g < 0.4 && white.r > 0.9 && white.g > 0.9 && white.b > 0.9 && green.g > 0.8 && green.r < 0.3, "Ausbreitungsmodell: rot, weiß, grün")
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

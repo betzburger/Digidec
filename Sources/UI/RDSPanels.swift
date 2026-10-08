@@ -108,6 +108,7 @@ public struct RDSPanelView: View {
                     // Signal- & Sync-Badges
                     VStack(alignment: .trailing, spacing: 4) {
                         HStack(spacing: 4) {
+                            badge(text: sdr.snapshot.metrics.stereoLocked && sdr.settings.wfmStereo ? "STEREO" : "MONO", active: sdr.snapshot.metrics.stereoLocked && sdr.settings.wfmStereo, color: RadioTheme.vfdGreen)
                             badge(text: "TP", active: info.tp, color: RadioTheme.vfdCyan)
                             badge(text: "TA", active: info.ta, color: Color.red)
                             if let m = info.music {
@@ -115,18 +116,36 @@ public struct RDSPanelView: View {
                             }
                         }
                         HStack(spacing: 6) {
-                            Text(info.syncState.rawValue)
+                            Text(controller.stats.syncState.rawValue)
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(info.syncState == .synced ? RadioTheme.vfdGreen : RadioTheme.ledYellow)
+                                .foregroundColor(controller.stats.syncState == .synced ? RadioTheme.vfdGreen : RadioTheme.ledYellow)
                             Text(String(format: "%.0f dB", controller.signalDB))
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                 .foregroundColor(RadioTheme.vfdCyan)
                         }
                     }
                 }
+                Text(diagnosis.text)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(diagnosis.good ? RadioTheme.textMuted : RadioTheme.vfdAmber)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(4)
         }
+    }
+
+    /// Kurzdiagnose des Empfangs: was fehlt, wenn kein Text kommt
+    private var diagnosis: (text: String, good: Bool) {
+        let m = controller.metrics
+        let st = controller.stats
+        let rf = sdr.snapshot
+        if !sdr.isSelected { return ("SDR-Empfänger ist nicht die Eingangsquelle (Eingang → SDR wählen)", false) }
+        if rf.clippedFraction > 0.01 { return (String(format: "Übersteuert (%.0f %% der Abtastwerte am Anschlag): LNA oder VGA verringern", rf.clippedFraction * 100), false) }
+        if controller.signalDB < -60 { return ("Sehr schwaches Signal: Antenne, Frequenz und Verstärkung prüfen", false) }
+        if st.syncState == .synced { return (String(format: "RDS ok · Blockgüte %.0f %%", st.quality * 100), true) }
+        if m.locked { return ("RDS-Träger gefunden, Blocktakt wird gesucht (Bitfehler: Empfang zu verrauscht?)", false) }
+        if info.pi == nil { return ("Suche den 57-kHz-RDS-Unterträger (der Sender sendet vielleicht kein RDS)", false) }
+        return ("RDS-Daten stehen, aktueller Blocktakt fehlt kurz", false)
     }
 
     private func commitFrequency() {
@@ -167,11 +186,28 @@ public struct RDSPanelView: View {
                 }
                 Text(info.radioText.isEmpty ? "Warte auf Radiotext …" : info.radioText)
                     .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                    .foregroundColor(info.radioText.isEmpty ? RadioTheme.textDim : RadioTheme.textLight)
+                    .foregroundColor(info.radioText.isEmpty ? RadioTheme.textDim : (info.radioTextComplete ? RadioTheme.textLight : RadioTheme.textMuted))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                     .background(RadioTheme.bgDeep)
                     .cornerRadius(5)
+                    .textSelection(.enabled)
+                if !info.radioTextPlus.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(info.radioTextPlus, id: \.label) { tag in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(tag.label.uppercased())
+                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                    .foregroundColor(RadioTheme.textDim)
+                                    .frame(width: 70, alignment: .leading)
+                                Text(tag.text)
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(RadioTheme.vfdAmber)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
             }
             .padding(4)
         }
@@ -185,7 +221,7 @@ public struct RDSPanelView: View {
                     .foregroundColor(RadioTheme.textDim)
                     .tracking(0.8)
 
-                if info.radioTextHistory.isEmpty {
+                if earlierTexts.isEmpty {
                     Text("Keine früheren Radiotexte")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
@@ -193,7 +229,7 @@ public struct RDSPanelView: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(info.radioTextHistory, id: \.self) { item in
+                            ForEach(earlierTexts, id: \.self) { item in
                                 HStack(alignment: .top, spacing: 6) {
                                     Text("•")
                                         .foregroundColor(RadioTheme.vfdAmber)
@@ -223,15 +259,37 @@ public struct RDSPanelView: View {
 
                 detailRow(label: "PI-CODE", value: info.piHex.map { "0x\($0)" } ?? "—")
                 if let country = info.country {
-                    detailRow(label: "LAND", value: country)
+                    detailRow(label: "LAND", value: country + (info.countryIsGuess ? " ?" : ""))
+                }
+                if let lang = info.language, info.languageCode != 0 {
+                    detailRow(label: "SPRACHE", value: lang)
                 }
                 detailRow(label: "PROGRAMMART", value: info.ptyName ?? "—")
-                if let ct = info.clockTimeFormatted {
+                if !info.programTypeName.isEmpty {
+                    detailRow(label: "PTY-NAME", value: info.programTypeName)
+                }
+                if let ct = info.clockFormatted {
                     detailRow(label: "SENDERUHR (CT)", value: ct)
+                }
+                if info.diStereo != nil {
+                    detailRow(label: "KENNUNG (DI)", value: decoderFlags)
+                }
+                if !info.applicationNames.isEmpty {
+                    detailRow(label: "ZUSATZDIENSTE", value: info.applicationNames.joined(separator: ", "))
                 }
             }
             .padding(4)
         }
+    }
+
+    /// Verlauf ohne den Text, der gerade angezeigt wird
+    private var earlierTexts: [String] { info.radioTextHistory.filter { $0 != info.radioText } }
+
+    private var decoderFlags: String {
+        var flags = [info.diStereo == true ? "Stereo" : "Mono"]
+        if info.diCompressed == true { flags.append("komprimiert") }
+        if info.diArtificialHead == true { flags.append("Kunstkopf") }
+        return flags.joined(separator: " · ")
     }
 
     private func detailRow(label: String, value: String) -> some View {
@@ -294,9 +352,17 @@ public struct RDSPanelView: View {
                     .foregroundColor(RadioTheme.textDim)
                     .tracking(0.8)
 
-                detailRow(label: "GRUPPEN", value: "\(info.groupsReceived)")
-                detailRow(label: "BLÖCKE", value: "\(info.blocksReceived)")
-                detailRow(label: "FEHLERRATE", value: String(format: "%.1f %%", 100.0 - info.blockSuccessRate))
+                let st = controller.stats
+                detailRow(label: "GRUPPEN", value: "\(st.groupsReceived) (\(st.completeGroups) vollständig)")
+                detailRow(label: "BLÖCKE", value: "\(st.blocksReceived) ok · \(st.blockErrors) schlecht · \(st.correctedBlocks) rep.")
+                detailRow(label: "BLOCKGÜTE (50)", value: String(format: "%.0f %%", st.quality * 100))
+                detailRow(label: "RDS-TRÄGER", value: controller.metrics.locked ? String(format: "%.1f kHz Hub · %.0f dB", controller.metrics.carrierDeviationKHz, controller.metrics.snrDB) : "nicht gefunden")
+                if !info.groupCounts.isEmpty {
+                    Text(info.groupCounts.sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }.map { "\($0.key) \($0.value)" }.joined(separator: " · "))
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(RadioTheme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(4)
         }
@@ -311,17 +377,7 @@ public struct RDSPanelView: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        ForEach(RDSSettingsStore.standardPresets, id: \.name) { preset in
-                            Button(preset.name) {
-                                controller.tune(frequencyHz: preset.freqHz)
-                            }
-                            .buttonStyle(ModeButtonStyle(isSelected: abs(settings.frequencyHz - preset.freqHz) < 50_000))
-                            .scaleEffect(0.85)
-                        }
-                    }
-                }
+                RDSQuickPicks(controller: controller, settings: settings, grid: false)
 
                 Spacer(minLength: 4)
 
@@ -348,17 +404,18 @@ public struct RDSTuningPanel: View {
 
     public var body: some View {
         let info = controller.info
+        let sync = controller.stats.syncState
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(info.syncState == .synced ? RadioTheme.vfdGreen : (info.syncState == .syncing ? RadioTheme.ledYellow : RadioTheme.ledRed))
+                    .fill(sync == .synced ? RadioTheme.vfdGreen : (sync == .syncing ? RadioTheme.ledYellow : RadioTheme.ledRed))
                     .frame(width: 8, height: 8)
                 Text("RDS")
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdGreen)
-                Text(info.syncState.rawValue)
+                Text(sync.rawValue)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundColor(info.syncState == .synced ? RadioTheme.vfdGreen : (info.syncState == .syncing ? RadioTheme.ledYellow : RadioTheme.ledRed))
+                    .foregroundColor(sync == .synced ? RadioTheme.vfdGreen : (sync == .syncing ? RadioTheme.ledYellow : RadioTheme.ledRed))
                 Spacer()
                 Text(String(format: "%.0f dB", controller.signalDB))
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -373,13 +430,13 @@ public struct RDSTuningPanel: View {
                 readout("PROGRAMM", info.ptyName ?? "—")
             }
             HStack {
-                readout("GRUPPEN", "\(info.groupsReceived)")
+                readout("GRUPPEN", "\(controller.stats.groupsReceived)")
                 Spacer()
-                readout("BLÖCKE", "\(info.blocksReceived)")
+                readout("BLÖCKE", "\(controller.stats.blocksReceived)")
             }
             HStack {
-                readout("FEHLERRATE", String(format: "%.1f %%", 100.0 - info.blockSuccessRate))
-                    .foregroundColor(info.blockSuccessRate > 80 ? RadioTheme.vfdCyan : RadioTheme.vfdAmber)
+                readout("GÜTE", String(format: "%.0f %%", controller.stats.quality * 100))
+                    .foregroundColor(controller.stats.quality > 0.8 ? RadioTheme.vfdCyan : RadioTheme.vfdAmber)
                 Spacer()
                 HStack(spacing: 3) {
                     badge(text: "TP", active: info.tp, color: RadioTheme.vfdCyan)
@@ -437,18 +494,10 @@ public struct RDSSettingsPanel: View {
                 Button("+") { controller.step(mhz: 0.1) }.buttonStyle(ModeButtonStyle(isSelected: false))
             }
 
-            // Schnellauswahl Presets
+            // Schnellauswahl: eigene Sender
             VStack(alignment: .leading, spacing: 4) {
-                Text("PRESETS").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 62))], spacing: 4) {
-                    ForEach(RDSSettingsStore.standardPresets, id: \.name) { preset in
-                        Button(preset.name) {
-                            controller.tune(frequencyHz: preset.freqHz)
-                        }
-                        .buttonStyle(ModeButtonStyle(isSelected: abs(settings.frequencyHz - preset.freqHz) < 50_000))
-                        .scaleEffect(0.85)
-                    }
-                }
+                Text("SCHNELLAUSWAHL").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
+                RDSQuickPicks(controller: controller, settings: settings, grid: true)
             }
 
             Divider().overlay(RadioTheme.borderSubtle)
@@ -457,9 +506,64 @@ public struct RDSSettingsPanel: View {
                 Button("LEEREN") { controller.clear() }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
                 Spacer()
-                Text("WFM · 200 kHz · 57 kHz")
+                Text("WFM · 230 kHz · 57 kHz")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
+            }
+        }
+    }
+}
+
+// MARK: - Schnellauswahl (eigene Sender)
+
+/// „★ MERKEN“ legt den eingestellten Sender mit seinem Programmnamen ab; die Leiste zeigt die gemerkten Sender (Rechtsklick: entfernen).
+/// Solange nichts gemerkt ist, steht eine Auswahl gängiger Frequenzen da.
+struct RDSQuickPicks: View {
+    @ObservedObject var controller: RDSController
+    @ObservedObject var settings: RDSSettingsStore
+    let grid: Bool
+
+    private var isFavorite: Bool { settings.favorite(at: settings.frequencyHz) != nil }
+
+    var body: some View {
+        if grid {
+            VStack(alignment: .leading, spacing: 4) {
+                starButton
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 118))], spacing: 4) { picks }
+            }
+        } else {
+            HStack(spacing: 6) {
+                starButton
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) { picks }
+                }
+            }
+        }
+    }
+
+    private var starButton: some View {
+        Button(isFavorite ? "★ ENTFERNEN" : "★ MERKEN") { controller.toggleFavorite() }
+            .buttonStyle(ModeButtonStyle(isSelected: isFavorite))
+            .scaleEffect(0.85, anchor: .leading)
+            .help(isFavorite ? "Diesen Sender aus der Schnellauswahl nehmen" : "Den eingestellten Sender mit seinem Programmnamen in der Schnellauswahl merken")
+    }
+
+    @ViewBuilder
+    private var picks: some View {
+        if settings.favorites.isEmpty {
+            ForEach(RDSSettingsStore.standardPresets, id: \.name) { preset in
+                Button(preset.name) { controller.tune(frequencyHz: preset.freqHz) }
+                    .buttonStyle(ModeButtonStyle(isSelected: abs(settings.frequencyHz - preset.freqHz) < 50_000))
+                    .scaleEffect(0.85)
+                    .lineLimit(1)
+            }
+        } else {
+            ForEach(settings.favorites) { fav in
+                Button(fav.title) { controller.tune(frequencyHz: fav.frequencyHz) }
+                    .buttonStyle(ModeButtonStyle(isSelected: abs(settings.frequencyHz - fav.frequencyHz) < 50_000))
+                    .scaleEffect(0.85)
+                    .lineLimit(1)
+                    .contextMenu { Button("Aus der Schnellauswahl entfernen") { settings.removeFavorite(frequencyHz: fav.frequencyHz) } }
             }
         }
     }

@@ -19,8 +19,10 @@ public struct SDRBankSlot: Codable, Equatable, Identifiable, Sendable {
     public var enabled: Bool
     /// Eigene Bezeichnung (leer: Modul und Frequenz)
     public var label: String
+    /// Voreinstellung des Decoders (z. B. RTTY „dwd-kw“, NAVTEX „518“); nil = Standard des Decoders
+    public var preset: String?
 
-    public init(id: Int, moduleID: String, frequencyHz: Double, mode: SDRMode, bandwidthHz: Double, enabled: Bool = true, label: String = "") {
+    public init(id: Int, moduleID: String, frequencyHz: Double, mode: SDRMode, bandwidthHz: Double, enabled: Bool = true, label: String = "", preset: String? = nil) {
         self.id = id
         self.moduleID = moduleID
         self.frequencyHz = frequencyHz
@@ -28,6 +30,7 @@ public struct SDRBankSlot: Codable, Equatable, Identifiable, Sendable {
         self.bandwidthHz = bandwidthHz
         self.enabled = enabled
         self.label = label
+        self.preset = preset
     }
 
     public var channelConfig: SDRChannelConfig {
@@ -136,9 +139,9 @@ public final class SDRChannelBank: ObservableObject {
     // MARK: Kanäle
 
     @discardableResult
-    public func add(moduleID: String, frequencyHz: Double, mode: SDRMode, bandwidthHz: Double, label: String = "") -> SDRBankSlot? {
+    public func add(moduleID: String, frequencyHz: Double, mode: SDRMode, bandwidthHz: Double, label: String = "", preset: String? = nil) -> SDRBankSlot? {
         guard slots.count < Self.maxSlots else { return nil }
-        let slot = SDRBankSlot(id: nextID, moduleID: moduleID, frequencyHz: frequencyHz, mode: mode, bandwidthHz: bandwidthHz, label: label)
+        let slot = SDRBankSlot(id: nextID, moduleID: moduleID, frequencyHz: frequencyHz, mode: mode, bandwidthHz: bandwidthHz, label: label, preset: preset)
         nextID += 1
         slots.append(slot)
         onChange?()

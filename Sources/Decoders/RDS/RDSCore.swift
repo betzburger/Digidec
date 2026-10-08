@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
-import Accelerate
 
-// MARK: - RDS Grundkonstanten & Datenstrukturen nach EN 50067 / IEC 62106
+// RDS (Radio Data System) nach EN 50067 / IEC 62106: Blockstruktur, Prüfwort (CRC), Fehlerkorrektur und Blocksynchronisation.
+// Der Signalweg (57-kHz-Unterträger → Bits) steht in RDSDemodulator.swift, die Auswertung der Gruppen in RDSDecoder.swift.
+
+// MARK: - Offset-Wörter und Blöcke
 
 public enum RDSOffset: UInt32, CaseIterable, Sendable {
     case a = 0x0FC       // Block A (PI-Code)
@@ -21,11 +23,22 @@ public enum RDSOffset: UInt32, CaseIterable, Sendable {
         case .d: return "D"
         }
     }
+
+    /// Stelle in der Gruppe: 0 = A, 1 = B, 2 = C oder C', 3 = D
+    public var position: Int {
+        switch self {
+        case .a: return 0
+        case .b: return 1
+        case .c, .cPrime: return 2
+        case .d: return 3
+        }
+    }
 }
 
 public struct RDSBlock: Sendable, Equatable {
     public var data: UInt16
     public var offset: RDSOffset
+    /// Anzahl der durch die Prüfbits reparierten Bitfehler (0 = fehlerfrei)
     public var correctedBits: Int
 
     public init(data: UInt16, offset: RDSOffset, correctedBits: Int = 0) {
@@ -35,62 +48,56 @@ public struct RDSBlock: Sendable, Equatable {
     }
 }
 
+/// Eine Gruppe aus vier Blöcken. Bei schwachem Empfang fehlen einzelne Blöcke (`nil`); der Decoder wertet trotzdem aus, was gültig ist.
 public struct RDSGroup: Sendable, Equatable {
-    public var blockA: RDSBlock
-    public var blockB: RDSBlock
-    public var blockC: RDSBlock
-    public var blockD: RDSBlock
+    /// A, B, C (oder C'), D
+    public var blocks: [RDSBlock?]
 
-    public var pi: UInt16 { blockA.data }
-    public var groupType: Int { Int((blockB.data >> 12) & 0x0F) }
-    public var isVersionB: Bool { ((blockB.data >> 11) & 0x01) == 1 }
-    public var tp: Bool { ((blockB.data >> 10) & 0x01) == 1 }
-    public var pty: Int { Int((blockB.data >> 5) & 0x1F) }
-
-    public init(blockA: RDSBlock, blockB: RDSBlock, blockC: RDSBlock, blockD: RDSBlock) {
-        self.blockA = blockA
-        self.blockB = blockB
-        self.blockC = blockC
-        self.blockD = blockD
+    public init(blocks: [RDSBlock?]) {
+        var b = blocks
+        while b.count < 4 { b.append(nil) }
+        self.blocks = Array(b.prefix(4))
     }
+
+    /// Vollständige Gruppe
+    public init(blockA: RDSBlock, blockB: RDSBlock, blockC: RDSBlock, blockD: RDSBlock) {
+        blocks = [blockA, blockB, blockC, blockD]
+    }
+
+    public var blockA: RDSBlock? { blocks[0] }
+    public var blockB: RDSBlock? { blocks[1] }
+    public var blockC: RDSBlock? { blocks[2] }
+    public var blockD: RDSBlock? { blocks[3] }
+
+    public var isComplete: Bool { blocks.allSatisfy { $0 != nil } }
+    public var validBlockCount: Int { blocks.reduce(0) { $0 + ($1 == nil ? 0 : 1) } }
+    /// Summe der reparierten Bitfehler aller gültigen Blöcke
+    public var correctedBits: Int { blocks.reduce(0) { $0 + ($1?.correctedBits ?? 0) } }
+
+    /// PI-Code aus Block A, bei Gruppen der Version B ersatzweise aus Block C'
+    public var pi: UInt16? {
+        if let a = blockA { return a.data }
+        if let c = blockC, c.offset == .cPrime { return c.data }
+        return nil
+    }
+
+    public var groupType: Int? { blockB.map { Int(($0.data >> 12) & 0x0F) } }
+    public var isVersionB: Bool { blockB.map { (($0.data >> 11) & 0x01) == 1 } ?? false }
+    public var tp: Bool? { blockB.map { (($0.data >> 10) & 0x01) == 1 } }
+    public var pty: Int? { blockB.map { Int(($0.data >> 5) & 0x1F) } }
+
+    /// Gruppenname wie 0A, 2B
+    public var name: String? { groupType.map { "\($0)\(isVersionB ? "B" : "A")" } }
 }
 
-// MARK: - Programmart (PTY) nach RBDS / RDS Europa (EN 50067)
+// MARK: - Programmart (PTY) nach RDS Europa (EN 50067)
 
 public enum RDSPTY {
     public static let names: [String] = [
-        "Kein Programm",
-        "Nachrichten",
-        "Aktuelles Zeitgeschehen",
-        "Information",
-        "Sport",
-        "Bildung",
-        "Hörspiel & Literatur",
-        "Kultur & Religion",
-        "Wissenschaft",
-        "Unterhaltung",
-        "Popmusik",
-        "Rockmusik",
-        "Leichte Musik",
-        "Leichte Klassik",
-        "Ernste Klassik",
-        "Spezielle Musik",
-        "Wetterbericht",
-        "Wirtschaft",
-        "Kinderprogramm",
-        "Soziales",
-        "Religion & Philosophie",
-        "Anrufsendung",
-        "Reise & Verkehr",
-        "Freizeit & Hobby",
-        "Jazzmusik",
-        "Countrymusik",
-        "Nationale Musik",
-        "Oldies",
-        "Folklore",
-        "Dokumentation",
-        "Alarmtest",
-        "ALARM!"
+        "Kein Programm", "Nachrichten", "Aktuelles Zeitgeschehen", "Information", "Sport", "Bildung", "Hörspiel & Literatur",
+        "Kultur", "Wissenschaft", "Unterhaltung", "Popmusik", "Rockmusik", "Leichte Musik", "Leichte Klassik", "Ernste Klassik",
+        "Spezielle Musik", "Wetter", "Wirtschaft", "Kinderprogramm", "Soziales", "Religion", "Anrufsendung", "Reise & Verkehr",
+        "Freizeit & Hobby", "Jazzmusik", "Countrymusik", "Nationale Musik", "Oldies", "Folklore", "Dokumentation", "Alarmtest", "ALARM!"
     ]
 
     public static func name(for code: Int) -> String {
@@ -99,49 +106,79 @@ public enum RDSPTY {
     }
 }
 
-// MARK: - Ländercode aus dem PI-Code (erstes Nibble in ITU-Region 1 Europa)
+// MARK: - Ländercode (PI-Code und Erweiterter Ländercode ECC aus Gruppe 1A)
 
 public enum RDSCountry {
-    public static func name(for pi: UInt16) -> String? {
-        let countryNibble = (pi >> 12) & 0x0F
-        switch countryNibble {
-        case 0xD: return "Deutschland"
-        case 0xF: return "Frankreich"
-        case 0x1: return "Italien"
-        case 0x2: return "Großbritannien"
-        case 0x3: return "Österreich"
-        case 0x4: return "Schweiz"
-        case 0x5: return "Dänemark"
-        case 0x6: return "Niederlande"
-        case 0x7: return "Belgien"
-        case 0x8: return "Schweden"
-        case 0x9: return "Norwegen"
-        case 0xA: return "Finnland"
-        case 0xB: return "Polen"
-        case 0xC: return "Tschechien"
-        case 0xE: return "Spanien"
-        default:  return nil
+    /// Länder nach ECC (E0 … E4) und erstem Nibble des PI-Codes (EN 50067, Tabelle D.1); nicht belegte Felder fehlen
+    private static let table: [UInt8: [Character: String]] = [
+        0xE0: ["1": "Deutschland", "2": "Algerien", "3": "Andorra", "4": "Israel", "5": "Italien", "6": "Belgien", "7": "Russland",
+               "8": "Palästina", "9": "Albanien", "A": "Österreich", "B": "Ungarn", "C": "Malta", "D": "Deutschland", "E": "Ägypten"],
+        0xE1: ["1": "Griechenland", "2": "Zypern", "3": "San Marino", "4": "Schweiz", "5": "Jordanien", "6": "Finnland", "7": "Luxemburg",
+               "8": "Bulgarien", "9": "Dänemark", "A": "Gibraltar", "B": "Irak", "C": "Großbritannien", "D": "Libyen", "E": "Rumänien",
+               "F": "Frankreich"],
+        0xE2: ["1": "Marokko", "2": "Tschechien", "3": "Polen", "4": "Vatikan", "5": "Slowakei", "6": "Syrien", "7": "Tunesien",
+               "9": "Liechtenstein", "A": "Island", "B": "Monaco", "C": "Litauen", "D": "Serbien", "E": "Spanien", "F": "Norwegen"],
+        0xE3: ["1": "Montenegro", "2": "Irland", "3": "Türkei", "8": "Niederlande", "9": "Lettland", "A": "Libanon", "B": "Aserbaidschan",
+               "C": "Kroatien", "D": "Kasachstan", "E": "Schweden", "F": "Weißrussland"],
+        0xE4: ["1": "Moldau", "2": "Estland", "3": "Kirgisistan", "6": "Ukraine", "7": "Nordmazedonien", "8": "Portugal", "9": "Slowenien",
+               "A": "Armenien", "B": "Usbekistan", "C": "Georgien", "F": "Bosnien-Herzegowina"]
+    ]
+
+    /// Land aus ECC und PI. Ohne ECC (noch keine Gruppe 1A empfangen) gilt der Block E0 als Vermutung für die westeuropäischen Länder.
+    public static func name(for pi: UInt16, ecc: UInt8? = nil) -> String? {
+        let nibble = Character(String(format: "%X", (pi >> 12) & 0x0F))
+        return table[ecc ?? 0xE0]?[nibble]
+    }
+
+    /// Trifft die Auflösung nur eine Vermutung (ECC fehlt)?
+    public static func isGuess(ecc: UInt8?) -> Bool { ecc == nil }
+}
+
+// MARK: - Zeichensatz (EN 50067, Anhang E)
+
+public enum RDSCharset {
+    /// Obere Hälfte (0x80 … 0xFF) des RDS-Zeichensatzes
+    private static let upper: [Character] = Array(
+        "áàéèíìóòúùÑÇŞß¡Ĳ" + "âäêëîïôöûüñçşğıĳ" + "ªα©‰Ğěňő" + "π€£$←↑→↓" +
+        "º¹²³±İńű" + "µ¿÷°¼½¾§" + "ÁÀÉÈÍÌÓÒÚÙŘČŠŽÐĿ" + "ÂÄÊËÎÏÔÖÛÜřčšžđŀ" +
+        "ÃÅÆŒŷÝÕØÞŊŔĆŚŹŤð" + "ãåæœŵýõøþŋŕćśźť\u{AD}")
+
+    /// Zeichen des RDS-Zeichensatzes; Steuerzeichen werden zum Leerzeichen
+    public static func character(_ code: UInt8) -> Character {
+        switch code {
+        case 0x20...0x7D:
+            return code == 0x24 ? "¤" : Character(UnicodeScalar(code))
+        case 0x7E: return "¯"
+        case 0x80...0xFF:
+            let i = Int(code) - 0x80
+            return i < upper.count ? upper[i] : " "
+        default:
+            return " "
         }
     }
 }
 
-// MARK: - Syndrom-Berechnung und 1-Bit-Fehlerkorrektur
+// MARK: - Prüfwort und Fehlerkorrektur
 
 public enum RDSSyndrome {
     /// Generatorpolynom g(x) = x^10 + x^8 + x^7 + x^5 + x^4 + x^3 + 1
     public static let generatorPoly: UInt32 = 0x5B9
 
-    /// Tabelle der Syndrome für jedes der 26 Einzelbit-Fehlermuster (Bit 0 bis 25)
-    public static let singleBitSyndromes: [UInt32: Int] = {
-        var dict = [UInt32: Int]()
-        for i in 0..<26 {
-            let syn = syndrome(of: 1 << i)
-            dict[syn] = i
+    /// Einzel- und Doppelbitfehler (zwei benachbarte Bits) mit ihrem Syndrom; überschneidet sich ein Doppelfehler mit einem anderen Muster, entfällt er
+    private static let errorPatterns: [UInt32: (mask: UInt32, burst: Int)] = {
+        var dict = [UInt32: (mask: UInt32, burst: Int)]()
+        for i in 0..<26 { dict[syndrome(of: 1 << i)] = (1 << i, 1) }
+        var clash = Set<UInt32>()
+        for i in 0..<25 {
+            let mask: UInt32 = 3 << i
+            let syn = syndrome(of: mask)
+            if dict[syn] != nil { clash.insert(syn) } else { dict[syn] = (mask, 2) }
         }
+        for syn in clash where dict[syn]?.burst == 2 { dict[syn] = nil }
         return dict
     }()
 
-    /// Berechnet das 10-Bit-Syndrom eines 26-Bit-Wortes modulo g(x)
+    /// Syndrom eines 26-Bit-Wortes modulo g(x); bei fehlerfreiem Block gleich dem Offset-Wort
     public static func syndrome(of word26: UInt32) -> UInt32 {
         var reg = word26 & 0x03FF_FFFF
         for i in (0..<16).reversed() {
@@ -152,541 +189,326 @@ public enum RDSSyndrome {
         return reg & 0x3FF
     }
 
-    /// Berechnet die 10 Prüfbits für 16 Datenbits (ohne Offset-Wort)
+    /// Prüfbits für 16 Datenbits (ohne Offset-Wort)
     public static func checkBits(for data16: UInt16) -> UInt32 {
         syndrome(of: UInt32(data16) << 10)
     }
 
-    /// Erzeugt ein 26-Bit-Blockwort aus 16 Datenbits und einem Offset-Wort
+    /// 26-Bit-Blockwort aus 16 Datenbits und Offset-Wort
     public static func encodeBlock(data: UInt16, offset: RDSOffset) -> UInt32 {
         let m = UInt32(data)
         let check = checkBits(for: data)
         return (m << 10) | (check ^ offset.rawValue)
     }
 
-    /// Prüft und decodiert ein 26-Bit-Wort für ein erwartetes Offset-Wort.
-    /// Führt bei Bedarf eine 1-Bit-Fehlerkorrektur durch.
-    public static func decode(word: UInt32, expected: RDSOffset) -> (data: UInt16, corrected: Int)? {
-        let syn = syndrome(of: word)
-        let diff = syn ^ expected.rawValue
-        if diff == 0 {
-            // Fehlerfrei
-            return (UInt16((word >> 10) & 0xFFFF), 0)
-        }
-        // 1-Bit-Fehlerprüfung
-        if let bitPos = singleBitSyndromes[diff] {
-            let correctedWord = word ^ (1 << bitPos)
-            return (UInt16((correctedWord >> 10) & 0xFFFF), 1)
-        }
-        return nil
+    /// Prüft ein 26-Bit-Wort gegen ein erwartetes Offset-Wort. `maxBurst` = 0: nur fehlerfreie Blöcke, 1: ein Bitfehler wird repariert,
+    /// 2: auch zwei benachbarte Bitfehler. Jede Reparatur erhöht die Gefahr eines falschen Blocks (bei 2: etwa 5 % eines zufälligen Wortes).
+    public static func decode(word: UInt32, expected: RDSOffset, maxBurst: Int = 1) -> (data: UInt16, corrected: Int)? {
+        let diff = syndrome(of: word) ^ expected.rawValue
+        if diff == 0 { return (UInt16((word >> 10) & 0xFFFF), 0) }
+        guard maxBurst > 0, let p = errorPatterns[diff], p.burst <= maxBurst else { return nil }
+        let fixed = word ^ p.mask
+        return (UInt16((fixed >> 10) & 0xFFFF), p.mask.nonzeroBitCount)
     }
 
-    /// Prüft, ob ein 26-Bit-Wort zu einem beliebigen der Offset-Wörter passt
-    public static func detectOffset(word: UInt32) -> (offset: RDSOffset, data: UInt16, corrected: Int)? {
-        let syn = syndrome(of: word)
+    /// Welcher Offset passt zu dem Wort (fehlerfrei, `maxBurst` wie bei `decode`)?
+    public static func detectOffset(word: UInt32, maxBurst: Int = 1) -> (offset: RDSOffset, data: UInt16, corrected: Int)? {
         for offset in RDSOffset.allCases {
-            let diff = syn ^ offset.rawValue
-            if diff == 0 {
-                return (offset, UInt16((word >> 10) & 0xFFFF), 0)
-            }
-            if let bitPos = singleBitSyndromes[diff] {
-                let correctedWord = word ^ (1 << bitPos)
-                return (offset, UInt16((correctedWord >> 10) & 0xFFFF), 1)
-            }
+            if let r = decode(word: word, expected: offset, maxBurst: maxBurst) { return (offset, r.data, r.corrected) }
         }
         return nil
     }
 }
 
-// MARK: - RDS Stream Decoder & Framer
+// MARK: - Blocksynchronisation und Gruppenbildung
 
+/// Nimmt die Bits hinter der differentiellen Entscheidung entgegen, findet den Blocktakt und liefert Gruppen.
+///
+/// Suche: zwei fehlerfreie Blöcke im richtigen Abstand und in der richtigen Reihenfolge (A→B→C→D, auch mit einem fehlenden Block dazwischen).
+/// Betrieb: Block für Block gegen das erwartete Offset-Wort, Reparatur von Ein- und Zweibitfehlern nur bei guter Empfangslage.
+/// Verlust: nach 12 schlechten Blöcken in Folge oder mehr als 45 schlechten unter den letzten 50. Läuft der Takt weg (Bitschlupf), wird
+/// über einen zweiten Block-Pfad auf den neuen Takt umgeschaltet, sobald der alte ausfällt.
 public final class RDSStreamDecoder: @unchecked Sendable {
     public enum SyncState: String, Sendable {
         case search = "SUCHE"
         case syncing = "SYNCHRONISIERT …"
-        case synced = "SYNCHRONISIERT"
+        case synced = "SYNCHRON"
     }
 
     public struct Stats: Sendable {
         public var syncState: SyncState
+        /// Gruppen mit mindestens einem gültigen Block, die ausgewertet wurden
         public var groupsReceived: Int
+        /// Gruppen, in denen alle vier Blöcke gültig waren
+        public var completeGroups: Int
         public var blocksReceived: Int
         public var blockErrors: Int
+        /// Blöcke, die erst nach einer Reparatur gültig waren
+        public var correctedBlocks: Int
+        /// Anteil gültiger Blöcke unter den letzten 50 (0 … 1)
+        public var quality: Double
+        /// Wie oft der Blocktakt verloren oder neu gefunden wurde
+        public var resyncs: Int
 
-        public init(syncState: SyncState, groupsReceived: Int, blocksReceived: Int, blockErrors: Int) {
+        public init(syncState: SyncState = .search, groupsReceived: Int = 0, completeGroups: Int = 0, blocksReceived: Int = 0,
+                    blockErrors: Int = 0, correctedBlocks: Int = 0, quality: Double = 0, resyncs: Int = 0) {
             self.syncState = syncState
             self.groupsReceived = groupsReceived
+            self.completeGroups = completeGroups
             self.blocksReceived = blocksReceived
             self.blockErrors = blockErrors
+            self.correctedBlocks = correctedBlocks
+            self.quality = quality
+            self.resyncs = resyncs
         }
     }
 
-    public private(set) var syncState: SyncState = .search
-    public private(set) var groupsReceived: Int = 0
-    public private(set) var blocksReceived: Int = 0
-    public private(set) var blockErrors: Int = 0
-
-    public var stats: Stats {
-        lock.withLock {
-            Stats(syncState: syncState, groupsReceived: groupsReceived, blocksReceived: blocksReceived, blockErrors: blockErrors)
-        }
-    }
-
-    // Callback bei fertig zusammengestellter Gruppe
+    /// Rückruf bei jeder ausgewerteten Gruppe (auf dem Faden, der die Bits liefert, außerhalb der Sperre)
     public var onGroup: (@Sendable (RDSGroup) -> Void)?
 
     private let lock = NSLock()
+    private var state: SyncState = .search
     private var shiftReg: UInt32 = 0
-    private var bitCountInSync: Int = 0
-    private var expectedOffset: RDSOffset = .a
-    private var consecutiveErrors: Int = 0
-    private var syncCandidateBlock: RDSBlock?
-    private var currentGroupBlocks: [RDSOffset: RDSBlock] = [:]
+    private var bitCount: UInt64 = 0
+    private var recent: [(index: UInt64, kind: Int)] = []
+    private var altMatch: (index: UInt64, kind: Int)?
+    private var nextBlockEnd: UInt64 = 0
+    private var position = 0
+    private var groupBlocks: [RDSBlock?] = [nil, nil, nil, nil]
+    private var versionB: Bool?
+    private var window = [Bool](repeating: false, count: 50)   // true = schlechter Block
+    private var windowIndex = 0
+    private var windowBad = 0
+    private var windowFill = 0
+    private var badRun = 0
+    private var goodRun = 0
+    private var stats = Stats()
 
     public init() {}
 
-    public func reset() {
+    public var syncState: SyncState { lock.withLock { state } }
+    public var groupsReceived: Int { lock.withLock { stats.groupsReceived } }
+    public var blocksReceived: Int { lock.withLock { stats.blocksReceived } }
+    public var blockErrors: Int { lock.withLock { stats.blockErrors } }
+
+    public var currentStats: Stats {
         lock.withLock {
-            resetInternal()
+            var s = stats
+            s.syncState = state
+            s.quality = windowFill > 0 ? 1 - Double(windowBad) / Double(windowFill) : 0
+            return s
         }
     }
 
-    private func resetInternal() {
-        syncState = .search
-        shiftReg = 0
-        bitCountInSync = 0
-        expectedOffset = .a
-        consecutiveErrors = 0
-        syncCandidateBlock = nil
-        currentGroupBlocks.removeAll()
+    public func reset() {
+        lock.withLock {
+            stats = Stats()
+            shiftReg = 0
+            bitCount = 0
+            loseSync(count: false)
+        }
     }
 
-    /// Verarbeitet ein einzelnes decodiertes Bit (0 oder 1)
+    /// Ein entschiedenes Bit (0 oder 1) aus dem differentiellen Decoder
     public func process(bit: Int) {
-        lock.withLock {
-            processInternal(bit: bit)
+        var emitted: RDSGroup?
+        lock.lock()
+        emitted = step(bit)
+        lock.unlock()
+        if let g = emitted { onGroup?(g) }
+    }
+
+    // MARK: Innenleben
+
+    /// Art des fehlerfreien Blocks (0 A, 1 B, 2 C, 3 D, 4 C') aus dem Syndrom, sonst −1
+    @inline(__always)
+    private static func kind(ofSyndrome s: UInt32) -> Int {
+        switch s {
+        case RDSOffset.a.rawValue: return 0
+        case RDSOffset.b.rawValue: return 1
+        case RDSOffset.c.rawValue: return 2
+        case RDSOffset.d.rawValue: return 3
+        case RDSOffset.cPrime.rawValue: return 4
+        default: return -1
         }
     }
 
-    private func processInternal(bit: Int) {
+    /// Stelle in der Gruppe zu einer Blockart
+    @inline(__always)
+    private static func slot(ofKind k: Int) -> Int { k == 4 ? 2 : k }
+
+    /// Passt `second` im Abstand von `blocks` Blöcken auf `first`?
+    private static func consistent(_ first: Int, _ second: Int, blocks: Int) -> Bool {
+        (slot(ofKind: first) + blocks) % 4 == slot(ofKind: second)
+    }
+
+    private func step(_ bit: Int) -> RDSGroup? {
         shiftReg = ((shiftReg << 1) | UInt32(bit & 1)) & 0x03FF_FFFF
+        bitCount &+= 1
+        guard bitCount >= 26 else { return nil }
 
-        switch syncState {
-        case .search:
-            // Bit-weise Suche nach Block A
-            if let detected = RDSSyndrome.detectOffset(word: shiftReg), detected.offset == .a {
-                syncCandidateBlock = RDSBlock(data: detected.data, offset: .a, correctedBits: detected.corrected)
-                syncState = .syncing
-                bitCountInSync = 0
-                expectedOffset = .b
-            }
+        let syn = RDSSyndrome.syndrome(of: shiftReg)
+        let kind = Self.kind(ofSyndrome: syn)
 
-        case .syncing:
-            bitCountInSync += 1
-            if bitCountInSync == 26 {
-                bitCountInSync = 0
-                if let decoded = RDSSyndrome.decode(word: shiftReg, expected: expectedOffset) {
-                    let block = RDSBlock(data: decoded.data, offset: expectedOffset, correctedBits: decoded.corrected)
-                    if expectedOffset == .b {
-                        currentGroupBlocks[.a] = syncCandidateBlock
-                        currentGroupBlocks[.b] = block
-                        expectedOffset = .c
-                    } else if expectedOffset == .c {
-                        currentGroupBlocks[.c] = block
-                        expectedOffset = .d
-                    } else if expectedOffset == .d {
-                        currentGroupBlocks[.d] = block
-                        syncState = .synced
-                        expectedOffset = .a
-                        consecutiveErrors = 0
-                        emitGroup()
-                    }
-                } else {
-                    // Fehlgeschlagen -> Zurück zur Suche
-                    resetInternal()
+        if state == .search {
+            guard kind >= 0 else { return nil }
+            recent.removeAll { bitCount - $0.index > 52 }
+            for m in recent {
+                let dist = bitCount - m.index
+                if (dist == 26 || dist == 52) && Self.consistent(m.kind, kind, blocks: Int(dist / 26)) {
+                    acquire(kind: kind)
+                    return nil
                 }
             }
+            recent.append((bitCount, kind))
+            return nil
+        }
 
-        case .synced:
-            bitCountInSync += 1
-            if bitCountInSync == 26 {
-                bitCountInSync = 0
-                // In Block C kann auch Offset C' vorkommen (Gruppe 15B)
-                var decoded: (data: UInt16, corrected: Int)?
-                var matchedOffset = expectedOffset
-
-                if expectedOffset == .c {
-                    decoded = RDSSyndrome.decode(word: shiftReg, expected: .c)
-                    if decoded == nil {
-                        decoded = RDSSyndrome.decode(word: shiftReg, expected: .cPrime)
-                        if decoded != nil { matchedOffset = .cPrime }
-                    }
-                } else {
-                    decoded = RDSSyndrome.decode(word: shiftReg, expected: expectedOffset)
-                }
-
-                if let res = decoded {
-                    blocksReceived += 1
-                    consecutiveErrors = 0
-                    let block = RDSBlock(data: res.data, offset: matchedOffset, correctedBits: res.corrected)
-                    currentGroupBlocks[matchedOffset] = block
-                    advanceExpectedOffset()
-                    if matchedOffset == .d { emitGroup() }
-                } else {
-                    blockErrors += 1
-                    consecutiveErrors += 1
-                    advanceExpectedOffset()
-                    if consecutiveErrors >= 6 {
-                        // Zu viele Fehler hintereinander -> Sync verloren
-                        resetInternal()
-                    }
-                }
+        // Im Betrieb: Block-Pfad prüfen, Takt verfolgen
+        if kind >= 0 && bitCount != nextBlockEnd && (bitCount % 26) != (nextBlockEnd % 26) {
+            // fehlerfreier Block mit anderem Takt: Kandidat für einen neuen Blocktakt (Bitschlupf)
+            if let am = altMatch, bitCount - am.index == 26, Self.consistent(am.kind, kind, blocks: 1), badRun >= 3 {
+                stats.resyncs += 1
+                acquire(kind: kind)
+                return nil
             }
+            altMatch = (bitCount, kind)
+        }
+        guard bitCount == nextBlockEnd else { return nil }
+        return finishBlock()
+    }
+
+    private static func offset(ofKind k: Int) -> RDSOffset {
+        switch k {
+        case 0: return .a
+        case 1: return .b
+        case 2: return .c
+        case 3: return .d
+        default: return .cPrime
         }
     }
 
-    private func advanceExpectedOffset() {
-        switch expectedOffset {
-        case .a: expectedOffset = .b
-        case .b: expectedOffset = .c
-        case .c, .cPrime: expectedOffset = .d
-        case .d: expectedOffset = .a
+    /// Takt gefunden: der Block, der gerade endete, hat die Art `kind`; der nächste folgt nach 26 Bit
+    private func acquire(kind: Int) {
+        state = .syncing
+        goodRun = 0
+        badRun = 0
+        altMatch = nil
+        recent.removeAll()
+        versionB = nil
+        groupBlocks = [nil, nil, nil, nil]
+        let slot = Self.slot(ofKind: kind)
+        let off = Self.offset(ofKind: kind)
+        if let r = RDSSyndrome.decode(word: shiftReg, expected: off, maxBurst: 0) {
+            groupBlocks[slot] = RDSBlock(data: r.data, offset: off)
+            if slot == 1 { versionB = ((r.data >> 11) & 1) == 1 }
         }
+        position = (slot + 1) % 4
+        nextBlockEnd = bitCount + 26
+        if slot == 3 { groupBlocks = [nil, nil, nil, nil] }
     }
 
-    private func emitGroup() {
-        guard let a = currentGroupBlocks[.a],
-              let b = currentGroupBlocks[.b],
-              let c = currentGroupBlocks[.c] ?? currentGroupBlocks[.cPrime],
-              let d = currentGroupBlocks[.d] else { return }
-        groupsReceived += 1
-        currentGroupBlocks.removeAll()
-        let grp = RDSGroup(blockA: a, blockB: b, blockC: c, blockD: d)
-        onGroup?(grp)
-    }
-}
-
-// MARK: - RDS Demodulator (DSP: 240 kS/s Diskriminator-Audio -> RDS-Bits)
-
-public final class RDSDemodulator: @unchecked Sendable {
-    public let streamDecoder = RDSStreamDecoder()
-
-    // Resampler von 24 kS/s auf 19 kS/s (16 Samples pro Bit bei 1187,5 Baud)
-    private let resamplerI: SampleRateConverter
-    private let resamplerQ: SampleRateConverter
-
-    // Kaiser-Tiefpass für 2,4 kHz bei 240 kS/s mit 10-facher Dezimierung
-    private let filterI: StreamFIR
-    private let filterQ: StreamFIR
-
-    // 57-kHz-Oszillator (57/240 = 19/80)
-    private var ncoPhase80: Int = 0
-    private static let cosTable80: [Float] = {
-        (0..<80).map { Float(cos(2.0 * Double.pi * Double($0) / 80.0)) }
-    }()
-    private static let sinTable80: [Float] = {
-        (0..<80).map { Float(sin(2.0 * Double.pi * Double($0) / 80.0)) }
-    }()
-
-    // Costas-Schleife zur Trägerrückgewinnung bei 19 kHz
-    private var costasPhase: Float = 0
-    private var costasFreq: Float = 0
-    private let costasAlpha: Float = 0.05
-    private let costasBeta: Float = 0.001
-
-    // Biphase-Matched-Filter (16 Samples bei 19 kHz für Manchester-Halbimpulse)
-    // Halbbit 0: +1 (8 Samples), Halbbit 1: -1 (8 Samples)
-    private static let biphaseTaps: [Float] = {
-        var t = [Float](repeating: 0, count: 16)
-        for i in 0..<8 { t[i] = 1.0 }
-        for i in 8..<16 { t[i] = -1.0 }
-        return t
-    }()
-    private var biphaseHistory = [Float](repeating: 0, count: 16)
-
-    // Takt- und Abtastphasen-Nachführung
-    private var sampleCounter: Int = 0
-    private var phaseEnergies = [Float](repeating: 0, count: 16)
-    private var bestPhase: Int = 5
-    private var prevSymbolDecision: Int = 0
-
-    // Puffer für Resampling und Faltung
-    private var rawMixI: [Float] = []
-    private var rawMixQ: [Float] = []
-    private var decI: [Float] = []
-    private var decQ: [Float] = []
-
-    private let lock = NSLock()
-
-    public init() {
-        // Tiefpass: Passband 2,4 kHz, Stopband 8 kHz bei 240 kS/s, Dämpfung 50 dB
-        let taps = SDRFilterDesign.lowpass(passband: 2400.0 / 240000.0, stopband: 8000.0 / 240000.0, attenuationDB: 50.0)
-        filterI = StreamFIR(taps: taps, decimation: 10)
-        filterQ = StreamFIR(taps: taps, decimation: 10)
-        resamplerI = SampleRateConverter(inputRate: 24000.0, outputRate: 19000.0)!
-        resamplerQ = SampleRateConverter(inputRate: 24000.0, outputRate: 19000.0)!
+    private func loseSync(count: Bool = true) {
+        if count && state != .search { stats.resyncs += 1 }
+        state = .search
+        recent.removeAll()
+        altMatch = nil
+        groupBlocks = [nil, nil, nil, nil]
+        versionB = nil
+        position = 0
+        badRun = 0
+        goodRun = 0
+        window = [Bool](repeating: false, count: 50)
+        windowIndex = 0
+        windowBad = 0
+        windowFill = 0
     }
 
-    public func reset() {
-        lock.withLock {
-            streamDecoder.reset()
-            filterI.reset()
-            filterQ.reset()
-            resamplerI.reset()
-            resamplerQ.reset()
-            ncoPhase80 = 0
-            costasPhase = 0
-            costasFreq = 0
-            biphaseHistory = [Float](repeating: 0, count: 16)
-            sampleCounter = 0
-            phaseEnergies = [Float](repeating: 0, count: 16)
-            bestPhase = 5
-            prevSymbolDecision = 0
+    private func recordWindow(bad: Bool) {
+        if windowFill == 50 {
+            if window[windowIndex] { windowBad -= 1 }
+        } else {
+            windowFill += 1
         }
+        window[windowIndex] = bad
+        if bad { windowBad += 1 }
+        windowIndex = (windowIndex + 1) % 50
     }
 
-    /// Verarbeitet einen Block von MPX-Abtastwerten bei 240 kS/s
-    public func process(mpx: UnsafeBufferPointer<Float>) {
-        lock.withLock {
-            processInternal(mpx: mpx)
+    /// Der Block an der erwarteten Stelle ist vollständig im Schieberegister
+    private func finishBlock() -> RDSGroup? {
+        let word = shiftReg
+        nextBlockEnd = bitCount + 26
+        // Reparatur nur bei guter Lage und nach gesichertem Takt; sonst steigt die Zahl falscher Blöcke
+        let burst: Int
+        if state != .synced { burst = 0 } else if windowFill >= 10 && Double(windowBad) / Double(windowFill) > 0.25 { burst = 1 } else { burst = 2 }
+
+        var candidates: [RDSOffset]
+        switch position {
+        case 0: candidates = [.a]
+        case 1: candidates = [.b]
+        case 2:
+            if let vb = versionB { candidates = vb ? [.cPrime] : [.c] } else { candidates = [.c, .cPrime] }
+        default: candidates = [.d]
         }
-    }
-
-    private func processInternal(mpx: UnsafeBufferPointer<Float>) {
-        let count = mpx.count
-        guard count > 0 else { return }
-
-        if rawMixI.count < count {
-            rawMixI = [Float](repeating: 0, count: count)
-            rawMixQ = [Float](repeating: 0, count: count)
-        }
-
-        // 1. Mischen von 57 kHz auf 0 Hz (komplexes Mischen)
-        var phase = ncoPhase80
-        let cosTab = Self.cosTable80
-        let sinTab = Self.sinTable80
-        for i in 0..<count {
-            let s = mpx[i]
-            rawMixI[i] = s * cosTab[phase]
-            rawMixQ[i] = -s * sinTab[phase]
-            phase = (phase + 19) % 80
-        }
-        ncoPhase80 = phase
-
-        // 2. Tiefpass & Dezimierung von 240 kS/s auf 24 kS/s (Faktor 10)
-        decI.removeAll(keepingCapacity: true)
-        decQ.removeAll(keepingCapacity: true)
-        rawMixI.withUnsafeBufferPointer { b in
-            filterI.process(UnsafeBufferPointer(rebasing: b[0..<count]), into: &decI)
-        }
-        rawMixQ.withUnsafeBufferPointer { b in
-            filterQ.process(UnsafeBufferPointer(rebasing: b[0..<count]), into: &decQ)
-        }
-
-        guard !decI.isEmpty else { return }
-
-        // 3. Wandlung von 24 kS/s auf exakt 19 kS/s (16 Samples/Bit bei 1187,5 Baud)
-        var rate19I = [Float]()
-        var rate19Q = [Float]()
-        decI.withUnsafeBufferPointer { b in resamplerI.process(b) { rate19I.append(contentsOf: $0) } }
-        decQ.withUnsafeBufferPointer { b in resamplerQ.process(b) { rate19Q.append(contentsOf: $0) } }
-
-        let n19 = min(rate19I.count, rate19Q.count)
-        guard n19 > 0 else { return }
-
-        // 4. Costas-Schleife, Biphase-Matched-Filter und Abtastentscheidung
-        for i in 0..<n19 {
-            let inI = rate19I[i]
-            let inQ = rate19Q[i]
-
-            // Trägerdrehung
-            let c = cos(costasPhase)
-            let s = sin(costasPhase)
-            let rotI = inI * c - inQ * s
-            let rotQ = inI * s + inQ * c
-
-            // Phasenfehler für BPSK (sign(I) * Q)
-            let signI: Float = rotI >= 0 ? 1.0 : -1.0
-            let phaseError = signI * rotQ
-            costasFreq += costasBeta * phaseError
-            costasPhase += costasFreq + costasAlpha * phaseError
-            if costasPhase > Float.pi { costasPhase -= 2 * Float.pi }
-            else if costasPhase < -Float.pi { costasPhase += 2 * Float.pi }
-
-            // Biphase-Matched-Filter (Schieberegister 16 Werte)
-            biphaseHistory.removeFirst()
-            biphaseHistory.append(rotI)
-
-            // Korrelation mit Biphase-Impulsform
-            var corr: Float = 0
-            for k in 0..<16 { corr += biphaseHistory[k] * Self.biphaseTaps[k] }
-
-            // Takt- und Energieverfolgung für die 16 Abtastphasen
-            let p = sampleCounter % 16
-            let absCorr = abs(corr)
-            phaseEnergies[p] += (absCorr - phaseEnergies[p]) * 0.02
-
-            // Bester Abtastzeitpunkt: Nur alle 256 Samples (16 Symbole) prüfen,
-            // und nur wechseln, wenn die neue Phase spürbar besser ist (> 30%)
-            if (sampleCounter & 0xFF) == 0 {
-                var maxE: Float = -1
-                var maxP = bestPhase
-                for k in 0..<16 {
-                    if phaseEnergies[k] > maxE {
-                        maxE = phaseEnergies[k]
-                        maxP = k
-                    }
-                }
-                let curE = phaseEnergies[bestPhase]
-                if curE <= 0 || maxE > curE * 1.3 {
-                    bestPhase = maxP
-                }
-            }
-
-            // Symbol-Entscheidung bei bester Phase
-            if p == bestPhase {
-                let symbolDecision = corr >= 0 ? 1 : 0
-                // Differenzielle Decodierung: dataBit = symbol ^ prevSymbol
-                let dataBit = symbolDecision ^ prevSymbolDecision
-                prevSymbolDecision = symbolDecision
-                streamDecoder.process(bit: dataBit)
-            }
-
-            sampleCounter &+= 1
-        }
-    }
-}
-
-// MARK: - RDS Prüfsignal-Generator (für Logiktests und Simulation)
-
-public final class RDSSignalGenerator {
-    public static func makeGroup0A(pi: UInt16, ps: String, tp: Bool = true, ta: Bool = false, pty: Int = 10, afMHz: [Double] = [98.0]) -> [RDSGroup] {
-        var groups: [RDSGroup] = []
-        let cleanPS = (ps + "        ").prefix(8)
-        let psBytes = Array(cleanPS.utf8)
-
-        // 4 Segmente für den 8-stelligen PS-Namen
-        for seg in 0..<4 {
-            let bA = RDSBlock(data: pi, offset: .a)
-            let bB_data = UInt16((0 << 12) | (0 << 11) | ((tp ? 1 : 0) << 10) | ((pty & 0x1F) << 5) | ((ta ? 1 : 0) << 4) | (1 << 3) | (seg & 0x03))
-            let bB = RDSBlock(data: bB_data, offset: .b)
-
-            // Block C: AF
-            let afCode: UInt16
-            if seg < afMHz.count {
-                let code = Int(((afMHz[seg] - 87.5) * 10.0).rounded())
-                afCode = UInt16(min(204, max(1, code)))
-            } else {
-                afCode = 205 // No AF
-            }
-            let bC = RDSBlock(data: (afCode << 8) | 205, offset: .c)
-
-            // Block D: 2 Zeichen des PS-Namens
-            let c0 = UInt16(psBytes[seg * 2])
-            let c1 = UInt16(psBytes[seg * 2 + 1])
-            let bD = RDSBlock(data: (c0 << 8) | c1, offset: .d)
-
-            groups.append(RDSGroup(blockA: bA, blockB: bB, blockC: bC, blockD: bD))
-        }
-        return groups
-    }
-
-    public static func makeGroup2A(pi: UInt16, text: String, tp: Bool = true, pty: Int = 10, textAB: Bool = false) -> [RDSGroup] {
-        var groups: [RDSGroup] = []
-        let cleanText = (text + String(repeating: " ", count: 64)).prefix(64)
-        let bytes = Array(cleanText.utf8)
-        let segCount = min(16, (bytes.count + 3) / 4)
-
-        for seg in 0..<segCount {
-            let bA = RDSBlock(data: pi, offset: .a)
-            let bB_data = UInt16((2 << 12) | (0 << 11) | ((tp ? 1 : 0) << 10) | ((pty & 0x1F) << 5) | ((textAB ? 1 : 0) << 4) | (seg & 0x0F))
-            let bB = RDSBlock(data: bB_data, offset: .b)
-
-            let c0 = UInt16(bytes[seg * 4])
-            let c1 = UInt16(bytes[seg * 4 + 1])
-            let bC = RDSBlock(data: (c0 << 8) | c1, offset: .c)
-
-            let c2 = UInt16(bytes[seg * 4 + 2])
-            let c3 = UInt16(bytes[seg * 4 + 3])
-            let bD = RDSBlock(data: (c2 << 8) | c3, offset: .d)
-
-            groups.append(RDSGroup(blockA: bA, blockB: bB, blockC: bC, blockD: bD))
-        }
-        return groups
-    }
-
-    public static func makeGroup4A(pi: UInt16, date: Date, offsetHalfHours: Int = 2) -> RDSGroup {
-        let bA = RDSBlock(data: pi, offset: .a)
-        let bB_data = UInt16((4 << 12) | (0 << 11) | (1 << 10) | (10 << 5))
-        let unix = date.timeIntervalSince1970
-        let days = Int(floor(unix / 86400.0))
-        let mjd = UInt32(days + 40587)
-        let daySecs = Int(unix.truncatingRemainder(dividingBy: 86400.0))
-        let hour = (daySecs / 3600) % 24
-        let minute = (daySecs % 3600) / 60
-
-        let mjdHigh = UInt16((mjd >> 15) & 0x03)
-        let mjdLow = UInt16(mjd & 0x7FFF)
-        let hourHigh = UInt16((hour >> 4) & 0x01)
-        let hourLow = UInt16(hour & 0x0F)
-        let minVal = UInt16(minute & 0x3F)
-        let signBit: UInt16 = offsetHalfHours < 0 ? 1 : 0
-        let absOffset = UInt16(abs(offsetHalfHours) & 0x1F)
-
-        let bB = RDSBlock(data: bB_data | mjdHigh, offset: .b)
-        let bC_data = (mjdLow << 1) | hourHigh
-        let bC = RDSBlock(data: bC_data, offset: .c)
-        let bD_data = (hourLow << 12) | (minVal << 6) | (signBit << 5) | absOffset
-        let bD = RDSBlock(data: bD_data, offset: .d)
-
-        return RDSGroup(blockA: bA, blockB: bB, blockC: bC, blockD: bD)
-    }
-
-    /// Erzeugt ein 240-kS/s-MPX-Signal mit 57-kHz-RDS-Unterträger aus einer Liste von Gruppen
-    public static func modulate(groups: [RDSGroup], sampleRate: Double = 240000.0) -> [Float] {
-        // 1. Bitstrom aus allen Blöcken mit Checkword und Offset zusammensetzen
-        var rawBits: [Int] = []
-        for g in groups {
-            let words = [
-                RDSSyndrome.encodeBlock(data: g.blockA.data, offset: g.blockA.offset),
-                RDSSyndrome.encodeBlock(data: g.blockB.data, offset: g.blockB.offset),
-                RDSSyndrome.encodeBlock(data: g.blockC.data, offset: g.blockC.offset),
-                RDSSyndrome.encodeBlock(data: g.blockD.data, offset: g.blockD.offset)
-            ]
-            for w in words {
-                for i in (0..<26).reversed() {
-                    rawBits.append(Int((w >> i) & 1))
+        var found: RDSBlock?
+        // erst fehlerfrei über alle Kandidaten, dann mit Reparatur
+        search: for b in 0...burst {
+            for off in candidates {
+                if let r = RDSSyndrome.decode(word: word, expected: off, maxBurst: b) {
+                    found = RDSBlock(data: r.data, offset: off, correctedBits: r.corrected)
+                    break search
                 }
             }
         }
 
-        // 2. Differenzielle Codierung: d_k = bit_k ^ d_{k-1}
-        var diffBits: [Int] = []
-        var prev = 0
-        for b in rawBits {
-            prev ^= b
-            diffBits.append(prev)
+        let bad = found == nil
+        if let blk = found {
+            groupBlocks[position] = blk
+            stats.blocksReceived += 1
+            if blk.correctedBits > 0 { stats.correctedBlocks += 1 }
+            if position == 1 { versionB = ((blk.data >> 11) & 1) == 1 }
+            goodRun += 1
+            badRun = 0
+        } else {
+            stats.blockErrors += 1
+            badRun += 1
+            goodRun = 0
+            if position == 1 { versionB = nil }
+        }
+        recordWindow(bad: bad)
+
+        // Provisorischer Takt: gleich beim ersten Fehler zurück zur Suche, nach drei guten Blöcken gesichert
+        if state == .syncing {
+            if bad {
+                loseSync(count: false)
+                return nil
+            }
+            if goodRun >= 3 { state = .synced }
+        } else if badRun >= 12 || (windowFill >= 50 && windowBad > 45) {
+            let out = completeGroupIfAny()
+            loseSync()
+            return out
         }
 
-        // 3. Manchester / Biphase Signal bei 19 kHz erzeugen (16 Samples/Bit)
-        var biphase19k: [Float] = []
-        for d in diffBits {
-            let sign: Float = d == 1 ? 1.0 : -1.0
-            for _ in 0..<8 { biphase19k.append(sign) }
-            for _ in 0..<8 { biphase19k.append(-sign) }
+        var out: RDSGroup?
+        if position == 3 {
+            out = completeGroupIfAny()
         }
+        position = (position + 1) % 4
+        return out
+    }
 
-        // 4. Resampling auf 240 kS/s und Modulation auf 57 kHz
-        guard let resampler = SampleRateConverter(inputRate: 19000.0, outputRate: 240000.0) else { return [] }
-        var baseband240k: [Float] = []
-        biphase19k.withUnsafeBufferPointer { b in resampler.process(b) { baseband240k.append(contentsOf: $0) } }
-
-        var output = [Float](repeating: 0, count: baseband240k.count)
-        let carrierFreq = 57000.0
-        for i in 0..<baseband240k.count {
-            let carrier = Float(cos(2.0 * Double.pi * carrierFreq * Double(i) / sampleRate))
-            output[i] = baseband240k[i] * carrier * 0.1 // 10% Unterträger-Hub
+    /// Gruppe abschließen und zurücksetzen. Eine Gruppe ohne Block B und ohne PI-Quelle trägt nichts bei und entfällt.
+    private func completeGroupIfAny() -> RDSGroup? {
+        defer {
+            groupBlocks = [nil, nil, nil, nil]
+            versionB = nil
         }
-        return output
+        let g = RDSGroup(blocks: groupBlocks)
+        guard g.validBlockCount > 0, g.blockB != nil || g.pi != nil else { return nil }
+        stats.groupsReceived += 1
+        if g.isComplete { stats.completeGroups += 1 }
+        return g
     }
 }

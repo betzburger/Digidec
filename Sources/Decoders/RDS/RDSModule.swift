@@ -5,44 +5,26 @@ import Combine
 import SwiftUI
 import os
 
-// MARK: - RDS Informationen
-
-public struct RDSInfo: Sendable, Equatable {
-    public var pi: UInt16?
-    public var piHex: String? { pi.map { String(format: "%04X", $0) } }
-    public var country: String? { pi.flatMap(RDSCountry.name(for:)) }
-    public var programService: String = ""
-    public var radioText: String = ""
-    public var radioTextHistory: [String] = []
-    public var pty: Int?
-    public var ptyName: String? { pty.map(RDSPTY.name(for:)) }
-    public var tp: Bool = false
-    public var ta: Bool = false
-    public var music: Bool?
-    public var clockTime: Date?
-    public var clockTimeFormatted: String? {
-        guard let ct = clockTime else { return nil }
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm 'Uhr' (dd.MM.)"
-        f.timeZone = TimeZone.current
-        return f.string(from: ct)
-    }
-    public var alternativeFrequencies: [Double] = []
-    public var syncState: RDSStreamDecoder.SyncState = .search
-    public var groupsReceived: Int = 0
-    public var blocksReceived: Int = 0
-    public var blockErrors: Int = 0
-
-    public var blockSuccessRate: Double {
-        let total = blocksReceived + blockErrors
-        guard total > 0 else { return 0.0 }
-        return Double(blocksReceived) / Double(total) * 100.0
-    }
-
-    public init() {}
-}
-
 // MARK: - Einstellungen
+
+/// Ein gemerkter Sender der Schnellauswahl
+public struct RDSFavorite: Codable, Equatable, Identifiable, Sendable {
+    public var frequencyHz: Double
+    /// Programmname (PS) zur Zeit des Merkens, später vom Empfang nachgeführt; leer, solange keiner bekannt war
+    public var name: String
+    public var id: Int { Int((frequencyHz / 1000).rounded()) }
+
+    public init(frequencyHz: Double, name: String) {
+        self.frequencyHz = frequencyHz
+        self.name = name
+    }
+
+    /// Beschriftung wie „104,4 ANTENNE“
+    public var title: String {
+        let f = String(format: "%.1f", frequencyHz / 1e6).replacingOccurrences(of: ".", with: ",")
+        return name.isEmpty ? f : "\(f) \(name)"
+    }
+}
 
 @MainActor
 public final class RDSSettingsStore: ObservableObject {
@@ -57,10 +39,43 @@ public final class RDSSettingsStore: ObservableObject {
         }
     }
 
+    /// Eigene Schnellauswahl, nach Frequenz sortiert (UserDefaults „rdsFavorites“ als JSON)
+    @Published public private(set) var favorites: [RDSFavorite] {
+        didSet {
+            if let data = try? JSONEncoder().encode(favorites) { UserDefaults.standard.set(data, forKey: "rdsFavorites") }
+        }
+    }
+
     public init() {
+        if let data = UserDefaults.standard.data(forKey: "rdsFavorites"), let list = try? JSONDecoder().decode([RDSFavorite].self, from: data) {
+            favorites = list.filter { (87_500_000...108_000_000).contains($0.frequencyHz) }.sorted { $0.frequencyHz < $1.frequencyHz }
+        } else {
+            favorites = []
+        }
         let savedFreq = UserDefaults.standard.double(forKey: "rdsFrequencyHz")
         frequencyHz = (87_500_000...108_000_000).contains(savedFreq) ? savedFreq : 98_000_000
         selectedPreset = UserDefaults.standard.string(forKey: "rdsPreset") ?? "98.0"
+    }
+
+    /// Frequenz ist gemerkt (auf 50 kHz genau, das Raster ist 100 kHz)
+    public func favorite(at hz: Double) -> RDSFavorite? {
+        favorites.first { abs($0.frequencyHz - hz) < 50_000 }
+    }
+
+    /// Sender merken oder, wenn schon gemerkt, den Namen auffrischen
+    public func addFavorite(frequencyHz hz: Double, name: String) {
+        let clean = name.trimmingCharacters(in: .whitespaces)
+        let f = (hz / 100_000).rounded() * 100_000
+        if let i = favorites.firstIndex(where: { abs($0.frequencyHz - f) < 50_000 }) {
+            if !clean.isEmpty, favorites[i].name != clean { favorites[i].name = clean }
+            return
+        }
+        favorites.append(RDSFavorite(frequencyHz: f, name: clean))
+        favorites.sort { $0.frequencyHz < $1.frequencyHz }
+    }
+
+    public func removeFavorite(frequencyHz hz: Double) {
+        favorites.removeAll { abs($0.frequencyHz - hz) < 50_000 }
     }
 
     public static let standardPresets: [(name: String, freqHz: Double)] = [
@@ -93,62 +108,39 @@ extension RDSSettingsStore: TuningTarget {
 @MainActor
 public final class RDSController: ObservableObject {
     @Published public private(set) var info = RDSInfo()
+    @Published public private(set) var stats = RDSStreamDecoder.Stats()
+    @Published public private(set) var metrics = RDSDemodulator.Metrics()
     @Published public private(set) var signalDB: Float = -90
 
     public let settings: RDSSettingsStore
     public let demodulator = RDSDemodulator()
+    public let decoder = RDSDecoder()
 
-    private let lock = OSAllocatedUnfairLock()
-    private var psBuffer = [Character](repeating: " ", count: 8)
-    private var psReceivedMask: UInt8 = 0
-    private var rtBuffer = [Character](repeating: " ", count: 64)
-    private var rtReceivedMask: UInt16 = 0
-    private var currentTextAB: Bool?
-    private var afSet = Set<Double>()
+    private let activeState = OSAllocatedUnfairLock(initialState: false)
     private var timer: Timer?
 
     public init(settings: RDSSettingsStore) {
         self.settings = settings
-        setupDecoder()
-        startTimer()
-    }
-
-    private func setupDecoder() {
-        demodulator.streamDecoder.onGroup = { [weak self] group in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    self?.handleGroup(group)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        self?.handleGroup(group)
-                    }
-                }
-            }
+        decoder.tunedMHz = settings.frequencyHz / 1e6
+        // Die Gruppen werden auf dem Faden des Empfängers ausgewertet; die Oberfläche holt sich den Stand zehnmal je Sekunde
+        let decoder = self.decoder
+        let framer = demodulator.streamDecoder
+        demodulator.streamDecoder.onGroup = { group in
+            decoder.handle(group, quality: framer.currentStats.quality)
         }
-    }
-
-    private func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.updatePeriodic()
-            }
+            MainActor.assumeIsolated { self?.refresh() }
         }
     }
-
-    private let activeState = OSAllocatedUnfairLock(initialState: false)
 
     public func setActive(_ active: Bool) {
         activeState.withLock { $0 = active }
-        if !active {
-            clear()
-        }
+        if !active { clear() }
     }
 
     nonisolated public func feedDiscriminator(samples: UnsafeBufferPointer<Float>, sampleRate: Double) {
         guard activeState.withLock({ $0 }) else { return }
-        demodulator.process(mpx: samples)
+        demodulator.process(mpx: samples, sampleRate: sampleRate)
     }
 
     public func updateSignal(db: Float) {
@@ -165,160 +157,35 @@ public final class RDSController: ObservableObject {
         tune(frequencyHz: settings.frequencyHz + mhz * 1e6)
     }
 
-    public func clear() {
-        info = RDSInfo()
-        psBuffer = [Character](repeating: " ", count: 8)
-        psReceivedMask = 0
-        rtBuffer = [Character](repeating: " ", count: 64)
-        rtReceivedMask = 0
-        currentTextAB = nil
-        afSet.removeAll()
-        demodulator.reset()
-    }
-
-    private func updatePeriodic() {
-        let stats = demodulator.streamDecoder.stats
-        info.syncState = stats.syncState
-        info.groupsReceived = stats.groupsReceived
-        info.blocksReceived = stats.blocksReceived
-        info.blockErrors = stats.blockErrors
-    }
-
-    private func handleGroup(_ group: RDSGroup) {
-        // Block A: PI-Code
-        info.pi = group.pi
-
-        // Block B: TP und PTY
-        info.tp = group.tp
-        info.pty = group.pty
-
-        switch (group.groupType, group.isVersionB) {
-        case (0, false), (0, true):
-            handleGroup0(group)
-        case (2, false), (2, true):
-            handleGroup2(group)
-        case (4, false):
-            handleGroup4A(group)
-        default:
-            break
-        }
-    }
-
-    private func handleGroup0(_ group: RDSGroup) {
-        let bB = group.blockB.data
-        info.ta = ((bB >> 4) & 1) == 1
-        info.music = ((bB >> 3) & 1) == 1
-        let seg = Int(bB & 0x03)
-
-        // Block D: 2 Zeichen des PS-Namens
-        let bD = group.blockD.data
-        let c0 = Character(UnicodeScalar((bD >> 8) & 0xFF) ?? UnicodeScalar(32))
-        let c1 = Character(UnicodeScalar(bD & 0xFF) ?? UnicodeScalar(32))
-
-        if seg * 2 + 1 < psBuffer.count {
-            psBuffer[seg * 2] = c0.isASCII ? c0 : " "
-            psBuffer[seg * 2 + 1] = c1.isASCII ? c1 : " "
-            psReceivedMask |= (1 << seg)
-        }
-
-        if psReceivedMask == 0x0F {
-            info.programService = String(psBuffer).trimmingCharacters(in: .whitespaces)
-        }
-
-        // Gruppe 0A: Alternativfrequenzen in Block C
-        if !group.isVersionB {
-            let bC = group.blockC.data
-            let af1 = Int((bC >> 8) & 0xFF)
-            let af2 = Int(bC & 0xFF)
-            decodeAF(af1)
-            decodeAF(af2)
-            info.alternativeFrequencies = Array(afSet).sorted()
-        }
-    }
-
-    private func decodeAF(_ code: Int) {
-        // Code 1..204 = 87.6 .. 107.9 MHz (87.5 + code * 0.1)
-        if (1...204).contains(code) {
-            let mhz = 87.5 + Double(code) * 0.1
-            afSet.insert((mhz * 10).rounded() / 10)
-        }
-    }
-
-    private func handleGroup2(_ group: RDSGroup) {
-        let bB = group.blockB.data
-        let textAB = ((bB >> 4) & 1) == 1
-        let seg = Int(bB & 0x0F)
-
-        // Text A/B Flag-Wechsel leert den Text
-        if let cur = currentTextAB, cur != textAB {
-            if !info.radioText.isEmpty && !info.radioTextHistory.contains(info.radioText) {
-                info.radioTextHistory.insert(info.radioText, at: 0)
-                if info.radioTextHistory.count > 30 { info.radioTextHistory.removeLast() }
-            }
-            rtBuffer = [Character](repeating: " ", count: 64)
-            rtReceivedMask = 0
-        }
-        currentTextAB = textAB
-
-        if !group.isVersionB {
-            // Gruppe 2A: 4 Zeichen je Gruppe (Block C und D)
-            let bC = group.blockC.data
-            let bD = group.blockD.data
-            let c0 = Character(UnicodeScalar((bC >> 8) & 0xFF) ?? UnicodeScalar(32))
-            let c1 = Character(UnicodeScalar(bC & 0xFF) ?? UnicodeScalar(32))
-            let c2 = Character(UnicodeScalar((bD >> 8) & 0xFF) ?? UnicodeScalar(32))
-            let c3 = Character(UnicodeScalar(bD & 0xFF) ?? UnicodeScalar(32))
-
-            let pos = seg * 4
-            if pos + 3 < rtBuffer.count {
-                rtBuffer[pos] = c0.isASCII ? c0 : " "
-                rtBuffer[pos + 1] = c1.isASCII ? c1 : " "
-                rtBuffer[pos + 2] = c2.isASCII ? c2 : " "
-                rtBuffer[pos + 3] = c3.isASCII ? c3 : " "
-                rtReceivedMask |= (1 << seg)
-            }
+    /// Sender auf der eingestellten Frequenz in die Schnellauswahl legen (mit dem Programmnamen, wenn er schon gelesen ist) oder wieder entfernen
+    public func toggleFavorite() {
+        let f = settings.frequencyHz
+        if settings.favorite(at: f) != nil {
+            settings.removeFavorite(frequencyHz: f)
         } else {
-            // Gruppe 2B: 2 Zeichen je Gruppe (nur Block D)
-            let bD = group.blockD.data
-            let c0 = Character(UnicodeScalar((bD >> 8) & 0xFF) ?? UnicodeScalar(32))
-            let c1 = Character(UnicodeScalar(bD & 0xFF) ?? UnicodeScalar(32))
-            let pos = seg * 2
-            if pos + 1 < rtBuffer.count {
-                rtBuffer[pos] = c0.isASCII ? c0 : " "
-                rtBuffer[pos + 1] = c1.isASCII ? c1 : " "
-                rtReceivedMask |= (1 << seg)
-            }
-        }
-
-        let fullText = String(rtBuffer).trimmingCharacters(in: .whitespaces)
-        if !fullText.isEmpty {
-            info.radioText = fullText
+            settings.addFavorite(frequencyHz: f, name: decoder.snapshot.programService)
         }
     }
 
-    private func handleGroup4A(_ group: RDSGroup) {
-        let bB = UInt32(group.blockB.data)
-        let bC = UInt32(group.blockC.data)
-        let bD = UInt32(group.blockD.data)
+    public func clear() {
+        demodulator.reset()
+        decoder.reset()
+        decoder.tunedMHz = settings.frequencyHz / 1e6
+        info = RDSInfo()
+        stats = RDSStreamDecoder.Stats()
+        metrics = RDSDemodulator.Metrics()
+    }
 
-        // MJD: 2 Bits aus Block B + 15 Bits aus Block C
-        let mjd = ((bB & 0x03) << 15) | ((bC >> 1) & 0x7FFF)
-
-        // Stunde: 1 Bit aus Block C + 4 Bits aus Block D
-        let hour = Int(((bC & 1) << 4) | ((bD >> 12) & 0x0F))
-        let minute = Int((bD >> 6) & 0x3F)
-
-        guard hour < 24, minute < 60, mjd > 40000 else { return }
-
-        // MJD zu Unix-Zeit: Unix-Epoche (1970-01-01) ist MJD 40587
-        let days = Double(mjd) - 40587.0
-        let seconds = days * 86400.0 + Double(hour * 3600 + minute * 60)
-
-        // Lokaler Versatz (in halben Stunden)
-        let offsetSign = ((bD >> 5) & 1) == 1 ? -1.0 : 1.0
-        let offsetHalfHours = Double(bD & 0x1F)
-        let localSeconds = seconds + offsetSign * offsetHalfHours * 1800.0
-
-        info.clockTime = Date(timeIntervalSince1970: localSeconds)
+    /// Stand von Demodulator und Decoder übernehmen (läuft im Zehntelsekundentakt; Tests rufen es von Hand)
+    public func refresh() {
+        let i = decoder.snapshot
+        if i != info { info = i }
+        // Der Name eines gemerkten Senders folgt dem Empfang (erst ganz, wenn alle acht Zeichen gesichert sind)
+        if i.programServiceComplete, !i.programService.isEmpty, let fav = settings.favorite(at: settings.frequencyHz), fav.name != i.programService {
+            settings.addFavorite(frequencyHz: settings.frequencyHz, name: i.programService)
+        }
+        stats = demodulator.streamDecoder.currentStats
+        let m = demodulator.currentMetrics
+        if m != metrics { metrics = m }
     }
 }

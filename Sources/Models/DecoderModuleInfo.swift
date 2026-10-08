@@ -99,7 +99,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dcf77:  return "DCF77"
         case .efr:    return "EFR"
         case .sstv:   return "SSTV"
-        case .channels: return "KANÄLE"
+        case .channels: return "MEHRKANAL"
         case .rds:      return "RDS"
         }
     }
@@ -125,13 +125,16 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
             }
         }
 
-        /// Module dieses Bereichs, nach Namen A–Z (Umlaute wie ihr Grundbuchstabe)
+        /// Module dieses Bereichs, nach Namen A–Z (Umlaute wie ihr Grundbuchstabe); das Mehrkanal-Modul steht in keinem Bereich, es deckt beide ab
         public var modules: [DecoderModuleInfo] {
             DecoderModuleInfo.allCases
-                .filter { $0.band == self }
+                .filter { $0.band == self && !$0.coversAllBands }
                 .sorted { $0.displayName.compare($1.displayName, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }
         }
     }
+
+    /// Das Modul gehört zu keinem Bereich allein: MEHRKANAL arbeitet im ganzen Fenster des SDR, von Langwelle bis UHF
+    public var coversAllBands: Bool { self == .channels }
 
     public var band: Band {
         switch self {
