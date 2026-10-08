@@ -8,6 +8,8 @@ import CoreGraphics
 public enum MapSilhouette: String, CaseIterable, Sendable {
     // Flugzeuge
     case airliner, heavy, bizjet, lightProp, helicopter, glider, drone, balloon, fighter, groundVehicle
+    // Schiffe
+    case cargo, tanker, passenger, tug, sailboat, fishing, highSpeed, patrol, warship, rescue, yacht, vessel
 
     /// Deutsche Bezeichnung für Auswahltext und Legende
     public var label: String {
@@ -22,6 +24,25 @@ public enum MapSilhouette: String, CaseIterable, Sendable {
         case .balloon:       return "Ballon"
         case .fighter:       return "Hochleistungsflugzeug"
         case .groundVehicle: return "Fahrzeug am Boden"
+        case .cargo:         return "Frachtschiff"
+        case .tanker:        return "Tanker"
+        case .passenger:     return "Fahrgastschiff"
+        case .tug:           return "Schlepper / Arbeitsschiff"
+        case .sailboat:      return "Segelschiff"
+        case .fishing:       return "Fischereifahrzeug"
+        case .highSpeed:     return "Schnellboot / Katamaran"
+        case .patrol:        return "Behörden- / Lotsenboot"
+        case .warship:       return "Marineschiff"
+        case .rescue:        return "Seenotrettung"
+        case .yacht:         return "Sportboot"
+        case .vessel:        return "Schiff"
+        }
+    }
+
+    public var isShip: Bool {
+        switch self {
+        case .cargo, .tanker, .passenger, .tug, .sailboat, .fishing, .highSpeed, .patrol, .warship, .rescue, .yacht, .vessel: return true
+        default: return false
         }
     }
 
@@ -38,6 +59,9 @@ public enum MapSilhouette: String, CaseIterable, Sendable {
         case .balloon:       return 17
         case .fighter:       return 21
         case .groundVehicle: return 12
+        // Schiffe: Bezugsgröße bei etwa 100 m Länge, die Anzeige skaliert mit der wirklichen Länge (`AISClass.scale`)
+        case .cargo, .tanker, .passenger, .vessel: return 22
+        case .tug, .fishing, .patrol, .rescue, .yacht, .sailboat, .highSpeed, .warship: return 20
         }
     }
 
@@ -105,7 +129,47 @@ public enum MapSilhouette: String, CaseIterable, Sendable {
         .fighter: [mirrored([(0, -1), (0.04, -0.82), (0.07, -0.4), (0.88, 0.52), (0.88, 0.74), (0.13, 0.62), (0.1, 0.86), (0.26, 0.96), (0.0, 0.9)])],
         // kleines Rechteck mit abgeschrägter Front
         .groundVehicle: [mirrored([(0, -0.8), (0.3, -0.7), (0.38, -0.4), (0.38, 0.7), (0.3, 0.8), (0, 0.8)])],
+
+        // Schiffe: Bug oben, schlanker Rumpf, Aufbauten als Blöcke
+        // Frachter: Luken, Brücke am Heck
+        .cargo: [hull(beam: 0.21), bar(cx: 0, cy: 0.7, length: 0.36, width: 0.32),
+                 bar(cx: 0, cy: -0.52, length: 0.30, width: 0.28), bar(cx: 0, cy: -0.14, length: 0.30, width: 0.28), bar(cx: 0, cy: 0.24, length: 0.30, width: 0.28)],
+        // Tanker: Mittelleitung mit Verteilern, Brücke am Heck
+        .tanker: [hull(beam: 0.22), bar(cx: 0, cy: 0.72, length: 0.38, width: 0.30), bar(cx: 0, cy: -0.1, length: 0.04, width: 1.2),
+                  bar(cx: 0, cy: -0.5, length: 0.26, width: 0.04), bar(cx: 0, cy: -0.1, length: 0.26, width: 0.04), bar(cx: 0, cy: 0.3, length: 0.26, width: 0.04)],
+        // Fahrgastschiff: breiter Rumpf, lange Aufbauten, zwei Schornsteine
+        .passenger: [hull(beam: 0.26), bar(cx: 0, cy: 0.05, length: 0.34, width: 1.15), bar(cx: 0, cy: 0.18, length: 0.18, width: 0.12),
+                     bar(cx: 0, cy: 0.5, length: 0.14, width: 0.14)],
+        // Schlepper: kurz, breit, Steuerhaus vorn, Schlepphaken am Heck
+        .tug: [mirrored([(0, -0.9), (0.2, -0.75), (0.3, -0.3), (0.3, 0.55), (0.22, 0.85), (0, 0.9)]), bar(cx: 0, cy: -0.15, length: 0.3, width: 0.34),
+               bar(cx: 0, cy: 0.62, length: 0.2, width: 0.06)],
+        // Segler: schlanker Rumpf, Großsegel und Fock
+        .sailboat: [mirrored([(0, -0.97), (0.09, -0.5), (0.14, 0.1), (0.12, 0.86), (0, 0.96)]), [CGPoint(x: 0.0, y: -0.5), CGPoint(x: 0.34, y: 0.35), CGPoint(x: 0.0, y: 0.68)],
+                    [CGPoint(x: 0.0, y: -0.82), CGPoint(x: 0.22, y: -0.3), CGPoint(x: 0.0, y: -0.3)]],
+        // Fischer: Rumpf, Ausleger und Galgen am Heck
+        .fishing: [hull(beam: 0.19), bar(cx: 0, cy: -0.2, length: 0.2, width: 0.26), bar(cx: 0, cy: 0.78, length: 0.62, width: 0.05),
+                   bar(cx: 0.3, cy: 0.1, length: 0.72, width: 0.035, degrees: 86), bar(cx: -0.3, cy: 0.1, length: 0.72, width: 0.035, degrees: 94)],
+        // Katamaran: zwei schmale Rümpfe mit Deck
+        .highSpeed: [[CGPoint(x: 0.22, y: -1), CGPoint(x: 0.32, y: -0.65), CGPoint(x: 0.32, y: 1), CGPoint(x: 0.12, y: 1), CGPoint(x: 0.12, y: -0.65)],
+                     [CGPoint(x: -0.22, y: -1), CGPoint(x: -0.12, y: -0.65), CGPoint(x: -0.12, y: 1), CGPoint(x: -0.32, y: 1), CGPoint(x: -0.32, y: -0.65)],
+                     bar(cx: 0, cy: 0.25, length: 0.5, width: 0.9)],
+        // Behörden- und Lotsenboot: schnittiger Rumpf, Kabine
+        .patrol: [mirrored([(0, -1), (0.1, -0.6), (0.17, -0.1), (0.17, 0.85), (0.12, 0.98), (0, 0.98)]), bar(cx: 0, cy: 0.18, length: 0.2, width: 0.42)],
+        // Marineschiff: spitzer Rumpf, Geschütz, Aufbauten, Hubschrauberdeck
+        .warship: [mirrored([(0, -1), (0.08, -0.82), (0.17, -0.45), (0.2, 0.1), (0.2, 0.9), (0.14, 1.0), (0, 1.0)]), bar(cx: 0, cy: -0.1, length: 0.2, width: 0.5),
+                   polygon(cx: 0, cy: -0.55, radius: 0.09, sides: 8), bar(cx: 0, cy: 0.62, length: 0.3, width: 0.3)],
+        // Seenotrettung: kleines Boot mit Kreuz
+        .rescue: [mirrored([(0, -0.95), (0.13, -0.5), (0.2, 0.0), (0.19, 0.85), (0, 0.92)]), bar(cx: 0, cy: 0.05, length: 0.38, width: 0.1), bar(cx: 0, cy: 0.05, length: 0.1, width: 0.38)],
+        // Sportboot: kleiner Rumpf, Kabine
+        .yacht: [mirrored([(0, -1), (0.15, -0.5), (0.2, 0.1), (0.18, 0.9), (0, 0.95)]), bar(cx: 0, cy: 0.1, length: 0.22, width: 0.5)],
+        // unbekannt: schlichter Rumpf mit Aufbau
+        .vessel: [hull(beam: 0.2), bar(cx: 0, cy: 0.5, length: 0.3, width: 0.4)],
     ]
+
+    /// Gewöhnlicher Schiffsrumpf mit spitzem Bug und geradem Heck (halbe Breite `beam`)
+    static func hull(beam b: Double) -> [CGPoint] {
+        mirrored([(0, -1), (b * 0.5, -0.86), (b * 0.9, -0.62), (b, -0.3), (b, 0.84), (b * 0.88, 1.0), (0, 1.0)])
+    }
 }
 
 // MARK: - Klassifizierung der Flugzeuge
@@ -178,5 +242,34 @@ public enum AircraftClass {
             return .lightProp
         }
         return .airliner
+    }
+}
+
+// MARK: - Klassifizierung der Schiffe
+
+public enum ShipClass {
+    /// Umriss nach der Typkennung der AIS-Meldung (Tabelle ITU-R M.1371: 20 … 99)
+    public static func classify(shipType: Int?) -> MapSilhouette {
+        guard let t = shipType, t != 0 else { return .vessel }
+        switch t {
+        case 20...29, 40...49: return .highSpeed
+        case 30: return .fishing
+        case 31, 32, 33, 34, 52, 53: return .tug
+        case 35: return .warship
+        case 36: return .sailboat
+        case 37: return .yacht
+        case 50, 54, 55: return .patrol
+        case 51, 58: return .rescue
+        case 60...69: return .passenger
+        case 70...79: return .cargo
+        case 80...89: return .tanker
+        default: return .vessel
+        }
+    }
+
+    /// Maßstab der Darstellung nach der Länge in Metern: 100 m ≈ 1, kleine Boote kleiner, große Schiffe größer (0,6 … 1,4)
+    public static func scale(lengthM: Int?) -> Double {
+        guard let l = lengthM, l > 0 else { return 0.8 }
+        return min(1.4, max(0.6, 0.55 + 0.52 * log10(Double(max(l, 10)) / 10)))
     }
 }

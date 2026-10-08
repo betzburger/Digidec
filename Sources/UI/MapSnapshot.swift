@@ -229,9 +229,9 @@ enum MapSnapshotExporter {
                 drawText(text, at: p, size: 10, weight: .black, color: NSColor.black.withAlphaComponent(0.85), background: color, border: NSColor.black.withAlphaComponent(0.4))
             } else if let sil = m.silhouette {
                 let color = NSColor(m.valueLevel.map { MarkerBadge.scale($0) } ?? m.tone.color)
-                drawSilhouette(sil, at: p, headingDeg: m.headingDeg ?? 0, color: color)
+                drawSilhouette(sil, at: p, headingDeg: m.headingDeg ?? 0, color: color, scale: m.silhouetteScale)
                 if titled {
-                    drawText(m.title, at: CGPoint(x: p.x, y: p.y + sil.size / 2 + 8), size: 9, weight: .semibold, color: .white, background: NSColor.black.withAlphaComponent(0.55))
+                    drawText(m.title, at: CGPoint(x: p.x, y: p.y + sil.size * m.silhouetteScale / 2 + 8), size: 9, weight: .semibold, color: .white, background: NSColor.black.withAlphaComponent(0.55))
                 }
             } else {
                 let color = NSColor(m.tone.color)
@@ -276,9 +276,9 @@ enum MapSnapshotExporter {
 
     /// Umriss eines Fahrzeugs von oben, um den Kurs gedreht (Bug nach oben bei Kurs 0)
     @MainActor
-    private static func drawSilhouette(_ sil: MapSilhouette, at p: CGPoint, headingDeg: Double, color: NSColor) {
+    private static func drawSilhouette(_ sil: MapSilhouette, at p: CGPoint, headingDeg: Double, color: NSColor, scale: Double = 1) {
         let a = headingDeg * .pi / 180
-        let half = sil.size / 2
+        let half = sil.size * CGFloat(scale) / 2
         func map(_ q: CGPoint) -> CGPoint {
             let x = q.x * half, y = q.y * half
             return CGPoint(x: p.x + x * CGFloat(cos(a)) - y * CGFloat(sin(a)), y: p.y + x * CGFloat(sin(a)) + y * CGFloat(cos(a)))

@@ -6630,7 +6630,7 @@ func silhouetteArea(_ c: [CGPoint]) -> Double {
 @MainActor func silhouetteTests() {
     for s in MapSilhouette.allCases {
         let pts = s.contours.flatMap { $0 }
-        check(!s.contours.isEmpty && s.contours.allSatisfy { $0.count >= 4 && silhouetteArea($0) > 0.003 }, "Umriss \(s.rawValue): Vielecke mit Fläche")
+        check(!s.contours.isEmpty && s.contours.allSatisfy { $0.count >= 3 && silhouetteArea($0) > 0.003 }, "Umriss \(s.rawValue): Vielecke mit Fläche")
         check(pts.allSatisfy { abs($0.x) <= 1.05 && abs($0.y) <= 1.05 }, "Umriss \(s.rawValue): im Quadrat −1 … +1")
         check(!s.label.isEmpty && s.size >= 10 && s.size <= 32, "Umriss \(s.rawValue): Bezeichnung \(s.label), Größe \(s.size)")
     }
@@ -6639,6 +6639,38 @@ func silhouetteArea(_ c: [CGPoint]) -> Double {
         let body = s.contours[0]
         let ok = body.allSatisfy { p in body.contains { abs($0.x + p.x) < 1e-9 && abs($0.y - p.y) < 1e-9 } }
         check(ok, "Umriss \(s.rawValue): symmetrisch")
+    }
+    for s in [MapSilhouette.cargo, .tanker, .passenger, .yacht, .vessel, .patrol, .warship, .rescue] {
+        let body = s.contours[0]
+        let ok = body.allSatisfy { p in body.contains { abs($0.x + p.x) < 1e-9 && abs($0.y - p.y) < 1e-9 } }
+        check(ok, "Umriss \(s.rawValue): symmetrisch")
+    }
+    check(MapSilhouette.allCases.filter(\.isShip).count == 12 && !MapSilhouette.airliner.isShip && MapSilhouette.cargo.isShip, "Umrisse: zwölf Schiffsformen")
+    // Schiffsklassen nach der AIS-Typkennung (ITU-R M.1371)
+    func ship(_ t: Int?, _ want: MapSilhouette) {
+        let got = ShipClass.classify(shipType: t)
+        check(got == want, "Schiffsklasse Typ \(t.map(String.init) ?? "–"): \(got.rawValue) (erwartet \(want.rawValue))")
+    }
+    ship(70, .cargo); ship(79, .cargo); ship(80, .tanker); ship(89, .tanker); ship(60, .passenger); ship(69, .passenger); ship(30, .fishing)
+    ship(31, .tug); ship(32, .tug); ship(52, .tug); ship(33, .tug); ship(36, .sailboat); ship(37, .yacht); ship(40, .highSpeed); ship(49, .highSpeed)
+    ship(21, .highSpeed); ship(35, .warship); ship(51, .rescue); ship(58, .rescue); ship(50, .patrol); ship(55, .patrol); ship(0, .vessel); ship(nil, .vessel); ship(99, .vessel)
+    check(ShipClass.scale(lengthM: nil) == 0.8 && ShipClass.scale(lengthM: 5) == 0.6 && ShipClass.scale(lengthM: 1000) == 1.4, "Schiffsmaßstab: ohne Länge 0,8, begrenzt auf 0,6 … 1,4")
+    check(abs(ShipClass.scale(lengthM: 100) - 1.07) < 0.01 && ShipClass.scale(lengthM: 30) < ShipClass.scale(lengthM: 100) && ShipClass.scale(lengthM: 100) < ShipClass.scale(lengthM: 300), "Schiffsmaßstab: wächst mit der Länge (100 m ≈ 1,07)")
+    // AIS-Karte: ein Segler (Klasse B, Typ 36, 10 m) fährt mit 100° und bekommt Umriss, Maßstab und Richtung
+    var sailor = AISVessel(mmsi: 211_000_077, now: Date(timeIntervalSince1970: 0))
+    if let a = AISMessage.decode(AISBits(AISSignalGenerator.classBStaticA(mmsi: 211_000_077, name: "SEGELFIX"))),
+       let b = AISMessage.decode(AISBits(AISSignalGenerator.classBStaticB(mmsi: 211_000_077, shipType: 36, callsign: "DJ1234", bow: 6, stern: 4, port: 1, starboard: 2))),
+       let pos = AISMessage.decode(AISBits(AISSignalGenerator.classBPosition(mmsi: 211_000_077, lat: 54.5, lon: 10.2, sog: 5.5, cog: 100))) {
+        sailor.ingest(a, at: Date(timeIntervalSince1970: 1)); sailor.ingest(b, at: Date(timeIntervalSince1970: 2)); sailor.ingest(pos, at: Date(timeIntervalSince1970: 3))
+        let marker = AISMapBuilder.content([sailor], home: nil, now: Date(timeIntervalSince1970: 10), filter: .init(), selection: nil).markers.first
+        check(marker?.silhouette == .sailboat && marker?.silhouetteScale == 0.6 && abs((marker?.headingDeg ?? 0) - 100) < 0.5, "AIS-Karte: Segler als Umriss (\(marker?.silhouette?.rawValue ?? "-"), Maßstab \(marker?.silhouetteScale ?? 0), Richtung \(marker?.headingDeg ?? -1))")
+        check(marker?.details.contains { $0.hasPrefix("Darstellung: Segelschiff") } == true, "AIS-Karte: Auswahltext nennt die Darstellung")
+    } else { check(false, "AIS-Karte: Segler nicht lesbar") }
+    // Seezeichen und Küstenstationen bleiben Symbole
+    var buoy = AISVessel(mmsi: 992_110_005, now: Date(timeIntervalSince1970: 0))
+    if let m = AISMessage.decode(AISBits(AISSignalGenerator.aidToNavigation(mmsi: 992_110_005, type: 20, name: "TONNE", lat: 54.1, lon: 7.9))) {
+        buoy.ingest(m, at: Date(timeIntervalSince1970: 1))
+        check(AISMapBuilder.content([buoy], home: nil, now: Date(timeIntervalSince1970: 2), filter: .init(), selection: nil).markers.first?.silhouette == nil, "AIS-Karte: Seezeichen bleiben ohne Umriss")
     }
     check(MapSilhouette.heavy.size > MapSilhouette.airliner.size && MapSilhouette.airliner.size > MapSilhouette.bizjet.size && MapSilhouette.bizjet.size > MapSilhouette.groundVehicle.size, "Umrisse: größere Flugzeuge erscheinen größer")
     func expect(_ tc: Int?, _ cat: Int?, _ type: String?, _ want: MapSilhouette) {

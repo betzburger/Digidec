@@ -155,6 +155,8 @@ public struct MapMarker: Identifiable, Equatable, Sendable {
     public var glyph: String?
     /// Umriss des Fahrzeugs von oben statt Symbol im Kreis (Flugzeuge, Schiffe); wird um `headingDeg` gedreht
     public var silhouette: MapSilhouette?
+    /// Maßstab des Umrisses (Schiffe: nach ihrer Länge, 1 = Normalgröße)
+    public var silhouetteScale: Double = 1
     public var tone: MapTone
     public var heardAt: Date?
     /// Bisherige Wege (älteste zuerst), endet bei `coordinate`

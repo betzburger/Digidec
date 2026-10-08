@@ -500,7 +500,7 @@ struct MarkerBadge: View {
                     .shadow(color: color.opacity(selected ? 0.8 : 0.35), radius: selected ? 6 : 2)
             } else if let sil = marker.silhouette {
                 // Umriss von oben, um den Kurs gedreht (Höhe oder Tonfarbe), bei Auswahl größer mit weißem Rand und Schein
-                let side = sil.size * (selected ? 1.3 : 1)
+                let side = sil.size * marker.silhouetteScale * (selected ? 1.3 : 1)
                 SilhouetteShape(silhouette: sil)
                     .fill(color)
                     .overlay(SilhouetteShape(silhouette: sil).stroke(selected ? Color.white : Color.black.opacity(0.7), lineWidth: selected ? 1.6 : 0.9))

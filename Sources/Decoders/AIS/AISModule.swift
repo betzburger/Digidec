@@ -530,6 +530,14 @@ public enum AISMapBuilder {
             var marker = MapMarker(id: id(v.mmsi), coordinate: p, title: v.displayName, subtitle: sub.filter { !$0.isEmpty }.joined(separator: " · "),
                                    details: details(v, home: home, age: age), symbol: symbol(v), tone: tone(v, age: age), heardAt: v.lastHeard,
                                    track: track, headingDeg: heading)
+            // Schiffe mit bekannter Richtung als Umriss nach Typ und Länge (ohne Richtung bleibt das Symbol im Kreis)
+            if v.kind == .shipA || v.kind == .shipB, let dir = v.heading.map(Double.init) ?? v.cog {
+                let shape = ShipClass.classify(shipType: v.shipType)
+                marker.silhouette = shape
+                marker.silhouetteScale = ShipClass.scale(lengthM: v.length)
+                marker.headingDeg = heading ?? dir
+                marker.details.append("Darstellung: \(shape.label)" + (v.length.map { ", \($0) m lang" } ?? ""))
+            }
             // Messstation: Windstärke in Knoten als Wert im Punkt, Pfeil in Windrichtung (wie bei den SYNOP-Stationen)
             if (v.kind == .aid || v.kind == .base), let w = v.meteo, let kn = w.windKn, age < 6 * 3600 {
                 marker.valueText = "\(kn)"
