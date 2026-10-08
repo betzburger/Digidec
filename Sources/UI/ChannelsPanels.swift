@@ -279,7 +279,7 @@ struct ChannelsSettingsPanel: View {
                     .disabled(bank.slots.isEmpty)
                     .scaleEffect(0.9, anchor: .trailing)
             }
-            Text("Jeder Kanal hat einen eigenen Decoder mit den Einstellungen des gleichnamigen Moduls. Die Sprachausgabe der digitalen Verfahren (DMR, D-STAR, YSF, dPMR, M17) ist in den Kanälen aus. Die Gerätemitte stellt Digidec so ein, dass möglichst viele Kanäle ins Fenster passen. Der Eingang SDR wird mit dem Modul gewählt; Verstärkung und Gerät stehen im SDR-Feld.")
+            Text("Jeder Kanal hat einen eigenen Decoder mit den Einstellungen des gleichnamigen Moduls. Die Sprachausgabe der digitalen Verfahren (DMR, D-STAR, YSF, dPMR, NXDN, M17) ist in den Kanälen aus. Die Gerätemitte stellt Digidec so ein, dass möglichst viele Kanäle ins Fenster passen. Der Eingang SDR wird mit dem Modul gewählt; Verstärkung und Gerät stehen im SDR-Feld.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)

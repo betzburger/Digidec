@@ -225,6 +225,11 @@ public final class ChannelHub: ObservableObject {
             let c = DPMRController(pipeline: pipeline, settings: settings)
             c.silent = true
             return build(c, activate: { c.setActive($0) }, summary: { "\(c.calls.count) Gespräche" }, view: { AnyView(DPMRMainPanel(controller: c, settings: settings, output: voiceOutput)) })
+        case .nxdn:
+            let settings = NXDNSettingsStore()
+            let c = NXDNController(pipeline: pipeline, settings: settings)
+            c.silent = true
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.calls.count) Gespräche" }, view: { AnyView(NXDNMainPanel(controller: c, settings: settings, output: voiceOutput)) })
         case .m17:
             let settings = M17SettingsStore()
             let c = M17Controller(pipeline: pipeline, settings: settings)

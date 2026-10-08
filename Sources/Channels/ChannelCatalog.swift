@@ -19,7 +19,7 @@ public struct ChannelPreset: Identifiable, Equatable, Sendable {
 
 public enum ChannelCatalog {
     /// Module, die als Kanal laufen können (Audio aus dem SDR, eigener Decoder)
-    public static let modules: [DecoderModuleInfo] = [.aprs, .packet, .ais, .acars, .pager, .sonde, .dsc, .vor, .tones, .dmr, .dstar, .ysf, .dpmr, .m17,
+    public static let modules: [DecoderModuleInfo] = [.aprs, .packet, .ais, .acars, .pager, .sonde, .dsc, .vor, .tones, .dmr, .dstar, .ysf, .dpmr, .nxdn, .m17,
                                                        .rtty, .navtex, .wefax, .hfdl, .sstv]
 
     /// Kurzwellen-Decoder (Seitenband-Audio): Dial = Sendefrequenz minus NF-Mitte des Decoders
@@ -42,7 +42,7 @@ public enum ChannelCatalog {
         case .acars, .vor: return (.am, 10_000)
         case .ais: return (.nfm, 25_000)
         case .sonde: return (.nfm, 25_000)
-        case .dmr, .dstar, .ysf, .dpmr, .m17: return (.nfm, 12_500)
+        case .dmr, .dstar, .ysf, .dpmr, .nxdn, .m17: return (.nfm, 12_500)
         case .rtty, .navtex, .wefax, .hfdl, .sstv: return (.usb, 3_000)
         default: return (.nfm, 15_000)
         }

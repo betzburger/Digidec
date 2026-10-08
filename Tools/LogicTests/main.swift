@@ -147,7 +147,7 @@ if want("url") {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "M17", "PACKET", "PAGER", "RDS", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "M17", "NXDN", "PACKET", "PAGER", "RDS", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.channels.coversAllBands && DecoderModuleInfo.channels.displayName == "MEHRKANAL" && DecoderModuleInfo.Band.allCases.allSatisfy { !$0.modules.contains(.channels) }
           && DecoderModuleInfo.allCases.filter(\.coversAllBands) == [.channels], "MEHRKANAL gehört zu keiner Rubrik allein")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr && DecoderModuleInfo.Band.hf.modules.contains(.ndb), "HF-Rubrik A–Z")
@@ -12479,6 +12479,146 @@ if want("sdrplay") {
         // Länge des Audios: 48 kS/s des Eingangs (Zeit stimmt, keine Samples verloren)
         let seconds = Double(audio.count) / 48_000
         check(abs(seconds - Double(s.count) / Double(rate)) < 0.12, "SDR FM bei \(rate) S/s: Audiolänge \(String(format: "%.2f", seconds)) s passt zur Eingangszeit")
+    }
+}
+
+// MARK: - NXDN: Codes, LICH, Kanäle, Empfänger (2400 und 4800 Bd), Rundlauf, echte Aufnahmen
+if want("nxdn") {
+    struct NRng { var s: UInt64
+        mutating func next() -> UInt64 { s = s &* 6364136223846793005 &+ 1442695040888963407; return s >> 33 }
+        mutating func bit() -> UInt8 { UInt8(next() & 1) }
+    }
+    var rng = NRng(s: 2026)
+    // Verwürfelungsfolge PN95: Anfang gegen die Referenz (am Original-Ablauf gemessen), Umkehrbarkeit
+    check(NXDN.pn.count == 182 && NXDN.pn.prefix(32).map { $0 ? "1" : "0" }.joined() == "00100111001010101100001101111010" && NXDN.pn.filter { $0 }.count == 92,
+          "NXDN: Verwürfelungsfolge PN95 (182 Werte, Anfang 0x27 0x2A 0xC3 0x7A)")
+    let lv: [Float] = (0..<182).map { _ in FourFSK.level(ofDibit: UInt8(rng.next() & 3)) }
+    check(NXDN.scramble(NXDN.scramble(lv)) == lv && NXDN.scramble(lv) != lv, "NXDN: Verwürfeln ist umkehrbar")
+    check(NXDN.fsw.count == 10 && NXDN.fsw.map { FourFSK.dibit(ofLevel: $0) } == [3, 0, 3, 1, 3, 3, 1, 1, 2, 1], "NXDN: Synchronwort 0xCDF59 als Dibits 11 00 11 01 11 11 01 01 10 01")
+
+    // LICH: alle 128 Werte laufen durch Kodierung und Entscheidung; ein Bitfehler kippt die Parität
+    var lichOK = true, lichParity = true
+    for v in 0..<128 {
+        let code = NXDNLICH(value: v, parityOK: true).encoded
+        let levels: [Float] = (0..<8).map { ((code >> (7 - $0)) & 1) == 1 ? -3 : 3 }
+        let l = NXDNLICH.decode(levels[...])
+        if l.value != v || !l.parityOK { lichOK = false }
+        var flipped = levels; flipped[3] = -flipped[3]
+        if NXDNLICH.decode(flipped[...]).parityOK { lichParity = false }
+    }
+    check(lichOK && lichParity, "NXDN: LICH (7 Bit + Parität) Rundlauf für alle Werte, ein Bitfehler wird erkannt")
+    let l57 = NXDNLICH(value: 0x57, parityOK: true), l51 = NXDNLICH(value: 0x51, parityOK: true), l52 = NXDNLICH(value: 0x52, parityOK: true), l54 = NXDNLICH(value: 0x54, parityOK: true)
+    check(l57.voice == 3 && l57.facch1 == 0 && l57.sacchSuperframe && l57.outbound && l51.voice == 0 && l51.facch1 == 3 && l52.voice == 2 && l52.facch1 == 1 && l54.voice == 1 && l54.facch1 == 2
+          && NXDNLICH(value: 0x76, parityOK: true).typeD && NXDNLICH(value: 0x76, parityOK: true).voice == 3 && !NXDNLICH(value: 0x01, parityOK: true).supported && !NXDNLICH(value: 0x57, parityOK: true).typeD,
+          "NXDN: LICH-Werte: Sprache in beiden Hälften (0x57), FACCH1 doppelt (0x51), FACCH1 vor oder hinter Sprache, Typ D")
+
+    // Kanalcodes: SACCH (60 Bit) und FACCH1 (144 Bit) mit Fehlern
+    func levels(ofBits bits: [UInt8]) -> [Float] { stride(from: 0, to: bits.count - 1, by: 2).map { FourFSK.level(ofDibit: (bits[$0] << 1) | bits[$0 + 1]) } }
+    let sPayload: [UInt8] = (0..<18).map { _ in rng.bit() }
+    let sBits = NXDNCodes.encodeSACCH(structure: 2, ran: 37, payload: sPayload)
+    let sDec = NXDNCodes.decodeSACCH(levels(ofBits: sBits)[...])
+    check(sBits.count == 60 && sDec.crcOK && sDec.structure == 2 && sDec.ran == 37 && sDec.payload == sPayload, "NXDN: SACCH-Teil (26 Bit + CRC-6, gefaltet, punktiert, verschachtelt) Rundlauf")
+    var sBad = levels(ofBits: sBits); sBad[4] = -sBad[4]; sBad[11] = -sBad[11]; sBad[22] = 0
+    check(NXDNCodes.decodeSACCH(sBad[...]).crcOK && NXDNCodes.decodeSACCH(sBad[...]).payload == sPayload, "NXDN: SACCH korrigiert zwei Symbolfehler und eine Auslöschung")
+    var sWreck = levels(ofBits: sBits); for i in stride(from: 0, to: 30, by: 2) { sWreck[i] = -sWreck[i] }
+    check(!NXDNCodes.decodeSACCH(sWreck[...]).crcOK, "NXDN: zerstörter SACCH fällt durch die Prüfsumme")
+    let msg = NXDNMessage(type: NXDNMessage.vcall, callType: 4, option: 2, source: 65000, destination: 4711, cipher: 1, keyID: 17)
+    let fBits = NXDNCodes.encodeFACCH1(message: NXDNSignalGenerator.facchMessage(msg))
+    let fDec = NXDNCodes.decodeFACCH1(levels(ofBits: fBits)[...])
+    check(fBits.count == 144 && fDec.crcOK && NXDNMessage.parse(fDec.bits) == msg, "NXDN: FACCH1 (80 Bit + CRC-12) Rundlauf, Rufnachricht VCALL gelesen")
+    var fBad = levels(ofBits: fBits); for i in [3, 17, 40, 41, 66] { fBad[i] = -fBad[i] }
+    check(NXDNCodes.decodeFACCH1(fBad[...]).crcOK, "NXDN: FACCH1 korrigiert fünf Symbolfehler")
+    check(NXDNMessage(type: NXDNMessage.txRel, callType: 1, option: 0, source: 1, destination: 2, cipher: 0, keyID: 0).endsCall && !msg.endsCall && msg.startsCall
+          && NXDN.callTypeName(1) == "Gruppe" && NXDN.callTypeName(4) == "Einzelruf" && NXDN.transmissionName(option: 2) == "9600 bit/s EHR" && NXDN.cipherName(0) == "offen",
+          "NXDN: Nachrichtentypen und Bezeichnungen")
+
+    // Rundlauf über Audio
+    let frames: [[UInt8]] = (0..<64).map { _ in AMBEHalfRate.bytes(fromAir: AMBEHalfRate.air72(fromData49: (0..<49).map { _ in rng.bit() })) }
+    struct NRun { var frames: [[UInt8]] = []; var starts = 0; var ends = 0; var lost = 0; var infos: [NXDNCallInfo] = []; var scrambled = 0; var bauds: [Double] = []
+        var stats: [NXDNFramerStats] = []; var inverted = false }
+    func receive(_ audio: [Float], rate: Double = 48000) -> NRun {
+        var run = NRun()
+        let rxs = [2400.0, 4800.0].map { NXDNReceiver(sampleRate: rate, baud: $0) }
+        for rx in rxs {
+            rx.onEvent = { e in
+                switch e {
+                case .callStart(let b): run.starts += 1; run.bauds.append(b)
+                case .voice(let v): run.frames += v.frames; if v.scrambled { run.scrambled += 1 }
+                case .info(let i): run.infos.append(i)
+                case .callEnd(let lost): if lost { run.lost += 1 } else { run.ends += 1 }
+                }
+            }
+        }
+        var i = 0
+        let chunk = Int(rate / 100)
+        while i < audio.count { let j = min(i + chunk, audio.count); let block = Array(audio[i..<j]); for rx in rxs { rx.process(block) }; i = j }
+        run.stats = rxs.map { $0.stats }; run.inverted = rxs.contains { $0.inverted && $0.stats.frames > 0 }
+        return run
+    }
+    func scenario(_ title: String, baud: Double, rate: Double = 48000, interleave: Bool = false, minShare: Double = 0.97, _ edit: (inout FourFSKModulator.Impairments) -> Void) {
+        var im = FourFSKModulator.Impairments(); edit(&im)
+        let symbols = NXDNSignalGenerator.call(source: 4217, destination: 1234, callType: 1, ran: 21, option: baud > 3000 ? 2 : 0, frames: frames, interleaveData: interleave)
+        let r = receive(FourFSKModulator.audio(symbols: symbols, sampleRate: rate, baud: baud, bt: 1.0, impairments: im), rate: rate)
+        let right = zip(r.frames, frames).filter { $0.0 == $0.1 }.count
+        let last = r.infos.last
+        check(r.starts == 1 && r.bauds == [baud] && last?.source == 4217 && last?.destination == 1234 && last?.callType == 1 && last?.ran == 21 && last?.option == (baud > 3000 ? 2 : 0)
+              && r.ends == 1 && r.lost == 0 && r.frames.count == 64 && Double(right) >= minShare * 64,
+              "NXDN \(Int(baud)) Bd \(title): ein Gespräch 4217 → 1234, Gruppe, RAN 21, Freigabe, \(right) von 64 Sprachrahmen bitgleich")
+    }
+    for baud in [2400.0, 4800.0] {
+        scenario("sauber", baud: baud) { _ in }
+        scenario("Pegel umgekehrt", baud: baud) { $0.inverted = true }
+        scenario("Gleichanteil 30 %", baud: baud) { $0.dc = 0.3 }
+        scenario("Takt +300 ppm", baud: baud, minShare: 0.9) { $0.clockPPM = 300 }
+        scenario("Takt −300 ppm", baud: baud, minShare: 0.9) { $0.clockPPM = -300 }
+        scenario("Rauschen 0,12", baud: baud, minShare: 0.85) { $0.noise = 0.12; $0.seed = 11 }
+        scenario("Abtastrate 44,1 kHz", baud: baud, rate: 44100) { _ in }
+        scenario("Abtastrate 96 kHz", baud: baud, rate: 96000) { _ in }
+        scenario("alles zusammen (invers, Gleichanteil, Rauschen, +100 ppm)", baud: baud, minShare: 0.85) { $0.inverted = true; $0.dc = 0.2; $0.noise = 0.08; $0.clockPPM = 100; $0.seed = 4 }
+    }
+    scenario("mit Datenrahmen dazwischen (NXDN96-Verfahren)", baud: 4800, interleave: true) { _ in }
+
+    // Späte Einwahl, Chiffre, Wechsel des Absenders ohne Pause, Pausen zwischen Gesprächen
+    let late = NXDNSignalGenerator.call(source: 77, destination: 88, callType: 4, ran: 3, frames: Array(frames[0..<24]), headers: 0)
+    let lateRun = receive(FourFSKModulator.audio(symbols: late, sampleRate: 48000, baud: 2400))
+    check(lateRun.starts == 1 && lateRun.frames.count == 24 && lateRun.infos.last?.source == 77 && lateRun.infos.last?.destination == 88 && lateRun.infos.last?.callType == 4 && lateRun.infos.last?.ran == 3,
+          "NXDN: später Einstieg ohne Rufkopf: Kennungen kommen aus dem SACCH (\(lateRun.infos.last.map { "\($0.source ?? -1) → \($0.destination ?? -1)" } ?? "—"))")
+    let enc = NXDNSignalGenerator.call(source: 5, destination: 6, ran: 9, cipher: 3, keyID: 12, frames: Array(frames[0..<8]))
+    let encRun = receive(FourFSKModulator.audio(symbols: enc, sampleRate: 48000, baud: 2400))
+    check(encRun.infos.last?.cipher == 3 && encRun.infos.last?.keyID == 12 && encRun.scrambled > 0, "NXDN: chiffriertes Gespräch (AES, Schlüssel 12) wird erkannt und als chiffriert gemeldet")
+    let c1 = NXDNSignalGenerator.call(source: 100, destination: 1, ran: 1, frames: Array(frames[0..<16]))
+    let c2 = NXDNSignalGenerator.call(source: 200, destination: 1, ran: 1, frames: Array(frames[16..<32]))
+    let gap = [Float](repeating: 0, count: 600)
+    let two = receive(FourFSKModulator.audio(symbols: c1 + gap + c2, sampleRate: 48000, baud: 2400))
+    check(two.starts == 2 && two.ends == 2 && two.infos.map { $0.source } .contains(100) && two.infos.last?.source == 200 && two.stats[0].calls == 2, "NXDN: zwei Gespräche hintereinander mit verschiedenen Absendern")
+    let back = NXDNSignalGenerator.call(source: 100, destination: 1, ran: 1, frames: Array(frames[0..<16]), withEnd: false) + NXDNSignalGenerator.call(source: 200, destination: 1, ran: 1, frames: Array(frames[16..<32]), withEnd: false)
+    let swap = receive(FourFSKModulator.audio(symbols: back, sampleRate: 48000, baud: 2400, leadSilence: 1.0))
+    check(swap.starts == 2 && swap.infos.last?.source == 200 && swap.ends == 1 && swap.lost == 1 && swap.frames.count == 32, "NXDN: Absenderwechsel ohne Freigabe trennt die Gespräche (\(swap.starts) Gespräche, \(swap.frames.count) Sprachrahmen)")
+    let gone = receive(FourFSKModulator.audio(symbols: NXDNSignalGenerator.call(source: 1, destination: 2, frames: Array(frames[0..<16]), withEnd: false), sampleRate: 48000, baud: 4800, leadSilence: 0.6))
+    check(gone.starts == 1 && gone.ends == 0 && gone.lost == 1, "NXDN: Signal bricht ohne Freigabe ab: Gespräch endet als verloren")
+    var noiseRng = NRng(s: 8)
+    let noiseOnly: [Float] = (0..<(48000 * 30)).map { _ in Float(Double(noiseRng.next() & 0xFFFFF) / Double(1 << 20) - 0.5) * 0.8 }
+    let nothing = receive(noiseOnly)
+    check(nothing.starts == 0 && nothing.frames.isEmpty, "NXDN: 30 s Rauschen ergeben kein Gespräch")
+    // Ein Sprachstrom ohne NXDN (4FSK-Rauschen mit richtiger Symbolrate) löst nichts aus
+    let junk = FourFSKModulator.audio(symbols: (0..<8000).map { _ in FourFSK.level(ofDibit: UInt8(noiseRng.next() & 3)) }, sampleRate: 48000, baud: 4800)
+    check(receive(junk).starts == 0, "NXDN: zufällige 4FSK-Symbole ergeben kein Gespräch")
+    check(NXDNDiagnosis.assess(inputDB: -120, stats: NXDNFramerStats(), locked: false).severity == .problem && NXDNDiagnosis.assess(inputDB: -30, stats: NXDNFramerStats(), locked: true).severity == .ok
+          && NXDNDiagnosis.assess(inputDB: -30, stats: NXDNFramerStats(), locked: false).severity == .waiting && DecoderModuleInfo.nxdn.band == .vhfUhf && !DecoderModuleInfo.nxdn.hasMap
+          && NXDNFramerStats(syncs: 1) + NXDNFramerStats(syncs: 2, calls: 1) == NXDNFramerStats(syncs: 3, calls: 1), "NXDN: Diagnose, Modul, Zähler addieren")
+
+    // Echte Aufnahmen (SigIDWiki NXDN_IQ.zip, FM-Diskriminator daraus): nxdn48 Quelle 901 RAN 1, nxdn96 Quelle 2 RAN 0
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    for (name, baud, source, ran, option) in [("nxdn48_fm.wav", 2400.0, 901, 1, 0), ("nxdn96_fm.wav", 4800.0, 2, 0, 2)] {
+        let url = root.appendingPathComponent("TestData/NXDN/" + name)
+        if let wav = try? VoiceWAV.read(url) {
+            let audio = wav.samples.map { Float($0) / 32768 }
+            let r = receive(audio, rate: Double(wav.sampleRate))
+            let clean = r.stats.map(\.cleanFrames).reduce(0, +), voice = r.stats.map(\.voiceFrames).reduce(0, +)
+            let i = r.infos.last
+            check(r.starts == 1 && r.bauds == [baud] && i?.source == source && i?.ran == ran && i?.option == option && i?.callType == 1 && i?.cipher == 0 && r.ends == 1 && voice >= 500 && Double(clean) / Double(max(1, voice)) > 0.9,
+                  "NXDN echt (\(name)): \(Int(baud)) Bd, Quelle \(i?.source ?? -1), RAN \(i?.ran ?? -1), \(voice) Sprachrahmen (\(clean) ohne Bitfehler), Freigabe \(r.ends)")
+        } else { skip("NXDN echt: TestData/NXDN/\(name) liegt nicht lokal vor") }
     }
 }
 
