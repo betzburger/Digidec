@@ -106,7 +106,8 @@ public final class DABOFDMReceiver {
         // alles vor der Stelle, die noch gebraucht wird, verwerfen
         let keepFrom: Int
         if isSynced { keepFrom = predictedGuard - 600 } else { keepFrom = scan - 4096 }
-        let drop = keepFrom - base
+        // Nie mehr verwerfen, als da ist: die erwartete Stelle kann hinter dem bisher Empfangenen liegen (große oder unregelmäßige Blöcke, z. B. SDRplay)
+        let drop = min(keepFrom - base, bufI.count)
         if drop > 200_000 {
             bufI.removeFirst(drop)
             bufQ.removeFirst(drop)

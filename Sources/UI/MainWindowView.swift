@@ -87,6 +87,8 @@ public struct MainWindowView: View {
                                 FT4ActivityPanel(controller: state.ft4Controller, settings: state.ft4)
                             } else if state.activeModule == .wspr {
                                 WSPRActivityPanel(controller: state.wsprController, settings: state.wspr)
+                            } else if state.activeModule == .js8 {
+                                JS8ActivityPanel(controller: state.js8Controller, settings: state.js8)
                             } else if state.activeModule == .dcf77 {
                                 DCF77MainPanel(controller: state.dcf77Controller, settings: state.dcf77)
                             } else if state.activeModule == .efr {
@@ -183,6 +185,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ft4, audio: state.audio)
                             } else if state.activeModule == .wspr {
                                 WaterfallView(model: state.waterfall, rtty: state.wspr, audio: state.audio)
+                            } else if state.activeModule == .js8 {
+                                WaterfallView(model: state.waterfall, rtty: state.js8, audio: state.audio)
                             } else if state.activeModule == .ndb {
                                 WaterfallView(model: state.waterfall, rtty: state.ndb, audio: state.audio)
                             } else if state.activeModule == .dcf77 {
@@ -216,7 +220,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .js8 ? "JS8 Aktivität" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -403,6 +407,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Zyklus")
                             WSPRSettingsPanel(settings: state.wspr)
                                 .radioCard(title: "WSPR")
+                        } else if state.activeModule == .js8 {
+                            JS8CyclePanel(controller: state.js8Controller, settings: state.js8)
+                                .radioCard(title: "Zyklus · Rx-Frequenz")
+                            JS8SettingsPanel(settings: state.js8)
+                                .radioCard(title: "JS8")
                         } else if state.activeModule == .ndb {
                             NDBTuningPanel(controller: state.ndbController, settings: state.ndb)
                                 .radioCard(title: "Signal · Ton")
@@ -466,7 +475,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, js8: state.js8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
             PropagationRuler(service: state.propagation, home: state.home, sdr: state.sdrController, settings: state.sdr)
@@ -769,7 +778,7 @@ private struct ModuleBar: View {
         .padding(.horizontal, 14)
     }
 
-    /// Ein Knopf für beide Rubriken: Rand von Bernstein (HF) nach Grün (VHF/UHF)
+    /// Ein Knopf für beide Rubriken: Rand wie alle anderen Modul-Buttons (RadioTheme.borderSubtle / vfdCyan)
     private var multiButton: some View {
         let module = DecoderModuleInfo.channels
         let selected = state.activeModule == module
@@ -788,7 +797,7 @@ private struct ModuleBar: View {
             .cornerRadius(5)
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .stroke(LinearGradient(colors: [RadioTheme.vfdAmber, RadioTheme.vfdGreen], startPoint: .top, endPoint: .bottom), lineWidth: selected ? 2 : 1.4)
+                    .stroke(selected ? RadioTheme.vfdCyan : RadioTheme.borderSubtle, lineWidth: selected ? 1.5 : 1)
             )
             .shadow(color: selected ? RadioTheme.vfdCyan.opacity(0.3) : .clear, radius: 4)
         }
@@ -1011,6 +1020,7 @@ private struct StatusBar: View {
     @ObservedObject var ft4: FT4SettingsStore
     @ObservedObject var ft4Controller: FT4Controller
     @ObservedObject var wspr: WSPRSettingsStore
+    @ObservedObject var js8: JS8SettingsStore
     @ObservedObject var dcf77: DCF77SettingsStore
     @ObservedObject var dcf77Controller: DCF77Controller
     @ObservedObject var efr: EFRSettingsStore
@@ -1102,6 +1112,7 @@ private struct StatusBar: View {
         case .ft8: return ft8Current
         case .ft4: return ft4Current
         case .wspr: return wsprCurrent
+        case .js8: return js8Current
         case .dcf77: return dcf77Current
         case .efr: return efrCurrent
         case .sstv: return sstvCurrent
@@ -1224,6 +1235,17 @@ private struct StatusBar: View {
         s += " · " + String(format: "%.1f", ft8.core.budgetSeconds).replacingOccurrences(of: ".", with: ",") + " s Rechenzeit"
         s += " · \(ft8.locator)"
         if !ft8.myCall.isEmpty { s += " · \(ft8.myCall)" }
+        return s
+    }
+
+    /// „JS8 · 20m · Dial 14,078 MHz · A+C · JN49WS“
+    private var js8Current: String {
+        let dial = String(format: "%.3f", Double(js8.dialHz) / 1_000_000).replacingOccurrences(of: ".", with: ",")
+        var s = "JS8 · \(js8.band.rawValue) · Dial \(dial) MHz"
+        s += " · " + js8.modes.sorted().map(\.letter).joined(separator: "+")
+        s += " · \(Int(js8.core.minHz))–\(Int(js8.core.maxHz)) Hz"
+        s += " · \(js8.locator)"
+        if !js8.myCall.isEmpty { s += " · \(js8.myCall)" }
         return s
     }
 

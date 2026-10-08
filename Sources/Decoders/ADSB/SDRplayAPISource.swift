@@ -20,6 +20,117 @@ struct IQ16Scaler {
     }
 }
 
+/// Abtastrate, Dezimierung, Filter und Notches der SDRplay-Geräte (reine Rechnung, geprüft in den Logiktests).
+/// Die API liefert 2 … 10 MS/s; darunter dezimiert sie das 2-MS/s-Signal um 2, 4, 8, 16 oder 32 (bis 62,5 kS/s).
+public enum SDRplayPlan {
+    /// Wählbare Abtastraten des I/Q-Stroms
+    public static let sampleRates = [62_500, 125_000, 250_000, 500_000, 1_000_000, 2_000_000, 2_400_000, 3_000_000, 4_000_000,
+                                     4_800_000, 5_000_000, 6_000_000, 8_000_000, 9_600_000, 10_000_000]
+    public static let minRate = 62_500, maxRate = 10_000_000
+    /// Analoge ZF-Filter der API in kHz
+    public static let bandwidthsKHz = [200, 300, 600, 1536, 5000, 6000, 7000, 8000]
+
+    public struct Rate: Equatable, Sendable {
+        /// Abtastrate des Geräts (`fsFreq`)
+        public var deviceHz: Double
+        /// Dezimierung der API (1 = aus, sonst 2, 4, 8, 16, 32)
+        public var decimation: Int
+        /// Rate der gelieferten Daten
+        public var outputHz: Double { deviceHz / Double(decimation) }
+    }
+
+    /// Gerätrate und Dezimierung für die gewünschte Ausgaberate (auf die nächste mögliche Rate gerundet)
+    public static func rate(for wanted: Int) -> Rate {
+        let r = min(max(wanted, minRate), maxRate)
+        if r >= 2_000_000 { return Rate(deviceHz: Double(r), decimation: 1) }
+        let factors = [2, 4, 8, 16, 32]
+        let d = factors.min { abs(2_000_000.0 / Double($0) - Double(r)) < abs(2_000_000.0 / Double($1) - Double(r)) } ?? 2
+        return Rate(deviceHz: 2_000_000, decimation: d)
+    }
+
+    /// Analoger Filter: Eigene Wahl (nächster erlaubter Wert), sonst nach der Ausgaberate. Ab 2 MS/s der größte Filter, der nicht
+    /// breiter ist als die Rate (mindestens 1,536 MHz); darunter der kleinste, der die ganze Rate durchlässt (höchstens 1,536 MHz).
+    public static func bandwidthKHz(outputHz: Double, requested: Int) -> Int {
+        if requested > 0 { return bandwidthsKHz.min { abs($0 - requested) < abs($1 - requested) } ?? 1536 }
+        let khz = outputHz / 1000
+        if outputHz >= 2_000_000 { return bandwidthsKHz.last { Double($0) <= khz && $0 >= 1536 } ?? 1536 }
+        return bandwidthsKHz.first { Double($0) >= khz && $0 <= 1536 } ?? 1536
+    }
+
+    /// Wo die Notch-Schalter in den Strukturen der API liegen (Versätze aus dem Header 3.15, `offsetof`)
+    public struct NotchFields: Equatable, Sendable {
+        public enum Base: Sendable { case device, channel }
+        public var base: Base
+        public var rfOffset: Int?
+        public var dabOffset: Int?
+        /// Flags für `sdrplay_api_Update` (erste Gruppe, zweite Gruppe „Ext1“)
+        public var updateRf: (UInt32, UInt32)
+        public var updateDab: (UInt32, UInt32)
+
+        public static func == (a: NotchFields, b: NotchFields) -> Bool {
+            a.base == b.base && a.rfOffset == b.rfOffset && a.dabOffset == b.dabOffset
+                && a.updateRf == b.updateRf && a.updateDab == b.updateDab
+        }
+    }
+
+    /// Notches je Gerät: RSP1A/1B (RF und DAB, Gerätestruktur), RSP2 (nur RF, Tunerstruktur), RSPduo (RF und DAB, Tuner 1),
+    /// RSPdx/dxR2 (RF und DAB, Gerätestruktur); RSP1 hat keine
+    public static func notchFields(hwVer: UInt8) -> NotchFields? {
+        switch hwVer {
+        case 255, 6: return NotchFields(base: .device, rfOffset: 44, dabOffset: 45, updateRf: (0x20, 0), updateDab: (0x40, 0))
+        case 2: return NotchFields(base: .channel, rfOffset: 108 + 12, dabOffset: nil, updateRf: (0x400, 0), updateDab: (0, 0))
+        case 3: return NotchFields(base: .channel, rfOffset: 124 + 9, dabOffset: 124 + 10, updateRf: (0x4000_0000, 0), updateDab: (0x8000_0000, 0))
+        case 4, 7: return NotchFields(base: .device, rfOffset: 52 + 8, dabOffset: 52 + 9, updateRf: (0, 0x8), updateDab: (0, 0x10))
+        default: return nil
+        }
+    }
+
+    /// Schreibt Rate, PPM, Dezimierung, Filter und Notches in die Strukturen der API (`dev` = DevParamsT, `channel` = RxChannelParamsT des Tuners)
+    @discardableResult
+    static func apply(settings: ADSBGainSettings, hwVer: UInt8, dev: UnsafeMutableRawPointer, channel: UnsafeMutableRawPointer) -> (rate: Rate, bandwidthKHz: Int) {
+        typealias L = SDRplayAPISource.Layout
+        let rate = Self.rate(for: settings.sampleRateHz)
+        let bandwidth = bandwidthKHz(outputHz: rate.outputHz, requested: settings.sdrplayBandwidthKHz)
+        dev.storeBytes(of: rate.deviceHz, toByteOffset: L.fsHz, as: Double.self)
+        dev.storeBytes(of: Double(settings.sdrplayPPM), toByteOffset: L.ppm, as: Double.self)
+        channel.storeBytes(of: UInt8(rate.decimation > 1 ? 1 : 0), toByteOffset: L.decimationEnable, as: UInt8.self)
+        channel.storeBytes(of: UInt8(rate.decimation), toByteOffset: L.decimationFactor, as: UInt8.self)
+        channel.storeBytes(of: UInt8(0), toByteOffset: L.decimationWide, as: UInt8.self)
+        channel.storeBytes(of: Int32(bandwidth), toByteOffset: L.bwType, as: Int32.self)
+        if let notch = notchFields(hwVer: hwVer) {
+            let base = notch.base == .device ? dev : channel
+            if let o = notch.rfOffset { base.storeBytes(of: UInt8(settings.sdrplayRfNotch ? 1 : 0), toByteOffset: o, as: UInt8.self) }
+            if let o = notch.dabOffset { base.storeBytes(of: UInt8(settings.sdrplayDabNotch ? 1 : 0), toByteOffset: o, as: UInt8.self) }
+        }
+        return (rate, bandwidth)
+    }
+
+    /// Welche Notches das Gerät hat (für die Anzeige)
+    public static func notches(hwVer: UInt8) -> (rf: Bool, dab: Bool) {
+        let f = notchFields(hwVer: hwVer)
+        return (f?.rfOffset != nil, f?.dabOffset != nil)
+    }
+}
+
+/// Zustand der Eingangsübersteuerung des SDRplay (Meldungen „Overload detected/corrected“ der API)
+public enum SDRplayOverload: Sendable, Equatable {
+    /// keine Übersteuerung gemeldet (oder länger her)
+    case none
+    /// war in den letzten Sekunden übersteuert, jetzt nicht mehr
+    case recent
+    /// ist gerade übersteuert
+    case active
+
+    /// Wie lange eine überstandene Übersteuerung noch angezeigt wird
+    public static let holdSeconds = 8.0
+
+    public static func state(active: Bool, lastDetected: Date?, now: Date) -> SDRplayOverload {
+        if active { return .active }
+        if let last = lastDetected, now.timeIntervalSince(last) < holdSeconds { return .recent }
+        return .none
+    }
+}
+
 /// SDRplay-Geräte (RSP1A, RSP1B, RSP2, RSPdx, RSPduo) direkt über die SDRplay-API 3.15 (`libsdrplay_api`, vom Installer unter
 /// https://www.sdrplay.com/api/), ohne SDRconnect. Die Bibliothek wird erst zur Laufzeit geladen (dlopen) und ist nicht Teil von Digidec;
 /// ihre Lizenz erlaubt keine Weitergabe. Weil Digidec ohne den Header baut, stehen die Lage der Felder in den Strukturen der API hier als
@@ -47,6 +158,7 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
         static let bwType = 0, ifType = 4, loMode = 8, gRdB = 12, lnaState = 16, rfHz = 40   // RxChannelParamsT.tunerParams
         static let agcEnable = 72 + 8, agcSetPoint = 72 + 12                                  // RxChannelParamsT.ctrlParams.agc
         static let duoBiasT = 124                                                              // RxChannelParamsT.rspDuoTunerParams.biasTEnable
+        static let decimationEnable = 72 + 2, decimationFactor = 72 + 3, decimationWide = 72 + 4  // RxChannelParamsT.ctrlParams.decimation
         static let callbackSize = 24
         // Werte
         static let bw1536: Int32 = 1536, ifZero: Int32 = 0, loAuto: Int32 = 1
@@ -61,6 +173,26 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
     private static let activeLock = NSLock()
     nonisolated(unsafe) private static var active = false
     private var holdsAPI = false
+    // Übersteuerung (je Prozess höchstens eine Quelle, siehe `active`)
+    private static let overloadLock = NSLock()
+    nonisolated(unsafe) private static var overloadActive = false
+    nonisolated(unsafe) private static var overloadLast: Date?
+
+    /// Übersteuerung des laufenden SDRplay: für die Warnung in den Einstellungen der Module
+    public static var overload: SDRplayOverload {
+        overloadLock.withLock { SDRplayOverload.state(active: overloadActive, lastDetected: overloadLast, now: Date()) }
+    }
+
+    static func noteOverload(detected: Bool, at date: Date = Date()) {
+        overloadLock.withLock {
+            overloadActive = detected
+            if detected { overloadLast = date }
+        }
+    }
+
+    static func resetOverload() {
+        overloadLock.withLock { overloadActive = false; overloadLast = nil }
+    }
 
     private let settings: ADSBGainSettings
     private var lib: DynamicLibrary?
@@ -129,6 +261,7 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
             return true
         }) else { throw ADSBSourceError.busy("SDRplay") }
         holdsAPI = true
+        Self.resetOverload()
         self.lib = lib
         self.close = close
         self.uninit = uninit
@@ -209,9 +342,9 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
               let channel = params.load(fromByteOffset: tuner == Layout.tunerB ? Layout.paramsB : Layout.paramsA, as: UnsafeMutableRawPointer?.self) else {
             throw fail("SDRplay: Geräteparameter nicht lesbar (\(text(rcParams)))")
         }
-        dev.storeBytes(of: Double(settings.sampleRateHz), toByteOffset: Layout.fsHz, as: Double.self)
-        dev.storeBytes(of: Double(settings.sdrplayPPM), toByteOffset: Layout.ppm, as: Double.self)
-        channel.storeBytes(of: Layout.bw1536, toByteOffset: Layout.bwType, as: Int32.self)
+        // Abtastrate (2 … 10 MS/s direkt, darunter mit Dezimierung der API), analoger Filter und Notch-Filter nach den Einstellungen
+        let applied = SDRplayPlan.apply(settings: settings, hwVer: hwVer, dev: dev, channel: channel)
+        let bandwidth = Int32(applied.bandwidthKHz)
         channel.storeBytes(of: Layout.ifZero, toByteOffset: Layout.ifType, as: Int32.self)
         channel.storeBytes(of: Layout.loAuto, toByteOffset: Layout.loMode, as: Int32.self)
         channel.storeBytes(of: Int32(max(20, min(59, settings.sdrplayIFGainReduction))), toByteOffset: Layout.gRdB, as: Int32.self)
@@ -228,9 +361,9 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
             guard let me = CallbackContext.object(ctx, as: SDRplayAPISource.self), let xi, let xq else { return }
             me.handle(xi: xi, xq: xq, count: Int(n))
         }
-        let event: EventCB = { id, _, _, ctx in
+        let event: EventCB = { id, _, params, ctx in
             guard let me = CallbackContext.object(ctx, as: SDRplayAPISource.self) else { return }
-            me.handleEvent(id)
+            me.handleEvent(id, params: params)
         }
         table.storeBytes(of: unsafeBitCast(stream, to: UInt.self), toByteOffset: 0, as: UInt.self)
         table.storeBytes(of: unsafeBitCast(stream, to: UInt.self), toByteOffset: 8, as: UInt.self)
@@ -239,7 +372,12 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
         let me = Unmanaged.passRetained(self)
         retainedSelf = me
         lock.withLock { streaming = true }
-        let rcInit = initFn(handle, table, me.toOpaque())
+        var rcInit = initFn(handle, table, me.toOpaque())
+        // Lehnt die API die Kombination aus Rate und Filter ab, mit dem sicheren Filter von 1,536 MHz noch einmal versuchen
+        if rcInit != 0, bandwidth != Layout.bw1536, settings.sdrplayBandwidthKHz == 0 {
+            channel.storeBytes(of: Layout.bw1536, toByteOffset: Layout.bwType, as: Int32.self)
+            rcInit = initFn(handle, table, me.toOpaque())
+        }
         guard rcInit == 0 else {
             lock.withLock { streaming = false }
             retainedSelf = nil
@@ -299,10 +437,13 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
     }
 
     /// Ereignisse des Geräts: Übersteuerung bestätigen, Ausfall melden
-    func handleEvent(_ id: Int32) {
+    func handleEvent(_ id: Int32, params: UnsafeMutableRawPointer? = nil) {
         switch id {
         case 1:                                                    // Übersteuerung geändert (Meldung muss bestätigt werden)
             overloadCount += 1
+            // Parameter: 0 = Übersteuerung erkannt, 1 = behoben (sdrplay_api_PowerOverloadCbEventIdT)
+            let detected = (params?.load(as: Int32.self) ?? 0) == 0
+            Self.noteOverload(detected: detected)
             if let dev = deviceMemory?.load(fromByteOffset: Layout.handle, as: UnsafeMutableRawPointer?.self) {
                 _ = update?(dev, tuner, Layout.overloadAck, 0)
             }
@@ -336,6 +477,7 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
         }
         if wasOpened { _ = close?() }
         if holdsAPI {
+            Self.resetOverload()
             holdsAPI = false
             Self.activeLock.withLock { Self.active = false }
         }

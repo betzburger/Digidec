@@ -128,6 +128,7 @@ struct AboutSheet: View {
     private static let mainComponents: [(String, String)] = [
         ("fldigi 4.2.13", "GPL-3.0-or-later (gfft.h LGPL-3.0-or-later, Hamlib-Locator LGPL-2.0-or-later)"),
         ("WSJT-X (wsprd)", "GPL-3.0"),
+        ("JS8Call", "GPL-3.0"),
         ("ft8mon, ft8_lib", "MIT"),
         ("pocketfft, KISS FFT", "BSD-3-Clause"),
         ("OurAirports", "gemeinfrei"),

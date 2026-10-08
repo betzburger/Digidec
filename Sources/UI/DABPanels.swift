@@ -245,6 +245,7 @@ struct DABSettingsPanel: View {
             soundRow
             Divider().overlay(RadioTheme.borderSubtle)
             deviceRow
+            if settings.source == .sdrplay { SDRplayOverloadHint() }
             if showGain { gainControls }
         }
     }
@@ -358,19 +359,21 @@ struct DABSettingsPanel: View {
                     Button("AGC") { settings.sdrplayAGC.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
                 }
                 .scaleEffect(0.9, anchor: .leading)
-                stepper("LNA", "\(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) }, plus: { settings.sdrplayLNAState = min(9, settings.sdrplayLNAState + 1) })
-                stepper("ZF-MIND.", "\(settings.sdrplayIFGain) dB", minus: { settings.sdrplayIFGain = max(20, settings.sdrplayIFGain - 2) }, plus: { settings.sdrplayIFGain = min(59, settings.sdrplayIFGain + 2) })
+                SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch, hint: "Im DAB-Modul schwächt sie das Nutzsignal selbst; sie hilft nur gegen Übersteuerung. Besser zuerst die LNA-Stufe erhöhen.")
+                stepper("LNA-DÄMPFUNG", "Stufe \(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) }, plus: { settings.sdrplayLNAState = min(9, settings.sdrplayLNAState + 1) }, help: SDRplayHelp.lna)
+                stepper("ZF-DÄMPFUNG", "\(settings.sdrplayIFGain) dB", minus: { settings.sdrplayIFGain = max(20, settings.sdrplayIFGain - 2) }, plus: { settings.sdrplayIFGain = min(59, settings.sdrplayIFGain + 2) }, help: SDRplayHelp.ifGain)
             }
         }
     }
 
-    private func stepper(_ title: String, _ value: String, minus: @escaping () -> Void, plus: @escaping () -> Void) -> some View {
+    private func stepper(_ title: String, _ value: String, minus: @escaping () -> Void, plus: @escaping () -> Void, help: String = "") -> some View {
         HStack(spacing: 6) {
             label(title)
             Button("−", action: minus).buttonStyle(ModeButtonStyle(isSelected: false))
             Text(value).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundColor(RadioTheme.vfdCyan).frame(minWidth: 52)
             Button("+", action: plus).buttonStyle(ModeButtonStyle(isSelected: false))
         }
+        .help(help)
     }
 }
 

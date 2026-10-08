@@ -46,6 +46,8 @@ public final class DABSettingsStore: ObservableObject {
     @Published public var sdrplayAGC: Bool { didSet { UserDefaults.standard.set(sdrplayAGC, forKey: "dabSdrAGC") } }
     @Published public var sdrplayBias: Bool { didSet { UserDefaults.standard.set(sdrplayBias, forKey: "dabSdrBias") } }
     @Published public var sdrplayPPM: Int { didSet { UserDefaults.standard.set(sdrplayPPM, forKey: "dabSdrPPM") } }
+    @Published public var sdrplayRfNotch: Bool { didSet { UserDefaults.standard.set(sdrplayRfNotch, forKey: "dabSdrRfNotch") } }
+    @Published public var sdrplayDabNotch: Bool { didSet { UserDefaults.standard.set(sdrplayDabNotch, forKey: "dabSdrDabNotch") } }
     /// Kennung des zuletzt gehörten Dienstes (0 = keiner); er wird beim nächsten Start nach dem Empfang des Ensembles wieder gespielt
     @Published public var selectedSID: Int { didSet { UserDefaults.standard.set(selectedSID, forKey: "dabSID") } }
     @Published public var volume: Double { didSet { UserDefaults.standard.set(volume, forKey: "dabVolume") } }
@@ -69,6 +71,8 @@ public final class DABSettingsStore: ObservableObject {
         sdrplayAGC = d.object(forKey: "dabSdrAGC") as? Bool ?? true
         sdrplayBias = d.object(forKey: "dabSdrBias") as? Bool ?? false
         sdrplayPPM = d.object(forKey: "dabSdrPPM") as? Int ?? 0
+        sdrplayRfNotch = d.object(forKey: "dabSdrRfNotch") as? Bool ?? false
+        sdrplayDabNotch = d.object(forKey: "dabSdrDabNotch") as? Bool ?? false
         selectedSID = d.object(forKey: "dabSID") as? Int ?? 0
         volume = d.object(forKey: "dabVolume") as? Double ?? 0.7
         muted = d.object(forKey: "dabMuted") as? Bool ?? false
@@ -93,6 +97,8 @@ public final class DABSettingsStore: ObservableObject {
         g.sdrplayAGC = sdrplayAGC
         g.sdrplayBias = sdrplayBias
         g.sdrplayPPM = sdrplayPPM
+        g.sdrplayRfNotch = sdrplayRfNotch
+        g.sdrplayDabNotch = sdrplayDabNotch
         return g
     }
 }

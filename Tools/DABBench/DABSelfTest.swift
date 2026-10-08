@@ -160,3 +160,24 @@ func dabRecordingTest(path: String, _ check: (Bool, String) -> Void) -> Bool {
     check(format?.sbr == true && format?.stereo == true && format?.outputRate == 48_000, "DAB echt: Format HE-AAC Stereo 48 kHz")
     return true
 }
+
+/// Block-Größen: dieselbe Aufnahme in sehr kleinen, sehr großen und wechselnden Blöcken (SDRplay liefert andere Blöcke als HackRF) darf nie
+/// abstürzen und muss ungefähr gleich viele Rahmen ergeben. `nil` = Datei fehlt
+func dabChunkingTest(path: String, _ check: (Bool, String) -> Void) -> Bool {
+    guard var data = FileManager.default.contents(atPath: path) else { return false }
+    data.withUnsafeMutableBytes { raw in for i in 0..<raw.count { raw[i] ^= 0x80 } }
+    for (name, sizes) in [("1 MB", [1_048_576]), ("4 kB", [4_096]), ("wechselnd", [2_000, 700_000, 64, 3_000_000, 130_000, 9_000])] {
+        let rx = DABOFDMReceiver()
+        data.withUnsafeBytes { raw in
+            let b = raw.bindMemory(to: UInt8.self)
+            var i = 0, k = 0
+            while i < b.count {
+                let e = min(i + sizes[k % sizes.count], b.count)
+                rx.process(UnsafeBufferPointer(rebasing: b[i..<e]))
+                i = e; k += 1
+            }
+        }
+        check(rx.frameCount >= 100 && rx.frameCount <= 125, "DAB echt: Blockgröße \(name): \(rx.frameCount) Rahmen ohne Absturz")
+    }
+    return true
+}

@@ -95,6 +95,13 @@ public struct ADSBGainSettings: Equatable, Sendable {
     public var sdrplayAGC = false
     public var sdrplayBias = false
     public var sdrplayPPM = 0
+    /// RF-Notch gegen Rundfunk (RSP1A/1B, RSP2, RSPduo Tuner 1, RSPdx): schaltet das Notch-Filter ein (UKW-Rundfunk, je nach Gerät auch Mittelwelle)
+    public var sdrplayRfNotch = false
+    /// DAB-Notch (RSP1A/1B, RSPduo Tuner 1, RSPdx): schaltet das Notch-Filter für Band III (174 … 240 MHz) ein; am RSPduo etwa 14 dB Dämpfung bei 222 MHz,
+    /// eine Dämpfung, keine Sperre
+    public var sdrplayDabNotch = false
+    /// Analoger ZF-Filter in kHz (200, 300, 600, 1536, 5000, 6000, 7000, 8000); 0 = automatisch nach der Abtastrate
+    public var sdrplayBandwidthKHz = 0
     // SDRplay über SDRconnect
     public var sdrconnectHost = "127.0.0.1"
     public var sdrconnectPort = 5454

@@ -10661,6 +10661,35 @@ if want("sdr") {
     var csq = SDRChannelConfig(mode: .nfm); csq.squelchEnabled = true; csq.squelchDB = -50
     let sq = run(noise, csq, offset: 300_000)
     check(sq.dropFirst(24_000).allSatisfy { $0 == 0 }, "SDR: Squelch sperrt bei Rauschen")
+    // Squelch-Schließzeit: Nach Signalende schließt die Rauschsperre innerhalb von wenigen Blöcken (< 40 ms)
+    var sigThenSilence = SDRTestSignal(sampleRate: fs, seconds: 0.2)
+    sigThenSilence.addFM(offsetHz: 0, tone: 1000, deviation: 3000, amplitude: 0.3)
+    var silencePart = SDRTestSignal(sampleRate: fs, seconds: 0.3)
+    silencePart.addNoise(sigma: 0.0001)
+    var csqFast = SDRChannelConfig(mode: .nfm)
+    csqFast.squelchEnabled = true
+    csqFast.squelchDB = -50
+    let dSqu = SDRDemodulator(sampleRate: fs, config: csqFast)
+    dSqu.setOffset(0)
+    var dummyAudio = [Float]()
+    let sigBytes = sigThenSilence.quantized()
+    sigBytes.withUnsafeBufferPointer { b in dSqu.process(b, audio: &dummyAudio) }
+    check(dSqu.isSquelchOpen, "SDR Squelch: bei starkem Signal geöffnet")
+    let silBytes = silencePart.quantized()
+    var closedWithinChunks = 0
+    let chunkSz = 16384
+    silBytes.withUnsafeBufferPointer { b in
+        var idx = 0
+        while idx < b.count {
+            let end = min(idx + chunkSz, b.count)
+            dSqu.process(UnsafeBufferPointer(rebasing: b[idx..<end]), audio: &dummyAudio)
+            closedWithinChunks += 1
+            if !dSqu.isSquelchOpen { break }
+            idx = end
+        }
+    }
+    let timeToCloseMs = Double(closedWithinChunks * chunkSz) / (2.0 * fs) * 1000.0
+    check(!dSqu.isSquelchOpen && timeToCloseMs < 40.0, "SDR Squelch: schließt nach Signalende rasch (in \(String(format: "%.1f", timeToCloseMs)) ms < 40 ms)")
     // Blockunabhängigkeit
     let whole = run(fm, cfm, offset: 300_000, chunk: 4_800_000), parts = run(fm, cfm, offset: 300_000, chunk: 7_000)
     var maxDiff: Float = 0
@@ -10758,6 +10787,60 @@ if want("sdr") {
         rig.useInternal(name: nil)
         check(!rig.hasRig && !rig.isInternal, "SDR: nach dem Abmelden gilt wieder kein Funkgerät")
     }
+
+    // HF-Wasserfall: Zoomstufen und Frequenzbereich
+    check(SDRZoomFactor.allCases == [.x1, .x2, .x4, .x8, .x16], "SDR Zoom: Stufen 1×, 2×, 4×, 8×, 16×")
+    check(SDRZoomFactor.x1.next() == .x2 && SDRZoomFactor.x16.next() == .x16 && SDRZoomFactor.x16.previous() == .x8 && SDRZoomFactor.x1.previous() == .x1, "SDR Zoom: Vor- und Zurückschalten mit Anschlag")
+    check(SDRZoomFactor.x1.visibleSpan(sampleRate: 2_400_000) == 2_400_000 && SDRZoomFactor.x4.visibleSpan(sampleRate: 2_400_000) == 600_000 && SDRZoomFactor.x16.visibleSpan(sampleRate: 2_400_000) == 150_000, "SDR Zoom: sichtbare Bandbreite")
+    let full = SDRZoomFactor.x1.visibleRange(center: 144_800_000, sampleRate: 2_400_000, loHz: 145_000_000)
+    check(full == (143_800_000...146_200_000), "SDR Zoom: 1× umfasst das volle I/Q-Fenster")
+    let z4 = SDRZoomFactor.x4.visibleRange(center: 145_000_000, sampleRate: 2_400_000, loHz: 145_000_000)
+    check(z4 == (144_700_000...145_300_000), "SDR Zoom: 4× zentriert um die Mittenfrequenz")
+    let z4Low = SDRZoomFactor.x4.visibleRange(center: 143_900_000, sampleRate: 2_400_000, loHz: 145_000_000)
+    check(z4Low.lowerBound == 143_800_000 && z4Low.upperBound == 144_400_000, "SDR Zoom: Begrenzung am unteren Fensterrand")
+    let z4High = SDRZoomFactor.x4.visibleRange(center: 146_150_000, sampleRate: 2_400_000, loHz: 145_000_000)
+    check(z4High.upperBound == 146_200_000 && z4High.lowerBound == 145_600_000, "SDR Zoom: Begrenzung am oberen Fensterrand")
+
+    // HF-Wasserfall: FFT-Auflösung (Auto und manuell)
+    check(SDRWaterfallResolution.allCases == [.auto, .r4k, .r8k, .r16k, .r32k], "SDR Auflösung: Modi Auto, 4k, 8k, 16k, 32k")
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x1) == 4096, "SDR Auto-Auflösung: 1× = 4096 Bins")
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x2) == 8192, "SDR Auto-Auflösung: 2× = 8192 Bins")
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x4) == 16384, "SDR Auto-Auflösung: 4× = 16384 Bins")
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x8) == 32768, "SDR Auto-Auflösung: 8× = 32768 Bins")
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x16) == 32768, "SDR Auto-Auflösung: 16× = 32768 Bins")
+    // Hohe Abtastrate (> 5 MS/s)
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 6_000_000, zoom: .x1) == 16384, "SDR Auto-Auflösung >5 MS/s: 1× = 16384 Bins")
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 6_000_000, zoom: .x2) == 32768, "SDR Auto-Auflösung >5 MS/s: 2× = 32768 Bins")
+    // Feste Modi
+    check(SDRWaterfallResolution.r4k.effectiveBins(sampleRate: 2_400_000, zoom: .x16) == 4096, "SDR Feste Auflösung 4k")
+    check(SDRWaterfallResolution.r8k.effectiveBins(sampleRate: 2_400_000, zoom: .x1) == 8192, "SDR Feste Auflösung 8k")
+    check(SDRWaterfallResolution.r16k.effectiveBins(sampleRate: 2_400_000, zoom: .x1) == 16384, "SDR Feste Auflösung 16k")
+    check(SDRWaterfallResolution.r32k.effectiveBins(sampleRate: 2_400_000, zoom: .x1) == 32768, "SDR Feste Auflösung 32k")
+    // SDRSpectrum mit konfigurierter Bin-Größe
+    let spec8k = SDRSpectrum(sampleRate: 2_400_000, bins: 8192)
+    check(spec8k.bins == 8192, "SDRSpectrum: 8k-Initialisierung")
+    let spec16k = SDRSpectrum(sampleRate: 2_400_000, bins: 16384)
+    check(spec16k.bins == 16384, "SDRSpectrum: 16k-Initialisierung")
+    let specAuto5M = SDRSpectrum(sampleRate: 6_000_000)
+    check(specAuto5M.bins == 16384, "SDRSpectrum: Standard bei >5 MS/s ist 16k")
+    let specAutoNorm = SDRSpectrum(sampleRate: 2_400_000)
+    check(specAutoNorm.bins == 4096, "SDRSpectrum: Standard bei 2,4 MS/s ist 4k")
+
+    // S-Meter-Skala & IARU-Zuordnung
+    check(SDRSMeterScale.fraction(db: -100) == 0.0 && SDRSMeterScale.fraction(db: 0) == 1.0, "SDR S-Meter: Normalisierung 0 bis 1")
+    check(abs(SDRSMeterScale.fraction(db: -46) - 0.54) < 1e-4, "SDR S-Meter: S9 liegt bei 54 % der Skala")
+    check(SDRSMeterScale.reading(db: -110).sText == "S0" && !SDRSMeterScale.reading(db: -110).isOverS9, "SDR S-Meter: unter -100 dBFS ist S0")
+    check(SDRSMeterScale.reading(db: -94).sText == "S1" && !SDRSMeterScale.reading(db: -94).isOverS9, "SDR S-Meter: -94 dBFS ist S1")
+    check(SDRSMeterScale.reading(db: -70).sText == "S5" && !SDRSMeterScale.reading(db: -70).isOverS9, "SDR S-Meter: -70 dBFS ist S5")
+    check(SDRSMeterScale.reading(db: -58).sText == "S7" && !SDRSMeterScale.reading(db: -58).isOverS9, "SDR S-Meter: -58 dBFS ist S7")
+    check(SDRSMeterScale.reading(db: -46).sText == "S9" && !SDRSMeterScale.reading(db: -46).isOverS9, "SDR S-Meter: -46 dBFS ist S9")
+    check(SDRSMeterScale.reading(db: -26).sText == "S9+20" && SDRSMeterScale.reading(db: -26).isOverS9, "SDR S-Meter: -26 dBFS ist S9+20")
+    check(SDRSMeterScale.reading(db: -6).sText == "S9+40" && SDRSMeterScale.reading(db: -6).isOverS9, "SDR S-Meter: -6 dBFS ist S9+40")
+    // Farbzonen: S0–S3 blau, S3–S9 grün, S9–S9+10 gelb-orange, ab S9+10 orange-rot
+    check(SDRSMeterScale.zone(for: -94) == .blue && SDRSMeterScale.zone(for: -84) == .blue, "SDR S-Meter: S0-S3 ist blau")
+    check(SDRSMeterScale.zone(for: -80) == .green && SDRSMeterScale.zone(for: -46) == .green, "SDR S-Meter: S3-S9 ist grün")
+    check(SDRSMeterScale.zone(for: -40) == .yellow && SDRSMeterScale.zone(for: -36) == .yellow, "SDR S-Meter: S9-S9+10 ist gelb")
+    check(SDRSMeterScale.zone(for: -30) == .red && SDRSMeterScale.zone(for: -6) == .red, "SDR S-Meter: ab S9+10 ist orange-rot")
 }
 
 // MARK: - Verbindung der Dienste (Flugzeuge: ADS-B, VDL2, ACARS; Schiffe: AIS, DSC)
@@ -10796,6 +10879,7 @@ if want("links") {
 if want("dab") {
     dabSelfTests { ok, text in check(ok, text) }
     if !dabRecordingTest(path: "TestData/DAB/dab_11D_2048k.raw", { ok, text in check(ok, text) }) { skip("DAB echt: TestData/DAB/dab_11D_2048k.raw liegt nicht lokal vor (HackRF-Aufnahme, Block 11D)") }
+    _ = dabChunkingTest(path: "TestData/DAB/dab_11D_2048k.raw", { ok, text in check(ok, text) })
 }
 
 // Asynchrone Prüfungen ohne „await“ auf oberster Ebene (das würde die ganze Datei asynchron machen): Hauptschleife drehen, bis sie fertig sind
@@ -11495,6 +11579,470 @@ if want("prop") {
     check(PropagationModel.dayWeight(elevation: -20) == 0 && PropagationModel.dayWeight(elevation: 20) == 1 && abs(PropagationModel.dayWeight(elevation: 0) - 0.5) < 1e-9, "Ausbreitungsmodell: Tagesanteil nach der Sonnenhöhe")
     let red = PropagationModel.color(score: 0), white = PropagationModel.color(score: 0.5), green = PropagationModel.color(score: 1)
     check(red.r > 0.8 && red.g < 0.4 && white.r > 0.9 && white.g > 0.9 && white.b > 0.9 && green.g > 0.8 && green.r < 0.3, "Ausbreitungsmodell: rot, weiß, grün")
+}
+
+// MARK: - JS8: Betriebsarten, Bänder, URL, Abstimmung, Log
+if want("js8") {
+    check(JS8Submode.allCases.map(\.periodSeconds) == [15, 10, 6, 30], "JS8: Zyklen Normal 15 s, Fast 10 s, Turbo 6 s, Slow 30 s")
+    check(JS8Submode.allCases.map(\.bandwidth) == [50, 80, 160, 25], "JS8: Bandbreiten 50, 80, 160, 25 Hz")
+    check(JS8Submode.normal.baud == 6.25 && JS8Submode.fast.baud == 10 && JS8Submode.turbo.baud == 20 && JS8Submode.slow.baud == 3.125, "JS8: Symbolraten")
+    check(abs(JS8Submode.normal.txDuration - 12.64) < 0.001 && abs(JS8Submode.fast.txDuration - 7.9) < 0.001
+          && abs(JS8Submode.turbo.txDuration - 3.95) < 0.001 && abs(JS8Submode.slow.txDuration - 25.28) < 0.001, "JS8: Dauer der Aussendung 12,64 / 7,9 / 3,95 / 25,28 s")
+    check(JS8Submode.allCases.allSatisfy { $0.decodeAt > $0.startDelay + $0.txDuration && $0.decodeAt < $0.periodSeconds }, "JS8: Decodierzeitpunkt nach der Aussendung und vor dem Zyklusende")
+    check(JS8Submode.allCases.map(\.letter) == ["A", "B", "C", "E"] && JS8Submode.submode(letter: "e") == .slow, "JS8: Buchstaben wie in ALL.TXT")
+    check(parse("digidec://decode?mode=js8&preset=40m") == .success(DecodeRequest(module: .js8, presetID: "40m")), "JS8-Auftrag 40 m")
+    check(parse("digidec://decode?mode=js8") == .success(DecodeRequest(module: .js8, presetID: "20m")), "JS8-Standard 20 m")
+    check(JS8Band.m20.dialHz == 14_078_000 && JS8Band.m40.dialHz == 7_078_000 && JS8Band.m30.dialHz == 10_130_000
+          && JS8Band.m2.dialHz == 144_178_000 && JS8Band.m160.dialHz == 1_842_000, "JS8: Dial-Frequenzen wie JS8Call")
+    check(JS8Band.band(forDial: 14_078_000) == .m20 && JS8Band.band(forDial: 14_079_500) == .m20 && JS8Band.band(forDial: 14_095_600) == nil, "JS8: Band zur Dial-Frequenz")
+    check(Set(JS8Band.allCases.map(\.rawValue)) == Set(DecoderModuleInfo.js8.presetIDs), "JS8-Bänder = IDs im URL-Schema")
+    check(JS8Band.m20.dialLabel == "14,078", "JS8: Dial-Anzeige")
+    check(RigTuneTarget.js8(band: .m20) == RigTuneTarget(dialHz: 14_078_000, mode: "USB"), "QSY: JS8 20 m = 14,078 MHz USB")
+    check(DecoderModuleInfo.js8.band == .hf && DecoderModuleInfo.js8.displayName == "JS8" && DecoderModuleInfo.js8.isAvailable && DecoderModuleInfo.js8.hasMap, "JS8: Modul in der HF-Leiste")
+    let fixed = Date(timeIntervalSince1970: (1_790_000_010.0 - 1_790_000_010.0.truncatingRemainder(dividingBy: 15)))
+    let hb = JS8Decode(cycleStart: fixed, submode: .normal, frame: "SKflsHSNwzqH", bits: [.first, .last], snrDB: -16, dt: 0.14, freqHz: 521.4, quality: 1)
+    let line = JS8Controller.allTxtLine(hb)
+    check(line.hasSuffix("A         SKflsHSNwzqH   3") && line.contains("-16") && line.contains("  521"), "JS8: Log-Zeile wie ALL.TXT, got \(line.debugDescription)")
+    check(JS8Decode(cycleStart: fixed, submode: .normal, frame: "SKflsHSNwzqH", bits: [.first, .last], snrDB: -1, dt: 0, freqHz: 1, quality: 0.1).isUncertain
+          && !hb.isUncertain, "JS8: geringe Güte unter 0,17 ist unsicher")
+}
+
+// MARK: - JS8: Rahmen auspacken (Varicode, JSC) und packen
+if want("js8") {
+    // Rahmen aus den Testaufnahmen von JS8Call (media/tests): echte Sendungen, Texte wie sie JS8Call zeigt
+    let real: [(String, Int, String)] = [
+        ("SKflsHSNwzqH", 3, "KG9B: KN4CRD HEARTBEAT SNR -14 "),
+        ("UctD9HSNwzqE", 3, "VA3QR: KN4CRD HEARTBEAT SNR -17 "),
+        ("Vk4xfHSNwzaX", 3, "K0OG: KN4CRD SNR +02 "),
+        ("SJWkJnSNwzqH", 3, "KD8SKZ: KN4CRD HEARTBEAT SNR -14 "),
+        ("2Y-wUW3FOjFp", 3, "KN4ZXG: @HB HEARTBEAT FM16 "),
+        ("u3ipItc4eML+", 0, "W HIDING OUT IN A "),
+        ("TrMcT8++++++", 7, "KN4CRD: TEST"),
+        ("VkDSPUuGBfqa", 3, "K4BYN: K0EIA HEARTBEAT SNR +05 "),
+    ]
+    for (frame, bits, text) in real {
+        let u = JS8Varicode.unpack(frame, bits: JS8FrameBits(rawValue: bits))
+        check(u?.text == text, "JS8: Rahmen \(frame) → „\(text)“, got \(u?.text.debugDescription ?? "nil")")
+    }
+    let d1 = JS8Varicode.unpack("SKflsHSNwzqH", bits: [.first, .last])
+    check(d1?.kind == .directed && d1?.from == "KG9B" && d1?.to == "KN4CRD" && d1?.command == " HEARTBEAT SNR" && d1?.number == "-14", "JS8: Directed zerlegt")
+    let h1 = JS8Varicode.unpack("2Y-wUW3FOjFp", bits: [.first, .last])
+    check(h1?.kind == .heartbeat && h1?.from == "KN4ZXG" && h1?.grid == "FM16" && h1?.isCQ == false, "JS8: Heartbeat zerlegt")
+
+    // Packen und wieder Auspacken
+    func roundTrip(_ frame: String?, _ text: String, _ msg: String, bits: JS8FrameBits = [.first, .last]) {
+        check(frame != nil && frame!.count == 12, "JS8: \(msg) packbar")
+        if let frame { check(JS8Varicode.unpack(frame, bits: bits)?.text == text, "JS8: \(msg) → „\(text)“, got \(JS8Varicode.unpack(frame, bits: bits)?.text.debugDescription ?? "nil")") }
+    }
+    roundTrip(JS8Varicode.packHeartbeat(call: "DL1ABC", grid: "JN49"), "DL1ABC: @HB HEARTBEAT JN49 ", "Heartbeat")
+    roundTrip(JS8Varicode.packHeartbeat(call: "K1ABC", grid: nil), "K1ABC: @HB HEARTBEAT  ", "Heartbeat ohne Locator")
+    roundTrip(JS8Varicode.packHeartbeat(call: "OE4ATS", grid: "JN87", cq: 1), "OE4ATS: @ALLCALL CQ DX JN87 ", "CQ DX")
+    roundTrip(JS8Varicode.packHeartbeat(call: "9A7DA", grid: "JN86", cq: 7), "9A7DA: @ALLCALL CQ JN86 ", "CQ")
+    roundTrip(JS8Varicode.packHeartbeat(call: "DL1ABC/P", grid: "JO30"), "DL1ABC/P: @HB HEARTBEAT JO30 ", "Heartbeat mit /P")
+    roundTrip(JS8Varicode.packDirected(from: "DL1ABC", to: "DL2XYZ", command: 14), "DL1ABC: DL2XYZ ACK ", "Directed ACK")
+    roundTrip(JS8Varicode.packDirected(from: "DL1ABC", to: "K1ABC", command: 25, number: -12), "DL1ABC: K1ABC SNR -12 ", "Directed SNR -12")
+    roundTrip(JS8Varicode.packDirected(from: "DL1ABC", to: "K1ABC", command: 25, number: 5), "DL1ABC: K1ABC SNR +05 ", "Directed SNR +5")
+    roundTrip(JS8Varicode.packDirected(from: "DL1ABC", to: "@ALLCALL", command: 30), "DL1ABC: @ALLCALL AGN? ", "Directed an Gruppe")
+    roundTrip(JS8Varicode.packDirected(from: "W1AW", to: "DL1ABC", command: 10), "W1AW: DL1ABC MSG TO: ", "Directed MSG TO:")
+    roundTrip(JS8Varicode.packDirected(from: "DL1ABC/P", to: "K1ABC", command: 28), "DL1ABC/P: K1ABC 73 ", "Directed mit /P")
+    roundTrip(JS8Varicode.packDirected(from: "3DA0XYZ", to: "3XA1BC", command: 21), "3DA0XYZ: 3XA1BC RR ", "Directed mit Sonderrufzeichen")
+    roundTrip(JS8Varicode.packDirected(from: "DL1ABC", to: "K1ABC", command: 17, number: 3), "DL1ABC: K1ABC INFO 3 ", "Directed mit Zahl")
+    roundTrip(JS8Varicode.packCompoundCall("PA/DL1ABC", grid: "JO21"), "PA/DL1ABC: ", "Compound")
+    let comp = JS8Varicode.packCompoundCall("PA/DL1ABC", grid: "JO21").flatMap { JS8Varicode.unpack($0, bits: [.first]) }
+    check(comp?.kind == .compound && comp?.from == "PA/DL1ABC" && comp?.grid == "JO21", "JS8: Compound zerlegt")
+    let cd = JS8Varicode.packCompoundDirected("EA8/DL1ABC", command: 25, snr: -7).flatMap { JS8Varicode.unpack($0, bits: [.first]) }
+    check(cd?.kind == .compoundDirected && cd?.from == "EA8/DL1ABC" && cd?.command == " SNR" && cd?.number == "-07", "JS8: Compound-Directed mit SNR zerlegt, got \(String(describing: cd))")
+    roundTrip(JS8Varicode.packHuffmanText("HELLO WORLD"), "HELLO WORLD", "Huffman-Text", bits: [])
+    check(JS8Varicode.unpack(JS8Varicode.packHuffmanText("HELLO WORLD 73")!, bits: [])?.text == "HELLO WORLD 7", "JS8: Huffman-Rahmen fasst 70 Bit, der Rest bleibt für den nächsten Rahmen")
+    check(JS8Varicode.packHuffmanText("hello") != nil && JS8Varicode.packHuffmanText("Ü") == nil, "JS8: Huffman nimmt nur Zeichen der Tabelle")
+    // Locator: alle Felder rund
+    var gridsOK = true
+    for a in "AEJNR" { for b in "AGNR" { for c in "0357" { for d in "0469" {
+        let g = String([a, b, c, d])
+        if JS8Varicode.packHeartbeat(call: "DL1ABC", grid: g).flatMap({ JS8Varicode.unpack($0, bits: [.first, .last]) })?.grid != g { gridsOK = false }
+    } } } }
+    check(gridsOK, "JS8: Locator-Raster 4 Stellen rund")
+    // Rufzeichen: Rund durch den 28-Bit-Wert
+    var callsOK = true
+    for call in ["K1ABC", "DL1ABC", "9A7DA", "W1AW", "G4ABC", "VK2LAW", "4X4AB", "OE4ATS", "N5RML", "KB1CTC", "@ALLCALL", "@HB", "@DX/EU", "@GROUP/3", "<....>"] {
+        var p = false
+        if let v = JS8Varicode.packCallsign(call, portable: &p), JS8Varicode.unpackCallsign(v, portable: false) == call {} else { callsOK = false; print("Rufzeichen \(call) nicht rund") }
+    }
+    check(callsOK, "JS8: Rufzeichen und Gruppen rund durch 28 Bit")
+    // Müll: Unbekanntes, zu kurz, Leerzeichen
+    check(JS8Varicode.unpack("ABC", bits: []) == nil && JS8Varicode.unpack("ABCDEFGHIJK ", bits: []) == nil, "JS8: zu kurz oder Leerzeichen → nichts")
+    check(JS8Varicode.unpack("????????????", bits: []) == nil, "JS8: Zeichen außerhalb des Alphabets → nichts")
+    // JSC: Wörterbuch hat den Umfang von JS8Call, Anfang und Ende stimmen
+    check(JS8JSC.word(0) == "E" && JS8JSC.word(1) == "T" && JS8JSC.word(262_143) == "ROSIDS" && JS8JSC.word(262_144) == nil, "JS8: JSC-Wörterbuch Anfang und Ende")
+    check(JS8JSC.word(10_704) == "¡" && JS8JSC.word(10_705) == "¿", "JS8: JSC Zeichen als Latin-1")
+}
+
+// MARK: - JS8: Nachrichten aus Rahmen, Stationen
+if want("js8") {
+    let t0 = Date(timeIntervalSince1970: (1_790_000_010.0 - 1_790_000_010.0.truncatingRemainder(dividingBy: 15)))
+    func d(_ frame: String, _ bits: JS8FrameBits, cycle: Int, f: Double = 1000, snr: Int = -10, mode: JS8Submode = .normal, q: Double = 1) -> JS8Decode {
+        JS8Decode(cycleStart: t0.addingTimeInterval(Double(cycle) * mode.periodSeconds), submode: mode, frame: frame, bits: bits, snrDB: snr, dt: 0, freqHz: f, quality: q)
+    }
+    // Eine Nachricht aus drei Rahmen: Befehl „MSG“ mit Text, erster Rahmen first, mittlerer ohne, letzter last
+    let head = JS8Varicode.packDirected(from: "DL1ABC", to: "K1ABC", command: 9)!
+    let t1 = JS8Varicode.packHuffmanText("HELLO")!
+    let t2 = JS8Varicode.packHuffmanText("WORLD")!
+    var agg = JS8Aggregator()
+    agg.add(d(head, [.first], cycle: 0, snr: -12))
+    agg.add(d(t1, [], cycle: 1, f: 1002.5, snr: -8))
+    check(agg.lines.count == 1 && !agg.lines[0].isComplete, "JS8: zwei Rahmen sind eine offene Nachricht")
+    agg.add(d(t2, [.last], cycle: 2, f: 999.5, snr: -9))
+    check(agg.lines.count == 1 && agg.lines[0].isComplete && agg.lines[0].frameCount == 3, "JS8: letzter Rahmen schließt die Nachricht")
+    check(agg.lines[0].text == "DL1ABC: K1ABC MSG HELLOWORLD", "JS8: Text aneinandergehängt, got \(agg.lines[0].text.debugDescription)")
+    check(agg.lines[0].snrDB == -8 && agg.lines[0].from == "DL1ABC" && agg.lines[0].to == "K1ABC" && agg.lines[0].kind == .directed, "JS8: bester Pegel, Absender, Empfänger")
+    // Zwei Stationen gleichzeitig auf verschiedenen Frequenzen bleiben getrennt
+    var two = JS8Aggregator()
+    two.add(d(head, [.first], cycle: 0, f: 700))
+    two.add(d(JS8Varicode.packDirected(from: "W1AW", to: "K1ABC", command: 9)!, [.first], cycle: 0, f: 1400))
+    two.add(d(t1, [.last], cycle: 1, f: 701))
+    two.add(d(t2, [.last], cycle: 1, f: 1399))
+    check(two.lines.count == 2 && two.lines.allSatisfy(\.isComplete), "JS8: zwei Gespräche auf 700 und 1400 Hz getrennt")
+    check(two.lines[0].text.hasSuffix("HELLO") && two.lines[1].text.hasSuffix("WORLD"), "JS8: Text je Gespräch")
+    // Heartbeat ist eine einzelne Nachricht; ein neuer Anfang auf derselben Frequenz öffnet eine neue Zeile
+    var hbs = JS8Aggregator()
+    hbs.add(d(JS8Varicode.packHeartbeat(call: "DL1ABC", grid: "JN49")!, [.first, .last], cycle: 0))
+    hbs.add(d(JS8Varicode.packHeartbeat(call: "DL1ABC", grid: "JN49")!, [.first, .last], cycle: 4))
+    check(hbs.lines.count == 2 && hbs.lines.allSatisfy { $0.isHeartbeat && $0.isComplete } && hbs.lines[0].grid == "JN49", "JS8: Heartbeats einzeln")
+    // Fehlender Rahmen: Lücke markiert; zu alte offene Nachricht wird nicht fortgesetzt
+    var gap = JS8Aggregator()
+    gap.add(d(head, [.first], cycle: 0))
+    gap.add(d(t2, [.last], cycle: 2))
+    check(gap.lines.count == 1 && gap.lines[0].hasGap && gap.lines[0].text.contains("…"), "JS8: Lücke durch fehlenden Zyklus markiert")
+    var stale = JS8Aggregator()
+    stale.add(d(head, [.first], cycle: 0))
+    stale.add(d(t2, [.last], cycle: 6))
+    check(stale.lines.count == 2 && stale.lines[1].text.hasPrefix("… "), "JS8: nach mehr als drei Zyklen beginnt eine neue Zeile")
+    // Betriebsarten getrennt, Rohrahmen in Klammern
+    var modes = JS8Aggregator()
+    modes.add(d(head, [.first], cycle: 0, f: 1000, mode: .normal))
+    modes.add(d(t1, [.last], cycle: 1, f: 1000, mode: .fast))
+    check(modes.lines.count == 2, "JS8: Betriebsarten werden nicht vermischt")
+    var raw = JS8Aggregator()
+    raw.add(d("????????????", [.first, .last], cycle: 0))
+    check(raw.lines.first?.text == "[????????????]" && raw.lines.first?.kind == nil, "JS8: unbekannter Rahmen als Rohtext in Klammern")
+    check(JS8Calls.isCall("DL1ABC") && JS8Calls.isCall("PA/DL1ABC") && JS8Calls.isCall("9A7DA") && !JS8Calls.isCall("@ALLCALL") && !JS8Calls.isCall("<....>")
+          && !JS8Calls.isCall("HELLO") && !JS8Calls.isCall("AB"), "JS8: Rufzeichen-Erkennung")
+    check(JS8Calls.leadingCall("KN4CRD: TEST") == "KN4CRD" && JS8Calls.leadingCall("TEST: KN4CRD") == nil && JS8Calls.leadingCall("HELLO WORLD") == nil, "JS8: Rufzeichen vor dem Doppelpunkt")
+    check(JS8Aggregator.tolerance(.normal) == 7.5 && JS8Aggregator.tolerance(.slow) == 5 && JS8Aggregator.tolerance(.turbo) == 24, "JS8: Frequenztoleranz je Betriebsart")
+}
+
+// MARK: - JS8-Decoder (synthetisch)
+if want("js8") {
+    var seed: UInt64 = 29
+    func gauss() -> Double {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407; let u1 = (Double(seed >> 11) + 0.5) / Double(1 << 53)
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407; let u2 = (Double(seed >> 11) + 0.5) / Double(1 << 53)
+        return (-2 * log(u1)).squareRoot() * cos(2 * Double.pi * u2)
+    }
+    let frame = JS8Varicode.packHeartbeat(call: "DL1ABC", grid: "JN49")!
+    // Sauber, jede Betriebsart
+    for mode in JS8Submode.allCases {
+        guard let sig = JS8Core.synthesize(frame: frame, submode: mode, frequency: 1000, amplitude: 0.2) else { check(false, "JS8-Testsignal \(mode.title)"); continue }
+        check(sig.count == Int(mode.periodSeconds) * 12_000, "JS8: Testsignal \(mode.title) füllt den Zyklus")
+        let res = JS8Core.decode(sig, submode: mode)
+        let r = res.first
+        check(res.count == 1 && r?.frame == frame && r?.bits == [.first, .last] && r?.unpacked?.text == "DL1ABC: @HB HEARTBEAT JN49 ",
+              "JS8 \(mode.title): sauberes Signal decodiert, got \(res.map(\.frame))")
+        check(abs((r?.freqHz ?? 0) - 1000) < 1.5 && abs(r?.dt ?? 9) < 0.15 && (r?.quality ?? 0) > 0.9,
+              "JS8 \(mode.title): Frequenz \(r.map { String(format: "%.2f", $0.freqHz) } ?? "–") Hz, DT \(r.map { String(format: "%.2f", $0.dt) } ?? "–")")
+    }
+    // Rauschen: S/N(2500 Hz) nominal −12 dB bei Normal; σ² je Abtastwert so, dass im 2500-Hz-Streifen N = σ²·2500/6000
+    func noisy(_ sig: [Float], snrDB: Double, amplitude: Double, sigma0: Double = 0.1) -> [Float] {
+        let ampl = (2 * (sigma0 * sigma0 * 2500 / 6000) * pow(10, snrDB / 10)).squareRoot()
+        let k = Float(ampl / amplitude)
+        return sig.map { $0 * k + Float(sigma0 * gauss()) }
+    }
+    if let sig = JS8Core.synthesize(frame: frame, submode: .normal, frequency: 1300, amplitude: 1) {
+        let res = JS8Core.decode(noisy(sig, snrDB: -12, amplitude: 1), submode: .normal)
+        check(res.contains { $0.frame == frame && abs($0.freqHz - 1300) < 2 }, "JS8 Normal: −12 dB im Rauschen decodiert, got \(res.map { "\($0.frame) \($0.snrDB)" })")
+        if let r = res.first(where: { $0.frame == frame }) {
+            // JS8Call meldet etwa 8 dB tiefer als das S/N in 2500 Hz (Bezug auf die Symbolbandbreite); Schwelle bei gemeldet ≈ −26 dB
+            check((-23 ... -17).contains(r.snrDB), "JS8 Normal: gemeldetes S/N \(r.snrDB) dB für nominell −12 dB")
+        }
+        check(res.allSatisfy { $0.frame == frame }, "JS8 Normal: keine Fehldecodierung im Rauschen, got \(res.map(\.frame))")
+        // Nur Rauschen: nichts
+        let only = JS8Core.decode((0..<180_000).map { _ in Float(0.1 * gauss()) }, submode: .normal)
+        check(only.isEmpty, "JS8 Normal: Rauschen allein liefert nichts, got \(only.map(\.frame))")
+    }
+    // Zwei Stationen, 150 Hz auseinander, 10 dB Unterschied, dazu Rauschen
+    let other = JS8Varicode.packDirected(from: "K1ABC", to: "DL1ABC", command: 14)!
+    if let a = JS8Core.synthesize(frame: frame, submode: .normal, frequency: 800, amplitude: 1),
+       let b = JS8Core.synthesize(frame: other, bits: [.first, .last], submode: .normal, frequency: 950, amplitude: 1) {
+        var mix = [Float](repeating: 0, count: a.count)
+        for i in 0..<a.count { mix[i] = a[i] + 0.3 * b[i] }
+        let res = JS8Core.decode(noisy(mix, snrDB: -8, amplitude: 1), submode: .normal)
+        check(res.contains { $0.frame == frame } && res.contains { $0.frame == other }, "JS8 Normal: zwei Stationen im Abstand 150 Hz, got \(res.map(\.frame))")
+    }
+    // Frequenzablage, Zeitversatz: Signal 0,3 s später und 5 Hz höher; Bereich 200 … 3500 Hz geprüft
+    if var sig = JS8Core.synthesize(frame: frame, submode: .normal, frequency: 2705, amplitude: 0.3) {
+        let shift = Int(0.3 * 12_000)
+        sig = [Float](repeating: 0, count: shift) + sig.dropLast(shift)
+        let r = JS8Core.decode(sig, submode: .normal).first
+        check(r?.frame == frame && abs((r?.dt ?? 0) - 0.3) < 0.15 && abs((r?.freqHz ?? 0) - 2705) < 1.5, "JS8 Normal: 0,3 s Versatz bei 2705 Hz, DT \(r.map { String(format: "%.2f", $0.dt) } ?? "–")")
+        var restricted = JS8Core.Settings()
+        restricted.minHz = 300; restricted.maxHz = 2000
+        check(JS8Core.decode(sig, submode: .normal, settings: restricted).isEmpty, "JS8: Suchbereich 300 … 2000 Hz blendet 2705 Hz aus")
+    }
+    // Mehrere Rahmen derselben Nachricht, Slow bei schwachem Signal
+    if let sig = JS8Core.synthesize(frame: frame, submode: .slow, frequency: 900, amplitude: 1) {
+        let res = JS8Core.decode(noisy(sig, snrDB: -20, amplitude: 1), submode: .slow)
+        check(res.contains { $0.frame == frame }, "JS8 Slow: −20 dB im Rauschen decodiert, got \(res.map { "\($0.frame) \($0.snrDB)" })")
+    }
+    if let sig = JS8Core.synthesize(frame: frame, submode: .turbo, frequency: 1500, amplitude: 1) {
+        let res = JS8Core.decode(noisy(sig, snrDB: -8, amplitude: 1), submode: .turbo)
+        check(res.contains { $0.frame == frame }, "JS8 Turbo: −8 dB im Rauschen decodiert, got \(res.map { "\($0.frame) \($0.snrDB)" })")
+    }
+    // Falsche Betriebsart findet nichts
+    if let sig = JS8Core.synthesize(frame: frame, submode: .normal, frequency: 1000, amplitude: 0.2) {
+        check(JS8Core.decode(sig, submode: .turbo).isEmpty, "JS8: Normal-Signal erscheint nicht als Turbo")
+    }
+}
+
+// MARK: - JS8 an den Aufnahmen von JS8Call (media/tests, nur wenn lokal vorhanden)
+if want("js8") {
+    func wav(_ name: String) -> [Float]? {
+        let url = URL(fileURLWithPath: "TestData/JS8/" + name)
+        guard let data = try? Data(contentsOf: url), data.count > 44 else { return nil }
+        let n = (data.count - 44) / 2
+        var x = [Float](repeating: 0, count: n)
+        data.withUnsafeBytes { raw in
+            let s = raw.baseAddress!.advanced(by: 44).assumingMemoryBound(to: Int16.self)
+            for i in 0..<n { x[i] = Float(Int16(littleEndian: s[i])) / 32768 }
+        }
+        return x
+    }
+    // Erwartet: Ergebnis des unveränderten JS8Call-Decoders (JS8.cpp mit FFTW, Boost, Eigen) auf denselben Dateien
+    let expected: [(String, JS8Submode, [String])] = [
+        ("A_1_4.wav", .normal, ["2Y-wUW3FOjFp", "Vk4xfHSNwzaX", "SKflsHSNwzqH", "SJWkJnSNwzqH", "UctD9HSNwzqE"]),
+        ("A_2_1.wav", .normal, []),
+        ("A_2_3.wav", .normal, ["VlPJy-uGBfqF", "Uw2nt-xLZLqO"]),
+        ("A_2_5.wav", .normal, ["2Y-wUW3FOjFp", "Vk4xfHSNwzaX", "SKflsHSNwzqH", "SJWkJnSNwzqH", "UctD9HSNwzqE"]),
+        ("A_2_6.wav", .normal, ["SIUT18l+CDqE", "SQu8I8l+CDqR", "u3ipItc4eML+", "SJff78l+CDqP"]),
+        ("A_2_9.wav", .normal, ["VkDSPUuGBfqa", "SIUT1UuGBfqb", "SQu8IUuGBfqL", "VkNoM-uGBfqK", "SKgyQ-uGBfqU", "Uw2nt-uGBfqS", "VlPJy-uGBfqI", "SJff7UuGBfqY"]),
+        ("A_3_3.wav", .normal, ["VlPJy-uGBfqF", "Uw2nt-xLZLqO"]),
+        ("E_1_1.wav", .slow, ["TrMcT8++++++"]),
+        ("E_2_1.wav", .slow, ["TrMcT8++++++"]),
+    ]
+    var any = false
+    for (name, mode, frames) in expected {
+        guard let x = wav(name) else { continue }
+        any = true
+        let res = JS8Core.decode(x, submode: mode)
+        check(Set(res.map(\.frame)) == Set(frames), "JS8 \(name): Rahmen wie JS8Call, got \(res.map(\.frame)) erwartet \(frames)")
+    }
+    if let x = wav("A_2_9.wav") {
+        let res = JS8Core.decode(x, submode: .normal)
+        let calls = Set(res.compactMap { $0.unpacked?.from })
+        check(calls == ["K4BYN", "KB1CTC", "K8KDS", "KG9PL", "WP4OH", "KX4XT", "N5RML", "KE2KQ"], "JS8 A_2_9: Absender der acht Heartbeat-Antworten, got \(calls.sorted())")
+        check(res.allSatisfy { $0.unpacked?.to == "K0EIA" && $0.unpacked?.command == " HEARTBEAT SNR" }, "JS8 A_2_9: alle an K0EIA, „HEARTBEAT SNR“")
+        let strong = res.first { $0.unpacked?.from == "KB1CTC" }
+        check(strong.map { $0.snrDB >= 4 && $0.snrDB <= 8 } ?? false && abs((strong?.freqHz ?? 0) - 650.5) < 0.6, "JS8 A_2_9: KB1CTC \(strong?.snrDB ?? 0) dB bei \(strong.map { String(format: "%.1f", $0.freqHz) } ?? "–") Hz")
+    }
+    if let x = wav("E_1_1.wav") {
+        let r = JS8Core.decode(x, submode: .slow).first
+        check(r?.text == "KN4CRD: TEST" && r?.bits == [.first, .last, .data] && (r?.snrDB ?? 0) > 30, "JS8 E_1_1: Slow-Datenrahmen „KN4CRD: TEST“")
+    }
+    if !any { skip("JS8 echt: TestData/JS8/*.wav liegen nicht lokal vor (aus Vendor/_upstream/js8call/media/tests kopieren)") }
+}
+
+// MARK: - JS8-Zyklus über die Pipeline (simulierte Uhr)
+if want("js8") {
+    final class FakeClock: @unchecked Sendable { var t = 0.0 }
+    let clock = FakeClock()
+    let cycle = 1_790_000_010.0 - 1_790_000_010.0.truncatingRemainder(dividingBy: 15)   // Zyklusbeginn Normal
+    let pipeline = AudioPipeline()
+    let decoder = JS8Decoder(pipeline: pipeline)
+    decoder.clock = { clock.t }
+    decoder.configure(modes: [.normal, .turbo], settings: JS8Core.Settings(), preferHz: 1000, timeOffset: 0)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    let frame = JS8Varicode.packDirected(from: "DL1ABC", to: "K1ABC", command: 14)!
+    let lead = 2.0
+    // Normal-Zyklus (15 s) beginnt beim Zyklusbeginn; Turbo-Zyklen (6 s) liegen auf 0, 6, 12 s: das Signal beginnt nach 12 s
+    let normalSig = JS8Core.synthesize(frame: frame, submode: .normal, frequency: 1100, amplitude: 0.3)!
+    let turboFrame = JS8Varicode.packHeartbeat(call: "K1ABC", grid: "FN31")!
+    let turboSig = JS8Core.synthesize(frame: turboFrame, submode: .turbo, frequency: 2000, amplitude: 0.3)!
+    var audio12 = [Float](repeating: 0, count: Int(lead * 12_000)) + normalSig
+    // Turbo-Aussendung im Zyklus 6 … 12 s dazumischen (Beginn bei Sekunde 6 + 0,1 s Verzögerung ist im Signal enthalten)
+    let off = Int((lead + 6) * 12_000)
+    for i in 0..<turboSig.count where off + i < audio12.count { audio12[off + i] += turboSig[i] }
+    var audio48 = [Float](repeating: 0, count: audio12.count * 4)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 4, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio12[k] * (1 - f) + (k + 1 < audio12.count ? audio12[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    let chunk = 4_800
+    var results: [JS8Decoder.CycleResult] = []
+    while i < audio48.count {
+        let n = min(chunk, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        clock.t = cycle - lead + Double(i) / 48_000
+        Thread.sleep(forTimeInterval: 0.03)
+        results += decoder.takeResults()
+    }
+    for _ in 0..<60 where !(results.contains { $0.submode == .normal } && results.contains { $0.submode == .turbo && $0.decodes.contains { $0.frame == turboFrame } }) {
+        Thread.sleep(forTimeInterval: 0.1)
+        results += decoder.takeResults()
+    }
+    let normal = results.first { $0.submode == .normal }
+    let turbo = results.first { $0.submode == .turbo && $0.decodes.contains { $0.frame == turboFrame } }
+    check(normal?.cycleStart == Date(timeIntervalSince1970: cycle), "JS8-Zyklus: Normal beginnt nach UTC-Raster")
+    check(normal?.decodes.first?.frame == frame && abs(normal?.decodes.first?.dt ?? 9) < 0.25, "JS8-Zyklus: Normal über die Pipeline 48 kHz → 12 kHz, DT \(normal?.decodes.first.map { String(format: "%.2f", $0.dt) } ?? "–")")
+    check(turbo != nil && turbo!.cycleStart == Date(timeIntervalSince1970: cycle + 6), "JS8-Zyklus: Turbo im Raster von 6 s, got \(results.map { "\($0.submode.letter) \($0.cycleStart.timeIntervalSince1970 - cycle) \($0.decodes.count)" })")
+    check(Set(results.map(\.submode)) == [.normal, .turbo], "JS8-Zyklus: nur die gewählten Betriebsarten")
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
+// MARK: - SDRplay: Abtastrate 62,5 kS/s bis 10 MS/s, Filter, Notches (DAB- und RF-Notch)
+if want("sdrplay") {
+    check(SDRplayPlan.sampleRates.first == 62_500 && SDRplayPlan.sampleRates.last == 10_000_000 && SDRplayPlan.sampleRates == SDRplayPlan.sampleRates.sorted(),
+          "SDRplay: Raten von 62,5 kS/s bis 10 MS/s aufsteigend")
+    // Dezimierung: unter 2 MS/s teilt die API das 2-MS/s-Signal durch 2, 4, 8, 16, 32
+    let dec: [(Int, Int)] = [(62_500, 32), (125_000, 16), (250_000, 8), (500_000, 4), (1_000_000, 2)]
+    for (wanted, d) in dec {
+        let r = SDRplayPlan.rate(for: wanted)
+        check(r.deviceHz == 2_000_000 && r.decimation == d && Int(r.outputHz) == wanted, "SDRplay: \(wanted) S/s = 2 MS/s durch \(d)")
+    }
+    for wanted in [2_000_000, 2_400_000, 3_000_000, 5_000_000, 8_000_000, 10_000_000] {
+        let r = SDRplayPlan.rate(for: wanted)
+        check(r.deviceHz == Double(wanted) && r.decimation == 1 && Int(r.outputHz) == wanted, "SDRplay: \(wanted) S/s direkt ohne Dezimierung")
+    }
+    check(SDRplayPlan.rate(for: 20_000_000).deviceHz == 10_000_000 && SDRplayPlan.rate(for: 1_000).outputHz == 62_500, "SDRplay: Raten außerhalb werden begrenzt")
+    check(SDRplayPlan.rate(for: 600_000).decimation == 4 && SDRplayPlan.rate(for: 100_000).decimation == 16, "SDRplay: krumme Rate auf die nächste mögliche gerundet")
+    // Analoger Filter: nach der Rate, sonst die eigene Wahl auf den nächsten erlaubten Wert
+    let bw: [(Int, Int)] = [(62_500, 200), (125_000, 200), (250_000, 300), (500_000, 600), (1_000_000, 1536), (2_000_000, 1536), (2_400_000, 1536),
+                            (3_000_000, 1536), (4_000_000, 1536), (5_000_000, 5000), (6_000_000, 6000), (8_000_000, 8000), (9_600_000, 8000), (10_000_000, 8000)]
+    for (rate, khz) in bw {
+        check(SDRplayPlan.bandwidthKHz(outputHz: Double(rate), requested: 0) == khz, "SDRplay: Filter bei \(rate) S/s automatisch \(khz) kHz, got \(SDRplayPlan.bandwidthKHz(outputHz: Double(rate), requested: 0))")
+    }
+    check(SDRplayPlan.bandwidthKHz(outputHz: 2e6, requested: 600) == 600 && SDRplayPlan.bandwidthKHz(outputHz: 2e6, requested: 1100) == 1536
+          && SDRplayPlan.bandwidthKHz(outputHz: 2e6, requested: 4000) == 5000 && SDRplayPlan.bandwidthKHz(outputHz: 2e6, requested: 50_000) == 8000, "SDRplay: eigene Filterwahl auf erlaubte Werte")
+    check(SDRplayPlan.sampleRates.allSatisfy { r in let p = SDRplayPlan.rate(for: r); return SDRplayPlan.bandwidthsKHz.contains(SDRplayPlan.bandwidthKHz(outputHz: p.outputHz, requested: 0)) }, "SDRplay: Filter immer ein Wert der API")
+
+    // Notches je Gerät (Versätze aus dem Header 3.15 der SDRplay-API, mit offsetof gemessen)
+    let n1a = SDRplayPlan.notchFields(hwVer: 255), n1b = SDRplayPlan.notchFields(hwVer: 6), n2 = SDRplayPlan.notchFields(hwVer: 2)
+    let nduo = SDRplayPlan.notchFields(hwVer: 3), ndx = SDRplayPlan.notchFields(hwVer: 4), ndx2 = SDRplayPlan.notchFields(hwVer: 7)
+    check(n1a?.base == .device && n1a?.rfOffset == 44 && n1a?.dabOffset == 45 && n1b == n1a, "SDRplay: RSP1A/1B Notches in DevParams.rsp1aParams")
+    check(n2?.base == .channel && n2?.rfOffset == 120 && n2?.dabOffset == nil, "SDRplay: RSP2 nur RF-Notch (Tuner-Struktur)")
+    check(nduo?.base == .channel && nduo?.rfOffset == 133 && nduo?.dabOffset == 134, "SDRplay: RSPduo Notches in rspDuoTunerParams")
+    check(ndx?.base == .device && ndx?.rfOffset == 60 && ndx?.dabOffset == 61 && ndx2 == ndx, "SDRplay: RSPdx Notches in DevParams.rspDxParams")
+    check(SDRplayPlan.notchFields(hwVer: 1) == nil && SDRplayPlan.notches(hwVer: 1) == (false, false) && SDRplayPlan.notches(hwVer: 2) == (true, false)
+          && SDRplayPlan.notches(hwVer: 3) == (true, true), "SDRplay: RSP1 ohne Notches, RSP2 nur RF, RSPduo beide")
+    check(n1a?.updateRf.0 == 0x20 && n1a?.updateDab.0 == 0x40 && n2?.updateRf.0 == 0x400 && nduo?.updateRf.0 == 0x4000_0000 && nduo?.updateDab.0 == 0x8000_0000
+          && ndx?.updateRf.1 == 0x8 && ndx?.updateDab.1 == 0x10, "SDRplay: Update-Kennzeichen der Notches")
+
+    // Schreiben in die Strukturen: Rate, Dezimierung, Filter und je nach Gerät die Notches
+    func applied(hw: UInt8, rate: Int, rf: Bool, dab: Bool, bandwidth: Int = 0) -> (dev: UnsafeMutableRawPointer, ch: UnsafeMutableRawPointer, result: (rate: SDRplayPlan.Rate, bandwidthKHz: Int)) {
+        let dev = UnsafeMutableRawPointer.allocate(byteCount: 64, alignment: 8), ch = UnsafeMutableRawPointer.allocate(byteCount: 144, alignment: 8)
+        dev.initializeMemory(as: UInt8.self, repeating: 0, count: 64)
+        ch.initializeMemory(as: UInt8.self, repeating: 0, count: 144)
+        var g = ADSBGainSettings()
+        g.sampleRateHz = rate; g.sdrplayRfNotch = rf; g.sdrplayDabNotch = dab; g.sdrplayBandwidthKHz = bandwidth; g.sdrplayPPM = 3
+        return (dev, ch, SDRplayPlan.apply(settings: g, hwVer: hw, dev: dev, channel: ch))
+    }
+    func byte(_ p: UnsafeMutableRawPointer, _ o: Int) -> UInt8 { p.load(fromByteOffset: o, as: UInt8.self) }
+    do {
+        let a = applied(hw: 255, rate: 250_000, rf: true, dab: false)
+        check(a.dev.load(fromByteOffset: 8, as: Double.self) == 2_000_000 && a.dev.load(fromByteOffset: 0, as: Double.self) == 3, "SDRplay: fsHz 2 MS/s und PPM geschrieben")
+        check(byte(a.ch, 74) == 1 && byte(a.ch, 75) == 8 && byte(a.ch, 76) == 0 && a.ch.load(fromByteOffset: 0, as: Int32.self) == 300, "SDRplay: Dezimierung 8, Filter 300 kHz bei 250 kS/s")
+        check(byte(a.dev, 44) == 1 && byte(a.dev, 45) == 0, "SDRplay: RSP1A RF-Notch an, DAB-Notch aus")
+        a.dev.deallocate(); a.ch.deallocate()
+        let b = applied(hw: 255, rate: 2_400_000, rf: false, dab: true)
+        check(byte(b.dev, 44) == 0 && byte(b.dev, 45) == 1 && byte(b.ch, 74) == 0 && byte(b.ch, 75) == 1, "SDRplay: RSP1A DAB-Notch an, keine Dezimierung ab 2 MS/s")
+        b.dev.deallocate(); b.ch.deallocate()
+        let c = applied(hw: 3, rate: 8_000_000, rf: true, dab: true)
+        check(byte(c.ch, 133) == 1 && byte(c.ch, 134) == 1 && byte(c.dev, 44) == 0 && c.ch.load(fromByteOffset: 0, as: Int32.self) == 8000, "SDRplay: RSPduo beide Notches in der Tuner-Struktur, Filter 8 MHz bei 8 MS/s")
+        c.dev.deallocate(); c.ch.deallocate()
+        let d = applied(hw: 4, rate: 2_000_000, rf: true, dab: true, bandwidth: 600)
+        check(byte(d.dev, 60) == 1 && byte(d.dev, 61) == 1 && d.ch.load(fromByteOffset: 0, as: Int32.self) == 600, "SDRplay: RSPdx beide Notches in DevParams, eigener Filter 600 kHz")
+        d.dev.deallocate(); d.ch.deallocate()
+        let e = applied(hw: 2, rate: 2_000_000, rf: true, dab: true)
+        check(byte(e.ch, 120) == 1 && byte(e.ch, 133) == 0, "SDRplay: RSP2 nur die RF-Notch")
+        e.dev.deallocate(); e.ch.deallocate()
+        let f = applied(hw: 1, rate: 2_000_000, rf: true, dab: true)
+        check((44..<64).allSatisfy { byte(f.dev, $0) == 0 } && (120..<144).allSatisfy { byte(f.ch, $0) == 0 }, "SDRplay: RSP1 ohne Notches: die Strukturen der Geräte bleiben unberührt")
+        f.dev.deallocate(); f.ch.deallocate()
+    }
+    // Einstellungen: Raten je Gerät, Abstand der Mitte, Fensterbreite
+    check(SDRSettingsStore.sampleRateChoices(for: .sdrplay) == SDRplayPlan.sampleRates && SDRSettingsStore.sampleRateChoices(for: .rtlsdr) == [2_400_000]
+          && SDRSettingsStore.sampleRateChoices(for: .hackrf).last == 20_000_000, "SDR: Ratenliste je Gerät, SDRplay bis 10 MS/s herab zu 62,5 kS/s")
+    check(SDRSettingsStore.loOffset(forRate: 2_400_000) == 300_000 && SDRSettingsStore.loOffset(forRate: 10_000_000) == 300_000
+          && SDRSettingsStore.loOffset(forRate: 62_500) == 7_812.5 && SDRSettingsStore.loOffset(forRate: 1_000_000) == 125_000, "SDR: Abstand der Mitte bis 300 kHz, bei kleinen Raten ein Achtel der Rate")
+    check(SDRSettingsStore.dcGuard(forRate: 2_400_000) == 40_000 && abs(SDRSettingsStore.dcGuard(forRate: 62_500) - 1_041.67) < 0.01, "SDR: Mindestabstand von der Mitte wächst mit der Rate")
+    for r in SDRplayPlan.sampleRates {
+        let lo = SDRSettingsStore.loOffset(forRate: r), w = SDRSettingsStore.window(forRate: r)
+        check(lo > SDRSettingsStore.dcGuard(forRate: r) && lo < w, "SDR: bei \(r) S/s liegt die gehörte Frequenz (\(Int(lo)) Hz) zwischen Gleichanteil und Fensterrand (\(Int(w)) Hz)")
+    }
+}
+
+// MARK: - SDRplay: Warnung bei Übersteuerung
+if want("sdrplay") {
+    let t = Date(timeIntervalSince1970: 1_800_000_000)
+    check(SDRplayOverload.state(active: true, lastDetected: t, now: t.addingTimeInterval(1)) == .active, "SDRplay: übersteuert → Warnung aktiv")
+    check(SDRplayOverload.state(active: false, lastDetected: t, now: t.addingTimeInterval(3)) == .recent, "SDRplay: gerade behoben → noch „kurz übersteuert“")
+    check(SDRplayOverload.state(active: false, lastDetected: t, now: t.addingTimeInterval(SDRplayOverload.holdSeconds + 0.1)) == .none, "SDRplay: nach \(Int(SDRplayOverload.holdSeconds)) s keine Anzeige mehr")
+    check(SDRplayOverload.state(active: false, lastDetected: nil, now: t) == .none, "SDRplay: nie übersteuert → keine Anzeige")
+    SDRplayAPISource.resetOverload()
+    check(SDRplayAPISource.overload == .none, "SDRplay: Zustand nach Neustart leer")
+    SDRplayAPISource.noteOverload(detected: true)
+    check(SDRplayAPISource.overload == .active, "SDRplay: Meldung „Overload detected“ (Parameter 0) setzt die Warnung")
+    SDRplayAPISource.noteOverload(detected: false)
+    check(SDRplayAPISource.overload == .recent, "SDRplay: Meldung „Overload corrected“ (Parameter 1) lässt „kurz übersteuert“ stehen")
+    // Ereignis der API mit Parameter: 0 = erkannt, 1 = behoben (Gerät wird bestätigt, ohne Gerät folgenlos)
+    let src = SDRplayAPISource(settings: ADSBGainSettings())
+    var detected: Int32 = 0
+    src.handleEvent(1, params: &detected)
+    check(SDRplayAPISource.overload == .active && src.overloadCount == 1, "SDRplay: Ereignis „erkannt“ → aktiv, gezählt")
+    var corrected: Int32 = 1
+    src.handleEvent(1, params: &corrected)
+    check(SDRplayAPISource.overload == .recent && src.overloadCount == 2, "SDRplay: Ereignis „behoben“ → kurz übersteuert")
+    SDRplayAPISource.resetOverload()
+}
+
+// MARK: - SDR-Empfänger bei allen Abtastraten des SDRplay (NFM-Ton über die ganze Kette)
+if want("sdrplay") {
+    func level(_ a: [Float], _ f: Double, skip: Double = 0.3) -> Double {
+        let start = Int(skip * 48_000)
+        guard a.count > start + 4_800 else { return 0 }
+        let n = a.count - start
+        var re = 0.0, im = 0.0, w = 0.0
+        for k in 0..<n {
+            let win = 0.5 - 0.5 * cos(2 * Double.pi * Double(k) / Double(n))
+            let ph = 2 * Double.pi * f * Double(k) / 48_000
+            re += Double(a[start + k]) * win * cos(ph)
+            im -= Double(a[start + k]) * win * sin(ph)
+            w += win
+        }
+        return 2 * (re * re + im * im).squareRoot() / w
+    }
+    for rate in SDRplayPlan.sampleRates {
+        var s = SDRTestSignal(sampleRate: Double(rate), seconds: rate >= 6_000_000 ? 0.6 : 1.0)
+        let off = SDRSettingsStore.loOffset(forRate: rate)
+        s.addFM(offsetHz: off, tone: 1000, deviation: 3000, amplitude: 0.4)
+        s.addNoise(sigma: 0.003)
+        var cfg = SDRChannelConfig(mode: .nfm); cfg.bandwidthHz = 12_500
+        let demod = SDRDemodulator(sampleRate: Double(rate), config: cfg)
+        demod.setOffset(off)
+        var audio = [Float]()
+        s.quantized().withUnsafeBufferPointer { b in
+            var i = 0
+            while i < b.count { let e = min(i + 262_144, b.count); demod.process(UnsafeBufferPointer(rebasing: b[i..<e]), audio: &audio); i = e }
+        }
+        let l = level(audio, 1000)
+        check(abs(l - 0.6) < 0.08, "SDR FM bei \(rate) S/s: 3 kHz Hub ergibt Amplitude 0,6 (\(String(format: "%.3f", l)))")
+        // Länge des Audios: 48 kS/s des Eingangs (Zeit stimmt, keine Samples verloren)
+        let seconds = Double(audio.count) / 48_000
+        check(abs(seconds - Double(s.count) / Double(rate)) < 0.12, "SDR FM bei \(rate) S/s: Audiolänge \(String(format: "%.2f", seconds)) s passt zur Eingangszeit")
+    }
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

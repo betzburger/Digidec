@@ -23,7 +23,7 @@ public struct RDSPanelView: View {
             // Kopfbereich: Station & Frequenz
             stationHeaderCard
 
-            // Hauptbereich: Radiotext, Details und Alternativfrequenzen
+            // Hauptbereich: Radiotext, Details & Statistik
             HStack(alignment: .top, spacing: 8) {
                 // Linke Spalte: Radiotext & Historie
                 VStack(spacing: 8) {
@@ -32,14 +32,16 @@ public struct RDSPanelView: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                // Rechte Spalte: Alternativfrequenzen, Details & Statistik
+                // Rechte Spalte: Details & Statistik
                 VStack(spacing: 8) {
                     detailsCard
-                    afCard
                     statsCard
                 }
                 .frame(width: 280)
             }
+
+            // Alternativfrequenzen: volle Breite, eine Zeile, damit das Fenster nicht in die Höhe wächst
+            afCard
 
             // Unterer Bereich: Schnellauswahl / Presets
             presetsCard
@@ -306,35 +308,39 @@ public struct RDSPanelView: View {
 
     // MARK: - Alternativfrequenzen (AF)
 
+    /// Eine Zeile: Titel und Anzahl links, die Frequenzen waagerecht daneben (bei Bedarf scrollbar)
     private var afCard: some View {
         RadioBox {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text("ALTERNATIVFREQUENZEN (AF)")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
                         .tracking(0.8)
-                    Spacer()
-                    Text("\(info.alternativeFrequencies.count)")
+                    Text("\(info.alternativeFrequencies.count) gemeldet")
                         .font(.system(size: 8, weight: .medium, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
                 }
+                .fixedSize()
 
                 if info.alternativeFrequencies.isEmpty {
                     Text("Keine AF gemeldet")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                        .padding(.vertical, 4)
+                    Spacer(minLength: 0)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 60))], spacing: 4) {
-                        ForEach(info.alternativeFrequencies, id: \.self) { af in
-                            Button(String(format: "%.1f", af).replacingOccurrences(of: ".", with: ",")) {
-                                controller.tune(frequencyHz: af * 1e6)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(info.alternativeFrequencies, id: \.self) { af in
+                                Button(String(format: "%.1f", af).replacingOccurrences(of: ".", with: ",")) {
+                                    controller.tune(frequencyHz: af * 1e6)
+                                }
+                                .buttonStyle(ModeButtonStyle(isSelected: (settings.frequencyHz / 1e6).rounded() == af.rounded()))
+                                .scaleEffect(0.85)
+                                .help("Auf \(af) MHz abstimmen")
                             }
-                            .buttonStyle(ModeButtonStyle(isSelected: (settings.frequencyHz / 1e6).rounded() == af.rounded()))
-                            .scaleEffect(0.85)
-                            .help("Auf \(af) MHz abstimmen")
                         }
+                        .padding(.vertical, 2)
                     }
                 }
             }
@@ -377,7 +383,7 @@ public struct RDSPanelView: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
 
-                RDSQuickPicks(controller: controller, settings: settings, grid: false)
+                RDSQuickPicks(controller: controller, settings: settings)
 
                 Spacer(minLength: 4)
 
@@ -494,13 +500,7 @@ public struct RDSSettingsPanel: View {
                 Button("+") { controller.step(mhz: 0.1) }.buttonStyle(ModeButtonStyle(isSelected: false))
             }
 
-            // Schnellauswahl: eigene Sender
-            VStack(alignment: .leading, spacing: 4) {
-                Text("SCHNELLAUSWAHL").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
-                RDSQuickPicks(controller: controller, settings: settings, grid: true)
-            }
-
-            Divider().overlay(RadioTheme.borderSubtle)
+            // Die Schnellauswahl steht unten im Hauptbereich (presetsCard) und wird hier nicht doppelt gezeigt
 
             HStack {
                 Button("LEEREN") { controller.clear() }
@@ -517,26 +517,18 @@ public struct RDSSettingsPanel: View {
 // MARK: - Schnellauswahl (eigene Sender)
 
 /// „★ MERKEN“ legt den eingestellten Sender mit seinem Programmnamen ab; die Leiste zeigt die gemerkten Sender (Rechtsklick: entfernen).
-/// Solange nichts gemerkt ist, steht eine Auswahl gängiger Frequenzen da.
+/// Solange nichts gemerkt ist, steht eine Auswahl gängiger Frequenzen da. Eine Zeile, waagerecht scrollbar.
 struct RDSQuickPicks: View {
     @ObservedObject var controller: RDSController
     @ObservedObject var settings: RDSSettingsStore
-    let grid: Bool
 
     private var isFavorite: Bool { settings.favorite(at: settings.frequencyHz) != nil }
 
     var body: some View {
-        if grid {
-            VStack(alignment: .leading, spacing: 4) {
-                starButton
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 118))], spacing: 4) { picks }
-            }
-        } else {
-            HStack(spacing: 6) {
-                starButton
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) { picks }
-                }
+        HStack(spacing: 6) {
+            starButton
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) { picks }
             }
         }
     }

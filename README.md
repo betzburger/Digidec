@@ -17,6 +17,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 | CW, PSK, OLIVIA, MT63, MFSK | Telegrafie, PSK31 bis 8PSK, Olivia und Contestia, MT63; MFSK mit DominoEX, Thor, Throb, IFKP, FSQ (49 Betriebsarten) |
 | SKIMMER | liest alle CW- und PSK-Signale im Audio gleichzeitig, mit Rufzeichen, Land und Spots |
 | FT8, FT4, WSPR | Bandaktivität, Entfernungen, Karte, ALL.TXT-Log |
+| JS8 | JS8Call-Betriebsarten Normal, Fast, Turbo und Slow (auch zugleich): Bandaktivität mit zusammengesetzten Nachrichten, Heartbeats, Befehle und Freitext (JSC), gehörte Stationen mit Karte, ALL.TXT-Log; nur Empfang |
 | DSC, ALE, HFDL | Digitaler Selektivruf (auch UKW-Kanal 70), automatischer Verbindungsaufbau (ALE), Datenlink der Flugzeuge (HFDL) |
 | DCF77, EFR | Zeitzeichensender mit Atomuhr und Zeitvergleich, Rundsteuertelegramme (DCF49, DCF39, HGA22) |
 

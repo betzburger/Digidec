@@ -36,6 +36,8 @@ public final class TETRASettingsStore: ObservableObject {
     @Published public var sdrplayAGC: Bool { didSet { UserDefaults.standard.set(sdrplayAGC, forKey: "tetraSdrAGC") } }
     @Published public var sdrplayBias: Bool { didSet { UserDefaults.standard.set(sdrplayBias, forKey: "tetraSdrBias") } }
     @Published public var sdrplayPPM: Int { didSet { UserDefaults.standard.set(sdrplayPPM, forKey: "tetraSdrPPM") } }
+    @Published public var sdrplayRfNotch: Bool { didSet { UserDefaults.standard.set(sdrplayRfNotch, forKey: "tetraSdrRfNotch") } }
+    @Published public var sdrplayDabNotch: Bool { didSet { UserDefaults.standard.set(sdrplayDabNotch, forKey: "tetraSdrDabNotch") } }
 
     public init() {
         let d = UserDefaults.standard
@@ -59,6 +61,8 @@ public final class TETRASettingsStore: ObservableObject {
         sdrplayAGC = d.object(forKey: "tetraSdrAGC") as? Bool ?? true
         sdrplayBias = d.object(forKey: "tetraSdrBias") as? Bool ?? false
         sdrplayPPM = d.object(forKey: "tetraSdrPPM") as? Int ?? 0
+        sdrplayRfNotch = d.object(forKey: "tetraSdrRfNotch") as? Bool ?? false
+        sdrplayDabNotch = d.object(forKey: "tetraSdrDabNotch") as? Bool ?? false
     }
 
     public var carrierFrequencies: [Double] { carriers.map(TETRAChannelPlan.hz) }
@@ -86,6 +90,8 @@ public final class TETRASettingsStore: ObservableObject {
         g.sdrplayAGC = sdrplayAGC
         g.sdrplayBias = sdrplayBias
         g.sdrplayPPM = sdrplayPPM
+        g.sdrplayRfNotch = sdrplayRfNotch
+        g.sdrplayDabNotch = sdrplayDabNotch
         return g
     }
 }
@@ -237,6 +243,7 @@ public final class TETRAController: ObservableObject {
             settings.$sdrplayTuner.map { _ in () }.eraseToAnyPublisher(), settings.$sdrplayIFGain.map { _ in () }.eraseToAnyPublisher(),
             settings.$sdrplayAGC.map { _ in () }.eraseToAnyPublisher(), settings.$sdrplayBias.map { _ in () }.eraseToAnyPublisher(),
             settings.$sdrplayPPM.map { _ in () }.eraseToAnyPublisher(),
+            settings.$sdrplayRfNotch.map { _ in () }.eraseToAnyPublisher(), settings.$sdrplayDabNotch.map { _ in () }.eraseToAnyPublisher(),
         ]
         Publishers.MergeMany(triggers)
             .dropFirst(triggers.count)

@@ -85,6 +85,7 @@ SRC=(
     $S/Decoders/FT8/FT8Core.swift $S/Decoders/FT8/FT8Module.swift
     $S/Decoders/FT4/FT4Core.swift $S/Decoders/FT4/FT4Module.swift
     $S/Decoders/WSPR/WSPRCore.swift $S/Decoders/WSPR/WSPRModule.swift
+    $S/Decoders/JS8/JS8Varicode.swift $S/Decoders/JS8/JS8Pack.swift $S/Decoders/JS8/JS8Core.swift $S/Decoders/JS8/JS8Messages.swift $S/Decoders/JS8/JS8Module.swift
     $S/Decoders/DCF77/DCF77Core.swift $S/Decoders/DCF77/DCF77SignalGenerator.swift $S/Decoders/DCF77/DCF77Module.swift
     $S/Decoders/EFR/EFRCore.swift $S/Decoders/EFR/EFRSignalGenerator.swift $S/Decoders/EFR/EFRModule.swift
     $S/Decoders/SSTV/SSTVMode.swift $S/Decoders/SSTV/SSTVCore.swift $S/Decoders/SSTV/SSTVSignalGenerator.swift $S/Decoders/SSTV/SSTVModule.swift

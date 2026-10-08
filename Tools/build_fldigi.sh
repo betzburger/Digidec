@@ -1,10 +1,10 @@
 #!/bin/zsh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Peter Betz und Mitwirkende
-# Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C), Vendor/FT8 (ft8mon), Vendor/Wspr (wsprd) und Vendor/Codec2 außerhalb von SwiftPM für Logiktests und Werkzeuge.
+# Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C), Vendor/FT8 (ft8mon), Vendor/Wspr (wsprd), Vendor/JS8 (JS8Call) und Vendor/Codec2 außerhalb von SwiftPM für Logiktests und Werkzeuge.
 # Aufruf: Tools/build_fldigi.sh <ausgabeordner>
 # Objekte werden nur neu übersetzt, wenn die Quelldatei neuer ist (Änderungen an Headern: Ordner obj löschen); die Modul-Map wird nur bei Änderung neu geschrieben.
-# Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“, „FT8“, „Wspr“ und „Codec2“ wie im Package)
+# Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“, „FT8“, „Wspr“, „JS8“ und „Codec2“ wie im Package)
 set -euo pipefail
 ROOT="${0:A:h:h}"
 OUT="$1"
@@ -28,6 +28,13 @@ for c in $W/src/*.cc; do
 done
 for c in $W/src/*.c; do
     if [[ ! -f "$OUT/obj/wsprc_${c:t:r}.o" || "$c" -nt "$OUT/obj/wsprc_${c:t:r}.o" ]]; then cc -O3 -w -ffast-math -I$W/include -I$W/src -I$W/inc -c "$c" -o "$OUT/obj/wsprc_${c:t:r}.o"; fi
+done
+J8="$ROOT/Vendor/JS8"
+if [[ ! -f "$OUT/obj/js8_core.o" || $J8/src/js8_core.cc -nt "$OUT/obj/js8_core.o" || $J8/inc/js8_api.inc -nt "$OUT/obj/js8_core.o" || $J8/compat/js8_compat.h -nt "$OUT/obj/js8_core.o" ]]; then
+    clang++ -std=gnu++20 -O3 -w -I$J8/include -I$J8/src -I$J8/compat -I$J8/inc -c $J8/src/js8_core.cc -o "$OUT/obj/js8_core.o"
+fi
+for c in $J8/src/*.c; do
+    if [[ ! -f "$OUT/obj/js8c_${c:t:r}.o" || "$c" -nt "$OUT/obj/js8c_${c:t:r}.o" ]]; then cc -O2 -w -I$J8/include -c "$c" -o "$OUT/obj/js8c_${c:t:r}.o"; fi
 done
 C2="$ROOT/Vendor/Codec2"
 C2NAMES=(kiss_fft kiss_fftr kiss_fftri kiss_fft_alloc kiss_fftr_alloc kiss_fft_stride kiss_fft_cleanup kiss_fft_next_fast_size encode)
@@ -56,6 +63,11 @@ module FT8 {
 }
 module Wspr {
     header "$W/include/wspr_digidec.h"
+    export *
+}
+module JS8 {
+    header "$J8/include/js8_digidec.h"
+    header "$J8/include/jsc_words.h"
     export *
 }
 module Codec2 {

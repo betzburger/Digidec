@@ -165,6 +165,9 @@ public final class SDRDemodulator {
     private var squelchIsOpen = true
     private var powerAvg = 1e-12
 
+    /// Zustand der Rauschsperre (geöffnet = Signal über Schwelle, Audio wird durchgelassen)
+    public var isSquelchOpen: Bool { squelchIsOpen }
+
     /// Verschachtelte Stereo-Abtastwerte (L, R, 48 kS/s), wenn `produceStereo` gesetzt ist; der Aufrufer leert die Liste
     public var stereoOut: [Float] = []
     public var produceStereo = false
@@ -215,8 +218,9 @@ public final class SDRDemodulator {
     private func buildFrontEnd() {
         stage5 = nil; stage2 = nil; stageOne = nil
         let ratio = sampleRate / 480_000
-        // Abtastraten, die kein ganzes Vielfaches von 480 kS/s sind (HackRF mit 20 MS/s): erst ganzzahlig auf etwa 1 MS/s, dann der Wandler
-        if sampleRate > 3_000_000, abs(ratio - ratio.rounded()) > 1e-9 {
+        // Abtastraten, die kein ganzes Vielfaches von 480 kS/s sind (HackRF mit 20 MS/s, SDRplay mit 2, 3, 4, 5, 6, 8, 10 MS/s):
+        // erst ganzzahlig auf etwa 1 MS/s, dann der Wandler; darunter (bis 62,5 kS/s) gleich der Wandler
+        if sampleRate > 1_500_000, abs(ratio - ratio.rounded()) > 1e-9 {
             let d = Int(sampleRate / 960_000)
             let mid = sampleRate / Double(d)
             stage5 = ComplexStreamFIR(taps: SDRFilterDesign.lowpass(passband: 130_000 / sampleRate, stopband: (mid - 300_000) / sampleRate, attenuationDB: 60), decimation: d)
@@ -321,7 +325,9 @@ public final class SDRDemodulator {
         }
     }
 
-    /// Leistung eines Blocks (I² + Q²) in dB, geglättet; Squelch mit 2 dB Hysterese
+    /// Leistung eines Blocks (I² + Q²) in dB, geglättet; Squelch mit 2 dB Hysterese.
+    /// Schnelle Ansprache (8 ms) und schneller Abfall (15 ms), damit der Signalpegel flüssig
+    /// reagiert und die Rauschsperre (Squelch) sofort schließt (kein störendes Rausch-Nachlaufen).
     private func updateMeter(i: [Float], q: [Float], rate: Double) {
         guard !i.isEmpty else { return }
         var pi: Float = 0, pq: Float = 0
@@ -329,7 +335,8 @@ public final class SDRDemodulator {
         vDSP_svesq(q, 1, &pq, vDSP_Length(q.count))
         let p = Double(pi + pq) / Double(i.count)
         let blockSeconds = Double(i.count) / rate
-        let alpha = min(1, blockSeconds / 0.1)
+        let tau = 0.004
+        let alpha = min(1.0, blockSeconds / tau)
         powerAvg += (p - powerAvg) * alpha
         let db = 10 * log10(max(powerAvg, 1e-12))
         metrics.signalDB = db
@@ -457,7 +464,8 @@ public final class SDRDemodulator {
         vDSP_svesq(yi, 1, &pt, vDSP_Length(n))
         let p = Double(ps + pt) / Double(n)
         let blockSeconds = Double(n) / Self.ssbRate
-        powerAvg += (p - powerAvg) * min(1, blockSeconds / 0.1)
+        let tau = p > powerAvg ? 0.008 : 0.025
+        powerAvg += (p - powerAvg) * min(1.0, blockSeconds / tau)
         let db = 10 * log10(max(powerAvg, 1e-12))
         metrics.signalDB = db
         squelchIsOpen = config.squelchEnabled ? (squelchIsOpen ? db > config.squelchDB - 2 : db > config.squelchDB) : true

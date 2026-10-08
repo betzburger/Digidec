@@ -23,15 +23,23 @@ public final class SDRSpectrum {
     private var inRow = 0
     private let rowLength: Int
 
-    public init(sampleRate: Double) {
+    public init(sampleRate: Double, bins requestedBins: Int? = nil) {
         self.sampleRate = sampleRate
-        bins = sampleRate > 5_000_000 ? 16_384 : Self.size
-        log2n = bins == Self.size ? 12 : 14
-        window = [Float](repeating: 0, count: bins)
+        let b: Int
+        if let requestedBins, requestedBins >= 1024 {
+            let p = max(10, min(16, Int(round(log2(Double(requestedBins))))))
+            b = 1 << p
+        } else {
+            b = sampleRate > 5_000_000 ? 16_384 : Self.size
+        }
+        bins = b
+        let p = Int(round(log2(Double(b))))
+        log2n = vDSP_Length(p)
+        window = [Float](repeating: 0, count: b)
         re = window; im = window; power = window; acc = window
-        rowLength = Int(sampleRate / Self.rowsPerSecond)
+        rowLength = max(b, Int(sampleRate / Self.rowsPerSecond))
         setup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2))!
-        vDSP_hann_window(&window, vDSP_Length(bins), Int32(vDSP_HANN_NORM))
+        vDSP_hann_window(&window, vDSP_Length(b), Int32(vDSP_HANN_NORM))
     }
 
     deinit { vDSP_destroy_fftsetup(setup) }
@@ -186,10 +194,13 @@ public final class SDRReceiverEngine: @unchecked Sendable {
         }
     }
 
+    private var spectrumBins: Int? = nil
+
     /// Neu aufsetzen (neue Abtastrate oder neuer Strom); Kanal und Abstand bleiben
-    public func configure(sampleRate: Double) {
+    public func configure(sampleRate: Double, bins: Int? = nil) {
         queue.async { [self] in
             self.sampleRate = sampleRate
+            if let bins { self.spectrumBins = bins }
             let d = SDRDemodulator(sampleRate: sampleRate, config: channel)
             d.setOffset(offsetHz)
             wireDemodulator(d)
@@ -199,8 +210,18 @@ public final class SDRReceiverEngine: @unchecked Sendable {
                 nd.setOffset(e.offsetHz)
                 e.demod = nd
             }
-            spectrum = SDRSpectrum(sampleRate: sampleRate)
+            spectrum = SDRSpectrum(sampleRate: sampleRate, bins: spectrumBins)
             lock.withLock { rows.removeAll(); droppedBlocks = 0; clipped = 0; total = 0; audioSamples = 0 }
+        }
+    }
+
+    /// FFT-Auflösung des Spektrums im laufenden Betrieb anpassen
+    public func setSpectrumBins(_ bins: Int) {
+        queue.async { [self] in
+            guard bins != spectrum.bins else { return }
+            spectrumBins = bins
+            spectrum = SDRSpectrum(sampleRate: sampleRate, bins: bins)
+            lock.withLock { rows.removeAll() }
         }
     }
 
@@ -348,5 +369,170 @@ public final class SDRReceiverEngine: @unchecked Sendable {
 
     public func resetClipping() {
         lock.withLock { clipped = 0; total = 0 }
+    }
+}
+
+// MARK: - Zoom-Faktoren des HF-Wasserfalls
+
+/// Zoom-Faktoren des HF-Wasserfalls: 1× (volles I/Q-Fenster) bis 16× um die Abstimmfrequenz
+public enum SDRZoomFactor: Int, CaseIterable, Identifiable, Sendable {
+    case x1 = 1
+    case x2 = 2
+    case x4 = 4
+    case x8 = 8
+    case x16 = 16
+
+    public var id: Int { rawValue }
+    public var label: String { "\(rawValue)×" }
+
+    public func next() -> SDRZoomFactor {
+        switch self {
+        case .x1: return .x2
+        case .x2: return .x4
+        case .x4: return .x8
+        case .x8: return .x16
+        case .x16: return .x16
+        }
+    }
+
+    public func previous() -> SDRZoomFactor {
+        switch self {
+        case .x1: return .x1
+        case .x2: return .x1
+        case .x4: return .x2
+        case .x8: return .x4
+        case .x16: return .x8
+        }
+    }
+
+    /// Angezeigte Bandbreite in Hz
+    public func visibleSpan(sampleRate: Double) -> Double {
+        sampleRate / Double(rawValue)
+    }
+
+    /// Sichtbarer Frequenzbereich bei gegebener Mittenfrequenz, begrenzt auf das I/Q-Fenster des Empfängers
+    public func visibleRange(center: Double, sampleRate: Double, loHz: Double) -> ClosedRange<Double> {
+        let fullSpan = sampleRate
+        let fullLo = loHz - fullSpan / 2
+        let fullHi = loHz + fullSpan / 2
+        guard self != .x1, fullSpan > 0 else { return fullLo...fullHi }
+        let span = visibleSpan(sampleRate: sampleRate)
+        let half = span / 2.0
+        var lower = center - half
+        var upper = center + half
+        if lower < fullLo {
+            lower = fullLo
+            upper = min(fullHi, lower + span)
+        } else if upper > fullHi {
+            upper = fullHi
+            lower = max(fullLo, upper - span)
+        }
+        return lower...upper
+    }
+}
+
+// MARK: - Auflösung des HF-Wasserfalls
+
+/// Wählbare FFT-Auflösungen für den HF-Wasserfall
+public enum SDRWaterfallResolution: String, CaseIterable, Identifiable, Sendable {
+    case auto = "auto"
+    case r4k  = "4k"
+    case r8k  = "8k"
+    case r16k = "16k"
+    case r32k = "32k"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .auto: return "Auto (folgt Zoom: 4k–32k)"
+        case .r4k:  return "4.096 Bins (4k · Standard)"
+        case .r8k:  return "8.192 Bins (8k · Hoch)"
+        case .r16k: return "16.384 Bins (16k · Sehr hoch)"
+        case .r32k: return "32.768 Bins (32k · Ultrafein)"
+        }
+    }
+
+    public var shortLabel: String {
+        switch self {
+        case .auto: return "Auto"
+        case .r4k:  return "4k"
+        case .r8k:  return "8k"
+        case .r16k: return "16k"
+        case .r32k: return "32k"
+        }
+    }
+
+    /// Berechnet die effektive Anzahl an FFT-Bins für eine gegebene Abtastrate und Zoomstufe
+    public func effectiveBins(sampleRate: Double, zoom: SDRZoomFactor) -> Int {
+        switch self {
+        case .r4k:  return 4096
+        case .r8k:  return 8192
+        case .r16k: return 16384
+        case .r32k: return 32768
+        case .auto:
+            if sampleRate > 5_000_000 {
+                switch zoom {
+                case .x1: return 16384
+                default:  return 32768
+                }
+            }
+            switch zoom {
+            case .x1: return 4096
+            case .x2: return 8192
+            case .x4: return 16384
+            case .x8, .x16: return 32768
+            }
+        }
+    }
+}
+
+/// S-Meter-Skala nach IARU-Empfehlung für den SDR-Empfänger:
+/// S0 (−100 dBFS) bis S9 (−46 dBFS) in 6-dB-Schritten (54 dB Dynamik), darüber +1 bis +46 dB über S9 (bis 0 dBFS Vollaussteuerung).
+public struct SDRSMeterScale: Sendable {
+    public static let minDB: Double = -100.0
+    public static let s9DB: Double = -46.0
+    public static let maxDB: Double = 0.0
+
+    /// Normalisierter Wert (0.0 ... 1.0) auf der S-Meter-Skala
+    public static func fraction(db: Double) -> Double {
+        max(0.0, min(1.0, (db - minDB) / (maxDB - minDB)))
+    }
+
+    /// Berechnet die lesbare S-Stufe ("S0"..."S9", "S9+10"..."S9+46") und ob sie über S9 liegt
+    public static func reading(db: Double) -> (sText: String, isOverS9: Bool) {
+        if db <= minDB {
+            return ("S0", false)
+        } else if db < s9DB {
+            let units = max(0, min(9, Int(floor((db - minDB) / 6.0))))
+            return ("S\(units)", false)
+        } else {
+            let over = Int(round(db - s9DB))
+            if over == 0 {
+                return ("S9", false)
+            } else {
+                return ("S9+\(over)", true)
+            }
+        }
+    }
+
+    /// Farbzonen des S-Meters: S0–S3 bläulich, S3–S9 grün, S9–S9+10 gelb-orange, ab S9+10 orange-rot
+    public enum Zone: Sendable {
+        case blue       // S0 - S3
+        case green      // S3 - S9
+        case yellow     // S9 - S9+10
+        case red        // ab S9+10
+    }
+
+    public static func zone(for db: Double) -> Zone {
+        if db < -82.0 {
+            return .blue
+        } else if db <= -46.0 {
+            return .green
+        } else if db <= -36.0 {
+            return .yellow
+        } else {
+            return .red
+        }
     }
 }

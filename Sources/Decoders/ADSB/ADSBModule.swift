@@ -25,6 +25,8 @@ public final class ADSBSettingsStore: ObservableObject {
     @Published public var sdrplayAGC: Bool { didSet { UserDefaults.standard.set(sdrplayAGC, forKey: "adsbSdrAGC") } }
     @Published public var sdrplayBias: Bool { didSet { UserDefaults.standard.set(sdrplayBias, forKey: "adsbSdrBias") } }
     @Published public var sdrplayPPM: Int { didSet { UserDefaults.standard.set(sdrplayPPM, forKey: "adsbSdrPPM") } }
+    @Published public var sdrplayRfNotch: Bool { didSet { UserDefaults.standard.set(sdrplayRfNotch, forKey: "adsbSdrRfNotch") } }
+    @Published public var sdrplayDabNotch: Bool { didSet { UserDefaults.standard.set(sdrplayDabNotch, forKey: "adsbSdrDabNotch") } }
     /// Flugzeuge nach dieser Zeit ohne Meldung aus der Liste nehmen (Minuten)
     @Published public var expireMinutes: Int { didSet { UserDefaults.standard.set(expireMinutes, forKey: "adsbExpireMinutes") } }
     /// Nur Flugzeuge mit Position in der Liste
@@ -56,6 +58,8 @@ public final class ADSBSettingsStore: ObservableObject {
         sdrplayAGC = d.object(forKey: "adsbSdrAGC") as? Bool ?? false
         sdrplayBias = d.object(forKey: "adsbSdrBias") as? Bool ?? false
         sdrplayPPM = d.object(forKey: "adsbSdrPPM") as? Int ?? 0
+        sdrplayRfNotch = d.object(forKey: "adsbSdrRfNotch") as? Bool ?? false
+        sdrplayDabNotch = d.object(forKey: "adsbSdrDabNotch") as? Bool ?? false
         expireMinutes = d.object(forKey: "adsbExpireMinutes") as? Int ?? 5
         onlyWithPosition = d.object(forKey: "adsbOnlyPosition") as? Bool ?? false
         showTracks = d.object(forKey: "adsbShowTracks") as? Bool ?? true
@@ -81,6 +85,8 @@ public final class ADSBSettingsStore: ObservableObject {
         g.sdrplayAGC = sdrplayAGC
         g.sdrplayBias = sdrplayBias
         g.sdrplayPPM = sdrplayPPM
+        g.sdrplayRfNotch = sdrplayRfNotch
+        g.sdrplayDabNotch = sdrplayDabNotch
         return g
     }
 }
@@ -318,6 +324,7 @@ public final class ADSBController: ObservableObject {
             settings.$sdrplayAGC.map { _ in () }.eraseToAnyPublisher(),
             settings.$sdrplayBias.map { _ in () }.eraseToAnyPublisher(),
             settings.$sdrplayPPM.map { _ in () }.eraseToAnyPublisher(),
+            settings.$sdrplayRfNotch.map { _ in () }.eraseToAnyPublisher(), settings.$sdrplayDabNotch.map { _ in () }.eraseToAnyPublisher(),
         ]
         Publishers.MergeMany(restartTriggers)
             .dropFirst(restartTriggers.count)

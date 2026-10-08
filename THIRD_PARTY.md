@@ -41,6 +41,13 @@ AAC-Decoder (mit SBR und PS) von **Nero AG / Ahead Software und Mitwirkenden**, 
 - `Vendor/Wspr/src/nhash.c` (Hashfunktion von Bob Jenkins) ist laut seinem Kopf **gemeinfrei** („public domain“).
 - Verwendet für: WSPR. Änderungen: `Vendor/Wspr/UPSTREAM_WSPR.md`.
 
+### JS8Call (JS8)
+
+- Autoren: Jordan Sherer (KN4CRD, Entwurf, Varicode, JSC), Allan Bazinet (W6BAZ, C++-Decoder `JS8.cpp`) und Mitwirkende; aufbauend auf WSJT-X (K1JT, K9AN u. a.), von dem die LDPC-Codierung und die Rahmenstruktur stammen.
+- Quelle: https://github.com/js8call/js8call (Commit `a7ff1be0b389d287fdc56e2ea0d06962aa68127d`, 05.12.2025): `JS8.cpp` (Decoder und Encoder), `varicode.cpp`, `jsc.cpp` und `jsc_map.cpp` (Wörterbuch mit 262 144 Wörtern), `decodedtext.cpp`.
+- Lizenz: **GPL-3.0** (Text: `Vendor/JS8/LICENSE_GPLv3.txt`).
+- Verwendet für: JS8 (Decoder, Entpacken der Rahmen zu Text). Digidec sendet nie. Änderungen: `Vendor/JS8/UPSTREAM_JS8.md`. Die Aufnahmen für die Tests (`media/tests/*.wav`) liegen nur lokal unter `TestData/JS8`.
+
 ### ft8mon
 
 - Autor: Robert T. Morris (AB1HL). Quelle: https://github.com/rtmrtmrtmrtm/ft8mon (Commit `1b36a13`).
@@ -56,8 +63,8 @@ AAC-Decoder (mit SBR und PS) von **Nero AG / Ahead Software und Mitwirkenden**, 
 ### pocketfft (C++-Zweig)
 
 - Autoren: Max-Planck-Society, Martin Reinecke. Quelle: https://github.com/mreineck/pocketfft.
-- Lizenz: **BSD-3-Clause** (Text: `Vendor/FT8/LICENSE_pocketfft.md` und `Vendor/Wspr/LICENSE_pocketfft.md`).
-- Verwendet für: FFT in FT8, FT4 und WSPR (statt FFTW).
+- Lizenz: **BSD-3-Clause** (Text: `Vendor/FT8/LICENSE_pocketfft.md`, `Vendor/Wspr/LICENSE_pocketfft.md` und `Vendor/JS8/LICENSE_pocketfft.md`).
+- Verwendet für: FFT in FT8, FT4, WSPR und JS8 (statt FFTW).
 
 ## 3. Eigene Umsetzungen nach Vorbildern
 

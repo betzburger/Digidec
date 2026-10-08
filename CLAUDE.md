@@ -2,6 +2,13 @@
 
 Diese Datei wird von KI-Assistenten (Claude Code, Antigravity, OpenCode, Pi, Hermes etc.) beim Start automatisch gelesen.
 
+## 0. Qualitätsanspruch & Produktphilosophie (High-End & Professionell)
+
+- **Professionelle Spitzenklasse:** Das gesamte Projekt hat den Anspruch, absolut professionell, durchdacht und High-End zu sein. Keine unfertigen Behelfslösungen oder optischen Brüche.
+- **Grafisch top notch (Augenschmaus):** Erstklassiges, ästhetisch anspruchsvolles UI-Design im `RadioTheme` (edler VFD-/Transceiver-/Messgeräte-Look). Gestochen scharfe Vektoren, perfekte Typografie, harmonische Abstände, konsistente Strichstärken und Ränder sowie flüssige, augenschmeichelnde Spektren und Visualisierungen.
+- **Akustisch ein Leckerbissen (Ohrenschmaus):** Höchste Audio- und DSP-Qualität. Sauber gefilterte Signalpfade, artefaktfreie Demodulation (WFM Stereo, De-Emphase, SSB, AM, FM), glasklarer Klang und kompromisslose Signalverarbeitung ohne Knacksen, Verzerrungen oder Pufferabrisse.
+- **Detailverliebtheit & Exzellenz:** Jedes Detail – vom Klickgefühl über Tooltips bis zur Skalierung und Farbharmonie – muss Freude bei der Benutzung bereiten.
+
 ## 1. Zentrale Übergabe & Dokumentation (Pflicht!)
 
 - **Start jeder Sitzung:** Zuerst **[`PLAN.md`](PLAN.md)** lesen. Dort steht, was gebaut wurde, warum, woraus und wo das Projekt aktuell steht.

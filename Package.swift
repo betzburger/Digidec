@@ -59,6 +59,21 @@ let package = Package(
                 .unsafeFlags(["-w", "-O3"])
             ]
         ),
+        // JS8-Decoder aus JS8Call (Allan Bazinet W6BAZ, Jordan Sherer KN4CRD u. a., GPLv3) mit pocketfft (BSD) statt FFTW.
+        // Herkunft und Abweichungen: Vendor/JS8/UPSTREAM_JS8.md
+        .target(
+            name: "JS8",
+            path: "Vendor/JS8",
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .headerSearchPath("src"),
+                .headerSearchPath("compat"),
+                .headerSearchPath("inc"),
+                // JS8Call ist C++20 (Konzepte, Lambdas mit Schablonenparametern); das Paket steht auf C++17
+                .unsafeFlags(["-w", "-O3", "-std=gnu++20"])
+            ]
+        ),
         // Codec2 und FreeDV (David Rowe, LGPL-2.1): Sprachcodec und Modems für FreeDV und M17.
         // Herkunft und Abweichungen: Vendor/Codec2/UPSTREAM_CODEC2.md
         .target(
@@ -135,7 +150,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["Fldigi", "FT8", "Wspr", "Codec2", "Faad2", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
+            dependencies: ["Fldigi", "FT8", "JS8", "Wspr", "Codec2", "Faad2", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
             path: "Sources",
             swiftSettings: hasLocalVocoder ? [.define("DIGIDEC_LOCAL_VOCODER")] : []
         )

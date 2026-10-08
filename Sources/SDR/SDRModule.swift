@@ -14,13 +14,17 @@ import os
 @MainActor
 public final class SDRSettingsStore: ObservableObject {
     public static let sampleRate = 2_400_000
-    /// Wählbare Abtastraten des HackRF (RTL-SDR und SDRplay laufen mit 2,4 MS/s). Vielfache von 480 kS/s teilen sich ganzzahlig herunter;
+    /// Wählbare Abtastraten des HackRF (RTL-SDR läuft mit 2,4 MS/s, SDRplay hat eine eigene Liste, `SDRplayPlan.sampleRates`). Vielfache von 480 kS/s teilen sich ganzzahlig herunter;
     /// 20 MS/s (Höchstwert des HackRF) geht erst auf 1 MS/s und dann über den Wandler.
     public static let sampleRateChoices = [2_400_000, 4_800_000, 9_600_000, 14_400_000, 19_200_000, 20_000_000]
 
-    /// Abtastraten, die ein Gerät bietet (die anderen Geräte sind nur mit 2,4 MS/s geprüft)
+    /// Abtastraten, die ein Gerät bietet (RTL-SDR ist nur mit 2,4 MS/s geprüft); SDRplay: 62,5 kS/s bis 10 MS/s
     public static func sampleRateChoices(for source: ADSBSourceKind) -> [Int] {
-        source == .hackrf ? sampleRateChoices : [sampleRate]
+        switch source {
+        case .hackrf: return sampleRateChoices
+        case .sdrplay: return SDRplayPlan.sampleRates
+        default: return [sampleRate]
+        }
     }
     /// Wie weit sich die gehörte Frequenz von der Mitte des I/Q-Fensters entfernen darf, bevor das Gerät umgestimmt wird
     static let window = 850_000.0
@@ -28,6 +32,10 @@ public final class SDRSettingsStore: ObservableObject {
     static func window(forRate rate: Int) -> Double { Double(rate) * 850_000.0 / 2_400_000.0 }
     /// Abstand der Gerätemitte von der gehörten Frequenz nach dem Umstimmen (die Gleichanteil-Spitze liegt auf der Mitte)
     static let loOffset = 300_000.0
+    /// Abstand bei einer Abtastrate: ein Achtel der Rate, höchstens 300 kHz (62,5 kS/s: knapp 8 kHz)
+    static func loOffset(forRate rate: Int) -> Double { min(loOffset, Double(rate) / 8) }
+    /// Mindestabstand der gehörten Frequenz von der Mitte (Gleichanteil): 40 kHz bei 2,4 MS/s, bei kleineren Raten weniger
+    static func dcGuard(forRate rate: Int) -> Double { min(40_000, Double(rate) / 60) }
 
     @Published public var source: ADSBSourceKind { didSet { save(source.rawValue, "sdrSource") } }
     @Published public var hackrfLNA: Int { didSet { save(hackrfLNA, "sdrHackrfLNA") } }
@@ -45,6 +53,10 @@ public final class SDRSettingsStore: ObservableObject {
     @Published public var sdrplayAGC: Bool { didSet { save(sdrplayAGC, "sdrSdrAGC") } }
     @Published public var sdrplayBias: Bool { didSet { save(sdrplayBias, "sdrSdrBias") } }
     @Published public var sdrplayPPM: Int { didSet { save(sdrplayPPM, "sdrSdrPPM") } }
+    @Published public var sdrplayRfNotch: Bool { didSet { save(sdrplayRfNotch, "sdrSdrRfNotch") } }
+    @Published public var sdrplayDabNotch: Bool { didSet { save(sdrplayDabNotch, "sdrSdrDabNotch") } }
+    /// Analoger ZF-Filter in kHz, 0 = automatisch nach der Abtastrate
+    @Published public var sdrplayBandwidth: Int { didSet { save(sdrplayBandwidth, "sdrSdrBandwidth") } }
 
     /// Gehörte Frequenz (Dial) in Hz
     @Published public var frequencyHz: Double { didSet { save(frequencyHz, "sdrFrequency") } }
@@ -71,6 +83,8 @@ public final class SDRSettingsStore: ObservableObject {
     @Published public var autoStart: Bool { didSet { save(autoStart, "sdrAutoStart") } }
     /// HF-Wasserfall statt des NF-Wasserfalls zeigen
     @Published public var showRFWaterfall: Bool { didSet { save(showRFWaterfall, "sdrShowRF") } }
+    /// FFT-Auflösung des HF-Wasserfalls: Auto (folgt dem Zoom) oder feste Bins
+    @Published public var waterfallResolution: SDRWaterfallResolution { didSet { save(waterfallResolution.rawValue, "sdrWaterfallResolution") } }
 
     private func save(_ value: Any, _ key: String) { UserDefaults.standard.set(value, forKey: key) }
 
@@ -81,7 +95,7 @@ public final class SDRSettingsStore: ObservableObject {
         hackrfLNA = d.object(forKey: "sdrHackrfLNA") as? Int ?? 32
         hackrfVGA = d.object(forKey: "sdrHackrfVGA") as? Int ?? 30
         let savedRate = d.object(forKey: "sdrSampleRate") as? Int ?? Self.sampleRate
-        sampleRateHz = Self.sampleRateChoices.contains(savedRate) ? savedRate : Self.sampleRate
+        sampleRateHz = Self.sampleRateChoices.contains(savedRate) || SDRplayPlan.sampleRates.contains(savedRate) ? savedRate : Self.sampleRate
         hackrfAmp = d.object(forKey: "sdrHackrfAmp") as? Bool ?? false
         hackrfBias = d.object(forKey: "sdrHackrfBias") as? Bool ?? false
         rtlGain = d.object(forKey: "sdrRtlGain") as? Double ?? 0
@@ -93,6 +107,9 @@ public final class SDRSettingsStore: ObservableObject {
         sdrplayAGC = d.object(forKey: "sdrSdrAGC") as? Bool ?? true
         sdrplayBias = d.object(forKey: "sdrSdrBias") as? Bool ?? false
         sdrplayPPM = d.object(forKey: "sdrSdrPPM") as? Int ?? 0
+        sdrplayRfNotch = d.object(forKey: "sdrSdrRfNotch") as? Bool ?? false
+        sdrplayDabNotch = d.object(forKey: "sdrSdrDabNotch") as? Bool ?? false
+        sdrplayBandwidth = d.object(forKey: "sdrSdrBandwidth") as? Int ?? 0
         frequencyHz = d.object(forKey: "sdrFrequency") as? Double ?? 145_500_000
         mode = d.string(forKey: "sdrMode").flatMap(SDRMode.init(rawValue:)) ?? .nfm
         bandwidthHz = d.object(forKey: "sdrBandwidth") as? Double ?? SDRMode.nfm.defaultBandwidthHz
@@ -110,6 +127,8 @@ public final class SDRSettingsStore: ObservableObject {
         followModules = d.object(forKey: "sdrFollow") as? Bool ?? true
         autoStart = d.object(forKey: "sdrAutoStart") as? Bool ?? false
         showRFWaterfall = d.object(forKey: "sdrShowRF") as? Bool ?? true
+        let savedRes = d.string(forKey: "sdrWaterfallResolution").flatMap(SDRWaterfallResolution.init(rawValue:))
+        waterfallResolution = savedRes ?? .auto
         // Bis 0.81 hörte der UKW-Empfänger mit höchstens 180 kHz; der Rundfunk braucht rund 230 kHz für Stereo und RDS
         if mode == .wfm, !d.bool(forKey: "sdrWfmBandwidthV2") {
             if bandwidthHz < 230_000 { bandwidthHz = 230_000; d.set(230_000.0, forKey: "sdrBandwidth") }
@@ -117,8 +136,8 @@ public final class SDRSettingsStore: ObservableObject {
         }
     }
 
-    /// Tatsächliche Abtastrate: höhere Raten gibt es nur am HackRF
-    public var effectiveSampleRate: Int { source == .hackrf ? sampleRateHz : Self.sampleRate }
+    /// Tatsächliche Abtastrate: die gewählte, wenn das Gerät sie bietet (HackRF, SDRplay), sonst 2,4 MS/s
+    public var effectiveSampleRate: Int { Self.sampleRateChoices(for: source).contains(sampleRateHz) ? sampleRateHz : Self.sampleRate }
 
     public var channelConfig: SDRChannelConfig {
         var c = SDRChannelConfig(mode: mode)
@@ -152,6 +171,9 @@ public final class SDRSettingsStore: ObservableObject {
         g.sdrplayAGC = sdrplayAGC
         g.sdrplayBias = sdrplayBias
         g.sdrplayPPM = sdrplayPPM
+        g.sdrplayRfNotch = sdrplayRfNotch
+        g.sdrplayDabNotch = sdrplayDabNotch
+        g.sdrplayBandwidthKHz = sdrplayBandwidth
         g.sdrplayFixedScale = true
         return g
     }
@@ -321,7 +343,7 @@ public final class SDRController: ObservableObject {
     public init(pipeline: AudioPipeline, settings: SDRSettingsStore) {
         self.pipeline = pipeline
         self.settings = settings
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
         settings.objectWillChange
@@ -381,7 +403,7 @@ public final class SDRController: ObservableObject {
         stopSource()
         let f = settings.frequencyHz
         // Mitte: gehörte Frequenz 300 kHz neben der Mitte (dort liegt keine Gleichanteil-Spitze)
-        var lo = f + SDRSettingsStore.loOffset
+        var lo = f + SDRSettingsStore.loOffset(forRate: settings.effectiveSampleRate)
         var rate = Double(settings.effectiveSampleRate)
         let src: ADSBIQSource
         let usesFile = fileOverride != nil
@@ -408,7 +430,8 @@ public final class SDRController: ObservableObject {
                 return
             }
         }
-        engine.configure(sampleRate: rate)
+        let initialBins = settings.waterfallResolution.effectiveBins(sampleRate: rate, zoom: .x1)
+        engine.configure(sampleRate: rate, bins: initialBins)
         engine.setChannel(settings.channelConfig)
         engine.setOffset(f - lo)
         loHz = lo
@@ -521,9 +544,9 @@ public final class SDRController: ObservableObject {
         let f = settings.frequencyHz
         lastTunedFrequency = f
         var offset = f - loHz
-        let outside = abs(offset) > SDRSettingsStore.window(forRate: settings.effectiveSampleRate) || abs(offset) < 40_000
+        let outside = abs(offset) > SDRSettingsStore.window(forRate: settings.effectiveSampleRate) || abs(offset) < SDRSettingsStore.dcGuard(forRate: settings.effectiveSampleRate)
         if outside {
-            let target = f + SDRSettingsStore.loOffset
+            let target = f + SDRSettingsStore.loOffset(forRate: settings.effectiveSampleRate)
             if let tunable = source as? SDRTunableSource {
                 if tunable.retune(centerHz: target) {
                     loHz = target

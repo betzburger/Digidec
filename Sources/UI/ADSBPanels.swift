@@ -581,12 +581,14 @@ struct ADSBSettingsPanel: View {
                         .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
                         .help("Speisespannung am Antennenanschluss (RSPduo) für einen Antennenverstärker. Nur einschalten, wenn die Antenne sie braucht.")
                 }
-                stepper("LNA-STUFE", "\(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) },
+                SDRplayOverloadHint()
+                SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch)
+                stepper("LNA-DÄMPFUNG", "Stufe \(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) },
                         plus: { settings.sdrplayLNAState = min(9, settings.sdrplayLNAState + 1) },
-                        help: "Stufe des rauscharmen Vorverstärkers (0 = höchste Verstärkung, größere Zahl = weniger; bei 1090 MHz hat der RSPduo die Stufen 0 bis 8)")
-                stepper("ZF-MINDERUNG", "\(settings.sdrplayIFGain) dB", minus: { settings.sdrplayIFGain = max(20, settings.sdrplayIFGain - 2) },
+                        help: SDRplayHelp.lna)
+                stepper("ZF-DÄMPFUNG", "\(settings.sdrplayIFGain) dB", minus: { settings.sdrplayIFGain = max(20, settings.sdrplayIFGain - 2) },
                         plus: { settings.sdrplayIFGain = min(59, settings.sdrplayIFGain + 2) },
-                        help: "Verstärkungsminderung im Zwischenfrequenzteil, 20 bis 59 dB (kleiner = mehr Verstärkung). Wirkt nur bei ausgeschalteter AGC.")
+                        help: SDRplayHelp.ifGain)
                 stepper("PPM", "\(settings.sdrplayPPM)", minus: { settings.sdrplayPPM -= 1 }, plus: { settings.sdrplayPPM += 1 }, help: "Frequenzkorrektur des Quarzes")
                 if !SDRplayAPISource.isInstalled() {
                     Text("Die SDRplay-API fehlt: „Hardware API MacOS“ von sdrplay.com/api installieren.")
@@ -605,7 +607,7 @@ struct ADSBSettingsPanel: View {
                         .font(.system(size: 10, design: .monospaced))
                         .frame(width: 60)
                 }
-                stepper("LNA-STUFE", "\(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) },
+                stepper("LNA-DÄMPFUNG", "Stufe \(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) },
                         plus: { settings.sdrplayLNAState = min(27, settings.sdrplayLNAState + 1) },
                         help: "Verstärkungsstufe des SDRplay (0 = höchste Verstärkung, größere Zahl = weniger)")
                 Text("SDRconnect: Server einschalten, das Gerät dort wählen. Dann hier START.")
