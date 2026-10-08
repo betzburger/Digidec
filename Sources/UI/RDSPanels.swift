@@ -311,10 +311,10 @@ public struct RDSPanelView: View {
 
     // MARK: - Alternativfrequenzen (AF)
 
-    /// Eine Zeile: Titel und Anzahl links, die Frequenzen waagerecht daneben (bei Bedarf scrollbar)
+    /// Titel und Anzahl links, die Frequenzen daneben; ist die Zeile voll, brechen sie in die nächste um
     private var afCard: some View {
         RadioBox {
-            HStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("ALTERNATIVFREQUENZEN (AF)")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
@@ -332,21 +332,18 @@ public struct RDSPanelView: View {
                         .foregroundColor(RadioTheme.textDim)
                     Spacer(minLength: 0)
                 } else {
-                    // Breite auf den Rest der Karte begrenzen, sonst wächst die Liste über den Rand statt zu scrollen
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            ForEach(info.alternativeFrequencies, id: \.self) { af in
-                                Button(String(format: "%.1f", af).replacingOccurrences(of: ".", with: ",")) {
-                                    controller.tune(frequencyHz: af * 1e6)
-                                }
-                                .buttonStyle(ModeButtonStyle(isSelected: (settings.frequencyHz / 1e6).rounded() == af.rounded()))
-                                .scaleEffect(0.85)
-                                .help("Auf \(af) MHz abstimmen")
+                    // scaleEffect ändert die Layoutgröße nicht: kleiner Abstand, damit die verkleinerten Knöpfe nicht zu weit auseinander stehen
+                    FlowLayout(spacing: 0, lineSpacing: 0) {
+                        ForEach(info.alternativeFrequencies, id: \.self) { af in
+                            Button(String(format: "%.1f", af).replacingOccurrences(of: ".", with: ",")) {
+                                controller.tune(frequencyHz: af * 1e6)
                             }
+                            .buttonStyle(ModeButtonStyle(isSelected: (settings.frequencyHz / 1e6).rounded() == af.rounded()))
+                            .scaleEffect(0.85)
+                            .help("Auf \(af) MHz abstimmen")
                         }
-                        .padding(.vertical, 2)
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(4)

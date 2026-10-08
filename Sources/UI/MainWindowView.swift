@@ -818,7 +818,7 @@ private struct ModuleBar: View {
                 .help(band.detail)
             // Platz für den Mehrkanal-Knopf
             Color.clear.frame(width: Self.multiWidth, height: 1)
-            ModuleFlowLayout(spacing: 6, lineSpacing: 6) {
+            FlowLayout(spacing: 6, lineSpacing: 6) {
                 ForEach(band.modules) { module in
                     Button(module.displayName) {
                         state.select(module: module)
@@ -850,7 +850,7 @@ private struct ModuleBar: View {
 }
 
 /// Reiht Schaltflächen nebeneinander und bricht bei Platzmangel in die nächste Zeile um
-private struct ModuleFlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat
     var lineSpacing: CGFloat
 
