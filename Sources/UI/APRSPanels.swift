@@ -97,6 +97,7 @@ struct APRSStationTable: View {
             Text("km").frame(width: 48, alignment: .trailing)
             Text("Info").frame(maxWidth: .infinity, alignment: .leading)
             Text("Pkt").frame(width: 32, alignment: .trailing)
+            Text("").frame(width: 34)
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
         .foregroundColor(RadioTheme.textDim)
@@ -116,6 +117,7 @@ struct APRSStationTable: View {
             Text(km.map { String(format: "%.0f", $0) } ?? (s.position == nil ? "–" : "")).frame(width: 48, alignment: .trailing)
             Text(info(s)).frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
             Text("\(s.packetCount)").frame(width: 32, alignment: .trailing)
+            QRZButton(text: s.call).frame(width: 34, alignment: .trailing)
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundColor(color)

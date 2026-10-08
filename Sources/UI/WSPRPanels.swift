@@ -95,6 +95,7 @@ struct WSPRTable: View {
             Text("Loc").frame(width: 52, alignment: .leading)
             Text("Leistung").frame(maxWidth: .infinity, alignment: .leading)
             Text("km").frame(width: 50, alignment: .trailing)
+            Text("").frame(width: 34)
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
         .foregroundColor(RadioTheme.textDim)
@@ -116,6 +117,7 @@ struct WSPRTable: View {
             Text(m.grid ?? "").frame(width: 52, alignment: .leading)
             Text(m.powerDBm.map { "\($0) dBm · \(m.powerLabel)" } ?? "").frame(maxWidth: .infinity, alignment: .leading)
             Text(e.km.map { String(format: "%.0f", $0) } ?? "").frame(width: 50, alignment: .trailing)
+            QRZButton(text: m.call).frame(width: 34, alignment: .trailing)
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundColor(color)

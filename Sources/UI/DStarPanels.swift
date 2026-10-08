@@ -148,6 +148,7 @@ struct DStarTable: View {
             Text("Repeater").frame(width: 72, alignment: .leading)
             Text("Dauer").frame(width: 44, alignment: .trailing)
             Text("Text / Position").frame(maxWidth: .infinity, alignment: .leading)
+            Text("").frame(width: 34)
             Text("").frame(width: 22)
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -166,6 +167,7 @@ struct DStarTable: View {
             Text(h?.repeater1 ?? "").frame(width: 72, alignment: .leading)
             Text(String(format: "%.1f", t.seconds)).frame(width: 44, alignment: .trailing)
             Text(detail).frame(maxWidth: .infinity, alignment: .leading).lineLimit(2)
+            QRZButton(text: h?.myCall ?? "").frame(width: 34, alignment: .trailing)
             Button {
                 controller.replay(t)
             } label: {

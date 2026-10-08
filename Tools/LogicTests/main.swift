@@ -6491,6 +6491,29 @@ let m10RealFrame = "649f2000000000000000000046503ffffff400000000000249f000000005
 }
 if want("sonde") { sondeMoreTests() }
 
+// MARK: - QRZ.com-Abfrage: Rufzeichen erkennen, Grundrufzeichen, Adresse
+
+@MainActor func qrzTests() {
+    let good = ["DL1ABC", "W1AW", "9A1A", "VK2TPM", "3DA0XY", "F4EXB", "K1A", "OE3ABC", "G3RUH", "PA3XYZ", "JA1ABC", "UA9ABCD", "A45XR", "dl1abc", "HB9XYZ", "R2ABC"]
+    let bad = ["CQ", "DE", "RR73", "73", "FT8", "TEST", "QRZ", "RRR", "JN49WS", "JN49", "R2D2", "TEST1A", "12345", "ABC", "A1", "0AB1C", "DL1ABC1", "DL1ABCDEF"]
+    check(good.allSatisfy { QRZ.isCallsign($0) }, "QRZ: Rufzeichen erkannt (\(good.filter { !QRZ.isCallsign($0) }))")
+    check(bad.allSatisfy { !QRZ.isCallsign($0) }, "QRZ: Wörter, Locator und Zahlen sind keine Rufzeichen (\(bad.filter { QRZ.isCallsign($0) }))")
+    let base: [(String, String?)] = [("DL1ABC/P", "DL1ABC"), ("DL1ABC-9", "DL1ABC"), ("<DL1ABC>", "DL1ABC"), ("EA8/DL1ABC", "DL1ABC"), ("DL1ABC/W1", "DL1ABC"),
+                                     ("W1AW/KH6", "W1AW"), ("HB9/DL1ABC/P", "DL1ABC"), ("dl1abc", "DL1ABC"), (" DL1ABC ", "DL1ABC"), ("DL1ABC-15", "DL1ABC"),
+                                     ("73", nil), ("CQ", nil), ("", nil), ("JN49WS", nil), ("12345678", nil)]
+    for (raw, want) in base { check(QRZ.baseCall(raw) == want, "QRZ: Grundrufzeichen von „\(raw)“ = \(want ?? "nil") (\(QRZ.baseCall(raw) ?? "nil"))") }
+    check(QRZ.url(for: "DL1ABC/P")?.absoluteString == "https://www.qrz.com/db/DL1ABC" && QRZ.url(for: "xyz") == nil, "QRZ: Adresse der Seite")
+    check(QRZ.callsigns(in: "CQ DL1ABC JN49") == ["DL1ABC"], "QRZ: CQ-Ruf mit Locator liefert ein Rufzeichen")
+    check(QRZ.callsigns(in: "DL1ABC DK2XYZ -12") == ["DL1ABC", "DK2XYZ"], "QRZ: FT8-Meldung mit zwei Rufzeichen (Reihenfolge)")
+    check(QRZ.callsigns(in: "DK2XYZ DL1ABC RR73") == ["DK2XYZ", "DL1ABC"], "QRZ: Meldung mit RR73")
+    check(QRZ.callsigns(in: "TNX FER QSO 73 DE DL1ABC/P K") == ["DL1ABC"], "QRZ: Rufzeichen mit /P in Fließtext")
+    check(QRZ.callsigns(in: "DL1ABC DL1ABC/P DL1ABC-9") == ["DL1ABC"], "QRZ: dasselbe Grundrufzeichen nur einmal")
+    check(QRZ.callsigns(in: "<DL1ABC> W1AW RR73") == ["DL1ABC", "W1AW"], "QRZ: Rufzeichen in spitzen Klammern (verkürzte FT8-Rufzeichen)")
+    check(QRZ.callsigns(in: "R2D2 FT8 TEST JN49WS").isEmpty && QRZ.callsigns(in: "").isEmpty, "QRZ: ohne Rufzeichen nichts")
+    check(QRZ.callsigns(in: "A1B C2D E3F G4H I5J", limit: 3).count == 3, "QRZ: Obergrenze der Rufzeichen")
+}
+if want("qrz") { qrzTests() }
+
 // MARK: - Sonden-Plan (SondeHub-Startorte): Lesen, Zeiten mit Wochentag, Entfernung, Sendefenster
 @MainActor func sondePlanTests() {
     func utc(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }

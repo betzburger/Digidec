@@ -168,6 +168,7 @@ struct PacketStationTable: View {
                     Text("Weg").frame(width: 150, alignment: .leading)
                     Text("Text / Kennung").frame(maxWidth: .infinity, alignment: .leading)
                     Text("Rahmen").frame(width: 50, alignment: .trailing)
+                    Text("").frame(width: 34)
                 }
                 .font(packetHeaderFont)
                 .foregroundColor(RadioTheme.textDim)
@@ -183,6 +184,7 @@ struct PacketStationTable: View {
                         Text(s.lastPath.isEmpty ? "direkt" : s.lastPath.joined(separator: ",")).frame(width: 150, alignment: .leading).lineLimit(1)
                         Text(s.sid?.text ?? s.lastText ?? "").frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
                         Text("\(s.frames)").frame(width: 50, alignment: .trailing)
+                        QRZButton(text: s.call).frame(width: 34, alignment: .trailing)
                     }
                     .font(packetRowFont)
                     .foregroundColor(color)
@@ -219,6 +221,7 @@ struct PacketDigipeaterTable: View {
                     Text("Im Weg").frame(width: 60, alignment: .trailing)
                     Text("Stationen").frame(width: 70, alignment: .trailing)
                     Text("Weitergegeben für").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("").frame(width: 34)
                 }
                 .font(packetHeaderFont)
                 .foregroundColor(RadioTheme.textDim)
@@ -232,6 +235,7 @@ struct PacketDigipeaterTable: View {
                         Text("\(d.inPath)").frame(width: 60, alignment: .trailing)
                         Text("\(d.sources.count)").frame(width: 70, alignment: .trailing)
                         Text(d.sources.sorted().prefix(8).joined(separator: " ") + (d.sources.count > 8 ? " …" : "")).frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
+                        QRZButton(text: d.call).frame(width: 34, alignment: .trailing)
                     }
                     .font(packetRowFont)
                     .foregroundColor(d.heard > 0 ? RadioTheme.vfdAmber : RadioTheme.textMuted)

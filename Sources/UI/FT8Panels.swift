@@ -100,6 +100,7 @@ struct FT8Table: View {
             Text("DX").frame(width: 24, alignment: .center)
             Text("Meldung").frame(maxWidth: .infinity, alignment: .leading)
             Text("km").frame(width: 50, alignment: .trailing)
+            Text("").frame(width: 34)
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
         .foregroundColor(RadioTheme.textDim)
@@ -119,6 +120,7 @@ struct FT8Table: View {
             Text(e.dxcc?.flag ?? "").frame(width: 24, alignment: .center)
             Text(d.text + (d.isUncertain ? " ?" : "")).frame(maxWidth: .infinity, alignment: .leading)
             Text(e.km.map { String(format: "%.0f", $0) } ?? "").frame(width: 50, alignment: .trailing)
+            QRZButton(text: d.text).frame(width: 34, alignment: .trailing)
         }
         .font(.system(size: 11, weight: d.message.isCQ ? .bold : .medium, design: .monospaced))
         .foregroundColor(color)

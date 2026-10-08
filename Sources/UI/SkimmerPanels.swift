@@ -117,6 +117,7 @@ struct SkimmerStationTable: View {
             Text(settings.mode == .cw ? "WpM" : "Baud").frame(width: 38, alignment: .trailing)
             Text("vor").frame(width: 40, alignment: .trailing)
             Text("Text").frame(maxWidth: .infinity, alignment: .leading)
+            Text("").frame(width: 34)
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
         .foregroundColor(RadioTheme.textDim)
@@ -141,6 +142,7 @@ struct SkimmerStationTable: View {
             Text(ageText(age)).frame(width: 40, alignment: .trailing)
             Text(s.text.replacingOccurrences(of: "\n", with: " ⏎ ").suffix(60))
                 .frame(maxWidth: .infinity, alignment: .leading).lineLimit(1)
+            QRZButton(text: s.call ?? "").frame(width: 34, alignment: .trailing)
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundColor(color)
@@ -260,6 +262,7 @@ struct SkimmerSpotTable: View {
             Text(String(Int(s.snrDB.rounded()))).frame(width: 34, alignment: .trailing)
             Text(String(Int(s.speed.rounded()))).frame(width: 38, alignment: .trailing)
             Text(s.kind).frame(width: 32, alignment: .leading)
+            QRZButton(text: s.call).frame(width: 34, alignment: .trailing)
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundColor(s.kind == "CQ" ? RadioTheme.vfdGreen : RadioTheme.vfdCyan)

@@ -160,6 +160,7 @@ struct JS8Table: View {
             Text(l.submode.letter).frame(width: 12, alignment: .center)
             Text(display(l)).frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
+            QRZButton(text: l.text).frame(width: 34, alignment: .trailing)
         }
         .font(.system(size: 11, weight: l.isHeartbeat ? .regular : .medium, design: .monospaced))
         .foregroundColor(color(l))
@@ -217,6 +218,7 @@ struct JS8StationTable: View {
             Text("N").frame(width: 24, alignment: .trailing)
             Text("km").frame(width: 48, alignment: .trailing)
             Text("Zuletzt").frame(maxWidth: .infinity, alignment: .leading)
+            Text("").frame(width: 34)
         }
         .font(.system(size: 9, weight: .bold, design: .monospaced))
         .foregroundColor(RadioTheme.textDim)
@@ -239,6 +241,7 @@ struct JS8StationTable: View {
             Text(verbatim: "\(s.count)").frame(width: 24, alignment: .trailing)
             Text(s.km.map { String(format: "%.0f", $0) } ?? "").frame(width: 48, alignment: .trailing)
             Text(s.lastText.trimmingCharacters(in: .whitespaces)).frame(maxWidth: .infinity, alignment: .leading)
+            QRZButton(text: s.call).frame(width: 34, alignment: .trailing)
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .foregroundColor(s.mentionsMe ? RadioTheme.ledRed : RadioTheme.vfdGreen)

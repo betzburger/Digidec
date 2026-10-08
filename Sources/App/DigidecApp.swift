@@ -69,8 +69,15 @@ struct DigidecApp: App {
         }
         .defaultSize(width: 560, height: 820)
         .windowResizability(.contentMinSize)
+        // Rufzeichen bei QRZ.com nachschlagen: die Seite wird erst auf Knopfdruck von qrz.com geladen
+        Window("QRZ.com", id: "qrz") {
+            QRZWindow(lookup: QRZLookup.shared)
+        }
+        .defaultSize(width: 980, height: 760)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            QRZCommands()
             CommandGroup(replacing: .appInfo) {
                 Button("Über Digidec") { state.showAbout = true }
             }

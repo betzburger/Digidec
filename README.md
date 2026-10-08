@@ -53,7 +53,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 | SONDE | Radiosonden Vaisala RS41, Graw DFM (06, 09, 17), Meteomodem M10 und Meteosis M20, Typ automatisch erkannt; Flugweg, Landeprognose, Startorte und Sendeplan (Sendeplan nur für RS41) |
 | TÖNE | DTMF, ZVEI, CCIR, EEA, EIA und SELCAL |
 
-Weitere Merkmale: Sendepläne mit automatischer Aufnahme (Wetterfax, RTTY, NAVTEX, Radiosonden), Aufnahme des Eingangs als WAV (REC), Tagesprotokolle unter `~/Documents/Digidec/Logs`, Standort als Maidenhead-Locator für alle Entfernungen, Kartenbild-Export.
+Weitere Merkmale: **Rufzeichen bei QRZ.com nachschlagen** (Knopf QRZ in den Listen von FT8, FT4, JS8, WSPR, Skimmer, APRS, Packet, D-STAR, DMR, YSF und M17, oder ⇧⌘K für das Eingabefeld; die Seite erscheint in einem eigenen Fenster), Sendepläne mit automatischer Aufnahme (Wetterfax, RTTY, NAVTEX, Radiosonden), Aufnahme des Eingangs als WAV (REC), Tagesprotokolle unter `~/Documents/Digidec/Logs`, Standort als Maidenhead-Locator für alle Entfernungen, Kartenbild-Export.
 
 ## Voraussetzungen
 
@@ -98,7 +98,7 @@ Parameter und Presets stehen in `PLAN.md`, Abschnitt 3.
 
 ## Netzzugriffe
 
-Digidec ruft von sich aus nichts im Netz ab, bis auf die Kartenkacheln von Apple. Auf Knopfdruck laden die Sendepläne Daten von dwd.de und api.v2.sondehub.org. Beim AIS-Schiffsfenster fragt es (abschaltbar mit NETZ-SUCHE) Wikidata, Wikimedia Commons und Wikipedia nach dem angeklickten Schiff; übermittelt werden nur MMSI, IMO-Nummer, Rufzeichen und Name dieses Schiffs. Die DMR-ID-Liste (Rufzeichen, Name und Ort zu den Funkgeräte-Kennungen, rund 17 MB) lädt es nur auf Knopfdruck in den DMR-Einstellungen von radioid.net. Beim ADS-B-Flugzeugfenster fragt es (abschaltbar mit NETZ-SUCHE) adsbdb.com und planespotters.net nach dem angeklickten Flugzeug; übermittelt werden nur ICAO-Adresse und Rufzeichen. Mit dem Schalter AUTO-INFO (standardmäßig aus) geschieht das im Hintergrund für alle gehörten Flugzeuge, höchstens eine Abfrage je Sekunde. Einzelheiten: `THIRD_PARTY.md`, Abschnitt 4.
+Digidec ruft von sich aus nichts im Netz ab, bis auf die Kartenkacheln von Apple. Auf Knopfdruck QRZ lädt es die Seite des Rufzeichens von qrz.com (in der Adresse steht nur das Rufzeichen; QRZ.com fragt selbst nach der Einwilligung für Cookies, die Anmeldung dort bleibt im Fenster erhalten). Auf Knopfdruck laden die Sendepläne Daten von dwd.de und api.v2.sondehub.org. Beim AIS-Schiffsfenster fragt es (abschaltbar mit NETZ-SUCHE) Wikidata, Wikimedia Commons und Wikipedia nach dem angeklickten Schiff; übermittelt werden nur MMSI, IMO-Nummer, Rufzeichen und Name dieses Schiffs. Die DMR-ID-Liste (Rufzeichen, Name und Ort zu den Funkgeräte-Kennungen, rund 17 MB) lädt es nur auf Knopfdruck in den DMR-Einstellungen von radioid.net. Beim ADS-B-Flugzeugfenster fragt es (abschaltbar mit NETZ-SUCHE) adsbdb.com und planespotters.net nach dem angeklickten Flugzeug; übermittelt werden nur ICAO-Adresse und Rufzeichen. Mit dem Schalter AUTO-INFO (standardmäßig aus) geschieht das im Hintergrund für alle gehörten Flugzeuge, höchstens eine Abfrage je Sekunde. Einzelheiten: `THIRD_PARTY.md`, Abschnitt 4.
 
 ## Tests und Werkzeuge
 

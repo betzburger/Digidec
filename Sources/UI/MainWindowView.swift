@@ -490,6 +490,11 @@ public struct MainWindowView: View {
                 state.aisController.showInfo(for: mmsi)
                 openWindow(id: "ship-info")
             }
+            // Entwicklungshilfe: DIGIDEC_QRZ=<Rufzeichen> öffnet das Fenster „QRZ.com“ nach 4 s (für Schnappschüsse)
+            if let v = ProcessInfo.processInfo.environment["DIGIDEC_QRZ"] {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                if QRZLookup.shared.show(v) { openWindow(id: "qrz") }
+            }
             // Entwicklungshilfe: DIGIDEC_ADSB_INFO=<ICAO hex> öffnet das Fenster „Flugzeugdaten“ nach 12 s (für Schnappschüsse)
             if let v = ProcessInfo.processInfo.environment["DIGIDEC_ADSB_INFO"], let icao = UInt32(v, radix: 16) {
                 try? await Task.sleep(nanoseconds: 12_000_000_000)

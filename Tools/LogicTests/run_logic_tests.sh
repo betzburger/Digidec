@@ -51,7 +51,7 @@ Tools/build_fldigi.sh "$OUT/fldigi"
 SRC=(
     Tools/LogicTests/main.swift Tools/LogicTests/FakeRigctld.swift Tools/LogicTests/FakeSDRconnect.swift $S/Rig/SDRconnectRig.swift
     $S/Models/RigProfile.swift $S/Rig/RigModel.swift $S/Models/LicenseDocuments.swift
-    $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift $S/Models/DXCC.swift
+    $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift $S/Models/DXCC.swift $S/Models/QRZ.swift
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift
     $S/Audio/AudioPipeline.swift $S/Audio/WAVFileSource.swift
     $S/Models/RTTYSettings.swift $S/App/RTTYSettingsStore.swift
