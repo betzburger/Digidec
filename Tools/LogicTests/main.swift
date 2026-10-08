@@ -147,7 +147,7 @@ if want("url") {
         let names = band.modules.map(\.displayName)
         check(names == names.sorted { $0.compare($1, options: [.diacriticInsensitive, .caseInsensitive]) == .orderedAscending }, "\(band.title): A–Z")
     }
-    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "M17", "NXDN", "PACKET", "PAGER", "RDS", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
+    check(DecoderModuleInfo.Band.vhfUhf.modules.map(\.displayName) == ["ACARS", "ADS-B", "AIS", "APRS", "D-STAR", "DAB", "DMR", "DPMR", "M17", "NXDN", "P25", "PACKET", "PAGER", "RDS", "SENSOREN", "SONDE", "TETRA", "TÖNE", "VDL2", "VOR/ILS", "YSF"], "VHF/UHF-Rubrik")
     check(DecoderModuleInfo.channels.coversAllBands && DecoderModuleInfo.channels.displayName == "MEHRKANAL" && DecoderModuleInfo.Band.allCases.allSatisfy { !$0.modules.contains(.channels) }
           && DecoderModuleInfo.allCases.filter(\.coversAllBands) == [.channels], "MEHRKANAL gehört zu keiner Rubrik allein")
     check(DecoderModuleInfo.Band.hf.modules.first == .ale && DecoderModuleInfo.Band.hf.modules.last == .wspr && DecoderModuleInfo.Band.hf.modules.contains(.ndb), "HF-Rubrik A–Z")
@@ -12620,6 +12620,172 @@ if want("nxdn") {
                   "NXDN echt (\(name)): \(Int(baud)) Bd, Quelle \(i?.source ?? -1), RAN \(i?.ran ?? -1), \(voice) Sprachrahmen (\(clean) ohne Bitfehler), Freigabe \(r.ends)")
         } else { skip("NXDN echt: TestData/NXDN/\(name) liegt nicht lokal vor") }
     }
+}
+
+// MARK: - P25 Phase 1: Codes, NID, Einheiten, Empfänger (C4FM 4800 Bd), Rundlauf, echte Aufnahmen
+if want("p25") {
+    struct PRng { var s: UInt64
+        mutating func next() -> UInt64 { s = s &* 6364136223846793005 &+ 1442695040888963407; return s >> 33 }
+        mutating func bit() -> UInt8 { UInt8(next() & 1) }
+    }
+    var rng = PRng(s: 25)
+    check(P25.fs.map { FourFSK.dibit(ofLevel: $0) }.reduce(UInt64(0)) { ($0 << 2) | UInt64($1) } == 0x5575F5FF77FF, "P25: Rahmensynchronwort 0x5575F5FF77FF")
+    check(P25.DUID.ldu1.length == 864 && P25.DUID.hdu.length == 396 && P25.DUID.tdu.length == 72 && P25.DUID.tdulc.length == 216 && P25.DUID.tsdu.length == nil
+          && P25.frameIndex(ofContent: 34) == 34 && P25.frameIndex(ofContent: 35) == 36 && P25.frameIndex(ofContent: 839) == 862, "P25: Einheitenlängen und Statussymbole (jedes 36. Symbol)")
+    // GF(64) und Reed-Solomon
+    check((1..<64).allSatisfy { GF64.mul(UInt8($0), GF64.inv(UInt8($0))) == 1 } && GF64.exp[6] == 3 && GF64.exp[63] == 1, "P25: GF(64) mit x⁶ + x + 1")
+    for (name, rs) in [("(24,12,13)", P25RS.rs24_12_13), ("(24,16,9)", P25RS.rs24_16_9), ("(36,20,17)", P25RS.rs36_20_17)] {
+        let t = (rs.n - rs.k) / 2
+        var ok = true, tooMany = true
+        for trial in 0..<60 {
+            let data = (0..<rs.k).map { _ in UInt8(rng.next() & 63) }
+            let word = data + rs.parity(of: data)
+            var w = word
+            let errors = trial % (t + 1)                                   // 0 … t Fehler
+            var used = Set<Int>()
+            while used.count < errors { used.insert(Int(rng.next() % UInt64(rs.n))) }
+            for p in used { w[p] ^= UInt8(1 + rng.next() % 63) }
+            if rs.decode(&w) != errors || w != word { ok = false }
+            var bad = word
+            used = []
+            while used.count < t + 3 { used.insert(Int(rng.next() % UInt64(rs.n))) }
+            for p in used { bad[p] ^= UInt8(1 + rng.next() % 63) }
+            if rs.decode(&bad) != nil && bad == word { tooMany = false }
+        }
+        check(ok && tooMany, "P25: Reed-Solomon \(name): bis \(t) Symbolfehler korrigiert, \(t + 3) Fehler nicht zu „richtig“ umgedeutet")
+    }
+    // Golay (24,12), Hamming (10,6)
+    var golayOK = true
+    for d in [0, 1, 0x3F, 0x2A, 0x15] {
+        let par = P25Codes.golayParity(d, dataBits: 6)
+        let bits = (0..<6).map { UInt8((d >> (5 - $0)) & 1) }
+        var noisyBits = bits, noisyPar = par
+        noisyBits[1] ^= 1; noisyPar[3] ^= 1; noisyPar[10] ^= 1
+        if P25Codes.golayDecode(data: bits[...], parity: par[...], dataBits: 6)?.data != d || P25Codes.golayDecode(data: noisyBits[...], parity: noisyPar[...], dataBits: 6)?.data != d { golayOK = false }
+        var wreck = noisyPar; wreck[0] ^= 1; wreck[5] ^= 1; wreck[7] ^= 1; wreck[9] ^= 1
+        if let r = P25Codes.golayDecode(data: noisyBits[...], parity: wreck[...], dataBits: 6), r.data == d, r.errors <= 3 { golayOK = false }
+    }
+    let p12 = P25Codes.golayParity(0xABC, dataBits: 12)
+    check(golayOK && P25Codes.golayDecode(data: (0..<12).map { UInt8((0xABC >> (11 - $0)) & 1) }[...], parity: p12[...], dataBits: 12)?.data == 0xABC, "P25: Golay (24,12) mit sechs und zwölf Datenbits, drei Fehler korrigiert, vier nicht")
+    var hammingOK = true
+    for v in 0..<64 {
+        let hex = (0..<6).map { UInt8((v >> (5 - $0)) & 1) }
+        let par = P25Codes.hammingParity(hex)
+        for e in 0..<10 {
+            var h = hex, p = par
+            if e < 6 { h[e] ^= 1 } else { p[e - 6] ^= 1 }
+            if P25Codes.hammingDecode(hex: h, parity: p)?.hex != hex { hammingOK = false }
+        }
+    }
+    check(hammingOK, "P25: Hamming (10,6,3) korrigiert jeden Einzelbitfehler")
+    // NID: BCH (63,16)
+    var nidOK = true
+    for _ in 0..<40 {
+        let nac = Int(rng.next() & 0xFFF), duid = P25.DUID.valid[Int(rng.next() % 7)]
+        var word = P25Codes.bchEncode((nac << 4) | duid)
+        var used = Set<Int>()
+        let errs = Int(rng.next() % 12)                                     // 0 … 11
+        while used.count < errs { used.insert(Int(rng.next() % 63)) }
+        for p in used { word[p] ^= 1 }
+        guard let r = P25Codes.bchDecode(word), r.nac == nac, r.duid == duid, r.errors == errs else { nidOK = false; continue }
+    }
+    var wrecked = P25Codes.bchEncode((0x293 << 4) | 5)
+    for p in stride(from: 0, to: 63, by: 2) { wrecked[p] ^= 1 }
+    check(nidOK && P25Codes.bchDecode(wrecked) == nil && P25Codes.bchEncode(0x2935).count == 63, "P25: NID mit BCH (63,16,23): bis 11 Bitfehler korrigiert, zerstörte NID verworfen")
+    // IMBE-Rahmen
+    var imbeOK = true, imbeBad = true
+    for _ in 0..<30 {
+        let info = (0..<88).map { _ in rng.bit() }
+        let air = P25SignalGenerator.imbeAir(info: info)
+        if P25IMBE.errorCount(air: air) != 0 || P25IMBE.bits(fromBytes: P25IMBE.bytes(fromAir: air)) != air { imbeOK = false }
+        var bad = air; bad[10] ^= 1; bad[70] ^= 1; bad[120] ^= 1
+        if P25IMBE.errorCount(air: bad) == 0 { imbeBad = false }
+        if P25IMBE.air(fromVectors: P25IMBE.vectors(fromAir: air)) != air { imbeOK = false }
+    }
+    check(imbeOK && imbeBad, "P25: IMBE-Rahmen (Golay c0 … c3, Hamming c4 … c6, Verwürfelung, Verschachtelung): Rundlauf, Bitfehler gezählt")
+    // Linksteuerung
+    let lcg = P25LinkControl.parse(P25SignalGenerator.groupCallLC(group: 1234, source: 0xABCDE, emergency: true))
+    let lcu = P25LinkControl.parse(P25SignalGenerator.unitCallLC(target: 77, source: 99))
+    check(lcg?.group == 1234 && lcg?.source == 0xABCDE && lcg?.emergency == true && lcg?.encrypted == false && lcg?.title == "Gruppenruf" && lcu?.target == 77 && lcu?.source == 99 && lcu?.title == "Einzelruf"
+          && P25.algorithmName(0x80) == "offen" && P25.algorithmName(0xAA) == "ADP (RC4)" && P25.manufacturerName(0x10) == "Motorola", "P25: Linksteuerung Gruppenruf und Einzelruf, Namen")
+
+    // Rundlauf über Audio
+    let imbe: [[UInt8]] = (0..<54).map { _ in P25IMBE.bytes(fromAir: P25SignalGenerator.imbeAir(info: (0..<88).map { _ in rng.bit() })) }
+    struct PRun { var frames: [[UInt8]] = []; var starts = 0; var ends = 0; var lost = 0; var infos: [P25CallInfo] = []; var encrypted = 0; var stats = P25FramerStats() }
+    func receive(_ audio: [Float], rate: Double = 48000) -> PRun {
+        var run = PRun()
+        let rx = P25Receiver(sampleRate: rate)
+        rx.onEvent = { e in
+            switch e {
+            case .callStart: run.starts += 1
+            case .voice(let v): run.frames += v.frames; if v.encrypted { run.encrypted += 1 }
+            case .info(let i): run.infos.append(i)
+            case .callEnd(let lost): if lost { run.lost += 1 } else { run.ends += 1 }
+            }
+        }
+        var i = 0
+        let chunk = Int(rate / 100)
+        while i < audio.count { let j = min(i + chunk, audio.count); rx.process(Array(audio[i..<j])); i = j }
+        run.stats = rx.stats
+        return run
+    }
+    let callSymbols = P25SignalGenerator.call(nac: 0x293, group: 1234, source: 5678901, frames: imbe, mfid: 0x10)
+    func scenario(_ title: String, rate: Double = 48000, minShare: Double = 0.97, ending: Bool = true, _ edit: (inout FourFSKModulator.Impairments) -> Void) {
+        var im = FourFSKModulator.Impairments(); edit(&im)
+        let r = receive(FourFSKModulator.audio(symbols: callSymbols, sampleRate: rate, baud: P25.baud, bt: 1.0, impairments: im), rate: rate)
+        let right = zip(r.frames, imbe).filter { $0.0 == $0.1 }.count
+        let last = r.infos.last
+        check(r.starts == 1 && last?.nac == 0x293 && last?.group == 1234 && last?.source == 5678901 && last?.manufacturer == 0x10 && last?.algorithm == 0x80 && r.ends == 1 && r.lost == 0
+              && r.frames.count == 54 && Double(right) >= minShare * 54,
+              "P25-Empfänger \(title): ein Gespräch NAC 293, Gruppe 1234, Quelle 5678901, Endekennung, \(right) von 54 Sprachrahmen bitgleich")
+    }
+    scenario("sauber") { _ in }
+    scenario("Pegel umgekehrt") { $0.inverted = true }
+    scenario("Gleichanteil 30 %") { $0.dc = 0.3 }
+    scenario("Takt +300 ppm", minShare: 0.9) { $0.clockPPM = 300 }
+    scenario("Takt −300 ppm", minShare: 0.9) { $0.clockPPM = -300 }
+    scenario("Rauschen 0,12", minShare: 0.85) { $0.noise = 0.12; $0.seed = 11 }
+    scenario("Abtastrate 44,1 kHz", rate: 44100) { _ in }
+    scenario("Abtastrate 96 kHz", rate: 96000) { _ in }
+    scenario("alles zusammen (invers, Gleichanteil, Rauschen, +100 ppm)", minShare: 0.85) { $0.inverted = true; $0.dc = 0.2; $0.noise = 0.08; $0.clockPPM = 100; $0.seed = 4 }
+
+    // Verschlüsselung, Einzelruf-Ende mit TDULC, Wechsel des Absenders, Verlust, Rauschen
+    let enc = P25SignalGenerator.call(nac: 0x123, group: 7, source: 9, frames: Array(imbe[0..<18]), algorithm: 0xAA, keyID: 0x2B, mi: (0..<72).map { _ in rng.bit() }, ending: .tdulc)
+    let encRun = receive(FourFSKModulator.audio(symbols: enc, sampleRate: 48000, baud: P25.baud))
+    check(encRun.infos.last?.algorithm == 0xAA && encRun.infos.last?.keyID == 0x2B && encRun.infos.last?.mi?.count == 18 && encRun.encrypted > 0 && encRun.ends == 1 && encRun.stats.tdulc == 1 && encRun.stats.lcGood == 2,
+          "P25: verschlüsseltes Gespräch (ADP, Schlüssel 0x2B) erkannt, Ende mit TDULC (Linksteuerung gelesen)")
+    let gap = [Float](repeating: 0, count: 2000)
+    let c1 = P25SignalGenerator.call(nac: 0x293, group: 1, source: 100, frames: Array(imbe[0..<18]))
+    let c2 = P25SignalGenerator.call(nac: 0x293, group: 2, source: 200, frames: Array(imbe[18..<36]))
+    let two = receive(FourFSKModulator.audio(symbols: c1 + gap + c2, sampleRate: 48000, baud: P25.baud))
+    check(two.starts == 2 && two.ends == 2 && two.infos.last?.source == 200 && two.infos.last?.group == 2 && two.stats.calls == 2, "P25: zwei Gespräche hintereinander mit verschiedenen Absendern")
+    let back = P25SignalGenerator.call(nac: 0x293, group: 1, source: 100, frames: Array(imbe[0..<18]), ending: nil) + P25SignalGenerator.call(nac: 0x293, group: 2, source: 200, frames: Array(imbe[18..<36]), withHeader: false, ending: nil)
+    let swap = receive(FourFSKModulator.audio(symbols: back, sampleRate: 48000, baud: P25.baud, leadSilence: 1.5))
+    check(swap.starts == 2 && swap.infos.last?.source == 200 && swap.frames.count == 36, "P25: Absenderwechsel ohne Endekennung trennt die Gespräche (\(swap.starts) Gespräche, \(swap.frames.count) Sprachrahmen)")
+    let gone = receive(FourFSKModulator.audio(symbols: P25SignalGenerator.call(nac: 0x293, group: 1, source: 2, frames: Array(imbe[0..<18]), ending: nil), sampleRate: 48000, baud: P25.baud, leadSilence: 1.5))
+    check(gone.starts == 1 && gone.ends == 0 && gone.lost == 1, "P25: Signal bricht ohne Endekennung ab: Gespräch endet als verloren")
+    var noiseRng = PRng(s: 8)
+    let noiseOnly: [Float] = (0..<(48000 * 30)).map { _ in Float(Double(noiseRng.next() & 0xFFFFF) / Double(1 << 20) - 0.5) * 0.8 }
+    let nothing = receive(noiseOnly)
+    check(nothing.starts == 0 && nothing.frames.isEmpty && nothing.stats.units == 0, "P25: 30 s Rauschen ergeben keine Einheit")
+    check(P25Diagnosis.assess(inputDB: -120, stats: P25FramerStats(), locked: false).severity == .problem && P25Diagnosis.assess(inputDB: -30, stats: P25FramerStats(), locked: true).severity == .ok
+          && P25Diagnosis.assess(inputDB: -30, stats: P25FramerStats(), locked: false).severity == .waiting && DecoderModuleInfo.p25.band == .vhfUhf && !DecoderModuleInfo.p25.hasMap
+          && VoiceFrame(bytes: [UInt8](repeating: 0, count: 18)) != nil && VoiceFrame(bytes: [UInt8](repeating: 0, count: 10)) == nil, "P25: Diagnose, Modul, Sprachrahmen von 18 Byte")
+
+    // Echte Aufnahmen (op25 samples: Sprache am Diskriminator und am IF, Steuerkanal), nur lokal
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    for name in ["p25_voice_af_48k.wav", "p25_voice_if_48k.wav"] {
+        if let wav = try? VoiceWAV.read(root.appendingPathComponent("TestData/P25/" + name)) {
+            let r = receive(wav.samples.map { Float($0) / 32768 }, rate: Double(wav.sampleRate))
+            let i = r.infos.last
+            check(r.starts == 1 && i?.nac == 0x293 && i?.group == 1 && i?.source == 1 && i?.algorithm == 0x80 && r.frames.count == 261 && r.stats.cleanFrames == 261 && r.stats.lcGood >= 14 && r.stats.essGood >= 14 && r.stats.hdu == 1,
+                  "P25 echt (\(name)): NAC 293, Gruppe 1, Quelle 1, \(r.frames.count) Sprachrahmen (\(r.stats.cleanFrames) ohne Bitfehler), LC \(r.stats.lcGood)/\(r.stats.lcGood + r.stats.lcBad), Verschlüsselungsdaten \(r.stats.essGood)/\(r.stats.essGood + r.stats.essBad)")
+        } else { skip("P25 echt: TestData/P25/\(name) liegt nicht lokal vor") }
+    }
+    if let wav = try? VoiceWAV.read(root.appendingPathComponent("TestData/P25/p25_control_if_48k.wav")) {
+        let r = receive(wav.samples.map { Float($0) / 32768 }, rate: Double(wav.sampleRate))
+        check(r.stats.tsdu >= 650 && r.stats.nidBad < 40 && r.starts == 0, "P25 echt (Steuerkanal): \(r.stats.tsdu) Steuerkanal-Einheiten (TSDU) erkannt, \(r.stats.nidBad) NID verworfen")
+    } else { skip("P25 echt: TestData/P25/p25_control_if_48k.wav liegt nicht lokal vor") }
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

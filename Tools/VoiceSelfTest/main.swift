@@ -4,7 +4,7 @@ import Foundation
 import VoiceCore
 
 // Prüfstand für den Sprachstick: Sprache (WAV, 8 kHz, 16 Bit, mono) codieren, vom Chip zurückwandeln lassen, als WAV ausgeben.
-// Aufruf: voice-selftest <ein.wav> <aus.wav> [--profile dstar|dmr] [--port /dev/cu.…] [--play]
+// Aufruf: voice-selftest <ein.wav> <aus.wav> [--profile dstar|dmr|p25] [--port /dev/cu.…] [--play]
 nonisolated(unsafe) var arguments = Array(CommandLine.arguments.dropFirst())
 func option(_ name: String) -> String? {
     guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
@@ -16,7 +16,7 @@ let profile = VoiceProfile(rawValue: option("--profile") ?? "dmr") ?? .dmr
 let explicitPort = option("--port")
 let play = arguments.firstIndex(of: "--play").map { arguments.remove(at: $0) } != nil
 guard arguments.count == 2 else {
-    print("Aufruf: voice-selftest <ein.wav> <aus.wav> [--profile dstar|dmr] [--port <Pfad>] [--play]")
+    print("Aufruf: voice-selftest <ein.wav> <aus.wav> [--profile dstar|dmr|p25] [--port <Pfad>] [--play]")
     exit(2)
 }
 

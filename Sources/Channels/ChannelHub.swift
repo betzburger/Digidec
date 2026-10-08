@@ -230,6 +230,11 @@ public final class ChannelHub: ObservableObject {
             let c = NXDNController(pipeline: pipeline, settings: settings)
             c.silent = true
             return build(c, activate: { c.setActive($0) }, summary: { "\(c.calls.count) Gespräche" }, view: { AnyView(NXDNMainPanel(controller: c, settings: settings, output: voiceOutput)) })
+        case .p25:
+            let settings = P25SettingsStore()
+            let c = P25Controller(pipeline: pipeline, settings: settings)
+            c.silent = true
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.calls.count) Gespräche" }, view: { AnyView(P25MainPanel(controller: c, settings: settings, output: voiceOutput)) })
         case .m17:
             let settings = M17SettingsStore()
             let c = M17Controller(pipeline: pipeline, settings: settings)

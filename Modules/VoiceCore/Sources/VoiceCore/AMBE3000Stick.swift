@@ -39,7 +39,8 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
         firmware = identity.version
     }
 
-    public func supports(_ profile: VoiceProfile) -> Bool { true }
+    /// P25 (IMBE-Vollrate) ist mit diesem Stick nicht geprüft: die Kanalbit-Reihenfolge des Chips dafür ist nicht geklärt (siehe PLAN.md)
+    public func supports(_ profile: VoiceProfile) -> Bool { profile != .p25 }
 
     /// Serielle Anschlüsse, an denen ein solcher Stick hängen könnte (Namen unter /dev).
     public static func candidatePaths() -> [String] {
@@ -88,7 +89,12 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
     /// Stellt Kanal 0 auf das Verfahren ein (nur nötig, wenn es wechselt).
     private func configure(_ profile: VoiceProfile) throws {
         guard configured != profile else { return }
-        let rate = profile == .dstar ? Self.ratePlus : Self.ratePlus2
+        let rate: [UInt8]
+        switch profile {
+        case .dstar: rate = Self.ratePlus
+        case .dmr: rate = Self.ratePlus2
+        case .p25: throw VoiceError.unsupported(profile)
+        }
         var payload: [UInt8] = [0x40,                       // Kanal 0
                                 0x05, 0x00, 0x00,           // Codierer: Fehlerschutz nach Voreinstellung
                                 0x06, 0x00, 0x00,           // Decodierer: ebenso
@@ -115,9 +121,10 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
     // MARK: - Wandlung
 
     public func decode(_ frame: VoiceFrame, profile: VoiceProfile) throws -> [Int16] {
+        guard profile != .p25, frame.bytes.count == VoiceFrame.byteCount else { throw VoiceError.unsupported(profile) }
         lock.lock(); defer { lock.unlock() }
         try configure(profile)
-        try send(type: 0x01, payload: [0x01, UInt8(VoiceFrame.byteCount * 8)] + frame.bytes)
+        try send(type: 0x01, payload: [0x01, UInt8(frame.bytes.count * 8)] + frame.bytes)
         while true {
             let packet = try receive()
             guard packet.type == 0x02, packet.payload.count >= 2, packet.payload[0] == 0x00 else { continue }
@@ -130,6 +137,7 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
     /// Codiert 160 Abtastwerte zu einem Sprachrahmen (für Prüfungen und spätere Sendefunktionen).
     public func encode(_ samples: [Int16], profile: VoiceProfile) throws -> VoiceFrame {
         precondition(samples.count == VoiceFrame.samplesPerFrame)
+        guard profile != .p25 else { throw VoiceError.unsupported(profile) }
         lock.lock(); defer { lock.unlock() }
         try configure(profile)
         var payload: [UInt8] = [0x00, UInt8(samples.count)]
@@ -138,10 +146,11 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
             payload.append(UInt8(value >> 8)); payload.append(UInt8(value & 0xFF))
         }
         try send(type: 0x02, payload: payload)
+        let size = VoiceFrame.byteCount
         while true {
             let packet = try receive()
-            guard packet.type == 0x01, packet.payload.count >= 2 + VoiceFrame.byteCount, packet.payload[0] == 0x01 else { continue }
-            guard let frame = VoiceFrame(bytes: Array(packet.payload[2..<2 + VoiceFrame.byteCount])) else {
+            guard packet.type == 0x01, packet.payload.count >= 2 + size, packet.payload[0] == 0x01 else { continue }
+            guard let frame = VoiceFrame(bytes: Array(packet.payload[2..<2 + size])) else {
                 throw VoiceError.protocolError("Kanalpaket")
             }
             return frame

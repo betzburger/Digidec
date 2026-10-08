@@ -51,6 +51,8 @@ public struct MainWindowView: View {
                                 DPMRMainPanel(controller: state.dpmrController, settings: state.dpmr, output: state.dstarController.output)
                             } else if state.activeModule == .nxdn {
                                 NXDNMainPanel(controller: state.nxdnController, settings: state.nxdn, output: state.dstarController.output)
+                            } else if state.activeModule == .p25 {
+                                P25MainPanel(controller: state.p25Controller, settings: state.p25, output: state.dstarController.output)
                             } else if state.activeModule == .ndb {
                                 NDBMainPanel(controller: state.ndbController, settings: state.ndb)
                             } else if state.activeModule == .tetra {
@@ -165,6 +167,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.dpmr, audio: state.audio)
                             } else if state.activeModule == .nxdn {
                                 WaterfallView(model: state.waterfall, rtty: state.nxdn, audio: state.audio)
+                            } else if state.activeModule == .p25 {
+                                WaterfallView(model: state.waterfall, rtty: state.p25, audio: state.audio)
                             } else if state.activeModule == .m17 {
                                 WaterfallView(model: state.waterfall, rtty: state.m17, audio: state.audio)
                             } else if state.activeModule == .freedv {
@@ -224,7 +228,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .nxdn ? "NXDN Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .js8 ? "JS8 Aktivität" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .nxdn ? "NXDN Gespräche" : state.activeModule == .p25 ? "P25 Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .js8 ? "JS8 Aktivität" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -301,6 +305,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             NXDNSettingsPanel(settings: state.nxdn, output: state.dstarController.output)
                                 .radioCard(title: "NXDN")
+                        } else if state.activeModule == .p25 {
+                            P25TuningPanel(controller: state.p25Controller, settings: state.p25, output: state.dstarController.output)
+                                .radioCard(title: "Abstimmanzeige")
+                            P25SettingsPanel(settings: state.p25, output: state.dstarController.output)
+                                .radioCard(title: "P25")
                         } else if state.activeModule == .sensors {
                             SensorsTuningPanel(controller: state.sensorsController, settings: state.sensors)
                                 .radioCard(title: "Abstimmanzeige")
@@ -1101,6 +1110,7 @@ private struct StatusBar: View {
         case .dstar: return "D-STAR · DV · GMSK 4800 Bd · FM-Diskriminator-Audio"
         case .ysf: return "YSF · C4FM 4800 Bd · FM-Diskriminator-Audio"
         case .dpmr: return "dPMR · 4FSK 2400 Bd · 6,25 kHz · FM-Diskriminator-Audio"
+        case .p25: return "P25 Phase 1 · C4FM 4800 Bd · 12,5 kHz · FM-Diskriminator-Audio"
         case .nxdn: return "NXDN · 4FSK 2400 Bd (6,25 kHz) und 4800 Bd (12,5 kHz) · FM-Diskriminator-Audio"
         case .ndb: return "NDB · Funkfeuer 190 bis 535 kHz · AM-Audio, Kennungston 400/1020 Hz oder Überlagerungston"
         case .tetra: return "TETRA · π/4-DQPSK 18 000 Bd · 25 kHz · I/Q direkt vom Gerät"

@@ -13,18 +13,23 @@ public enum VoiceProfile: String, Sendable, CaseIterable {
     case dstar
     /// DMR, ebenso YSF (V/D-Modus 2) und NXDN: 3600 bit/s Kanalbits (2450 Sprache + 1150 Fehlerschutz).
     case dmr
+    /// P25 Phase 1: IMBE-Vollrate, 144 Kanalbits je Rahmen (7200 bit/s mit Fehlerschutz, 4400 bit/s Sprache).
+    case p25
 }
 
 /// Ein Sprachrahmen von 20 ms: 72 Kanalbits, MSB zuerst, in der Bitordnung des Decoders.
 public struct VoiceFrame: Sendable, Equatable {
+    /// Halbrate-Rahmen (AMBE, 72 Bit)
     public static let byteCount = 9
+    /// Vollrate-Rahmen (IMBE bei P25, 144 Bit)
+    public static let imbeByteCount = 18
     public static let samplesPerFrame = 160
     public static let sampleRate = 8000
 
     public let bytes: [UInt8]
 
     public init?(bytes: [UInt8]) {
-        guard bytes.count == Self.byteCount else { return nil }
+        guard bytes.count == Self.byteCount || bytes.count == Self.imbeByteCount else { return nil }
         self.bytes = bytes
     }
 }
