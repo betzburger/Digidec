@@ -2,6 +2,7 @@
 // ft4_digidec.c  --  C-Schnittstelle zum FT4-Decoder (ft8_lib von Karlis Goba YL3JG, MIT) für Swift
 //
 // Digidec. Ein Aufruf decodiert einen 7,5-s-Zyklus (4-GFSK, 20.8333 Baud).
+// FT2 (inoffiziell, IU8LMC/DG2YCB) ist dasselbe Verfahren bei halber Symboldauer: 0,024 s (41,667 Baud), 3,75-s-Zyklus.
 // ----------------------------------------------------------------------------
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,7 +88,8 @@ static ftx_callsign_hash_interface_t g_hash_if = {
 // und ließen die Schätzung bei starken Signalen sättigen). `FT4_SNR_CAL` rechnet das Verhältnis auf die 2500-Hz-Referenz
 // um (Fenster 2 Symbole, Hann); gemessen mit synthetischem Weißrauschen, siehe Tools/LogicTests.
 #define FT4_SNR_CAL (-20.55)
-static double ft4_estimate_snr(const ftx_waterfall_t *wf, const ftx_candidate_t *cand, const uint8_t payload[10])
+// Bei halber Symboldauer sind die Bins doppelt so breit: das Rauschen je Bin verdoppelt sich (+3,01 dB in der Umrechnung)
+static double ft4_estimate_snr(const ftx_waterfall_t *wf, const ftx_candidate_t *cand, const uint8_t payload[10], double symbol_period)
 {
     static const int noise_offsets[] = { -5, -4, -3, 7, 8, 9 };   // Tonspanne = Bins 0…3
     uint8_t tones[FT4_NN];
@@ -111,12 +113,13 @@ static double ft4_estimate_snr(const ftx_waterfall_t *wf, const ftx_candidate_t 
     sig /= n; noise /= nn;
     double ratio = (sig - noise) / noise;
     if (ratio < 1e-3) ratio = 1e-3;
-    double snr_db = 10.0 * log10(ratio) + FT4_SNR_CAL;
+    double snr_db = 10.0 * log10(ratio) + FT4_SNR_CAL + 10.0 * log10(0.048 / symbol_period);
     return snr_db < -30.0 ? -30.0 : snr_db;   // WSJT-X zeigt FT4 ebenfalls nur bis etwa −30 dB
 }
 
-int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz, double max_hz,
-                       ft4dd_decode_fn on_decode, void *ctx)
+static int decode_cycle(const float *samples, int count, int rate, double min_hz, double max_hz,
+                        double symbol_period, double slot_time, double tx_delay,
+                        ft4dd_decode_fn on_decode, void *ctx)
 {
     if (samples == NULL || count <= 0 || on_decode == NULL) return 0;
 
@@ -132,7 +135,9 @@ int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz,
         .sample_rate = rate,
         .time_osr = 2,
         .freq_osr = 2,
-        .protocol = FTX_PROTOCOL_FT4
+        .protocol = FTX_PROTOCOL_FT4,
+        .symbol_period = (float)symbol_period,
+        .slot_time = (float)slot_time
     };
 
     monitor_init(&mon, &mon_cfg);
@@ -193,13 +198,13 @@ int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz,
         // Das Wasserfallfenster endet erst ein Symbol nach seinem Index: Beginn des Signals = Index − 1 Symbol.
         double time_sec = (cand->time_offset + (double)cand->time_sub / mon.wf.time_osr - 1.0) * (double)mon.symbol_period;
 
-        double snr = ft4_estimate_snr(&mon.wf, cand, message.payload);
+        double snr = ft4_estimate_snr(&mon.wf, cand, message.payload, symbol_period);
 
         ft4dd_decode d;
         memset(&d, 0, sizeof(d));
         strncpy(d.text, text, sizeof(d.text) - 1);
         d.snr_db = snr;
-        d.dt = time_sec - 0.5;   // FT4 sendet 0,5 s nach Zyklusbeginn; DT wie WSJT-X relativ dazu
+        d.dt = time_sec - tx_delay;   // FT4 sendet 0,5 s nach Zyklusbeginn (FT2: 0,3 s); DT relativ dazu
         d.freq_hz = freq_hz;
         d.correct_bits = FTX_LDPC_N - status.ldpc_errors;   // CRC-geprüft: 174 bei gültiger Decodierung
         d.pass = 0;
@@ -215,4 +220,16 @@ int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz,
     pthread_mutex_unlock(&g_hash_mu);
 
     return num_decoded;
+}
+
+int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz, double max_hz,
+                       ft4dd_decode_fn on_decode, void *ctx)
+{
+    return decode_cycle(samples, count, rate, min_hz, max_hz, FT4_SYMBOL_PERIOD, FT4_SLOT_TIME, 0.5, on_decode, ctx);
+}
+
+int ft2dd_decode_cycle(const float *samples, int count, int rate, double min_hz, double max_hz,
+                       ft4dd_decode_fn on_decode, void *ctx)
+{
+    return decode_cycle(samples, count, rate, min_hz, max_hz, FT4_SYMBOL_PERIOD / 2.0, FT4_SLOT_TIME / 2.0, 0.3, on_decode, ctx);
 }

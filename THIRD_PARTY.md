@@ -62,7 +62,7 @@ Dieselben FAAD2-Quellen wie oben (GPL-2.0-or-later, `Vendor/Faad2DRM/COPYING`), 
 
 - Autor: Kārlis Goba (YL3JG). Quelle: https://github.com/kgoba/ft8_lib (Commit `9fec6ca`).
 - Lizenz: **MIT** (Text: `Vendor/FT8/LICENSE_ft8_lib.txt`).
-- Verwendet für: FT4-Demodulator und -Decoder, Testsignale (Encoder). Darin enthalten: **KISS FFT** von Mark Borgerding, Copyright 2003–2010, **BSD-3-Clause** (Text: `Vendor/FT8/LICENSE_kissfft.txt`).
+- Verwendet für: FT4-Demodulator und -Decoder, Testsignale (Encoder). Für FT2 (inoffiziell, FT4 bei halber Symboldauer) ist `monitor_config_t` um zwei Felder erweitert (Symboldauer und Zykluslänge); die FT2-Parameter wurden aus den Quelltexten von Decodium (IU8LMC, GPL-3.0, https://github.com/iu8lmc/Decodium-3.0-Codename-Raptor) und WSJT-X Improved (DG2YCB, GPL-3.0, https://sourceforge.net/projects/wsjt-x-improved/) gelesen, Code daraus ist nicht übernommen. Darin enthalten: **KISS FFT** von Mark Borgerding, Copyright 2003–2010, **BSD-3-Clause** (Text: `Vendor/FT8/LICENSE_kissfft.txt`).
 
 ### pocketfft (C++-Zweig)
 

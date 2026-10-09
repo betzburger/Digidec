@@ -43,6 +43,14 @@ int ft4dd_decode_cycle(const float *samples, int count, int rate, double min_hz,
 /// Amplitude 1, 105 Symbole (5,04 s). Liefert die Zahl der Samples, < 0 bei Fehler.
 int ft4dd_synthesize(const char *text, double f0, int rate, float *out, int max_samples);
 
+/// FT2 (inoffiziell): dasselbe Verfahren wie FT4 bei halber Symboldauer (0,024 s, 41,667 Baud, 3,75-s-Zyklus).
+/// samples ab Zyklusbeginn (0 s, 3,75 s, 7,5 s, ...). DT ist auf 0,3 s nach Zyklusbeginn bezogen.
+int ft2dd_decode_cycle(const float *samples, int count, int rate, double min_hz, double max_hz,
+                       ft4dd_decode_fn on_decode, void *ctx);
+
+/// FT2-Testsignal (nur für Tests, Digidec sendet nie): Klartext, unterster Ton bei f0, Amplitude 1, 105 Symbole (2,52 s).
+int ft2dd_synthesize(const char *text, double f0, int rate, float *out, int max_samples);
+
 #ifdef __cplusplus
 }
 #endif

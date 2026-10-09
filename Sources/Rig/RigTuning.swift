@@ -32,7 +32,7 @@ public struct RigTuneTarget: Equatable, Sendable {
 
     public static func ft8(band: FT8Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
 
-    public static func ft4(band: FT4Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
+    public static func ft4(band: FT4Band, mode: FT4Mode = .ft4) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz(for: mode) ?? band.dialHz), mode: "USB") }
 
     /// DSC-Kanal: Rufträger bei `centerHz` im NF (USB), UKW Kanal 70 in FM; frei = nichts
     public static func dsc(channel: DSCChannel, centerHz: Double) -> RigTuneTarget? {

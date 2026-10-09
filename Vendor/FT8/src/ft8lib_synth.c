@@ -106,3 +106,18 @@ int ft4dd_synthesize(const char *text, double f0, int rate, float *out, int max_
     synth_gfsk(tones, FT4_NN, (float)f0, FT4_SYMBOL_BT, FT4_SYMBOL_PERIOD, rate, out);
     return n;
 }
+
+// FT2 (inoffiziell): FT4 mit halber Symboldauer (0,024 s, 41,667 Baud, Tonabstand 41,667 Hz), 105 Symbole = 2,52 s
+int ft2dd_synthesize(const char *text, double f0, int rate, float *out, int max_samples)
+{
+    ftx_message_t msg;
+    if (ftx_message_encode(&msg, NULL, text) != FTX_MESSAGE_RC_OK) return -1;
+    uint8_t tones[FT4_NN];
+    ft4_encode(msg.payload, tones);
+    const float period = FT4_SYMBOL_PERIOD / 2.0f;
+    int n_spsym = (int)(0.5f + rate * period);
+    int n = FT4_NN * n_spsym;
+    if (n > max_samples) return -2;
+    synth_gfsk(tones, FT4_NN, (float)f0, FT4_SYMBOL_BT, period, rate, out);
+    return n;
+}

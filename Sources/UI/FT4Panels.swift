@@ -149,29 +149,30 @@ struct FT4CyclePanel: View {
         VStack(alignment: .leading, spacing: 8) {
             TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
                 let t = ctx.date.timeIntervalSince1970
-                let inCycle = t.truncatingRemainder(dividingBy: FT4Core.cycleSeconds)
+                let mode = settings.mode
+                let inCycle = t.truncatingRemainder(dividingBy: mode.cycleSeconds)
                 HStack(spacing: 8) {
                     Text(String(format: "%03.1f", inCycle))
                         .font(.system(size: 22, weight: .black, design: .monospaced))
-                        .foregroundColor(inCycle >= 5.04 ? RadioTheme.vfdAmber : RadioTheme.vfdGreen)
+                        .foregroundColor(inCycle >= mode.transmitSeconds + mode.txDelay ? RadioTheme.vfdAmber : RadioTheme.vfdGreen)
                         .frame(width: 52, alignment: .leading)
                     VStack(alignment: .leading, spacing: 3) {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
                                 RoundedRectangle(cornerRadius: 2).fill(RadioTheme.bgDeep)
                                 RoundedRectangle(cornerRadius: 2)
-                                    .fill(inCycle >= 5.04 ? RadioTheme.vfdAmber : RadioTheme.vfdGreen)
-                                    .frame(width: max(0, min(geo.size.width, geo.size.width * inCycle / FT4Core.cycleSeconds)))
+                                    .fill(inCycle >= mode.transmitSeconds + mode.txDelay ? RadioTheme.vfdAmber : RadioTheme.vfdGreen)
+                                    .frame(width: max(0, min(geo.size.width, geo.size.width * inCycle / mode.cycleSeconds)))
                             }
                         }
                         .frame(height: 6)
-                        Text(controller.decoder.isBusy ? "DECODIERT …" : "EMPFANG · Decodieren bei 7,1 s")
+                        Text(controller.decoder.isBusy ? "DECODIERT …" : "EMPFANG · Decodieren bei \(String(format: "%.1f", mode.decodeAt).replacingOccurrences(of: ".", with: ",")) s")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
                             .foregroundColor(RadioTheme.textDim)
                     }
                 }
             }
-            .help("Sekunde im 7,5-s-Zyklus (UTC). Die Rechneruhr muss auf ±0,5 s genau gehen (Systemeinstellungen → Datum & Uhrzeit automatisch)")
+            .help(settings.mode == .ft2 ? "Sekunde im 3,75-s-Zyklus (UTC). FT2 verlangt eine sehr genaue Rechneruhr (etwa ±50 ms; Systemeinstellungen → Datum & Uhrzeit automatisch, bei Bedarf Zeitkorrektur)" : "Sekunde im 7,5-s-Zyklus (UTC). Die Rechneruhr muss auf ±0,5 s genau gehen (Systemeinstellungen → Datum & Uhrzeit automatisch)")
             HStack {
                 readout("ZYKLEN", "\(controller.cycleCount)")
                 Spacer()
@@ -208,11 +209,18 @@ struct FT4SettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                ForEach(FT4Mode.allCases) { m in
+                    Button(m.rawValue) { settings.mode = m }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.mode == m))
+                        .help(m == .ft4 ? "FT4: 7,5-s-Zyklus, 20,8 Baud, 83 Hz breit" : "FT2 (experimentell, keine offizielle Betriebsart): dasselbe Verfahren wie FT4 mit doppeltem Tempo, 3,75-s-Zyklus, 41,7 Baud, 167 Hz breit. Die Frequenzen sind frühe Testwerte, Aktivität gibt es fast nur auf 14,084 MHz")
+                }
+            }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 4) {
-                ForEach(FT4Band.allCases) { b in
+                ForEach(FT4Band.available(for: settings.mode)) { b in
                     Button(b.rawValue) { settings.band = b }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.band == b))
-                        .help("Dial \(b.dialLabel) MHz USB")
+                        .help("Dial \(b.dialLabel(for: settings.mode)) MHz USB")
                 }
             }
             Text(dialHint)
@@ -250,11 +258,11 @@ struct FT4SettingsPanel: View {
 
     private var dialHint: String {
         if let rig = settings.rigDialHz {
-            let b = FT4Band.band(forDial: rig)
+            let b = FT4Band.band(forDial: rig, mode: settings.mode)
             return "Funkgerät: \(String(format: "%.3f", Double(rig) / 1_000_000).replacingOccurrences(of: ".", with: ",")) MHz"
-                + (b.map { " (\($0.rawValue))" } ?? " – kein FT4-Kanal")
+                + (b.map { " (\($0.rawValue))" } ?? " – kein \(settings.mode.rawValue)-Kanal")
         }
-        return "USB-Dial \(settings.band.dialLabel) MHz"
+        return "USB-Dial \(settings.band.dialLabel(for: settings.mode)) MHz"
     }
 
     private func label(_ s: String) -> some View {

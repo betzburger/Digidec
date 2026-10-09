@@ -210,7 +210,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
                            "throb1", "throb2", "throb4", "throbx1", "throbx2", "throbx4", "ifkp10", "ifkp05", "ifkp20", "fsq45", "fsq3", "fsq6", "fsq2", "fsq15"]   // = MFSKMode.rawValue
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue
-        case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]   // = FT4Band.rawValue
+        case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm", "160m"]   // = FT4Band.rawValue (160m nur FT2)
         case .wspr: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "160m", "60m", "630m", "2200m", "6m", "4m", "2m", "70cm"]   // = WSPRBand.rawValue
         case .js8: return ["20m", "40m", "80m", "160m", "30m", "17m", "15m", "12m", "10m", "6m", "2m"]   // = JS8Band.rawValue
         case .dcf77: return ["mainflingen"]

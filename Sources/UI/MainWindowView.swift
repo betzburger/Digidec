@@ -428,7 +428,7 @@ public struct MainWindowView: View {
                             FT4CyclePanel(controller: state.ft4Controller, settings: state.ft4)
                                 .radioCard(title: "Zyklus · Rx-Frequenz")
                             FT4SettingsPanel(settings: state.ft4)
-                                .radioCard(title: "FT4")
+                                .radioCard(title: state.ft4.mode.rawValue)
                         } else if state.activeModule == .wspr {
                             WSPRCyclePanel(controller: state.wsprController, settings: state.wspr)
                                 .radioCard(title: "Zyklus")
@@ -1165,7 +1165,7 @@ private struct StatusBar: View {
     /// „FT4 · 20m · Dial 14,080 MHz · 150–3600 Hz · JN49WS“
     private var ft4Current: String {
         let dial = String(format: "%.3f", Double(ft4.dialHz) / 1_000_000).replacingOccurrences(of: ".", with: ",")
-        var s = "FT4 · \(ft4.band.rawValue) · Dial \(dial) MHz"
+        var s = "\(ft4.mode.rawValue) · \(ft4.band.rawValue) · Dial \(dial) MHz"
         s += " · \(Int(ft4.core.minHz))–\(Int(ft4.core.maxHz)) Hz"
         s += " · \(ft4.locator)"
         if !ft4.myCall.isEmpty { s += " · \(ft4.myCall)" }

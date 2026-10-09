@@ -304,6 +304,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning($activeModule)
         observeForTuning(ft8.$band)
         observeForTuning(ft4.$band)
+        observeForTuning(ft4.$mode)
         observeForTuning(wspr.$band)
         observeForTuning(js8.$band)
         observeForTuning(psk.$band)
@@ -457,7 +458,7 @@ public final class DigidecState: ObservableObject {
     public var rigTargetForActiveModule: RigTuneTarget? {
         switch activeModule {
         case .ft8:    return .ft8(band: ft8.band)
-        case .ft4:    return .ft4(band: ft4.band)
+        case .ft4:    return .ft4(band: ft4.band, mode: ft4.mode)
         case .wspr:   return .wspr(band: wspr.band)
         case .js8:    return .js8(band: js8.band)
         case .psk:    return .psk(band: psk.band)
@@ -714,7 +715,7 @@ public final class DigidecState: ObservableObject {
                 case .ft8:
                     if let preset = request.presetID, let b = FT8Band(rawValue: preset) { ft8.band = b }
                 case .ft4:
-                    if let preset = request.presetID, let b = FT4Band(rawValue: preset) { ft4.band = b }
+                    if let preset = request.presetID, let b = FT4Band(rawValue: preset), b.dialHz(for: ft4.mode) != nil { ft4.band = b }
                 case .wspr:
                     if let preset = request.presetID, let b = WSPRBand(rawValue: preset) { wspr.band = b }
                 case .js8:

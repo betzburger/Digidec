@@ -29,7 +29,8 @@ ft8mon arbeitet in mehreren Durchgängen mit Subtraktion decodierter Signale, mi
 2. **libsndfile:** `readwav`/`writewav` in `util.cc` sind ausgeklammert (`DIGIDEC_WITH_SNDFILE`). Der Decoder ruft sie nicht auf.
 3. **`libldpc.c` → `libldpc.cc`:** ft8mon übersetzt die Datei mit `c++`. SwiftPM würde sie als C übersetzen, und die Namen passten dann nicht zusammen.
 4. **Rahmen `src/ft8_digidec.cc`:** Ablauf wie `ft8mon.cc` (`-file`/`-card`). Der Zyklus wird auf 15 s gebracht, Hinweise auf CQ, doppelte Meldungen werden nicht gemeldet und nicht noch einmal subtrahiert (`hcb`). Ein Zyklus läuft zur Zeit, weil ft8mons Parameter global sind.
-5. **Optimierung:** Das Target wird immer mit `-O3` übersetzt. Der Decoder ist zeitbegrenzt, im Debug-Build würde er sonst weniger Durchgänge schaffen.
+5. **FT2 (0.97.0):** `monitor_config_t` hat zwei neue Felder (`symbol_period`, `slot_time`; 0 = Standard des Protokolls), `monitor_init` nimmt sie, wenn gesetzt. FT2 (inoffiziell) ist FT4 bei halber Symboldauer (0,024 s) und halbem Zyklus (3,75 s); Codierung, Sync-Folgen und Rahmen sind dieselben, `decode.c` bleibt unverändert (die 156 Blöcke je Zyklus bleiben gleich). `ft4_digidec.c` rechnet die SNR-Schätzung auf die halbe Symboldauer um (+3,01 dB gegenüber FT4). Rahmen `ft2dd_decode_cycle`, Testsignal `ft2dd_synthesize` (`ft8lib_synth.c`).
+6. **Optimierung:** Das Target wird immer mit `-O3` übersetzt. Der Decoder ist zeitbegrenzt, im Debug-Build würde er sonst weniger Durchgänge schaffen.
 
 ## Unsichere Decodes
 

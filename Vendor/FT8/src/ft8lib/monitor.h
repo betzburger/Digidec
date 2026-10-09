@@ -18,6 +18,8 @@ typedef struct
     int time_osr;            ///< Number of time subdivisions
     int freq_osr;            ///< Number of frequency subdivisions
     ftx_protocol_t protocol; ///< Protocol: FT4 or FT8
+    float symbol_period;     ///< Digidec: overrides the protocol's symbol period in seconds (0 = default); FT2 = FT4 at 0.024 s
+    float slot_time;         ///< Digidec: overrides the slot period in seconds (0 = default); FT2 = 3.75 s
 } monitor_config_t;
 
 /// FT4/FT8 monitor object that manages DSP processing of incoming audio data

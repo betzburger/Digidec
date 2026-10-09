@@ -1674,6 +1674,149 @@ if want("ft") {
     pipeline.stop()
 }
 
+// MARK: - FT2 (inoffiziell): FT4 bei halber Symboldauer
+if want("ft") {
+    check(FT4Mode.ft2.cycleSeconds == 3.75 && FT4Mode.ft2.symbolPeriod == 0.024 && abs(FT4Mode.ft2.toneSpacing - 41.6667) < 0.001 && abs(FT4Mode.ft2.bandwidth - 166.667) < 0.01
+          && abs(FT4Mode.ft2.transmitSeconds - 2.52) < 1e-9 && FT4Mode.ft4.cycleSeconds == 7.5 && abs(FT4Mode.ft4.bandwidth - 83.333) < 0.01
+          && FT4Mode.ft2.decodeAt > FT4Mode.ft2.txDelay + FT4Mode.ft2.transmitSeconds + 0.2 && FT4Mode.ft2.decodeAt < FT4Mode.ft2.cycleSeconds - 0.2,
+          "FT2: Zyklus 3,75 s, Symbol 24 ms, Tonabstand 41,67 Hz, 167 Hz breit, 2,52 s Aussendung, Decodierzeitpunkt zwischen Ende der Aussendung und Zyklusende")
+    // Bänder
+    let ft2Bands = FT4Band.available(for: .ft2)
+    check(ft2Bands.count == 9 && ft2Bands.map { $0.dialHz(for: .ft2)! } == [1_843_000, 3_578_000, 7_052_000, 10_144_000, 14_084_000, 18_108_000, 21_144_000, 24_923_000, 28_184_000].sorted { a, b in ft2Bands.firstIndex { $0.dialHz(for: .ft2) == a }! < ft2Bands.firstIndex { $0.dialHz(for: .ft2) == b }! }
+          && FT4Band.available(for: .ft4).count == 11 && !FT4Band.available(for: .ft4).contains(.m160) && !ft2Bands.contains(.m6),
+          "FT2: neun Bänder von 160 m bis 10 m mit den frühen Testfrequenzen, FT4 behält seine elf ohne 160 m")
+    check(FT4Band.band(forDial: 14_084_000, mode: .ft2) == .m20 && FT4Band.band(forDial: 14_080_000, mode: .ft4) == .m20 && FT4Band.band(forDial: 14_084_000, mode: .ft4) == nil
+          && FT4Band.band(forDial: 1_843_000, mode: .ft2) == .m160 && FT4Band.band(forDial: 1_843_000, mode: .ft4) == nil && FT4Band.band(forDial: 50_318_000, mode: .ft2) == nil,
+          "FT2: Band zur Dial-Frequenz je Betriebsart")
+    let line = FT4Controller.allTxtLine(FT4Decode(cycleStart: ISO8601DateFormatter().date(from: "2026-10-01T08:15:03Z")!, text: "CQ DL1ABC JN49", snrDB: -8, dt: 0.2, freqHz: 1234.4,
+                                                  correctBits: 174, pass: 0, mode: .ft2), dialHz: 14_084_000)
+    check(line == "261001_081503    14.084 Rx FT2     -8  0.2 1234 CQ DL1ABC JN49", "FT2: Log-Zeile wie ALL.TXT mit „Rx FT2“, got \(line.debugDescription)")
+    // Einstellungen
+    let store = FT4SettingsStore()
+    store.mode = .ft2; store.band = .m160
+    let dialFT2 = store.dialHz, centerFT2 = store.centerHz, bwFT2 = store.markerBandwidth
+    store.rigDialHz = nil
+    store.mode = .ft4
+    check(dialFT2 == 1_843_000 && store.band == .m20 && store.dialHz == 14_080_000 && abs(centerFT2 - (store.rxHz + 83.33)) < 0.5 && abs(bwFT2 - 166.67) < 0.1,
+          "FT2: Wechsel zurück zu FT4 stellt ein nur in FT2 vorhandenes Band auf 20 m um; Dial und Markierung folgen der Betriebsart")
+    store.mode = .ft4
+    check(RigTuneTarget.ft4(band: .m20, mode: .ft2).dialHz == 14_084_000 && RigTuneTarget.ft4(band: .m20).dialHz == 14_080_000, "FT2: Abstimmziel des Funkgeräts je Betriebsart")
+
+    // Testsignal: Länge und Töne gegen die Vorgaben aus genft2.f90 (Costas-Folgen 0132, 1023, 2310, 3201, Tonabstand 41,667 Hz, 288 Samples je Symbol)
+    let f0 = 1000.0
+    guard let wave = FT4Core.synthesize("CQ DL1ABC JN49", frequency: f0, mode: .ft2) else { check(false, "FT2: Testsignal nicht erzeugt"); fatalError() }
+    check(wave.count == 105 * 288, "FT2-Testsignal: 105 Symbole à 288 Samples (2,52 s), got \(wave.count)")
+    func toneOfSymbol(_ s: Int) -> Int {
+        var best = 0, bestPower = -1.0
+        for t in 0..<4 {
+            let f = f0 + Double(t) * 1.0 / 0.024
+            var re = 0.0, im = 0.0
+            for i in 72..<216 {                      // mittlere Hälfte des Symbols (ohne Übergänge)
+                let a = 2 * Double.pi * f * Double(s * 288 + i) / 12_000
+                re += Double(wave[s * 288 + i]) * cos(a); im += Double(wave[s * 288 + i]) * sin(a)
+            }
+            let p = re * re + im * im
+            if p > bestPower { bestPower = p; best = t }
+        }
+        return best
+    }
+    let costas: [[Int]] = [[0, 1, 3, 2], [1, 0, 2, 3], [2, 3, 1, 0], [3, 2, 0, 1]]
+    var costasOK = true
+    for (g, start) in [1, 34, 67, 100].enumerated() { for k in 0..<4 where toneOfSymbol(start + k) != costas[g][k] { costasOK = false } }
+    check(costasOK, "FT2-Testsignal: die vier Costas-Gruppen 0132, 1023, 2310, 3201 liegen auf den Symbolen 1, 34, 67 und 100 mit 41,667 Hz Abstand")
+
+    // Decodierung mehrerer Signale im 3,75-s-Zyklus
+    let msgs: [(String, Double, Double, Double)] = [("CQ DL1ABC JN49", 750, 0.30, 1.0), ("K3ZK IK2ZDT RR73", 1450, 0.5, 0.8), ("CQ DX 9A7DA JN86", 2200, 0.15, 0.8)]
+    let sig = FT4Core.cycle(msgs.map { (text: $0.0, hz: $0.1, start: $0.2, amplitude: $0.3) }, mode: .ft2)
+    check(sig.count == Int(3.75 * 12_000), "FT2-Zyklus: 3,75 s à 12 kHz")
+    let t0 = Date()
+    let res = FT4Core.decode(sig, cycleStart: Date(timeIntervalSince1970: 1_790_000_000), mode: .ft2)
+    let took = Date().timeIntervalSince(t0)
+    for m in msgs {
+        let d = res.first { $0.text == m.0 }
+        check(d != nil, "FT2: „\(m.0)“ decodiert, got \(res.map(\.text))")
+        if let d { check(abs(d.freqHz - m.1) < 20 && !d.isUncertain && d.mode == .ft2, "FT2: „\(m.0)“ Frequenz \(Int(d.freqHz)) Hz, DT \(String(format: "%.2f", d.dt)), \(d.snrDB) dB") }
+    }
+    check(took < 1.5, "FT2: Rechenzeit \(String(format: "%.2f", took)) s, weit unter dem 3,75-s-Zyklus")
+    // FT4-Zyklus und FT2-Zyklus verwechseln sich nicht
+    let ft4sig = FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 1000, start: 0.5, amplitude: 0.5)])
+    check(FT4Core.decode(Array(ft4sig.prefix(Int(3.75 * 12_000))), mode: .ft2).isEmpty && FT4Core.decode(sig + [Float](repeating: 0, count: Int(3.75 * 12_000)), mode: .ft4).isEmpty,
+          "FT2: ein FT4-Signal erscheint nicht als FT2 und umgekehrt")
+    // DT-Konvention: 0 = Sendebeginn 0,3 s nach Zyklusbeginn
+    for start in [0.15, 0.3, 0.6, 1.0] {
+        let s = FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 1000, start: start, amplitude: 0.5)], mode: .ft2)
+        if let d = FT4Core.decode(s, mode: .ft2).first { check(abs(d.dt - (start - 0.3)) < 0.03, "FT2: DT \(String(format: "%+.3f", d.dt)) bei Sendebeginn \(start) s (Soll \(String(format: "%+.2f", start - 0.3)))") }
+        else { check(false, "FT2: Signal mit Start \(start) s nicht decodiert") }
+    }
+    // Nachbarsignale im Abstand von 100 Hz
+    let near = FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 1000, start: 0.3, amplitude: 0.5), (text: "CQ DX 9A7DA JN86", hz: 1100, start: 0.4, amplitude: 0.5)], mode: .ft2)
+    let nearRes = FT4Core.decode(near, mode: .ft2).map(\.text)
+    check(nearRes.contains("CQ DL1ABC JN49") && nearRes.contains("CQ DX 9A7DA JN86"), "FT2: zwei Signale im Abstand von 100 Hz, got \(nearRes)")
+
+    // SNR-Schätzung und Empfindlichkeit mit synthetischem Weißrauschen (Referenz 2500 Hz, wie bei FT4)
+    var state: UInt64 = 0x7654321
+    func gauss() -> Double {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u1 = (Double(state >> 11) + 1) / Double((1 << 53) + 2)
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        let u2 = Double(state >> 11) / Double(1 << 53)
+        return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
+    }
+    let amplitude = 0.05, power = amplitude * amplitude / 2
+    for snr in [10.0, 0.0, -8.0, -11.0] {
+        let sigma = sqrt(power / pow(10, snr / 10) / (2500.0 / 6000.0))
+        var errors: [Double] = [], found = 0
+        for trial in 0..<10 {
+            var s = FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 800 + Double(trial) * 150, start: 0.3, amplitude: amplitude)], mode: .ft2)
+            for i in 0..<s.count { s[i] += Float(gauss() * sigma) }
+            if let d = FT4Core.decode(s, mode: .ft2).first(where: { $0.text == "CQ DL1ABC JN49" }) { found += 1; errors.append(Double(d.snrDB) - snr) }
+        }
+        check(found >= (snr >= -8 ? 10 : 6), "FT2: \(Int(snr)) dB S/N: \(found)/10 decodiert")
+        if errors.count >= 5 { let mean = errors.reduce(0, +) / Double(errors.count); check(abs(mean) < 2.0, "FT2: SNR-Schätzung bei \(Int(snr)) dB im Mittel \(String(format: "%+.1f", mean)) dB daneben") }
+    }
+    // Rauschen allein: keine Meldung
+    var falseDecodes = 0
+    for _ in 0..<20 { var s = [Float](repeating: 0, count: Int(3.75 * 12_000)); for i in 0..<s.count { s[i] = Float(gauss() * 0.1) }; falseDecodes += FT4Core.decode(s, mode: .ft2).count }
+    check(falseDecodes == 0, "FT2: 20 Zyklen Rauschen ergeben keine Meldung (\(falseDecodes))")
+}
+
+// MARK: - FT2-Zyklus über die Pipeline (simulierte Uhr)
+if want("ft") {
+    final class FakeClock: @unchecked Sendable { var t = 0.0 }
+    let clock = FakeClock()
+    let cycle = 1_790_000_000.0 - 1_790_000_000.0.truncatingRemainder(dividingBy: 3.75)   // 3,75-s-Zyklusbeginn
+    let pipeline = AudioPipeline()
+    let decoder = FT4Decoder(pipeline: pipeline)
+    decoder.clock = { clock.t }
+    decoder.configure(settings: FT4Core.Settings(), timeOffset: 0, mode: .ft2)
+    decoder.setEnabled(true)
+    pipeline.start(inputRate: 48_000)
+    let lead = 1.0
+    let audio12 = [Float](repeating: 0, count: Int(lead * 12_000)) + FT4Core.cycle([(text: "CQ DL1ABC JN49", hz: 1200, start: 0.35, amplitude: 0.8)], mode: .ft2)
+    var audio48 = [Float](repeating: 0, count: audio12.count * 4)
+    for i in 0..<audio48.count {
+        let x = Double(i) / 4, k = Int(x), f = Float(x - Double(k))
+        audio48[i] = audio12[k] * (1 - f) + (k + 1 < audio12.count ? audio12[k + 1] : 0) * f
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    var i = 0
+    let chunk = 4_800
+    while i < audio48.count {
+        let n = min(chunk, audio48.count - i)
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        i += n
+        clock.t = cycle - lead + Double(i) / 48_000
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    var results: [FT4Decoder.CycleResult] = []
+    for _ in 0..<40 where results.isEmpty { Thread.sleep(forTimeInterval: 0.1); results += decoder.takeResults() }
+    let d = results.first?.decodes.first
+    check(results.first?.cycleStart == Date(timeIntervalSince1970: cycle), "FT2-Zyklus: Beginn nach 3,75-s-UTC-Raster")
+    check(d?.text == "CQ DL1ABC JN49" && d?.mode == .ft2, "FT2-Zyklus: Pipeline 48 kHz → 12 kHz, Text \(d?.text ?? "–")")
+    decoder.setEnabled(false)
+    pipeline.stop()
+}
+
 // MARK: - DCF77 Bit-Codierung, Paritätsprüfung und BCD-Decodierung
 if want("time") {
     // 1. Bitmuster erzeugen für Donnerstag, 01.10.2026, 14:35 MESZ

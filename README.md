@@ -16,7 +16,7 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 | NAVTEX, WEFAX, SSTV, HELL | Seewarnungen, Wetterfax (mit Sendeplan), Slow-Scan-Bilder, Feld-Hell |
 | CW, PSK, OLIVIA, MT63, MFSK | Telegrafie, PSK31 bis 8PSK, Olivia und Contestia, MT63; MFSK mit DominoEX, Thor, Throb, IFKP, FSQ (49 Betriebsarten) |
 | SKIMMER | liest alle CW- und PSK-Signale im Audio gleichzeitig, mit Rufzeichen, Land und Spots |
-| FT8, FT4, WSPR | Bandaktivität, Entfernungen, Karte, ALL.TXT-Log |
+| FT8, FT4, WSPR | Bandaktivität, Entfernungen, Karte, ALL.TXT-Log; im Modul FT4 zusätzlich die inoffizielle Betriebsart **FT2** (FT4 mit doppeltem Tempo, 3,75-s-Zyklus, experimentell, Frequenzen 160 m bis 10 m) |
 | JS8 | JS8Call-Betriebsarten Normal, Fast, Turbo und Slow (auch zugleich): Bandaktivität mit zusammengesetzten Nachrichten, Heartbeats, Befehle und Freitext (JSC), gehörte Stationen mit Karte, ALL.TXT-Log; nur Empfang |
 | DSC, ALE, HFDL | Digitaler Selektivruf (auch UKW-Kanal 70), automatischer Verbindungsaufbau (ALE), Datenlink der Flugzeuge (HFDL) |
 | DCF77, EFR | Zeitzeichensender mit Atomuhr und Zeitvergleich, Rundsteuertelegramme (DCF49, DCF39, HGA22) |
