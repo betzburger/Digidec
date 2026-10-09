@@ -12788,5 +12788,175 @@ if want("p25") {
     } else { skip("P25 echt: TestData/P25/p25_control_if_48k.wav liegt nicht lokal vor") }
 }
 
+// MARK: - DRM30: Zellenbelegung, FFT, Kanalcodierung, FAC/SDC, Empfänger (Modi A bis D), echte Aufnahme
+if want("drm") {
+    struct DRng { var s: UInt64
+        mutating func next() -> UInt64 { s = s &* 6364136223846793005 &+ 1442695040888963407; return s >> 33 }
+        mutating func bit() -> UInt8 { UInt8(next() & 1) }
+    }
+    var rng = DRng(s: 30)
+    // Zellenzahlen gegen den Referenzcode (Dream, MakeTable)
+    let expected: [(DRMMode, DRMOccupancy, Int, Int)] = [(.a, .khz10, 2959, 405), (.a, .khz20, 6118, 846), (.b, .khz5, 1110, 150), (.b, .khz10, 2337, 322), (.b, .khz20, 4774, 662),
+                                                         (.c, .khz10, 1844, 288), (.c, .khz20, 3867, 607), (.d, .khz10, 1226, 152), (.d, .khz20, 2606, 332), (.a, .khz4_5, 1259, 167)]
+    var cellsOK = true
+    for (m, o, msc, sdc) in expected {
+        let map = DRMCellMap(mode: m, occupancy: o)
+        if map.mscCellsPerFrame != msc || map.sdcCellsPerSuperframe != sdc || map.facCells.count != 65 { cellsOK = false }
+    }
+    check(cellsOK, "DRM: Zellenbelegung (MSC je Rahmen, SDC je Überrahmen, 65 FAC-Zellen) für Modus A bis D und mehrere Belegungen wie im Referenzcode")
+    // FFT
+    var fftOK = true
+    for n in [1152, 1024, 704, 448] {
+        let f = DRMFFT(size: n)
+        let re = (0..<n).map { _ in Float(Double(rng.next() & 0xFFFF) / 65536 - 0.5) }, im = (0..<n).map { _ in Float(Double(rng.next() & 0xFFFF) / 65536 - 0.5) }
+        let t = f.forward(re, im)
+        let back = f.inverse(t.re, t.im)
+        for i in stride(from: 0, to: n, by: 29) { if abs(back.re[i] / Float(n) - re[i]) > 1e-4 || abs(back.im[i] / Float(n) - im[i]) > 1e-4 { fftOK = false } }
+        // ein Wert gegen die direkte Summe
+        var sr = 0.0, si = 0.0
+        let k = 7
+        for i in 0..<n { let a = -2 * Double.pi * Double(i * k % n) / Double(n); sr += Double(re[i]) * cos(a) - Double(im[i]) * sin(a); si += Double(re[i]) * sin(a) + Double(im[i]) * cos(a) }
+        if abs(Float(sr) - t.re[k]) > 1e-3 || abs(Float(si) - t.im[k]) > 1e-3 { fftOK = false }
+    }
+    check(fftOK, "DRM: FFT mit den Längen 1152, 1024, 704 und 448 (Rundlauf und Einzelwert gegen die direkte Summe)")
+    // CRC
+    let crcBits = DRMCRC.bits(0xA5C3, 16) + DRMCRC.bits(0x17, 8)
+    var flippedCRC = crcBits; flippedCRC[3] ^= 1
+    check(DRMCRC.compute(crcBits[...], degree: 8) != DRMCRC.compute(flippedCRC[...], degree: 8) && DRMCRC.compute(crcBits[...], degree: 16) != DRMCRC.compute(flippedCRC[...], degree: 16)
+          && DRMCRC.value(DRMCRC.bits(0x1234, 16)[...]) == 0x1234 && DRMCRC.compute(crcBits[...], degree: 8) < 256, "DRM: CRC-8 und CRC-16 (Bitfehler ändert die Prüfsumme, Bits↔Zahl)")
+    // Kanalcodierung: FAC, SDC, MSC mit Rundlauf (ohne Rauschen) und mit Fehlern
+    func roundTrip(_ layout: DRMBlockLayout, flips: Int) -> Bool {
+        let bits = (0..<layout.totalBits).map { _ in rng.bit() }
+        var cells = DRMCoding.encodeBlock(bits: bits, layout: layout)
+        for _ in 0..<flips { let i = Int(rng.next() % UInt64(cells.count)); cells[i] = (-cells[i].0, -cells[i].1) }
+        let r = DRMCoding.decode(cells: cells, weights: [Float](repeating: 1, count: cells.count), layout: layout)
+        return r.bits == bits
+    }
+    check(roundTrip(.fac(), flips: 0) && roundTrip(.fac(), flips: 5), "DRM: FAC (65 Zellen, 4-QAM, 72 Bit): Rundlauf und fünf zerstörte Zellen")
+    let sdc16 = DRMBlockLayout.sdc(cells: 322, scheme: .qam16)!, sdc4 = DRMBlockLayout.sdc(cells: 322, scheme: .qam4)!
+    check(sdc16.totalBits == 630 && roundTrip(sdc16, flips: 0) && roundTrip(sdc4, flips: 0) && roundTrip(sdc16, flips: 4), "DRM: SDC 16-QAM (630 Bit) und 4-QAM: Rundlauf, vier zerstörte Zellen")
+    var mscOK = true
+    for (scheme, lenA) in [(DRMScheme.qam16, 101), (.qam16, 0), (.qam64, 120), (.qam64, 0)] {
+        for prot in [(0, 0), (1, 1), (0, 1)] where scheme == .qam16 ? prot.0 < 2 : true {
+            guard let l = DRMBlockLayout.msc(cells: 2337, scheme: scheme, lengthA: lenA, protectionA: prot.0, protectionB: prot.1) else { mscOK = false; continue }
+            if !roundTrip(l, flips: 0) { mscOK = false }
+        }
+    }
+    check(mscOK, "DRM: MSC 16- und 64-QAM mit Schutzstufen 0 und 1 für Teil A und B, mit und ohne Teil A: Rundlauf")
+    // FAC und SDC als Datensätze
+    var fac = DRMFAC()
+    fac.frameIdentity = 2; fac.occupancy = .khz9; fac.longInterleaver = false; fac.mscMode = 3; fac.sdcMode = 1; fac.audioServices = 2; fac.dataServices = 1
+    fac.service.id = 0xABCDEF; fac.service.shortID = 2; fac.service.language = 6; fac.service.descriptor = 4
+    let parsed = DRMFAC.parse(fac.encoded())
+    var broken = fac.encoded(); broken[20] ^= 1
+    check(parsed?.service.id == 0xABCDEF && parsed?.frameIdentity == 2 && parsed?.occupancy == .khz9 && parsed?.longInterleaver == false && parsed?.mscMode == 3 && parsed?.sdcMode == 1
+          && parsed?.audioServices == 2 && parsed?.dataServices == 1 && parsed?.service.language == 6 && DRMFAC.parse(broken) == nil, "DRM: FAC-Felder (Belegung, Verschachtelung, Modi, Dienste, Kennung, Sprache) und CRC-Fehler")
+    check(DRMDate.fromMJD(60_000) == (2023, 2, 25) && DRMDate.fromMJD(51_544) == (2000, 1, 1), "DRM: Datum aus dem modifizierten Julianischen Datum")
+    // Textnachricht: zwei Segmente, Umschaltbit, Kommando „löschen“
+    func segment(toggle: Int, first: Bool, last: Bool, number: Int, body: [UInt8]) -> [UInt8] {
+        let header = DRMCRC.bits(toggle, 1) + DRMCRC.bits(first ? 1 : 0, 1) + DRMCRC.bits(last ? 1 : 0, 1) + DRMCRC.bits(0, 1) + DRMCRC.bits(body.count - 1, 4)
+            + (first ? DRMCRC.bits(15, 4) : DRMCRC.bits(0, 1) + DRMCRC.bits(number, 3)) + DRMCRC.bits(0, 4)
+        let bodyBits = body.flatMap { DRMCRC.bits(Int($0), 8) }
+        let crc = DRMCRC.compute((header + bodyBits)[...], degree: 16)
+        let all = header + bodyBits + DRMCRC.bits(crc, 16)
+        var bytes = stride(from: 0, to: all.count, by: 8).map { UInt8(DRMCRC.value(all[$0..<($0 + 8)])) }
+        while bytes.count % 4 != 0 { bytes.append(0) }
+        return bytes
+    }
+    var tm = DRMTextMessage()
+    let text1 = Array("Hallo, hier ist Digidec".utf8)
+    let s1 = segment(toggle: 0, first: true, last: false, number: 0, body: Array(text1[0..<16])), s2 = segment(toggle: 0, first: false, last: true, number: 1, body: Array(text1[16...]))
+    var changed = 0
+    for seg in [s1, s2] { for k in stride(from: 0, to: seg.count, by: 4) { if tm.feed(Array(seg[k..<(k + 4)])) { changed += 1 } }; if tm.feed([0xFF, 0xFF, 0xFF, 0xFF]) { changed += 1 } }
+    check(tm.text == "Hallo, hier ist Digidec" && changed == 1, "DRM: Textnachricht aus zwei Segmenten mit CRC wird zusammengesetzt")
+
+    // Empfänger mit dem Sender: alle Modi, beide QAM-Arten, Störungen
+    struct Scenario { var name = ""; var snr: Double? = nil; var df = 0.0; var ppm = 0.0; var echoDelay = 0; var echoGain: Float = 0; var real = false; var center = 12_000.0 }
+    func transmit(mode: DRMMode, occ: DRMOccupancy, scheme: DRMScheme, sc: Scenario, superframes: Int = 14, label: String = "Digidec") -> (okFrames: Int, got: Int, status: DRMStatus?) {
+        var cfg = DRMTransmitConfig()
+        cfg.mode = mode; cfg.occupancy = occ; cfg.mscScheme = scheme; cfg.centerHz = sc.center; cfg.label = label
+        guard let tx = DRMSignalGenerator(config: cfg) else { return (0, 0, nil) }
+        var sent: [[UInt8]] = []
+        let sig = tx.generate(superframes: superframes) { _ in let bits = (0..<tx.mscBitsPerFrame).map { _ in rng.bit() }; sent.append(bits); return bits }
+        var re = sig.re, im = sig.im
+        let n0 = re.count
+        if sc.ppm != 0 {
+            let ratio = 1 + sc.ppm * 1e-6
+            let cnt = Int(Double(n0 - 3) / ratio)
+            var r2 = [Float](repeating: 0, count: cnt), i2 = r2
+            for k in 0..<cnt { let p = Double(k) * ratio; let a = Int(p); let f = Float(p - Double(a)); r2[k] = re[a] * (1 - f) + re[a + 1] * f; i2[k] = im[a] * (1 - f) + im[a + 1] * f }
+            re = r2; im = i2
+        }
+        if sc.echoDelay > 0 {
+            var r2 = re, i2 = im
+            for k in sc.echoDelay..<re.count { r2[k] += sc.echoGain * re[k - sc.echoDelay]; i2[k] += sc.echoGain * im[k - sc.echoDelay] }
+            re = r2; im = i2
+        }
+        if sc.df != 0 { for i in 0..<re.count { let a = Float(2 * Double.pi * sc.df * Double(i) / 48_000); let c = cos(a), s = sin(a); let r = re[i] * c - im[i] * s; im[i] = re[i] * s + im[i] * c; re[i] = r } }
+        if let snr = sc.snr {
+            var p = 0.0; for i in 0..<re.count { p += Double(re[i] * re[i] + im[i] * im[i]) }; p /= Double(re.count)
+            let sigma = Float((p / pow(10, snr / 10) / 2).squareRoot())
+            func gauss() -> Float { let u1 = Float(Double(rng.next() & 0xFFFFFF) / Double(1 << 24)) + 1e-7, u2 = Float(Double(rng.next() & 0xFFFFFF) / Double(1 << 24)); return (-2 * log(u1)).squareRoot() * cos(2 * Float.pi * u2) }
+            for i in 0..<re.count { re[i] += sigma * gauss(); im[i] += sigma * gauss() }
+        }
+        let rx = DRMReceiver()
+        var got: [[UInt8]] = []
+        rx.onMSCFrame = { got.append($0) }
+        var last: DRMStatus?
+        rx.onEvent = { if case .status(let s) = $0 { last = s } }
+        var i = 0
+        while i < re.count {
+            let j = min(i + 4800, re.count)
+            if sc.real { rx.process(Array(re[i..<j])) } else { rx.processComplex(re: Array(re[i..<j]), im: Array(im[i..<j])) }
+            i = j
+        }
+        let sentBytes = Set(sent.map { b in stride(from: 0, to: b.count - 7, by: 8).map { UInt8(DRMCRC.value(b[$0..<($0 + 8)])) } })
+        return (got.filter { sentBytes.contains($0) }.count, got.count, last)
+    }
+    for (m, o, s) in [(DRMMode.a, DRMOccupancy.khz10, DRMScheme.qam64), (.a, .khz20, .qam16), (.b, .khz10, .qam16), (.b, .khz5, .qam64), (.b, .khz4_5, .qam16), (.c, .khz10, .qam16), (.c, .khz20, .qam64), (.d, .khz10, .qam16), (.d, .khz10, .qam64)] {
+        let r = transmit(mode: m, occ: o, scheme: s, sc: Scenario(), superframes: 10)
+        check(r.status?.locked == true && r.status?.mode == m && r.status?.occupancy == o && r.got >= 15 && r.okFrames == r.got && r.status?.facBad == 0 && r.status?.services.first?.label == "Digidec",
+              "DRM-Empfänger Modus \(m.letter) \(o.title) \(s == .qam16 ? "16" : "64")-QAM: Sperre, Modus und Belegung erkannt, \(r.okFrames) von \(r.got) MSC-Rahmen bitgleich, Dienstname")
+    }
+    for sc in [Scenario(name: "reelles Audio (Hilbert)", real: true), Scenario(name: "Frequenz +37,3 Hz", df: 37.3), Scenario(name: "Frequenz −23,1 Hz", df: -23.1),
+               Scenario(name: "Träger 0 bei 9 517,2 Hz", center: 9_517.2), Scenario(name: "Takt +50 ppm", ppm: 50), Scenario(name: "Takt −100 ppm", ppm: -100),
+               Scenario(name: "SNR 15 dB", snr: 15), Scenario(name: "SNR 8 dB", snr: 8), Scenario(name: "Echo 1 ms, −6 dB", echoDelay: 48, echoGain: 0.5),
+               Scenario(name: "20 dB, +15 Hz, +30 ppm, Echo", snr: 20, df: 15, ppm: 30, echoDelay: 30, echoGain: 0.35)] {
+        let r = transmit(mode: .b, occ: .khz10, scheme: .qam16, sc: sc)
+        check(r.status?.locked == true && r.got >= 25 && r.okFrames == r.got, "DRM-Empfänger Modus B 16-QAM \(sc.name): \(r.okFrames) von \(r.got) MSC-Rahmen bitgleich")
+    }
+    let hard = transmit(mode: .a, occ: .khz10, scheme: .qam64, sc: Scenario(snr: 15, df: 21, ppm: -60))
+    check(hard.status?.locked == true && hard.got >= 25 && hard.okFrames == hard.got, "DRM-Empfänger Modus A 64-QAM bei 15 dB, +21 Hz, −60 ppm: \(hard.okFrames) von \(hard.got) MSC-Rahmen bitgleich")
+    // Rauschen allein
+    do {
+        let rx = DRMReceiver()
+        var locked = false
+        rx.onEvent = { if case .status(let s) = $0, s.locked { locked = true } }
+        for _ in 0..<20 { rx.process((0..<48_000).map { _ in Float(Double(rng.next() & 0xFFFFF) / Double(1 << 20) - 0.5) * 0.6 }) }
+        check(!locked, "DRM-Empfänger: 20 s Rauschen ergeben keine Sperre")
+    }
+    // Echte Aufnahme (sigidwiki „DRM_B“, I/Q-Realteil als Audio): Modus B, 10 kHz, 16-QAM, Dienst „Spark“, AAC mono 12 kHz
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    if let wav = try? VoiceWAV.read(root.appendingPathComponent("TestData/DRM/drm_b_spark_real_48k.wav")) {
+        let rx = DRMReceiver()
+        var last: DRMStatus?
+        var units = 0, frames = 0
+        rx.onEvent = { e in
+            switch e {
+            case .status(let s): last = s
+            case .audio(let u): units += 1; frames += u.frames.count
+            case .text: break
+            }
+        }
+        let samples = wav.samples.map { Float($0) / 32768 }
+        var i = 0
+        while i < samples.count { let j = min(i + 4800, samples.count); rx.process(Array(samples[i..<j])); i = j }
+        let sv = last?.services.first
+        check(last?.locked == true && last?.mode == .b && last?.occupancy == .khz10 && last?.mscMode == 3 && sv?.label == "Spark" && sv?.audio?.coding == .aac && sv?.audio?.sampleRate == 12_000
+              && sv?.audio?.mode == 0 && last?.facBad == 0 && units >= 66 && frames == units * 5 && last?.date != nil,
+              "DRM echt (Spark, Modus B): Dienst „\(sv?.label ?? "")“, AAC \(sv?.audio?.sampleRate ?? 0) Hz mono, FAC \(last?.facGood ?? 0)/\(last?.facBad ?? 0), SDC \(last?.sdcGood ?? 0)/\(last?.sdcBad ?? 0), \(units) Audio-Überrahmen (\(frames) AAC-Rahmen)")
+    } else { skip("DRM echt: TestData/DRM/drm_b_spark_real_48k.wav liegt nicht lokal vor") }
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

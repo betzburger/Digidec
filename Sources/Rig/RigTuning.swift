@@ -80,6 +80,11 @@ public struct RigTuneTarget: Equatable, Sendable {
         RigTuneTarget(dialHz: Int64((frequencyKHz * 1000).rounded()), mode: "USB")
     }
 
+    /// DRM: USB, Dial 6 kHz unter der Sendefrequenz (Kanalmitte), mindestens 12 kHz Filterbreite: das Signal liegt bei etwa 1 bis 11 kHz im Audio
+    public static func drm(frequencyKHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64((frequencyKHz * 1000).rounded()) - 6000, mode: "USB", passbandHz: 12_000)
+    }
+
     /// Funkruf-Kanal: FM auf der Kanalfrequenz (frei = nichts)
     public static func pager(channel: PagerChannel) -> RigTuneTarget? {
         channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }

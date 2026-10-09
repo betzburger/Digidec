@@ -80,6 +80,8 @@ public final class DigidecState: ObservableObject {
     public let nxdnController: NXDNController
     public let p25 = P25SettingsStore()
     public let p25Controller: P25Controller
+    public let drm = DRMSettingsStore()
+    public let drmController: DRMController
     public let ndb = NDBSettingsStore()
     public let ndbController: NDBController
     public let tetra = TETRASettingsStore()
@@ -177,6 +179,7 @@ public final class DigidecState: ObservableObject {
         dpmrController = DPMRController(pipeline: audio.pipeline, settings: dpmr)
         nxdnController = NXDNController(pipeline: audio.pipeline, settings: nxdn)
         p25Controller = P25Controller(pipeline: audio.pipeline, settings: p25)
+        drmController = DRMController(pipeline: audio.pipeline, settings: drm)
         tetraController = TETRAController(settings: tetra)
         ndbController = NDBController(pipeline: audio.pipeline, settings: ndb)
         m17Controller = M17Controller(pipeline: audio.pipeline, settings: m17)
@@ -270,6 +273,7 @@ public final class DigidecState: ObservableObject {
                 self?.dpmrController.setActive(module == .dpmr)
                 self?.nxdnController.setActive(module == .nxdn)
                 self?.p25Controller.setActive(module == .p25)
+                self?.drmController.setActive(module == .drm)
                 self?.tetraController.setActive(module == .tetra)
                 self?.ndbController.setActive(module == .ndb)
                 self?.m17Controller.setActive(module == .m17)
@@ -313,6 +317,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning(acars.$channel)
         observeForTuning(ais.$channel)
         observeForTuning(hfdl.$frequencyKHz)
+        observeForTuning(drm.$frequencyKHz)
         observeForTuning(sonde.$frequencyKHz)
         observeForTuning(sonde.$filterKHz)
         observeForTuning(pager.$channel)
@@ -471,6 +476,7 @@ public final class DigidecState: ObservableObject {
         case .rds:    return .rds(frequencyHz: rds.frequencyHz)
         case .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .channels: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
+        case .drm:    return .drm(frequencyKHz: drm.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
         case .pager:  return .pager(channel: pager.channel)
         case .rtty:   return rttyDWDTarget
@@ -682,6 +688,8 @@ public final class DigidecState: ObservableObject {
                     if let preset = request.presetID, let f = HFDLChannels.kHz(presetID: preset) { hfdl.frequencyKHz = f }
                 case .sonde:
                     break
+                case .drm:
+                    if let c = request.centerHz, c > 100 { _ = c }
                 case .pager:
                     if let preset = request.presetID, let c = PagerChannel(rawValue: preset) { pager.channel = c }
                 case .tones:

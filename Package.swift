@@ -7,6 +7,9 @@ import PackageDescription
 // Optionale lokale Erweiterung für digitale Sprache: liegt unter Local/ (nicht im Repository) und wird nur gebaut, wenn der Ordner existiert.
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let hasLocalVocoder = FileManager.default.fileExists(atPath: packageRoot + "/Local/Vocoder/Sources")
+// Globale Namen von FAAD2 für das DRM-Ziel (werden zu drm_… umbenannt)
+let faadDRMSymbols: [String] = ((try? String(contentsOfFile: packageRoot + "/Vendor/Faad2DRM/symbols.txt", encoding: .utf8)) ?? "")
+    .split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
 
 let package = Package(
     name: "Digidec",
@@ -137,6 +140,27 @@ let package = Package(
                 .unsafeFlags(["-w", "-O3"])
             ]
         ),
+        // FAAD2 mit DRM-Unterstützung (Modul DRM): eigenes Ziel mit umbenannten globalen Namen, siehe Vendor/Faad2DRM/UPSTREAM_FAAD2DRM.md
+        .target(
+            name: "Faad2DRM",
+            path: "Vendor/Faad2DRM",
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("src"),
+                .define("HAVE_INTTYPES_H", to: "1"),
+                .define("HAVE_MEMCPY", to: "1"),
+                .define("HAVE_STRING_H", to: "1"),
+                .define("HAVE_STRINGS_H", to: "1"),
+                .define("HAVE_SYS_STAT_H", to: "1"),
+                .define("HAVE_SYS_TYPES_H", to: "1"),
+                .define("HAVE_LRINTF", to: "1"),
+                .define("APPLY_DRC"),
+                .define("DRM_SUPPORT"),
+                .define("PACKAGE_VERSION", to: "\"2.11.4\""),
+                .unsafeFlags(["-w", "-O3"])
+            ] + faadDRMSymbols.map { .define($0, to: "faaddrm_" + $0) }
+        ),
         // Gemeinsame Schnittstelle für digitale Sprache (Decoder eintragen, Ton ausgeben)
         .target(
             name: "VoiceCore",
@@ -150,7 +174,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Digidec",
-            dependencies: ["Fldigi", "FT8", "JS8", "Wspr", "Codec2", "Faad2", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
+            dependencies: ["Fldigi", "FT8", "JS8", "Wspr", "Codec2", "Faad2", "Faad2DRM", "VoiceCore"] + (hasLocalVocoder ? ["LocalVocoder"] : []),
             path: "Sources",
             swiftSettings: hasLocalVocoder ? [.define("DIGIDEC_LOCAL_VOCODER")] : []
         )

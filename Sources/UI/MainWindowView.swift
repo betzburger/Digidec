@@ -71,6 +71,8 @@ public struct MainWindowView: View {
                                 M17MainPanel(controller: state.m17Controller, settings: state.m17)
                             } else if state.activeModule == .freedv {
                                 FreeDVMainPanel(controller: state.freedvController, settings: state.freedv)
+                            } else if state.activeModule == .drm {
+                                DRMMainPanel(controller: state.drmController, settings: state.drm)
                             } else if state.activeModule == .hfdl {
                                 HFDLMessagePanel(controller: state.hfdlController, settings: state.hfdl)
                             } else if state.activeModule == .sonde {
@@ -173,6 +175,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.m17, audio: state.audio)
                             } else if state.activeModule == .freedv {
                                 WaterfallView(model: state.waterfall, rtty: state.freedv, audio: state.audio)
+                            } else if state.activeModule == .drm {
+                                WaterfallView(model: state.waterfall, rtty: state.drm, audio: state.audio)
                             } else if state.activeModule == .hfdl {
                                 WaterfallView(model: state.waterfall, rtty: state.hfdl, audio: state.audio)
                             } else if state.activeModule == .sonde {
@@ -228,7 +232,7 @@ public struct MainWindowView: View {
                             }
                         }
                         .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .nxdn ? "NXDN Gespräche" : state.activeModule == .p25 ? "P25 Gespräche" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .js8 ? "JS8 Aktivität" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
+                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .nxdn ? "NXDN Gespräche" : state.activeModule == .p25 ? "P25 Gespräche" : state.activeModule == .drm ? "DRM Dienste" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .js8 ? "JS8 Aktivität" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
                     }
                     .frame(maxWidth: .infinity)
 
@@ -353,6 +357,11 @@ public struct MainWindowView: View {
                                 .radioCard(title: "Abstimmanzeige")
                             FreeDVSettingsPanel(settings: state.freedv)
                                 .radioCard(title: "FREEDV")
+                        } else if state.activeModule == .drm {
+                            DRMTuningPanel(controller: state.drmController, settings: state.drm)
+                                .radioCard(title: "Abstimmanzeige")
+                            DRMSettingsPanel(settings: state.drm, controller: state.drmController)
+                                .radioCard(title: "DRM")
                         } else if state.activeModule == .hfdl {
                             HFDLTuningPanel(controller: state.hfdlController, settings: state.hfdl)
                                 .radioCard(title: "Abstimmanzeige")
@@ -493,7 +502,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, js8: state.js8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, drm: state.drm, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, js8: state.js8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
             PropagationRuler(service: state.propagation, home: state.home, sdr: state.sdrController, settings: state.sdr)
@@ -1035,6 +1044,7 @@ private struct StatusBar: View {
     @ObservedObject var ais: AISSettingsStore
     @ObservedObject var aisController: AISController
     @ObservedObject var hfdl: HFDLSettingsStore
+    @ObservedObject var drm: DRMSettingsStore
     @ObservedObject var sonde: SondeSettingsStore
     @ObservedObject var sondeController: SondeController
     @ObservedObject var pager: PagerSettingsStore
@@ -1110,6 +1120,7 @@ private struct StatusBar: View {
         case .dstar: return "D-STAR · DV · GMSK 4800 Bd · FM-Diskriminator-Audio"
         case .ysf: return "YSF · C4FM 4800 Bd · FM-Diskriminator-Audio"
         case .dpmr: return "dPMR · 4FSK 2400 Bd · 6,25 kHz · FM-Diskriminator-Audio"
+        case .drm: return "DRM · \(String(format: "%.1f", drm.frequencyKHz).replacingOccurrences(of: ".0", with: "")) kHz USB (Dial 6 kHz tiefer) · OFDM 4,5 bis 20 kHz"
         case .p25: return "P25 Phase 1 · C4FM 4800 Bd · 12,5 kHz · FM-Diskriminator-Audio"
         case .nxdn: return "NXDN · 4FSK 2400 Bd (6,25 kHz) und 4800 Bd (12,5 kHz) · FM-Diskriminator-Audio"
         case .ndb: return "NDB · Funkfeuer 190 bis 535 kHz · AM-Audio, Kennungston 400/1020 Hz oder Überlagerungston"

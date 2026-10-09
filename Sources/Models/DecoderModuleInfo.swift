@@ -50,6 +50,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case rds
     case nxdn
     case p25
+    case drm
 
     public var id: String { rawValue }
 
@@ -107,6 +108,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .rds:      return "RDS"
         case .nxdn:     return "NXDN"
         case .p25:      return "P25"
+        case .drm:      return "DRM"
         }
     }
 
@@ -145,21 +147,21 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     public var band: Band {
         switch self {
         case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .tetra, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf, .dab, .channels, .rds, .nxdn, .p25: return .vhfUhf
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .js8, .dcf77, .efr, .sstv: return .hf
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .js8, .dcf77, .efr, .sstv, .drm: return .hf
         }
     }
 
     /// Hat das Modul eine Kartenanzeige? (Ohne Ortsdaten nicht: Bilder, Funkruf, Tonfolgen, ALE)
     public var hasMap: Bool {
         switch self {
-        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .vor, .freedv, .dab, .channels, .rds, .nxdn, .p25: return false
+        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .tetra, .sensors, .vdl2, .vor, .freedv, .dab, .channels, .rds, .nxdn, .p25, .drm: return false
         default: return true
         }
     }
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .js8, .dcf77, .efr, .sstv, .channels, .rds, .nxdn, .p25: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .js8, .dcf77, .efr, .sstv, .channels, .rds, .nxdn, .p25, .drm: return true
         }
     }
 
@@ -186,6 +188,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .dpmr: return ["dpmr"]
         case .nxdn: return ["nxdn"]
         case .p25: return ["p25"]
+        case .drm: return ["drm"]
         case .tetra: return ["tetra"]
         case .m17: return ["m17"]
         case .vor: return ["vor", "loc", "gs"]   // VOR, Landekurssender, Gleitwegsender (Anzeige und Eichung)

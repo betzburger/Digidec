@@ -36,7 +36,7 @@ struct ModuleMapView: View {
             case .ndb:    NDBMapView(controller: state.ndbController, home: state.home)
             case .dstar:  DStarMapView(controller: state.dstarController, home: state.home)
             case .m17:    M17MapView(controller: state.m17Controller, home: state.home)
-            case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .nxdn, .p25, .tetra, .sensors, .vdl2, .dab, .vor, .freedv, .channels, .rds:
+            case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .sensors, .vdl2, .dab, .vor, .freedv, .channels, .rds:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -54,7 +54,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr, .rds: return "ANZEIGE"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "LISTE"
         }
     }
 
@@ -63,7 +63,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr, .rds: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "list.bullet"
         }
     }
 
@@ -91,6 +91,7 @@ extension DecoderModuleInfo {
         case .tetra: return "Gespräche des eigenen TETRA-Netzes mit Gruppe, Rufer und Sprecher, dazu Netzdaten, Teilnehmer und Kurznachrichten, Wiedergabe unverschlüsselter Gespräche"
         case .dpmr: return "Die gehörte Aussendung mit gerufener und rufender Kennung und Kanalcode, dazu der Verlauf der Gespräche mit Wiedergabe"
         case .nxdn: return "Die gehörte Aussendung mit Quelle, Ziel, Ruftyp und Funkzugangsnummer (RAN), dazu der Verlauf der Gespräche mit Wiedergabe"
+        case .drm: return "Die Dienste des DRM-Kanals mit Name, Sprache und Programmtyp, dazu Radiotext und Empfangswerte"
         case .p25: return "Die gehörte Aussendung mit Netzkennung (NAC), Gruppe, Quelle und Verschlüsselung, dazu der Verlauf der Gespräche mit Wiedergabe"
         case .dmr: return "Beide Zeitschlitze mit Absender, Ziel und Farbcode, dazu der Verlauf der Gespräche mit Wiedergabe"
         case .ysf: return "Die gehörte Aussendung mit Rufzeichen, Ziel und Repeater, dazu der Verlauf mit Wiedergabe"
