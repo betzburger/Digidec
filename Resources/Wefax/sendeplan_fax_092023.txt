@@ -1,0 +1,67 @@
+Faksimile -Ausstrahlung für die Schifffahrt
+Deutscher Wetterdienst
+Offenbach (Main) - Hamburg / Pinneberg (DDH, DDK)
+Frequenzen Sender Leistung Betriebsart Signal
+3855 kHz DDH3 10,0 kW F1C
+7880 kHz DDK3 10,0 kW F1C weiß + 425 Hz, schwarz - 425 Hz
+13882,5 kHz DDK6 10,0 kW F1C
+Sendezeit
+UTC
+UpM/
+Modul Laufzeit Termin
+UTC Karteninhalt
+04.30 120 / 576 19 00.00 Bodenanalyse mit Stationseintragungen, Nordatlantik, Europa
+05.12 120 / 576 11 00.00 36- stdg. Vorhersage Boden
+05.25 120 / 576 19 00.00 Bodenanalyse Nordatlantik + Verlagerungspfeile, sign. Wetter, Eis
+05.55-06.35 Sendepause für Sprach-Sendung auf 5905 kHz und 6180 kHz
+06.38 120 / 576 11 03.00 Information über tropische Wirbelstürme, Nordatlantik, während der Saison
+06.51 120 / 576 11 00.00 H + 12, H + 24 500 hPa H + T, Bodendruck
+07.04 120 / 576 11 00.00 H + 12, H + 24 850 hPa H + T, relative Feuchte 700 hPa
+07.17 120 / 576 11 00.00 36- stdg. Vorhersage Boden, Wiederholung von 05.12 UTC
+07.30 120 / 576 11 00.00 48- stdg. Vorhersage Boden
+07.43 120 / 576 11 00.00 60- stdg. Vorhersage Boden
+08.04 120 / 576 11 00.00 84- stdg. Vorhersage Boden
+08.17 120 / 576 11 00.00 108- stdg. Vorhersage Boden
+08.30 120 / 576 11 00.00 H + 24 , Windsee und Dünung, Windrichtung (10m)
+08.42 120 / 576 11 00.00 H + 48 , Windsee und Dünung, Windrichtung (10m)
+08.54 120 / 576 11 00.00 H + 72 , Windsee und Dünung, Windrichtung (10m)
+09.06 120 / 576 11 00.00 H + 96 , Windsee und Dünung, Windrichtung (10m)
+09.30 120 / 576 11 00.00 H + 36, H + 48 500 hPa H + T, Bodendruck
+09.45 120 / 576 20 00.00 Wassertemperaturen Nordsee (BSH)
+10.07 120 / 576 20 00.00 Eiskarte westliche Ostsee ( nur, wenn die Eislage es erfordert )
+10.29 120 / 576 19 00.00 48-stdg. Seegangsvorhersage Nordatlantik
+10.50 120 / 576 19 06.00 Bodenanalyse mit Stationseintragungen, Nordatlantik, Europa
+11.11 120 / 576 11 00.00 H + 36, H + 48 850 hPa H + T, relative Feuchte 700 hPa
+11.23 120 / 576 11 00.00 H + 60, H + 72 500 hPa H + T, Bodendruck
+11.35 120 / 576 11 00.00 H + 60, H + 72 850 hPa H + T, relative Feuchte 700 hPa
+11.55-12.35 Sendepause für Sprach-Sendung auf 5905 kHz und 6180 kHz
+12.36 120 / 576 19 06.00 Bodenanalyse mit Stationseintragungen, Wiederholung von 10.50 UTC
+12.56 120 / 576 11 00.00 36- stdg. Vorhersage Boden, Wiederholung von 05.12 UTC
+13.08 120 / 576 11 00.00 48- stdg. Vorhersage Boden, Wiederholung von 07.30 UTC
+13.20 120 / 576 11 00.00 60- stdg. Vorhersage Boden, Wiederholung von 07.43 UTC
+13.32 120 / 576 11 00.00 84- stdg. Vorhersage Boden, Wiederholung von 08.04 UTC
+13.44 120 / 576 11 00.00 108- stdg. Vorhersage Boden, Wiederholung von 08.17 UTC
+13.56 120 / 576 19 06.00 Bodenanalyse mit Stationseintragungen, Wiederholung von 10.50 UTC
+14.25 120 / 576 19 00.00 Faksimile - Sendeplan, Teil 1
+14.45 120 / 576 19 00.00 Faksimile - Sendeplan, Teil 2
+15.08 120 / 576 11 00.00 Eiskarte Nordwestatlantik (Kanadischer Eisdienst oder International Icepatrol)
+15.20 120 / 576 19 09.00 Schwedische Eiskarte Ostsee Teil1 von Norrköping (nur, wenn Eislage es erfordert) oder
+Eiskarte Spezialgebiet (BSH)
+15.40 120 / 576 11 09.00 Arktische Eiskarte
+15.55-16.35 Sendepause für Sprach-Sendung auf 5905 kHz und 6180 kHz
+16.36 120 / 576 19 12.00 Bodenanalyse mit Stationseintragungen, Nordatlantik, Europa
+18.00 120 / 576 19 12.00 Bodenanalyse Nordatlantik + Verlagerungspfeile, sign. Wetter, Eis
+18.21 120 / 576 11 15.00 Information über tropische Wirbelstürme, Nordatlantik, während der Saison
+18.34 120 / 576 11 00.00 48- stdg. Vorhersage Boden
+18.47 120 / 576 11 00.00 60- stdg. Vorhersage Boden
+19.00 120 / 576 11 00.00 84- stdg. Vorhersage Boden, Wiederholung von 08.04 UTC
+19.13 120 / 576 11 12.00 H + 24 , Windsee und Dünung, Windrichtung (10m)
+19.26 120 / 576 11 12.00 H + 48 , Windsee und Dünung, Windrichtung (10m)
+19.39 120 / 576 11 12.00 H + 72 , Windsee und Dünung, Windrichtung (10m)
+19.55-20.35 Sendepause für Sprach-Sendung auf 5905 kHz und 6180 kHz
+21.00 120 / 576 11 12.00 Eiskarte Nordwestatlantik (Kanadischer Eisdienst oder International Icepatrol)
+21.15 120 / 576 20 15.00 Schwedische Eiskarte Ostsee von Norrköping (nur, wenn Eislage es erfordert)
+21.36 120 / 576 19 12.00 48- stdg. Seegangsvorhersage Nordatlantik
+22.00 120 / 576 19 18.00 Bodenanalyse mit Stationseintragungen, Nordatlantik, Europa
+H +T = Höhe + Temperatur, Basis: DWD-Modelle ICON = Globales Modell, GWAM = Globales Wellenmodell
+© DWD, www.dwd.de

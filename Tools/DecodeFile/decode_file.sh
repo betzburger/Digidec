@@ -1,0 +1,22 @@
+#!/bin/zsh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
+# Digidec offline: Aufnahme mit dem RTTY-, CW-, PSK-, WEFAX- oder FT8-Kern decodieren und auswerten (PLAN.md, Abschnitt 8 / M6).
+# Aufruf: Tools/DecodeFile/decode_file.sh <aufnahme.wav> [Optionen]   (Hilfe: --help)
+# Baut das Werkzeug bei Bedarf nach .build/decode_file (Quellen wie in den Logiktests).
+set -euo pipefail
+ROOT="${0:A:h:h:h}"
+OUT="$ROOT/.build/decode_file"
+BIN="$OUT/decode_file"
+S="$ROOT/Sources"
+F="$ROOT/Vendor/Fldigi"
+# Alle Quellen der App außer dem Einstiegspunkt (wie Tools/UIPreview): so fehlt nach neuen Modulen nie eine Datei
+SRC=($ROOT/Tools/DecodeFile/main.swift ${(f)"$(find $S -name '*.swift' ! -name DigidecApp.swift)"})
+needs_build=0
+[[ -x "$BIN" ]] || needs_build=1
+for f in $SRC $F/src/**/*(.) $F/include/*(.) $F/compat/**/*(.); do [[ "$f" -nt "$BIN" ]] && needs_build=1; done
+if (( needs_build )); then
+    "$ROOT/Tools/build_fldigi.sh" "$OUT"
+    swiftc -O -swift-version 6 -I "$OUT/module" -o "$BIN" $SRC "$OUT"/obj/*.o -lc++
+fi
+exec "$BIN" "$@"

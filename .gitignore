@@ -1,0 +1,15 @@
+# Build
+.build/
+*.app/
+DerivedData/
+.swiftpm/
+
+# fldigi-Originalquellen (nur Nachschlagewerk, siehe PLAN.md 4.1)
+Vendor/_upstream/
+
+# Testaufnahmen und Beispieldaten: nur lokal bei der Entwicklung, nicht im Repository (Logiktests überspringen sie, wenn sie fehlen)
+TestData/
+
+# macOS
+.DS_Store
+*.xcloc/

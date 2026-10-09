@@ -1,0 +1,88 @@
+Funkfernschreibausstrahlungen des Seewetterdienstes für die Schifffahrt
+über die Sender Deutscher Wetterdienst
+Offenbach ( Main ) / Pinneberg ( DDH,DDK )
+Frequenz Sender Betriebszeit Leistung Betriebsart Geschw. Hub
+4583,0 kHz DDK 2 00.00 - 24.00 UTC 1 kW F1B 50 Baud + / - 225 Hz
+7646,0 kHz DDH 7 00.00 - 24.00 UTC 1 kW F1B 50 Baud + / - 225 Hz 1. Programm
+10100,8 kHz DDK 9 00.00 - 24.00 UTC 10 kW F1B 50 Baud + / - 225 Hz
+1. Progr. Sendeinhalt Sendekopf/Zeit (UTC)
+00:00 Sturmwarnungen für Deutsche Bucht, Westliche und Südliche Ostsee sowie WODL45 EDZW 0000
+Nord- und Ostseeküste
+00:05 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 0000
+00:20 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 0000
+00:30 Hinweis auf Datennutzung NOXX70 EDZW 0000
+00:35 Verschlüs-
+selte
+Wettermel-
+dungen
+(Synop- Stationen), Termin 00
+UTC
+ausgewählte
+Küstenstationen
+Europa,
+Nordamerika,
+Nordafrika
+02:00 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 00 UTC SMVX41-45 EDZW 0000
+03:00 Sturmwarnungen, Gebiete wie 00.00 UTC WODL45 EDZW 0300
+03:05 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 0300
+03:20 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 0300
+03:30 Zeitreihenbericht Mittelfrist Ostsee, Prognosen für 5 Tage FEBQ72 EDZW 0000
+03:55 Zeitreihenbericht Mittelfrist Nordsee, Prognosen für 5 Tage FEEN73 EDZW 0000
+04:15 Zeitreihenbericht Mittelfrist Mittelmeer, Prognosen für 5 Tage FEMM74 EDZW 0000
+04:40 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 03 UTC SIVX41-45 EDZW 0300
+05:15 Nautische Warnnachrichten WWXX60 EDZW 0500
+05:35 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 0500
+05:50 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 0500
+06:00 Sturmwarnungen, Gebiete wie 00:00 UTC WODL45 EDZW 0600
+06:03 Hinweis auf Datennutzung NOXX70 EDZW 0600
+06.04 Zeitreihenbericht Mittelfrist Ostatlantik, Prognosen für 5 Tage FEAE75 EDZW 0600
+06:30 Verschlüsselte Wettermeldungen (Synop- Stationen), Termin 06 UTC, Gebiete wie 00:35 UTC
+07:35 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 06 UTC SMVX41-45 EDZW 0600
+08:15 Bojenwettermeldungen aus den Seegebieten Atlantik und Nordpolarmeer von 06 UTC SMVX25-27 EDZW 0600
+08:35 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 0800
+08:50 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 0800
+09:00 Sturmwarnungen, Gebiete wie 00:00 UTC WODL45 EDZW 0900
+09:05 Zeitreihenbericht Norwegische See und Ostsee, Inhalt wie 2. Programm 06:30 UTC FQEN75 EDZW 0600
+09:30 Zeitreihenbericht Nordatlantik, Inhalt wie 2. Programm 07:00 UTC FQNT76 EDZW 0600
+09:55 Zeitreihenbericht westeuropäische Gewässer, Inhalt wie 2. Programm 08:20 UTC FQEW77 EDZW 0600
+10:15 Zeitreihenbericht westliches Mittelmeer, Inhalt wie 2. Programm 08:40 UTC FQMM78 EDZW 0600
+10:35 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 09 UTC SIVX41-45 EDZW 0900
+11:10 Allgemeine Hinweise und Störungshinweise NODL61 EDZW 0800
+11:15 Zeitreihenbericht östliches Mittelmeer, Inhalt wie 2. Programm 09:30 UTC FQMM79 EDZW 0600
+11:35 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 1100
+11:50 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 1100
+12:00 Sturmwarnungen, Gebiete wie 00:00 UTC WODL45 EDZW 1200
+12:05 Hinweis auf Datennutzung NOXX70 EDZW 1200
+12:10 Verschlüsselte Wettermeldungen (Synop- Stationen), Termin 12 UTC, Gebiete wie 00:35 UTC
+13:35 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 12 UTC SMVX41-45 EDZW 1200
+14:13 Zeitreihenbericht Mittelfrist Mittelmeer, Prognosen für 5 Tage FEMM74 EDZW 0600
+14:35 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 1400
+14:50 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 1400
+15:00 Sturmwarnungen, Gebiete wie 00:00 UTC WODL45 EDZW 1500
+15:05 Zeitreihenbericht Mittelfrist Ostsee, Prognosen für 5 Tage FEBQ72 EDZW 0600
+15:30 Zeitreihenbericht Mittelfrist Nordsee, Prognosen für 5 Tage FEEN73 EDZW 0600
+15:50 Seewetterbericht Mittelmeer in Textform FQMM80 EDZW 1500
+15:57 Zeitreihenbericht östliches Mittelmeer, Wiederholung von 11:15 UTC FQMM79 EDZW 0600
+16:10 Zeitreihenbericht Mittelfrist Mittelmeer, Prognosen für 5 Tage Wiederholung von 14:13 UTC FEMM74 EDZW 0600
+16:35 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 15 UTC SIVX41-45 EDZW 1500
+17:15 Nautische Warnnachrichten WWXX60 EDZW 1700
+17:35 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 1700
+17:50 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 1700
+1. Progr. Sendeinhalt Sendekopf/Zeit (UTC)
+18:00 Sturmwarnungen, Gebiete wie 00:00 UTC WODL45 EDZW 1800
+18:03 Hinweis auf Datennutzung NOXX70 EDZW 1800
+18:04 Zeitreihenbericht Mittelfrist Ostatlantik, Prognosen für 5 Tage FEAE75 EDZW 1800
+18:30 Verschlüsselte Wettermeldungen (Synop- Stationen), Termin 18 UTC, Gebiete wie 00:35 UTC
+19:35 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 18 UTC SMVX41-45 EDZW 1800
+20:15 Bojenwettermeldungen aus den Seegebieten Atlantik und Nordpolarmeer von 15 UTC SIVX25-27 EDZW 1500
+20:35 Seewetterbericht Nord- und Ostsee FQEN70 EDZW 2000
+20:50 Seewetterbericht Deutsche Nord- und Ostseeküste FQEN71 EDZW 2000
+21:00 Sturmwarnungen, Gebiete wie 00:00 UTC WODL45 EDZW 2100
+21:05 Zeitreihenbericht Norwegische See und Ostsee, Inhalt wie 2. Programm 18:30 UTC FQEN75 EDZW 1800
+21:30 Zeitreihenbericht Nordatlantik, Inhalt wie 2. Programm 19:00 UTC FQNT76 EDZW 1800
+21:55 Zeitreihenbericht westeuropäische Gewässer, Inhalt wie 2. Programm 20:20 UTC FQEW77 EDZW 1800
+22:15 Zeitreihenbericht westliches Mittelmeer, Inhalt wie 2. Programm 20:40 UTC FQMM78 EDZW 1800
+22:35 Schiffswettermeldungen aus den Seegebieten Nordatlantik und EG-Meer von 21 UTC SIVX41-45 EDZW 2100
+23:15 Zeitreihenbericht östliches Mittelmeer, Inhalt wie 2. Programm 21:30 UTC FQMM79 EDZW 1800
+bei Bedarf Warnungen für die Ostsee (englisch) WOBQ61 EDZW GGgg
+bei Bedarf Warnungen für die Nord- und Ostsee (englisch) WOEN69 EDZW GGgg
