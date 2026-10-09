@@ -11,6 +11,7 @@ swift build -c release --manifest-cache none   # Package.swift prüft, ob Local/
 
 APP_NAME="Digidec"
 APP_BUNDLE="$DIR/$APP_NAME.app"
+VERSION="0.97.7"
 
 echo "=== 2. Creating macOS App Bundle: $APP_BUNDLE ==="
 rm -rf "$APP_BUNDLE"
@@ -67,6 +68,27 @@ if [ -d "$DIR/.build/release/Digidec_Digidec.bundle" ]; then
     cp -r "$DIR/.build/release/Digidec_Digidec.bundle" "$APP_BUNDLE/Contents/Resources/"
 fi
 
+# 2b. SDR-Treiberbibliotheken (RTL-SDR, HackRF, libusb) einbetten, damit Drittanbieter-Hardware "out-of-the-box" funktioniert
+FW_DIR="$APP_BUNDLE/Contents/Frameworks"
+mkdir -p "$FW_DIR"
+if [ -f "/opt/homebrew/lib/librtlsdr.dylib" ] && [ -f "/opt/homebrew/lib/libhackrf.dylib" ]; then
+    echo "=== 2b. Bundling SDR Libraries (RTL-SDR, HackRF, libusb) into $FW_DIR ==="
+    cp -L "/opt/homebrew/lib/librtlsdr.dylib" "$FW_DIR/librtlsdr.dylib"
+    cp -L "/opt/homebrew/lib/libhackrf.dylib" "$FW_DIR/libhackrf.dylib"
+    LIBUSB_PATH=$(otool -L /opt/homebrew/lib/librtlsdr.dylib | grep libusb | awk '{print $1}')
+    if [ -f "$LIBUSB_PATH" ]; then
+        cp -L "$LIBUSB_PATH" "$FW_DIR/libusb-1.0.dylib"
+        chmod 755 "$FW_DIR"/*.dylib
+        install_name_tool -id @rpath/libusb-1.0.dylib "$FW_DIR/libusb-1.0.dylib"
+        install_name_tool -id @rpath/librtlsdr.dylib "$FW_DIR/librtlsdr.dylib"
+        install_name_tool -id @rpath/libhackrf.dylib "$FW_DIR/libhackrf.dylib"
+        install_name_tool -change "$LIBUSB_PATH" @loader_path/libusb-1.0.dylib "$FW_DIR/librtlsdr.dylib"
+        install_name_tool -change "$LIBUSB_PATH" @loader_path/libusb-1.0.dylib "$FW_DIR/libhackrf.dylib" 2>/dev/null || true
+        LIBUSB_HACK=$(otool -L /opt/homebrew/lib/libhackrf.dylib | grep libusb | awk '{print $1}')
+        [ -n "$LIBUSB_HACK" ] && install_name_tool -change "$LIBUSB_HACK" @loader_path/libusb-1.0.dylib "$FW_DIR/libhackrf.dylib" 2>/dev/null || true
+    fi
+fi
+
 echo "=== 3. Writing Info.plist ==="
 cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -93,9 +115,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.97.6</string>
+    <string>0.97.7</string>
     <key>CFBundleVersion</key>
-    <string>0.97.6</string>
+    <string>0.97.7</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -123,10 +145,44 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 </plist>
 EOF
 
-echo "=== 4. Ad-hoc Code Signing ==="
-codesign --force --deep --sign - "$APP_BUNDLE"
+echo "=== 4. Code Signing ==="
+ENTITLEMENTS="$DIR/Digidec.entitlements"
+SIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ]; then
+    DEV_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -n "$DEV_ID" ]; then
+        SIGN_IDENTITY="$DEV_ID"
+    else
+        SIGN_IDENTITY="-"
+    fi
+fi
+
+# Framework-Bibliotheken vorab einzeln signieren
+if [ -d "$APP_BUNDLE/Contents/Frameworks" ]; then
+    for f in "$APP_BUNDLE/Contents/Frameworks"/*.dylib; do
+        [ -e "$f" ] || continue
+        if [ "$SIGN_IDENTITY" = "-" ]; then
+            codesign --force --sign - "$f"
+        else
+            codesign --force --options runtime --sign "$SIGN_IDENTITY" "$f"
+        fi
+    done
+fi
+
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    echo "Signing Ad-hoc with Entitlements ($ENTITLEMENTS)..."
+    codesign --force --deep --entitlements "$ENTITLEMENTS" --sign - "$APP_BUNDLE"
+else
+    echo "Signing with '$SIGN_IDENTITY', Hardened Runtime and Entitlements ($ENTITLEMENTS)..."
+    codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+fi
 
 echo "=== 5. Registering URL scheme digidec:// with Launch Services ==="
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_BUNDLE"
 
-echo "=== ERFOLGREICH: $APP_BUNDLE ist bereit! ==="
+echo "=== 6. Packaging Release Zip ==="
+ZIP_NAME="Digidec-${VERSION}-macOS-arm64.zip"
+rm -f "$DIR/$ZIP_NAME"
+ditto -c -k --keepParent "$APP_BUNDLE" "$DIR/$ZIP_NAME"
+
+echo "=== ERFOLGREICH: $APP_BUNDLE und $ZIP_NAME sind bereit! ==="

@@ -282,8 +282,13 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
     }
 
     public func start(onData: @escaping @Sendable (UnsafeBufferPointer<UInt8>) -> Void, onStop: @escaping @Sendable (String?) -> Void) throws {
-        guard let lib = DynamicLibrary(names: Self.candidates()),
-              let open = lib.symbol("sdrplay_api_Open", as: Fn0.self),
+        guard let lib = DynamicLibrary(names: Self.candidates()) else {
+            if let err = DynamicLibrary.lastError, (err.contains("Library Validation") || err.contains("code signature") || err.contains("Team ID")) {
+                throw ADSBSourceError.failed("libsdrplay_api: Laden durch macOS Library Validation blockiert")
+            }
+            throw ADSBSourceError.libraryMissing("libsdrplay_api")
+        }
+        guard let open = lib.symbol("sdrplay_api_Open", as: Fn0.self),
               let close = lib.symbol("sdrplay_api_Close", as: Fn0.self),
               let version = lib.symbol("sdrplay_api_ApiVersion", as: VersionFn.self),
               let lockApi = lib.symbol("sdrplay_api_LockDeviceApi", as: Fn0.self),
@@ -296,7 +301,7 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
               let initFn = lib.symbol("sdrplay_api_Init", as: InitFn.self),
               let uninit = lib.symbol("sdrplay_api_Uninit", as: DeviceFn.self),
               let update = lib.symbol("sdrplay_api_Update", as: UpdateFn.self) else {
-            throw ADSBSourceError.libraryMissing("libsdrplay_api")
+            throw ADSBSourceError.failed("libsdrplay_api: Symbole fehlen oder inkompatible Version")
         }
         let getLastError = lib.symbol("sdrplay_api_GetLastError", as: GetLastErrorFn.self)
         guard Self.activeLock.withLock({ () -> Bool in

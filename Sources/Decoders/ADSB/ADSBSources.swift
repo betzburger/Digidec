@@ -112,14 +112,20 @@ public struct ADSBGainSettings: Equatable, Sendable {
 /// dlopen-Hülle: die Gerätebibliotheken werden erst zur Laufzeit gesucht (Homebrew), damit Digidec ohne sie baut und läuft
 final class DynamicLibrary: @unchecked Sendable {
     let handle: UnsafeMutableRawPointer
+    nonisolated(unsafe) static var lastError: String?
 
     init?(names: [String]) {
+        var errStr: String?
         for n in names {
             if let h = dlopen(n, RTLD_NOW) {
                 handle = h
+                Self.lastError = nil
                 return
+            } else if let err = dlerror() {
+                errStr = String(cString: err)
             }
         }
+        Self.lastError = errStr
         return nil
     }
 
@@ -130,9 +136,10 @@ final class DynamicLibrary: @unchecked Sendable {
 
     static let searchDirectories = ["/opt/homebrew/lib", "/usr/local/lib", "/opt/local/lib"]
     static func candidates(_ base: String) -> [String] {
-        var out = [base + ".dylib"]
-        for d in searchDirectories { out.append("\(d)/\(base).dylib") }
+        var out: [String] = []
         if let fw = Bundle.main.privateFrameworksPath { out.append("\(fw)/\(base).dylib") }
+        for d in searchDirectories { out.append("\(d)/\(base).dylib") }
+        out.append(base + ".dylib")
         return out
     }
 }
@@ -240,8 +247,13 @@ public final class RTLSDRSource: SDRTunableSource, @unchecked Sendable {
     }
 
     public func start(onData: @escaping @Sendable (UnsafeBufferPointer<UInt8>) -> Void, onStop: @escaping @Sendable (String?) -> Void) throws {
-        guard let lib = DynamicLibrary(names: DynamicLibrary.candidates("librtlsdr")),
-              let count = lib.symbol("rtlsdr_get_device_count", as: CountFn.self),
+        guard let lib = DynamicLibrary(names: DynamicLibrary.candidates("librtlsdr")) else {
+            if let err = DynamicLibrary.lastError, (err.contains("Library Validation") || err.contains("code signature") || err.contains("Team ID")) {
+                throw ADSBSourceError.failed("librtlsdr: Laden durch macOS Library Validation blockiert")
+            }
+            throw ADSBSourceError.libraryMissing("librtlsdr")
+        }
+        guard let count = lib.symbol("rtlsdr_get_device_count", as: CountFn.self),
               let nameFn = lib.symbol("rtlsdr_get_device_name", as: NameFn.self),
               let open = lib.symbol("rtlsdr_open", as: OpenFn.self),
               let close = lib.symbol("rtlsdr_close", as: CloseFn.self),
@@ -253,7 +265,7 @@ public final class RTLSDRSource: SDRTunableSource, @unchecked Sendable {
               let reset = lib.symbol("rtlsdr_reset_buffer", as: ResetFn.self),
               let readAsync = lib.symbol("rtlsdr_read_async", as: ReadAsyncFn.self),
               let cancelFn = lib.symbol("rtlsdr_cancel_async", as: (@convention(c) (OpaquePointer?) -> Int32).self) else {
-            throw ADSBSourceError.libraryMissing("librtlsdr")
+            throw ADSBSourceError.failed("librtlsdr: Symbole fehlen oder inkompatible Version")
         }
         self.lib = lib
         cancel = cancelFn
@@ -357,8 +369,13 @@ public final class HackRFSource: SDRTunableSource, @unchecked Sendable {
     }
 
     public func start(onData: @escaping @Sendable (UnsafeBufferPointer<UInt8>) -> Void, onStop: @escaping @Sendable (String?) -> Void) throws {
-        guard let lib = DynamicLibrary(names: DynamicLibrary.candidates("libhackrf")),
-              let initFn = lib.symbol("hackrf_init", as: InitFn.self),
+        guard let lib = DynamicLibrary(names: DynamicLibrary.candidates("libhackrf")) else {
+            if let err = DynamicLibrary.lastError, (err.contains("Library Validation") || err.contains("code signature") || err.contains("Team ID")) {
+                throw ADSBSourceError.failed("libhackrf: Laden durch macOS Library Validation blockiert")
+            }
+            throw ADSBSourceError.libraryMissing("libhackrf")
+        }
+        guard let initFn = lib.symbol("hackrf_init", as: InitFn.self),
               let open = lib.symbol("hackrf_open", as: OpenFn.self),
               let close = lib.symbol("hackrf_close", as: DeviceFn.self),
               let exit = lib.symbol("hackrf_exit", as: ExitFn.self),
@@ -370,7 +387,7 @@ public final class HackRFSource: SDRTunableSource, @unchecked Sendable {
               let setVGA = lib.symbol("hackrf_set_vga_gain", as: SetU32Fn.self),
               let startRx = lib.symbol("hackrf_start_rx", as: StartRxFn.self),
               let stopRxFn = lib.symbol("hackrf_stop_rx", as: DeviceFn.self) else {
-            throw ADSBSourceError.libraryMissing("libhackrf")
+            throw ADSBSourceError.failed("libhackrf: Symbole fehlen oder inkompatible Version")
         }
         self.lib = lib
         stopRx = stopRxFn
