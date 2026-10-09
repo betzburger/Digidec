@@ -215,7 +215,7 @@ struct DRMSettingsPanel: View {
                 Slider(value: $settings.volume, in: 0...1)
                     .frame(width: 130)
             }
-            Text("Empfänger: USB mit 12 kHz oder mehr Filterbreite (SDR: Kanalbreite einstellen), Dial 6 kHz unter der Sendefrequenz; das DRM-Signal liegt dann bei etwa 1 bis 11 kHz im Audio. Jeder Modus (A bis D) und jede Belegung (4,5 bis 20 kHz) wird selbst erkannt, ebenso die Trägerlage, solange das Signal im Audio liegt. Audio: AAC-LC mit SBR und Stereo; xHE-AAC, CELP und HVXC werden nicht decodiert, hierarchische Modulation nicht ausgewertet.")
+            Text("Empfänger: USB mit 12 kHz oder mehr Filterbreite (SDR: Kanalbreite einstellen), Dial 6 kHz unter der Sendefrequenz; das DRM-Signal liegt dann bei etwa 1 bis 11 kHz im Audio. Jeder Modus (A bis D) und jede Belegung (4,5 bis 20 kHz) wird selbst erkannt, ebenso die Trägerlage, solange das Signal im Audio liegt. Audio: AAC-LC mit SBR und Stereo sowie xHE-AAC (Mono und Stereo, mit dem Decoder von macOS); Datendienste und hierarchische Modulation werden nicht ausgewertet.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }

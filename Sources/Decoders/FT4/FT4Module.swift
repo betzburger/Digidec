@@ -19,7 +19,8 @@ public enum FT4Band: String, CaseIterable, Identifiable, Codable, Sendable {
 
     /// Bänder, die es in der Betriebsart gibt (FT4: 80 m bis 70 cm; FT2: 160 m bis 10 m)
     public static func available(for mode: FT4Mode) -> [FT4Band] {
-        allCases.filter { $0.dialHz(for: mode) != nil }
+        let list = allCases.filter { $0.dialHz(for: mode) != nil }
+        return list.sorted { ($0.dialHz(for: mode) ?? 0) < ($1.dialHz(for: mode) ?? 0) }
     }
 
     /// FT2: 1,843 / 3,578 / 7,052 / 10,144 / 14,084 / 18,108 / 21,144 / 24,923 / 28,184 MHz (frühe Testfrequenzen, keine amtliche Liste)

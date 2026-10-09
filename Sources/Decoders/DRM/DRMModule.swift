@@ -65,6 +65,8 @@ public final class DRMDecoder: @unchecked Sendable {
     private var aac: DRMAudioDecoder?
     private var xhe: DRMXHEDecoder?
     private var aacParam: DRMAudioParam?
+    /// Gezählte Audiorahmen (der Empfänger kennt sie nicht; Statusmeldungen würden sie sonst zurücksetzen)
+    private var audioGood = 0, audioBad = 0
 
     public init(pipeline: AudioPipeline) {
         self.pipeline = pipeline
@@ -74,7 +76,7 @@ public final class DRMDecoder: @unchecked Sendable {
 
     public func setEnabled(_ on: Bool) {
         pipeline.perform { [self] in
-            if on != enabled { receiver.reset(); aac = nil; xhe = nil; aacParam = nil }
+            if on != enabled { receiver.reset(); aac = nil; xhe = nil; aacParam = nil; audioGood = 0; audioBad = 0 }
             enabled = on
             if !on { player.stop(); lock.withLockUnchecked { snapshot.status = DRMStatus(); snapshot.text = ""; snapshot.audioDescription = ""; snapshot.unsupportedReason = "" } }
         }
@@ -109,7 +111,11 @@ public final class DRMDecoder: @unchecked Sendable {
     private func handle(_ event: DRMEvent) {
         switch event {
         case .status(let s):
-            lock.withLockUnchecked { snapshot.status = s }
+            lock.withLockUnchecked {
+                snapshot.status = s
+                snapshot.status.audioFramesGood = audioGood
+                snapshot.status.audioFramesBad = audioBad
+            }
         case .text(let t):
             lock.withLockUnchecked { snapshot.text = t }
         case .audio(let unit):
@@ -136,8 +142,10 @@ public final class DRMDecoder: @unchecked Sendable {
                 }
             }
             lock.withLockUnchecked {
-                snapshot.status.audioFramesGood += unit.frames.count - bad
-                snapshot.status.audioFramesBad += bad
+                audioGood += unit.frames.count - bad
+                audioBad += bad
+                snapshot.status.audioFramesGood = audioGood
+                snapshot.status.audioFramesBad = audioBad
                 snapshot.unsupportedReason = ""
                 snapshot.audioDescription = describe(unit.param)
             }
@@ -164,8 +172,10 @@ public final class DRMDecoder: @unchecked Sendable {
             pcm += out
         }
         lock.withLockUnchecked {
-            snapshot.status.audioFramesGood += good
-            snapshot.status.audioFramesBad += bad
+            audioGood += good
+            audioBad += bad
+            snapshot.status.audioFramesGood = audioGood
+            snapshot.status.audioFramesBad = audioBad
             snapshot.unsupportedReason = ""
             snapshot.audioDescription = describe(unit.param)
         }
@@ -209,7 +219,7 @@ public final class DRMController: ObservableObject {
         let o = decoder.takeOutput()
         if o.status != status { status = o.status }
         if abs(o.inputDB - inputDB) >= 0.5 { inputDB = o.inputDB }
-        audioPeak = o.audioPeak
+        audioPeak = max(o.audioPeak, audioPeak * 0.75)   // Spitzenwert kurz halten: der Ton kommt alle 0,4 s, die Abfrage alle 0,2 s
         if o.text != text { text = o.text }
         if o.audioDescription != audioDescription { audioDescription = o.audioDescription }
         if o.unsupportedReason != unsupportedReason { unsupportedReason = o.unsupportedReason }

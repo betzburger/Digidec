@@ -758,6 +758,9 @@ OpenWebRX dient nur als **Einkaufsliste**: Es bindet genau diese Einzelprojekte 
 **09.10.2026, Version 0.97.1 Alpha (FT2 als eigenes Modul):**
 - Auf Wunsch: FT2 ist ein eigener Knopf in der Modulleiste (Kurzwelle, vor FT4 und FT8), nicht mehr ein Umschalter im FT4-Modul. Wer FT4 wählt, bekommt nur FT4. `DecoderModuleInfo.ft2`; `FT4SettingsStore(mode:)` und `FT4Controller` werden für FT2 ein zweites Mal angelegt (`state.ft2`, `state.ft2Controller`), mit eigenen Einstellungen (`ft2Band`, `ft2Locator` …) und eigenem Protokoll („FT2“); nur das aktive Modul decodiert. Hinweis „EXPERIMENTELL“ im Einstellungsfeld, Karte, Wasserfall, Funkgerät und URL-Schema (`presetID` = Band) wie bei FT4. Das Rufzeichen von FT2 beginnt mit dem von FT4 als Vorgabe, die Zeitkorrektur mit 0,0 s (FT4: 0,1 s). Logiktests: 4103 Prüfungen, 0 Fehler (Gruppe `ft` 154).
 
+**09.10.2026, Version 0.97.2 Alpha (Oberfläche DRM und FT2):**
+- Beim ersten echten Schnappschuss der Oberfläche (die Fensteraufnahme `DIGIDEC_SNAPSHOT` lieferte zuvor nur das leere Ersatzbild; jetzt geht sie) an DRM mit der Aufnahme „Spark“ gesehen und behoben: (1) die Audiozähler („Audio 0/0“, Anzeige TON) wurden von jeder Statusmeldung des Empfängers zurückgesetzt, sie laufen jetzt im Modul mit (`audioGood`/`audioBad` in `DRMDecoder`), das Ergebnis im Bild: „Audio 139/140“; (2) die Anzeige TON hält den Spitzenwert kurz (der Ton kommt alle 0,4 s, die Abfrage alle 0,2 s); (3) der Hilfetext sagte noch, xHE-AAC werde nicht decodiert (seit 0.96.0 falsch). FT2: die Bänder stehen nach Frequenz sortiert (160 m zuerst). Die Oberfläche von DRM (Dienstname, Modus B 10 kHz, Rahmenzähler, Wasserfall) und FT2 (eigener Knopf zwischen FREEDV und FT4, Einstellungsfeld mit Hinweis EXPERIMENTELL) ist damit zum ersten Mal im Bild geprüft; die Grenze „nicht im Bild geprüft“ aus 0.95.0 bis 0.97.1 entfällt.
+
 ---
 
 ## 12. Offene Entscheidungen (vom Nutzer zu klären)
