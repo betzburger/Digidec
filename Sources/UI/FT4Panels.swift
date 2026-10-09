@@ -209,13 +209,6 @@ struct FT4SettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
-                ForEach(FT4Mode.allCases) { m in
-                    Button(m.rawValue) { settings.mode = m }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.mode == m))
-                        .help(m == .ft4 ? "FT4: 7,5-s-Zyklus, 20,8 Baud, 83 Hz breit" : "FT2 (experimentell, keine offizielle Betriebsart): dasselbe Verfahren wie FT4 mit doppeltem Tempo, 3,75-s-Zyklus, 41,7 Baud, 167 Hz breit. Die Frequenzen sind frühe Testwerte, Aktivität gibt es fast nur auf 14,084 MHz")
-                }
-            }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 4) {
                 ForEach(FT4Band.available(for: settings.mode)) { b in
                     Button(b.rawValue) { settings.band = b }
@@ -226,6 +219,12 @@ struct FT4SettingsPanel: View {
             Text(dialHint)
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
+            if settings.mode == .ft2 {
+                Text("EXPERIMENTELL: FT2 ist keine offizielle Betriebsart (FT4 mit doppeltem Tempo). Frühe Testfrequenzen, Aktivität fast nur auf 14,084 MHz")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.vfdAmber)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 6) {
                 label("RUF")
                 TextField("DL…", text: $callText)

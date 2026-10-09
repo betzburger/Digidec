@@ -51,6 +51,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     case nxdn
     case p25
     case drm
+    case ft2
 
     public var id: String { rawValue }
 
@@ -109,6 +110,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
         case .nxdn:     return "NXDN"
         case .p25:      return "P25"
         case .drm:      return "DRM"
+        case .ft2:      return "FT2"
         }
     }
 
@@ -147,7 +149,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     public var band: Band {
         switch self {
         case .acars, .adsb, .ais, .aprs, .dstar, .dmr, .dpmr, .tetra, .m17, .packet, .pager, .sensors, .sonde, .tones, .vdl2, .vor, .ysf, .dab, .channels, .rds, .nxdn, .p25: return .vhfUhf
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .freedv, .hfdl, .wefax, .ft8, .ft4, .wspr, .js8, .dcf77, .efr, .sstv, .drm: return .hf
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .freedv, .hfdl, .wefax, .ft8, .ft4, .ft2, .wspr, .js8, .dcf77, .efr, .sstv, .drm: return .hf
         }
     }
 
@@ -161,7 +163,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
 
     public var isAvailable: Bool {
         switch self {
-        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .js8, .dcf77, .efr, .sstv, .channels, .rds, .nxdn, .p25, .drm: return true
+        case .rtty, .navtex, .cw, .psk, .skimmer, .olivia, .mt63, .mfsk, .hell, .dsc, .ale, .ndb, .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .pager, .tones, .wefax, .ft8, .ft4, .wspr, .js8, .dcf77, .efr, .sstv, .channels, .rds, .nxdn, .p25, .drm, .ft2: return true
         }
     }
 
@@ -210,7 +212,8 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
                            "throb1", "throb2", "throb4", "throbx1", "throbx2", "throbx4", "ifkp10", "ifkp05", "ifkp20", "fsq45", "fsq3", "fsq6", "fsq2", "fsq15"]   // = MFSKMode.rawValue
         case .wefax: return ["dwd-7880", "dwd-3855", "dwd-13882", "custom"]   // = WefaxStation.rawValue
         case .ft8: return ["20m", "40m", "80m", "160m", "60m", "30m", "17m", "15m", "12m", "10m", "6m"]   // = FT8Band.rawValue
-        case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm", "160m"]   // = FT4Band.rawValue (160m nur FT2)
+        case .ft4: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]   // = FT4Band.rawValue
+        case .ft2: return ["20m", "40m", "80m", "160m", "30m", "17m", "15m", "12m", "10m"]   // = FT4Band.rawValue (nur die Bänder von FT2)
         case .wspr: return ["20m", "40m", "80m", "30m", "17m", "15m", "12m", "10m", "160m", "60m", "630m", "2200m", "6m", "4m", "2m", "70cm"]   // = WSPRBand.rawValue
         case .js8: return ["20m", "40m", "80m", "160m", "30m", "17m", "15m", "12m", "10m", "6m", "2m"]   // = JS8Band.rawValue
         case .dcf77: return ["mainflingen"]

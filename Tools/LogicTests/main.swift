@@ -1555,7 +1555,6 @@ if want("ft") {
 
     check(FT4Band.band(forDial: 14_080_000) == .m20 && FT4Band.band(forDial: 7_047_500) == .m40
           && FT4Band.band(forDial: 7_100_000) == nil, "FT4: Band zur Dial-Frequenz")
-    check(FT4Band.allCases.map(\.rawValue).sorted() == DecoderModuleInfo.ft4.presetIDs.sorted(), "FT4-Bänder = IDs im URL-Schema")
     let line = FT4Controller.allTxtLine(FT4Decode(cycleStart: ISO8601DateFormatter().date(from: "2026-10-01T08:15:00Z")!,
                                                   text: "CQ DL1ABC JN49", snrDB: -8, dt: 0.2, freqHz: 1234.4, correctBits: 174, pass: 0),
                                         dialHz: 14_080_000)
@@ -1692,14 +1691,19 @@ if want("ft") {
                                                   correctBits: 174, pass: 0, mode: .ft2), dialHz: 14_084_000)
     check(line == "261001_081503    14.084 Rx FT2     -8  0.2 1234 CQ DL1ABC JN49", "FT2: Log-Zeile wie ALL.TXT mit „Rx FT2“, got \(line.debugDescription)")
     // Einstellungen
-    let store = FT4SettingsStore()
-    store.mode = .ft2; store.band = .m160
-    let dialFT2 = store.dialHz, centerFT2 = store.centerHz, bwFT2 = store.markerBandwidth
-    store.rigDialHz = nil
-    store.mode = .ft4
-    check(dialFT2 == 1_843_000 && store.band == .m20 && store.dialHz == 14_080_000 && abs(centerFT2 - (store.rxHz + 83.33)) < 0.5 && abs(bwFT2 - 166.67) < 0.1,
-          "FT2: Wechsel zurück zu FT4 stellt ein nur in FT2 vorhandenes Band auf 20 m um; Dial und Markierung folgen der Betriebsart")
-    store.mode = .ft4
+    let ft2Store = FT4SettingsStore(mode: .ft2), ft4Store = FT4SettingsStore(mode: .ft4)
+    ft2Store.band = .m160; ft4Store.band = .m20
+    check(ft2Store.mode == .ft2 && ft4Store.mode == .ft4 && ft2Store.dialHz == 1_843_000 && ft4Store.dialHz == 14_080_000
+          && abs(ft2Store.centerHz - (ft2Store.rxHz + 83.33)) < 0.5 && abs(ft2Store.markerBandwidth - 166.67) < 0.1 && abs(ft4Store.markerBandwidth - 83.33) < 0.1,
+          "FT2: eigenes Modul mit eigenen Einstellungen: Dial, Wasserfall-Markierung und Betriebsart getrennt von FT4")
+    ft2Store.band = .m20
+    check(ft2Store.dialHz == 14_084_000 && ft4Store.band == .m20 && ft4Store.dialHz == 14_080_000, "FT2: Bandwahl in FT2 verstellt FT4 nicht")
+    check(DecoderModuleInfo.ft2.displayName == "FT2" && DecoderModuleInfo.ft2.band == .hf && DecoderModuleInfo.ft2.hasMap && DecoderModuleInfo.ft2.isAvailable
+          && DecoderModuleInfo.Band.hf.modules.contains(.ft2) && DecoderModuleInfo.Band.hf.modules.firstIndex(of: .ft2)! < DecoderModuleInfo.Band.hf.modules.firstIndex(of: .ft4)!
+          && DecoderModuleInfo.Band.hf.modules.firstIndex(of: .ft4)! < DecoderModuleInfo.Band.hf.modules.firstIndex(of: .ft8)!,
+          "FT2: eigener Knopf in der Modulleiste (Kurzwelle), vor FT4 und FT8")
+    check(FT4Band.available(for: .ft4).map(\.rawValue).sorted() == DecoderModuleInfo.ft4.presetIDs.sorted() && FT4Band.available(for: .ft2).map(\.rawValue).sorted() == DecoderModuleInfo.ft2.presetIDs.sorted(),
+          "FT2: Bänder = IDs im URL-Schema (FT4 und FT2 je für sich)")
     check(RigTuneTarget.ft4(band: .m20, mode: .ft2).dialHz == 14_084_000 && RigTuneTarget.ft4(band: .m20).dialHz == 14_080_000, "FT2: Abstimmziel des Funkgeräts je Betriebsart")
 
     // Testsignal: Länge und Töne gegen die Vorgaben aus genft2.f90 (Costas-Folgen 0132, 1023, 2310, 3201, Tonabstand 41,667 Hz, 288 Samples je Symbol)

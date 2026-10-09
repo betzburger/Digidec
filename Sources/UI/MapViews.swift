@@ -17,6 +17,7 @@ struct ModuleMapView: View {
             case .sonde:  SondeMapView(controller: state.sondeController, home: state.home)
             case .ft8:    FT8MapView(controller: state.ft8Controller, home: state.home)
             case .ft4:    FT4MapView(controller: state.ft4Controller, home: state.home)
+            case .ft2:    FT4MapView(controller: state.ft2Controller, home: state.home)
             case .wspr:   WSPRMapView(controller: state.wsprController, settings: state.wspr, home: state.home)
             case .js8:    JS8MapView(controller: state.js8Controller, home: state.home)
             case .dsc:    DSCMapView(controller: state.dscController, home: state.home)
@@ -54,7 +55,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "BILD"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "TEXT"
         case .dcf77, .efr, .rds: return "ANZEIGE"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "LISTE"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .ft2, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "LISTE"
         }
     }
 
@@ -63,7 +64,7 @@ extension DecoderModuleInfo {
         case .wefax, .sstv, .hell: return "photo"
         case .rtty, .navtex, .cw, .psk, .olivia, .mt63, .mfsk: return "text.alignleft"
         case .dcf77, .efr, .rds: return "gauge.with.dots.needle.33percent"
-        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "list.bullet"
+        case .aprs, .packet, .adsb, .acars, .ais, .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .ndb, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .hfdl, .sonde, .ft8, .ft4, .ft2, .wspr, .js8, .dsc, .ale, .pager, .tones, .skimmer, .channels: return "list.bullet"
         }
     }
 
@@ -97,7 +98,7 @@ extension DecoderModuleInfo {
         case .ysf: return "Die gehörte Aussendung mit Rufzeichen, Ziel und Repeater, dazu der Verlauf mit Wiedergabe"
         case .dstar: return "Die gehörte Aussendung mit Rufzeichen, Repeater, Text und Position, dazu der Verlauf mit Wiedergabe"
         case .channels: return "Die Kanäle der Kanalbank mit ihren Decodern, alle zugleich aus einem Fenster des SDR"
-        case .aprs, .acars, .hfdl, .ft8, .ft4, .wspr, .js8, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
+        case .aprs, .acars, .hfdl, .ft8, .ft4, .ft2, .wspr, .js8, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
         }
     }
 }
@@ -309,7 +310,7 @@ private struct FT4MapView: View {
                 return HeardStation(call: call, grid: m.grid, dxcc: e.dxcc, snr: d.snrDB, time: d.cycleStart, text: d.text,
                                     isCQ: m.isCQ, mentionsMe: e.mentionsMe)
             }
-            MapPanel(content: HeardMapBuilder.content(heard, home: home.point, now: ctx.date, mode: "FT4", maxAge: 3600), home: home,
+            MapPanel(content: HeardMapBuilder.content(heard, home: home.point, now: ctx.date, mode: controller.modeName, maxAge: 3600), home: home,
                      selection: $selection, legend: "letzte Stunde")
         }
     }

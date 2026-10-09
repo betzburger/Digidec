@@ -74,14 +74,9 @@ public enum FT4Band: String, CaseIterable, Identifiable, Codable, Sendable {
 
 @MainActor
 public final class FT4SettingsStore: ObservableObject {
+    /// Betriebsart dieses Moduls: FT4, oder das inoffizielle FT2 (dasselbe Verfahren bei halber Symboldauer) als eigenes Modul
+    public let mode: FT4Mode
     @Published public var band: FT4Band { didSet { save() } }
-    /// FT4 oder das inoffizielle FT2 (dasselbe Verfahren bei halber Symboldauer)
-    @Published public var mode: FT4Mode {
-        didSet {
-            if band.dialHz(for: mode) == nil { band = .m20 }
-            save()
-        }
-    }
     /// Eigenes Rufzeichen (nur zum Hervorheben; Digidec sendet nie)
     @Published public var myCall: String { didSet { save() } }
     @Published public var locator: String { didSet { save() } }
@@ -95,19 +90,23 @@ public final class FT4SettingsStore: ObservableObject {
     /// Dial laut Funkgerät (rigctld), sonst nil
     @Published public var rigDialHz: Int?
 
-    public init() {
+    /// UserDefaults-Schlüssel je Modul: „ft4Band“, „ft2Band“ …
+    private let keyPrefix: String
+
+    public init(mode: FT4Mode = .ft4) {
+        self.mode = mode
+        let k = mode == .ft2 ? "ft2" : "ft4"
+        keyPrefix = k
         let d = UserDefaults.standard
-        let savedMode = d.string(forKey: "ft4Mode").flatMap(FT4Mode.init(rawValue:)) ?? .ft4
-        mode = savedMode
-        band = d.string(forKey: "ft4Band").flatMap(FT4Band.init(rawValue:)).flatMap { $0.dialHz(for: savedMode) != nil ? $0 : nil } ?? .m20
-        myCall = d.string(forKey: "ft4MyCall") ?? ""
-        locator = d.string(forKey: "ft4Locator") ?? "JN49WS"
-        core = d.data(forKey: "ft4Core").flatMap { try? JSONDecoder().decode(FT4Core.Settings.self, from: $0) } ?? FT4Core.Settings()
-        timeOffset = d.object(forKey: "ft4TimeOffset") as? Double ?? 0.1
-        let rx = d.double(forKey: "ft4RxHz")
+        band = d.string(forKey: k + "Band").flatMap(FT4Band.init(rawValue:)).flatMap { $0.dialHz(for: mode) != nil ? $0 : nil } ?? .m20
+        myCall = d.string(forKey: k + "MyCall") ?? (mode == .ft2 ? d.string(forKey: "ft4MyCall") : nil) ?? ""
+        locator = d.string(forKey: k + "Locator") ?? "JN49WS"
+        core = d.data(forKey: k + "Core").flatMap { try? JSONDecoder().decode(FT4Core.Settings.self, from: $0) } ?? FT4Core.Settings()
+        timeOffset = d.object(forKey: k + "TimeOffset") as? Double ?? (mode == .ft2 ? 0.0 : 0.1)
+        let rx = d.double(forKey: k + "RxHz")
         rxHz = (200...3500).contains(rx) ? rx : 1500
-        cqOnly = d.bool(forKey: "ft4CQOnly")
-        showUncertain = d.object(forKey: "ft4ShowUncertain") as? Bool ?? true
+        cqOnly = d.bool(forKey: k + "CQOnly")
+        showUncertain = d.object(forKey: k + "ShowUncertain") as? Bool ?? true
     }
 
     /// Wirksame Dial-Frequenz: Funkgerät, sonst gewähltes Band
@@ -115,19 +114,18 @@ public final class FT4SettingsStore: ObservableObject {
 
     public func setRx(_ hz: Double) {
         rxHz = min(max(hz, 200), 3500).rounded()
-        UserDefaults.standard.set(rxHz, forKey: "ft4RxHz")
+        UserDefaults.standard.set(rxHz, forKey: keyPrefix + "RxHz")
     }
 
     private func save() {
         let d = UserDefaults.standard
-        d.set(band.rawValue, forKey: "ft4Band")
-        d.set(mode.rawValue, forKey: "ft4Mode")
-        d.set(myCall, forKey: "ft4MyCall")
-        d.set(locator, forKey: "ft4Locator")
-        if let data = try? JSONEncoder().encode(core) { d.set(data, forKey: "ft4Core") }
-        d.set(timeOffset, forKey: "ft4TimeOffset")
-        d.set(cqOnly, forKey: "ft4CQOnly")
-        d.set(showUncertain, forKey: "ft4ShowUncertain")
+        d.set(band.rawValue, forKey: keyPrefix + "Band")
+        d.set(myCall, forKey: keyPrefix + "MyCall")
+        d.set(locator, forKey: keyPrefix + "Locator")
+        if let data = try? JSONEncoder().encode(core) { d.set(data, forKey: keyPrefix + "Core") }
+        d.set(timeOffset, forKey: keyPrefix + "TimeOffset")
+        d.set(cqOnly, forKey: keyPrefix + "CQOnly")
+        d.set(showUncertain, forKey: keyPrefix + "ShowUncertain")
     }
 }
 
@@ -270,12 +268,12 @@ public struct FT4Entry: Identifiable, Sendable, Equatable {
 @MainActor
 public final class FT4Controller: ObservableObject {
     public let decoder: FT4Decoder
-    public let logger = DecodeLogger(mode: "FT4")
+    public let logger: DecodeLogger
     @Published public private(set) var entries: [FT4Entry] = []
     @Published public private(set) var lastCycle: FT4Decoder.CycleResult?
     @Published public private(set) var cycleCount = 0
     @Published public var logEnabled: Bool {
-        didSet { UserDefaults.standard.set(logEnabled, forKey: "ft4LogEnabled") }
+        didSet { UserDefaults.standard.set(logEnabled, forKey: settings.mode == .ft2 ? "ft2LogEnabled" : "ft4LogEnabled") }
     }
 
     public static let maxEntries = 1500
@@ -302,7 +300,8 @@ public final class FT4Controller: ObservableObject {
     public init(pipeline: AudioPipeline, settings: FT4SettingsStore) {
         self.settings = settings
         decoder = FT4Decoder(pipeline: pipeline)
-        logEnabled = UserDefaults.standard.object(forKey: "ft4LogEnabled") as? Bool ?? true
+        logger = DecodeLogger(mode: settings.mode.rawValue)
+        logEnabled = UserDefaults.standard.object(forKey: settings.mode == .ft2 ? "ft2LogEnabled" : "ft4LogEnabled") as? Bool ?? true
         applySettings()
         settings.objectWillChange
             .receive(on: RunLoop.main)
@@ -312,6 +311,9 @@ public final class FT4Controller: ObservableObject {
             MainActor.assumeIsolated { self?.poll() }
         }
     }
+
+    /// „FT4“ oder „FT2“
+    public var modeName: String { settings.mode.rawValue }
 
     public func setActive(_ active: Bool) {
         decoder.setEnabled(active)

@@ -91,6 +91,8 @@ public struct MainWindowView: View {
                                 FT8ActivityPanel(controller: state.ft8Controller, settings: state.ft8)
                             } else if state.activeModule == .ft4 {
                                 FT4ActivityPanel(controller: state.ft4Controller, settings: state.ft4)
+                            } else if state.activeModule == .ft2 {
+                                FT4ActivityPanel(controller: state.ft2Controller, settings: state.ft2)
                             } else if state.activeModule == .wspr {
                                 WSPRActivityPanel(controller: state.wsprController, settings: state.wspr)
                             } else if state.activeModule == .js8 {
@@ -195,6 +197,8 @@ public struct MainWindowView: View {
                                 WaterfallView(model: state.waterfall, rtty: state.ft8, audio: state.audio)
                             } else if state.activeModule == .ft4 {
                                 WaterfallView(model: state.waterfall, rtty: state.ft4, audio: state.audio)
+                            } else if state.activeModule == .ft2 {
+                                WaterfallView(model: state.waterfall, rtty: state.ft2, audio: state.audio)
                             } else if state.activeModule == .wspr {
                                 WaterfallView(model: state.waterfall, rtty: state.wspr, audio: state.audio)
                             } else if state.activeModule == .js8 {
@@ -428,7 +432,12 @@ public struct MainWindowView: View {
                             FT4CyclePanel(controller: state.ft4Controller, settings: state.ft4)
                                 .radioCard(title: "Zyklus · Rx-Frequenz")
                             FT4SettingsPanel(settings: state.ft4)
-                                .radioCard(title: state.ft4.mode.rawValue)
+                                .radioCard(title: "FT4")
+                        } else if state.activeModule == .ft2 {
+                            FT4CyclePanel(controller: state.ft2Controller, settings: state.ft2)
+                                .radioCard(title: "Zyklus · Rx-Frequenz")
+                            FT4SettingsPanel(settings: state.ft2)
+                                .radioCard(title: "FT2")
                         } else if state.activeModule == .wspr {
                             WSPRCyclePanel(controller: state.wsprController, settings: state.wspr)
                                 .radioCard(title: "Zyklus")
@@ -502,7 +511,7 @@ public struct MainWindowView: View {
                 }
                 .padding(.horizontal, 14)
 
-                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, drm: state.drm, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, wspr: state.wspr, js8: state.js8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
+                StatusBar(state: state, rtty: state.rtty, navtex: state.navtex, cw: state.cw, wefax: state.wefax, psk: state.psk, skimmer: state.skimmer, skimmerController: state.skimmerController, olivia: state.olivia, mt63: state.mt63, mfsk: state.mfsk, hell: state.hell, dsc: state.dsc, ale: state.ale, aprs: state.aprs, packet: state.packet, packetController: state.packetController, adsb: state.adsb, adsbController: state.adsbController, acars: state.acars, ais: state.ais, aisController: state.aisController, hfdl: state.hfdl, drm: state.drm, sonde: state.sonde, sondeController: state.sondeController, pager: state.pager, tones: state.tones, ft8: state.ft8, ft4: state.ft4, ft4Controller: state.ft4Controller, ft2: state.ft2, ft2Controller: state.ft2Controller, wspr: state.wspr, js8: state.js8, dcf77: state.dcf77, dcf77Controller: state.dcf77Controller, efr: state.efr, efrController: state.efrController, sstv: state.sstv, sstvController: state.sstvController)
             }
             .padding(.bottom, 8)
             PropagationRuler(service: state.propagation, home: state.home, sdr: state.sdrController, settings: state.sdr)
@@ -1052,6 +1061,8 @@ private struct StatusBar: View {
     @ObservedObject var ft8: FT8SettingsStore
     @ObservedObject var ft4: FT4SettingsStore
     @ObservedObject var ft4Controller: FT4Controller
+    @ObservedObject var ft2: FT4SettingsStore
+    @ObservedObject var ft2Controller: FT4Controller
     @ObservedObject var wspr: WSPRSettingsStore
     @ObservedObject var js8: JS8SettingsStore
     @ObservedObject var dcf77: DCF77SettingsStore
@@ -1146,7 +1157,8 @@ private struct StatusBar: View {
         case .hell: return "\(hell.options.mode.displayName.uppercased()) · Mitte \(Int(hell.centerHz.rounded())) Hz · \(Int(hell.options.mode.bandwidthHz)) Hz breit" + (hell.options.reverse && hell.options.mode.isFSK ? " · REV" : "") + (hell.options.squelchOn ? " · SQL \(Int(hell.options.squelch))" : " · SQL aus")
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current
-        case .ft4: return ft4Current
+        case .ft4: return ft4Current(ft4)
+        case .ft2: return ft4Current(ft2)
         case .wspr: return wsprCurrent
         case .js8: return js8Current
         case .dcf77: return dcf77Current
@@ -1163,7 +1175,7 @@ private struct StatusBar: View {
     }
 
     /// „FT4 · 20m · Dial 14,080 MHz · 150–3600 Hz · JN49WS“
-    private var ft4Current: String {
+    private func ft4Current(_ ft4: FT4SettingsStore) -> String {
         let dial = String(format: "%.3f", Double(ft4.dialHz) / 1_000_000).replacingOccurrences(of: ".", with: ",")
         var s = "\(ft4.mode.rawValue) · \(ft4.band.rawValue) · Dial \(dial) MHz"
         s += " · \(Int(ft4.core.minHz))–\(Int(ft4.core.maxHz)) Hz"

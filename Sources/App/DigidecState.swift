@@ -118,6 +118,8 @@ public final class DigidecState: ObservableObject {
     public let ft8Controller: FT8Controller
     public let ft4 = FT4SettingsStore()
     public let ft4Controller: FT4Controller
+    public let ft2 = FT4SettingsStore(mode: .ft2)
+    public let ft2Controller: FT4Controller
     public let wspr = WSPRSettingsStore()
     public let wsprController: WSPRController
     public let js8 = JS8SettingsStore()
@@ -198,6 +200,7 @@ public final class DigidecState: ObservableObject {
         wefaxController = WefaxController(pipeline: audio.pipeline, settings: wefax)
         ft8Controller = FT8Controller(pipeline: audio.pipeline, settings: ft8)
         ft4Controller = FT4Controller(pipeline: audio.pipeline, settings: ft4)
+        ft2Controller = FT4Controller(pipeline: audio.pipeline, settings: ft2)
         wsprController = WSPRController(pipeline: audio.pipeline, settings: wspr)
         js8Controller = JS8Controller(pipeline: audio.pipeline, settings: js8)
         dcf77Controller = DCF77Controller(pipeline: audio.pipeline, settings: dcf77)
@@ -233,12 +236,13 @@ public final class DigidecState: ObservableObject {
             guard let self, Maidenhead.coordinate(loc) != nil else { return }
             if ft8.locator != loc { ft8.locator = loc }
             if ft4.locator != loc { ft4.locator = loc }
+            if ft2.locator != loc { ft2.locator = loc }
             if wspr.locator != loc { wspr.locator = loc }
             if js8.locator != loc { js8.locator = loc }
             if navtex.locator != loc { navtex.locator = loc }
         }
         home.$locator.removeDuplicates().receive(on: RunLoop.main).sink { loc in syncLocators(loc.uppercased()) }.store(in: &cancellables)
-        for pub in [ft8.$locator, ft4.$locator, wspr.$locator, js8.$locator, navtex.$locator] {
+        for pub in [ft8.$locator, ft4.$locator, ft2.$locator, wspr.$locator, js8.$locator, navtex.$locator] {
             pub.removeDuplicates().dropFirst().receive(on: RunLoop.main).sink { [weak self] loc in
                 let v = loc.uppercased().trimmingCharacters(in: .whitespaces)
                 if let self, Maidenhead.coordinate(v) != nil, self.home.locator != v { self.home.locator = v }
@@ -290,6 +294,7 @@ public final class DigidecState: ObservableObject {
                 self?.wefaxController.setActive(module == .wefax)
                 self?.ft8Controller.setActive(module == .ft8)
                 self?.ft4Controller.setActive(module == .ft4)
+                self?.ft2Controller.setActive(module == .ft2)
                 self?.wsprController.setActive(module == .wspr)
                 self?.js8Controller.setActive(module == .js8)
                 self?.dcf77Controller.setActive(module == .dcf77)
@@ -304,7 +309,7 @@ public final class DigidecState: ObservableObject {
         observeForTuning($activeModule)
         observeForTuning(ft8.$band)
         observeForTuning(ft4.$band)
-        observeForTuning(ft4.$mode)
+        observeForTuning(ft2.$band)
         observeForTuning(wspr.$band)
         observeForTuning(js8.$band)
         observeForTuning(psk.$band)
@@ -398,6 +403,7 @@ public final class DigidecState: ObservableObject {
             skimmer.rigIsLSB = state.isLSB
             ft8.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             ft4.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
+            ft2.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             wspr.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             js8.rigDialHz = state.connected ? state.frequencyHz.map { Int($0) } : nil
             wefaxController.rigFrequencyHz = state.connected ? state.frequencyHz.map(Int64.init) : nil
@@ -458,7 +464,8 @@ public final class DigidecState: ObservableObject {
     public var rigTargetForActiveModule: RigTuneTarget? {
         switch activeModule {
         case .ft8:    return .ft8(band: ft8.band)
-        case .ft4:    return .ft4(band: ft4.band, mode: ft4.mode)
+        case .ft4:    return .ft4(band: ft4.band)
+        case .ft2:    return .ft4(band: ft2.band, mode: .ft2)
         case .wspr:   return .wspr(band: wspr.band)
         case .js8:    return .js8(band: js8.band)
         case .psk:    return .psk(band: psk.band)
@@ -715,7 +722,9 @@ public final class DigidecState: ObservableObject {
                 case .ft8:
                     if let preset = request.presetID, let b = FT8Band(rawValue: preset) { ft8.band = b }
                 case .ft4:
-                    if let preset = request.presetID, let b = FT4Band(rawValue: preset), b.dialHz(for: ft4.mode) != nil { ft4.band = b }
+                    if let preset = request.presetID, let b = FT4Band(rawValue: preset), b.dialHz(for: .ft4) != nil { ft4.band = b }
+                case .ft2:
+                    if let preset = request.presetID, let b = FT4Band(rawValue: preset), b.dialHz(for: .ft2) != nil { ft2.band = b }
                 case .wspr:
                     if let preset = request.presetID, let b = WSPRBand(rawValue: preset) { wspr.band = b }
                 case .js8:
