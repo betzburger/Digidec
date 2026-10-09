@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Peter Betz und Mitwirkende
+import Foundation
+
+/// Abstimmziel für das Funkgerät: **Dial**-Frequenz (nicht Sendefrequenz) und Mode.
+/// Die Dial-Frequenz berücksichtigt die NF-Mitte des Decoders (Sender = Dial + NF-Mitte in USB).
+public struct RigTuneTarget: Equatable, Sendable {
+    public let dialHz: Int64
+    /// Hamlib-Mode: "USB", "LSB", "FM" …
+    public let mode: String
+    /// Bandbreite in Hz; `nil`/0 = Standard des Geräts
+    public let passbandHz: Int?
+    /// Kurzbeschreibung für die Anzeige, z. B. „14,080 MHz USB“
+    public var label: String {
+        let mhz = Double(dialHz) / 1_000_000
+        let text: String
+        if mhz >= 1 {
+            text = String(format: "%.3f MHz", mhz)
+        } else {
+            text = String(format: "%.3f kHz", Double(dialHz) / 1000)
+        }
+        return text.replacingOccurrences(of: ".", with: ",") + " " + mode
+    }
+
+    public init(dialHz: Int64, mode: String, passbandHz: Int? = nil) {
+        self.dialHz = dialHz
+        self.mode = mode
+        self.passbandHz = passbandHz
+    }
+
+    // MARK: - Ziele je Modul (nil = Modul hat keine feste Frequenz)
+
+    public static func ft8(band: FT8Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
+
+    public static func ft4(band: FT4Band, mode: FT4Mode = .ft4) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz(for: mode) ?? band.dialHz), mode: "USB") }
+
+    /// DSC-Kanal: Rufträger bei `centerHz` im NF (USB), UKW Kanal 70 in FM; frei = nichts
+    public static func dsc(channel: DSCChannel, centerHz: Double) -> RigTuneTarget? {
+        channel.dial(center: centerHz).map { RigTuneTarget(dialHz: $0, mode: channel.isVHF ? "FM" : "USB") }
+    }
+
+    /// PSK31-Anruffrequenz des Bandes (nil = „frei“)
+    public static func psk(band: PSKBand) -> RigTuneTarget? {
+        band.dialHz.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
+    }
+
+    /// Skimmer: Dial des gewählten Bandes in USB (CW: Anfang des CW-Bereichs, PSK: PSK31-Anruffrequenz; frei = nichts)
+    public static func skimmer(mode: SkimMode, cwBand: SkimBand, pskBand: PSKBand) -> RigTuneTarget? {
+        let dial = mode == .cw ? cwBand.dialHz : pskBand.dialHz
+        return dial.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
+    }
+
+    /// Radiosonde: FM auf der Sondenfrequenz (kHz) mit dem gewählten ZF-Filter (15 oder 50 kHz)
+    public static func sonde(frequencyKHz: Int, filterKHz: Int) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64(frequencyKHz) * 1000, mode: "FM", passbandHz: filterKHz * 1000)
+    }
+
+    /// AIS-Kanal: FM auf 161,975 oder 162,025 MHz, 25 kHz Bandbreite (die GMSK-Aussendung braucht etwa ±8 kHz)
+    public static func ais(channel: AISChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM", passbandHz: 25_000) }
+    }
+
+    /// APRS-Kanal: FM auf der Region-Frequenz (frei = nichts)
+    public static func aprs(channel: APRSChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
+    }
+
+    /// Packet-Kanal: FM auf der Kanalfrequenz (frei = nichts); 9600 Bd (G3RUH) braucht einen breiten Filter (die Aussendung belegt etwa 20 kHz)
+    public static func packet(channel: PacketChannel, baud: PacketBaud = .baud1200) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM", passbandHz: baud == .baud9600 ? 25_000 : nil) }
+    }
+
+    /// ACARS-Kanal: AM auf der Kanalfrequenz (frei = nichts)
+    public static func acars(channel: ACARSChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "AM") }
+    }
+
+    /// HFDL-Kanal: USB, Dial = zugewiesene Frequenz (das Signal liegt bei 1440 Hz im NF)
+    public static func hfdl(frequencyKHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64((frequencyKHz * 1000).rounded()), mode: "USB")
+    }
+
+    /// DRM: USB, Dial 6 kHz unter der Sendefrequenz (Kanalmitte), mindestens 12 kHz Filterbreite: das Signal liegt bei etwa 1 bis 11 kHz im Audio
+    public static func drm(frequencyKHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64((frequencyKHz * 1000).rounded()) - 6000, mode: "USB", passbandHz: 12_000)
+    }
+
+    /// Funkruf-Kanal: FM auf der Kanalfrequenz (frei = nichts)
+    public static func pager(channel: PagerChannel) -> RigTuneTarget? {
+        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
+    }
+
+    public static func wspr(band: WSPRBand) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
+
+    public static func js8(band: JS8Band) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
+
+    /// RDS: UKW-Rundfunk in WFM auf der Frequenz (Hz) mit 230 kHz Bandbreite (voller Hub samt Stereo-Differenzsignal und 57-kHz-RDS)
+    public static func rds(frequencyHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64(frequencyHz.rounded()), mode: "WFM", passbandHz: 230_000)
+    }
+
+    public static func sstv(channel: SSTVChannel) -> RigTuneTarget? {
+        guard let f = channel.frequencyHz else { return nil }
+        let mode = ["USB", "LSB", "FM"].contains(channel.modulation) ? channel.modulation : nil
+        return mode.map { RigTuneTarget(dialHz: Int64(f.rounded()), mode: $0) }
+    }
+
+    /// Sendefrequenz der Station minus NF-Mitte (Empfang in USB)
+    public static func efr(station: EFRStation, centerHz: Double) -> RigTuneTarget? {
+        station == .custom ? nil : RigTuneTarget(dialHz: station.frequencyHz - Int64(centerHz.rounded()), mode: "USB")
+    }
+
+    /// DCF77 sendet auf 77,5 kHz
+    public static func dcf77(centerHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: 77_500 - Int64(centerHz.rounded()), mode: "USB")
+    }
+
+    public static func wefax(station: WefaxStation, centerHz: Double) -> RigTuneTarget? {
+        station.usbDial(center: centerHz).map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "USB") }
+    }
+
+    /// RTTY auf einer Sendefrequenz (Träger in der Mitte von Mark und Space): Dial = Frequenz − NF-Mitte, USB
+    public static func rtty(frequencyHz: Double, centerHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64(frequencyHz.rounded()) - Int64(centerHz.rounded()), mode: "USB")
+    }
+
+    public static func navtex(frequency: NavtexFrequency, centerHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64(frequency.usbDial(center: centerHz).rounded()), mode: "USB")
+    }
+}
+
+/// Die einzigen Stellbefehle, die Digidec je an ein Funkgerät schickt: `F` (Frequenz) und `M` (Mode).
+/// Alles andere (insbesondere PTT `T`, Leistung, Lautstärke) wird nie gesendet. Reine Funktionen, damit testbar.
+public enum RigCommand {
+    /// Hamlib-Modes, die Digidec setzen darf
+    public static let allowedModes: Set<String> = ["USB", "LSB", "FM", "AM", "CW", "CWR", "RTTY", "RTTYR", "PKTUSB", "PKTLSB"]
+
+    /// `F <Hz>` – nur sinnvolle Frequenzen (10 kHz … 10 GHz)
+    public static func frequency(_ hz: Int64) -> String? {
+        (10_000...10_000_000_000).contains(hz) ? "F \(hz)\n" : nil
+    }
+
+    /// `M <Mode> <Bandbreite>` – Bandbreite 0 = Standard des Geräts. Der Mode wird in den Namen der Gegenseite übersetzt
+    /// (GQRX: RTTY → USB, CW → CWU); gibt es ihn dort nicht, kommt kein Befehl.
+    public static func mode(_ mode: String, passbandHz: Int?, dialect: RigDialect = .hamlib) -> String? {
+        let m = mode.uppercased()
+        guard allowedModes.contains(m), let name = dialect.modeName(for: m) else { return nil }
+        let pb = max(0, min(passbandHz ?? 0, 50_000))
+        return "M \(name) \(pb)\n"
+    }
+}
