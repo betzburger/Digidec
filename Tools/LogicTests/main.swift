@@ -12956,6 +12956,264 @@ if want("drm") {
               && sv?.audio?.mode == 0 && last?.facBad == 0 && units >= 66 && frames == units * 5 && last?.date != nil,
               "DRM echt (Spark, Modus B): Dienst „\(sv?.label ?? "")“, AAC \(sv?.audio?.sampleRate ?? 0) Hz mono, FAC \(last?.facGood ?? 0)/\(last?.facBad ?? 0), SDC \(last?.sdcGood ?? 0)/\(last?.sdcBad ?? 0), \(units) Audio-Überrahmen (\(frames) AAC-Rahmen)")
     } else { skip("DRM echt: TestData/DRM/drm_b_spark_real_48k.wav liegt nicht lokal vor") }
+    // MARK: xHE-AAC (USAC) in DRM
+    // Konfiguration: DRM-Kurzform ↔ UsacConfig, mit erfundenen Fällen quer durch alle Zweige
+    do {
+        func roundTrip(_ c: DRMXHEConfig) -> Bool {
+            guard let drm = c.drmBytes(), let back = DRMXHEConfig(drm: drm, stereo: c.channelPair), back == c else { return false }
+            let asc = c.audioSpecificConfig(sampleRate: 24_000)
+            guard let parsed = DRMXHEConfig.parse(audioSpecificConfig: asc), parsed.config == c, parsed.sampleRate == 24_000, parsed.dropped == 0 else { return false }
+            return true
+        }
+        var mono = DRMXHEConfig(); mono.coreSbrFrameLengthIndex = 1
+        var monoSbr = DRMXHEConfig(); monoSbr.coreSbrFrameLengthIndex = 4; monoSbr.noiseFilling = true
+        var sbr = DRMXHEConfig.Sbr(); sbr.harmonic = true; sbr.interTES = true; sbr.startFreq = 5; sbr.stopFreq = 12; sbr.scale = [2, 1, 3]; sbr.limiter = [1, 2, 0, 1]
+        monoSbr.sbr = sbr
+        var stereo = DRMXHEConfig(); stereo.channelPair = true; stereo.coreSbrFrameLengthIndex = 1
+        var stereoSbr = DRMXHEConfig(); stereoSbr.channelPair = true; stereoSbr.coreSbrFrameLengthIndex = 3; stereoSbr.sbr = DRMXHEConfig.Sbr(); stereoSbr.stereoConfigIndex = 1
+        var mps = DRMXHEConfig.Mps(); mps.freqRes = 5; mps.fixedGainDMX = 2; mps.tempShape = 3; mps.highRateMode = 1; mps.phaseCoding = 1; mps.ottBandsPhase = 17
+        stereoSbr.mps = mps
+        var residual = stereoSbr; residual.stereoConfigIndex = 2
+        var resMps = mps; resMps.residualBands = 9; resMps.pseudoLr = 1; resMps.ottBandsPhase = nil; residual.mps = resMps
+        var ext = DRMXHEConfig.Ext(); ext.type = 20; ext.config = Array(repeating: 0xA5, count: 300); ext.defaultLength = 700; ext.payloadFrag = true
+        var small = DRMXHEConfig.Ext(); small.type = 0
+        var many = stereoSbr; many.extElements = [ext, small]
+        var cfgExt = DRMXHEConfig.ConfigExt(); cfgExt.type = 2; cfgExt.payload = [1, 2, 3, 4, 5]
+        var longExt = DRMXHEConfig.ConfigExt(); longExt.type = 1; longExt.payload = Array(repeating: 7, count: 20)
+        var withExt = residual; withExt.configExtensions = [cfgExt, longExt, cfgExt]
+        check([mono, monoSbr, stereo, stereoSbr, residual, many, withExt].allSatisfy(roundTrip), "xHE-AAC: Konfiguration DRM-Kurzform ↔ UsacConfig: Mono, Stereo, SBR (2:1, 4:1), MPS212 mit und ohne Restsignal, Erweiterungen, Länge über 255")
+        check(stereoSbr.granule == 2048 && monoSbr.granule == 4096 && mono.granule == 1024 && stereoSbr.drmBytes()?.first.map { $0 >> 6 } == 2 && DRMXHEConfig(drm: [0xFF], stereo: false)?.coreSbrFrameLengthIndex != 0,
+              "xHE-AAC: Kernlängenindex (DRM zählt um eins niedriger als ISO), Rahmenlänge am Ausgang")
+        var impossible = stereoSbr; impossible.mps?.tempShape = 1
+        check(impossible.drmBytes() == nil && DRMXHEConfig(drm: [], stereo: true) == nil, "xHE-AAC: nicht darstellbare oder abgeschnittene Konfiguration wird abgelehnt")
+        // Abtastraten in der AudioSpecificConfig: Tabelle, erweiterte Tabelle, Ausnahmewert
+        var ratesOK = true
+        for rate in [48_000, 32_000, 24_000, 16_000, 12_000, 9_600, 19_200, 38_400, 10_000] {
+            if DRMXHEConfig.parse(audioSpecificConfig: stereoSbr.audioSpecificConfig(sampleRate: rate))?.sampleRate != rate { ratesOK = false }
+        }
+        check(ratesOK, "xHE-AAC: alle neun Abtastraten (9,6 bis 48 kHz und eine Ausnahmerate) stehen richtig in der AudioSpecificConfig")
+        // Nimmt der Systemdecoder alle in DRM erlaubten Rate/Kanal/SBR-Kombinationen an? (4:1-SBR bei 9,6 und 12 kHz hätte einen Kern unter 3 kHz und fehlt)
+        var accepted = 0, refused = 0
+        for rate in [9_600, 12_000, 16_000, 19_200, 24_000, 32_000, 38_400, 48_000] {
+            for pair in [false, true] {
+                for index in 1...4 {
+                    var c = DRMXHEConfig(); c.channelPair = pair; c.coreSbrFrameLengthIndex = index
+                    if index > 1 { var sb = DRMXHEConfig.Sbr(); sb.startFreq = 5; sb.stopFreq = 8; c.sbr = sb }
+                    if pair && index > 1 { c.stereoConfigIndex = 1; var m = DRMXHEConfig.Mps(); m.freqRes = 2; m.fixedGainDMX = 3; m.tempShape = 3; m.highRateMode = 1; m.phaseCoding = 1; c.mps = m }
+                    if DRMXHEDecoder(audioSpecificConfig: c.audioSpecificConfig(sampleRate: rate), sampleRate: rate, channels: pair ? 2 : 1, granule: c.granule) != nil { accepted += 1 } else if !(index == 4 && rate <= 12_000) { refused += 1 }
+                }
+            }
+        }
+        check(refused == 0 && accepted >= 60, "xHE-AAC: Systemdecoder nimmt \(accepted) von 64 Kombinationen aus Rate, Mono/Stereo und Kern/SBR-Verhältnis an (4:1 bei höchstens 12 kHz nicht)")
+    }
+    // SDC-Eintrag Typ 9 mit xHE-AAC
+    do {
+        var cfg = DRMTransmitConfig()
+        var a = DRMAudioParam(); a.coding = .xheaac; a.mode = 2; a.sampleRate = 32_000; a.textMessage = true; a.surroundMode = 0
+        var c = DRMXHEConfig(); c.channelPair = true; c.coreSbrFrameLengthIndex = 3; c.sbr = DRMXHEConfig.Sbr(); c.stereoConfigIndex = 1; c.mps = DRMXHEConfig.Mps()
+        a.codecConfig = c.drmBytes() ?? []
+        cfg.audio = a; cfg.lengthA = 0; cfg.lengthB = 600; cfg.mscScheme = .qam64; cfg.occupancy = .khz10; cfg.mode = .b
+        if let tx = DRMSignalGenerator(config: cfg) {
+            let bits = tx.sdcBits()
+            // CRC prüfen und den Inhalt wieder lesen
+            let sdc = DRMSDC.parse(bits)
+            let back = sdc?.audio[0]
+            check(back?.coding == .xheaac && back?.mode == 2 && back?.sampleRate == 32_000 && back?.textMessage == true && back?.codecConfig == a.codecConfig && back?.outputRate == 32_000 && back?.sbr == false,
+                  "xHE-AAC: SDC Typ 9 (Codierung, Betriebsart, Rate, Textkennung, Konfigurationsbytes) wird geschrieben und gelesen")
+        } else { check(false, "xHE-AAC: Testsender für SDC Typ 9 nicht erzeugt") }
+    }
+    // Überrahmen: Rahmen quer über Überrahmen, Eintrag 0xFFE/0xFFF, Verlust, Neuaufsetzen
+    do {
+        func makeUnits(_ n: Int, seed: UInt64, maxLen: Int) -> [[UInt8]] {
+            var g = DRng(s: seed)
+            return (0..<n).map { _ in (0..<(1 + Int(g.next() % UInt64(maxLen)))).map { _ in UInt8(truncatingIfNeeded: g.next()) } }
+        }
+        func pack(_ units: [[UInt8]], size: Int, dropAt: Set<Int> = [], corruptAt: Set<Int> = []) -> (asfs: [[UInt8]], used: Int, delayedEntries: Int) {
+            let p = DRMXHEPacker()
+            var idx = 0, asfs: [[UInt8]] = [], delayedEntries = 0
+            while true {
+                while p.queuedBytes < size * 3 && idx < units.count { p.add(accessUnit: units[idx]); idx += 1 }
+                guard let asf = p.pack(size: size) else { break }
+                let count = Int(asf[0] >> 4)
+                for k in 0..<count { let v = (Int(asf[asf.count - 2 * (k + 1)]) << 8 | Int(asf[asf.count - 2 * (k + 1) + 1])) >> 4; if v >= 0xFFE { delayedEntries += 1 } }
+                asfs.append(asf)
+            }
+            return (asfs, idx, delayedEntries)
+        }
+        var allOK = true, delayedTotal = 0
+        for size in [64, 97, 150, 233, 480] {
+            let units = makeUnits(400, seed: UInt64(size), maxLen: size * 2 / 3)
+            let (asfs, _, delayed) = pack(units, size: size)
+            delayedTotal += delayed
+            let f = DRMXHEFramer()
+            var got: [[UInt8]] = []
+            for a in asfs { let r = f.feed(a); if !r.headerOK { allOK = false }; got += r.units }
+            // der erste Rahmen beginnt im ersten Überrahmen; alle zurückgegebenen müssen der Reihe nach den gesendeten entsprechen
+            if got.isEmpty || got.count < asfs.count || got != Array(units[0..<got.count]) { allOK = false }
+        }
+        check(allOK, "xHE-AAC-Überrahmen: zufällige Rahmenlängen, Überrahmengrößen 64 bis 480 Byte: alle Rahmen kommen bitgleich und der Reihe nach zurück")
+        check(delayedTotal > 0, "xHE-AAC-Überrahmen: der Sonderfall 0xFFE/0xFFF (Rahmenbeginn in den letzten zwei Byte) kommt vor und wird richtig gelesen (\(delayedTotal) Fälle)")
+        // Verlust eines Überrahmens: höchstens die betroffenen Rahmen gehen verloren, danach läuft es weiter
+        let units = makeUnits(300, seed: 5, maxLen: 120)
+        var (asfs, _, _) = pack(units, size: 200)
+        let f = DRMXHEFramer()
+        var got: [[UInt8]] = [], empties = 0, headerBad = 0
+        for (i, a) in asfs.enumerated() {
+            var data = a
+            if i == 10 { data[1] ^= 0x55; }                      // Kopf-CRC kaputt
+            if i == 20 { data[data.count / 2] ^= 0xFF }          // Nutzlast kaputt: Rahmen-CRC schlägt an
+            if i == 30 { continue }                              // fehlt ganz
+            let r = f.feed(data)
+            if !r.headerOK { headerBad += 1 }
+            for u in r.units { if u.isEmpty { empties += 1 } else { got.append(u) } }
+        }
+        let known = Set(units.map { $0 })
+        let lateOK = got.suffix(100).allSatisfy { known.contains($0) }
+        check(headerBad == 1 && empties >= 3 && empties <= 12 && got.count >= units.count * 3 / 4 && lateOK, "xHE-AAC-Überrahmen: Kopf-, Nutzlast- und Totalverlust kosten nur Rahmen in der Nähe (\(empties) verworfen, \(got.count) von 300 gerettet), dann geht es sauber weiter")
+        asfs.removeAll()
+        // Kopf mit falscher Grenzenzahl
+        let bad = DRMXHEFramer().feed([0xF0, 0x00, 1, 2, 3])
+        check(!bad.headerOK && DRMXHEFramer().feed([0x00]).headerOK == false, "xHE-AAC-Überrahmen: zu kurz oder Kopf-CRC falsch wird erkannt")
+    }
+    // Decoder (macOS) und Gesamtkette mit echten Zugriffseinheiten (Fraunhofer-Beispiel, nur lokal)
+    do {
+        let xhePath = root.appendingPathComponent("TestData/DRM/xhe_sintel24.xhe")
+        if let d = try? Data(contentsOf: xhePath), d.count > 100 {
+            let b = [UInt8](d)
+            var p = 4
+            func u32() -> Int { defer { p += 4 }; return Int(b[p]) | Int(b[p + 1]) << 8 | Int(b[p + 2]) << 16 | Int(b[p + 3]) << 24 }
+            func u16() -> Int { defer { p += 2 }; return Int(b[p]) | Int(b[p + 1]) << 8 }
+            let rate = u32(), channels = u32(), granule = u32(), ascLength = u16()
+            let asc = Array(b[p..<(p + ascLength)]); p += ascLength
+            let count = u32()
+            var all: [[UInt8]] = []
+            for _ in 0..<count { let l = u16(); all.append(Array(b[p..<(p + l)])); p += l }
+            // 1. Konfiguration des Beispiels: lesen, in die DRM-Kurzform bringen, zurück
+            let parsed = DRMXHEConfig.parse(audioSpecificConfig: asc)
+            var canonical = parsed?.config
+            check(parsed != nil && parsed?.sampleRate == 48_000 && parsed?.dropped == 1 && canonical?.coreSbrFrameLengthIndex == 2 && canonical?.stereoConfigIndex == 1 && canonical?.channelPair == true
+                  && canonical?.sbr?.startFreq == 10 && canonical?.extElements.count == 1 && canonical?.configExtensions?.count == 2,
+                  "xHE-AAC echt (Fraunhofer, 24 kbit/s Stereo): UsacConfig gelesen: SBR 8:3, MPS212, Füllelement, zwei Konfigurationserweiterungen")
+            canonical = canonical.flatMap { DRMXHEConfig(drm: $0.drmBytes() ?? [], stereo: true) }
+            check(canonical == parsed?.config, "xHE-AAC echt: UsacConfig → DRM-Kurzform → UsacConfig ohne Verlust")
+            // 2. Decoder mit der Originalkonfiguration: Ton aus den echten Zugriffseinheiten
+            func decodeAll(_ asc: [UInt8], _ aus: [[UInt8]]) -> (pcm: [Float], decoded: Int, failed: Int) {
+                guard let dec = DRMXHEDecoder(audioSpecificConfig: asc, sampleRate: rate, channels: channels, granule: granule) else { return ([], 0, -1) }
+                var out: [Float] = []
+                for au in aus { out += dec.decode(au) }
+                return (out, dec.decoded, dec.failed)
+            }
+            let reference = decodeAll(asc, Array(all[0..<400]))
+            var energy = 0.0, peak: Float = 0
+            for v in reference.pcm { energy += Double(v * v); peak = max(peak, abs(v)) }
+            let rms = (energy / Double(max(1, reference.pcm.count))).squareRoot()
+            check(reference.decoded == 400 && reference.failed == 0 && reference.pcm.count == 400 * granule * channels && rms > 0.01 && peak < 1,
+                  "xHE-AAC echt: Systemdecoder liefert aus 400 Zugriffseinheiten \(reference.pcm.count / channels) Stereo-Proben (Effektivwert \(String(format: "%.3f", rms)), Spitze \(String(format: "%.2f", peak)))")
+            // 3. Umgeschriebene Konfiguration (Hauptelement zuerst, wie in DRM) mit Zugriffseinheiten ohne Preroll-Element: der Ton nähert sich dem Original
+            func stripPreroll(_ au: [UInt8]) -> [UInt8]? {
+                var r = DRMBitReader(bytes: au)
+                let indep = r.read(1)
+                let present = r.read(1)
+                var end = r.pos
+                if present == 1 {
+                    var len = 0
+                    if r.read(1) == 0 { len = r.read(8); if len == 255 { len += r.read(16) - 2 } }
+                    r.pos += len * 8
+                    end = r.pos
+                }
+                if r.failed { return nil }
+                var w = DRMBitWriter(); w.write(indep, 1); w.bits += r.bits[end...]
+                return w.bytes()
+            }
+            let stripped = all.prefix(400).compactMap(stripPreroll)
+            let drmASC = canonical?.audioSpecificConfig(sampleRate: rate) ?? []
+            if let dec = DRMXHEDecoder(audioSpecificConfig: drmASC, sampleRate: rate, channels: channels, granule: granule), stripped.count == 400 {
+                let g = granule * channels
+                var converged = 0, run = 0, bestRun = 0
+                for (i, au) in stripped.enumerated() {
+                    let before = dec.decoded
+                    let o = dec.decode(au)
+                    if dec.decoded > before {
+                        run += 1
+                        var diff: Float = 0, ref: Float = 0
+                        for k in 0..<g { diff = max(diff, abs(reference.pcm[i * g + k] - o[k])); ref = max(ref, abs(reference.pcm[i * g + k])) }
+                        if run >= 4, ref > 0.01, diff < 0.2 * ref { converged += 1 }
+                        bestRun = max(bestRun, run)
+                    } else { run = 0 }
+                }
+                check(converged >= 30 && bestRun >= 8, "xHE-AAC echt: mit der umgeschriebenen Konfiguration (DRM-Reihenfolge) stimmt der Ton nach dem Einschwingen mit dem Original überein (\(converged) Rahmen innerhalb 20 %, längste Folge \(bestRun))")
+            } else { check(false, "xHE-AAC echt: Decoder mit umgeschriebener Konfiguration nicht erzeugt") }
+            // 4. Gesamtkette: Zugriffseinheiten → Überrahmen → MSC → OFDM → Empfänger; die Einheiten kommen bitgleich an
+            for (name, sc) in [("ungestört", Scenario()), ("20 dB, +15 Hz, −40 ppm, Echo", Scenario(snr: 20, df: 15, ppm: -40, echoDelay: 30, echoGain: 0.3))] {
+                var cfg = DRMTransmitConfig()
+                cfg.mode = .b; cfg.occupancy = .khz20; cfg.mscScheme = .qam64; cfg.centerHz = 12_000; cfg.label = "xHE-Test"
+                cfg.lengthA = 0; cfg.lengthB = 1204
+                var a = DRMAudioParam(); a.coding = .xheaac; a.mode = 2; a.sampleRate = rate; a.textMessage = true
+                a.codecConfig = canonical?.drmBytes() ?? []
+                cfg.audio = a
+                guard let tx = DRMSignalGenerator(config: cfg) else { check(false, "xHE-AAC Gesamtkette: Sender nicht erzeugt"); continue }
+                let packer = DRMXHEPacker()
+                var next = 0
+                let message = Array("xHE-AAC in DRM".utf8)
+                let textSegments = [segment(toggle: 0, first: true, last: true, number: 0, body: message)]
+                var textQueue: [[UInt8]] = []
+                for s in textSegments { for k in stride(from: 0, to: s.count, by: 4) { textQueue.append(Array(s[k..<(k + 4)])) }; textQueue.append([0xFF, 0xFF, 0xFF, 0xFF]) }
+                var textIndex = 0
+                var frames = 0
+                let sig = tx.generate(superframes: 12) { _ in
+                    while packer.queuedBytes < 4000, next < all.count { packer.add(accessUnit: all[next]); next += 1 }
+                    let asf = packer.pack(size: 1200) ?? [UInt8](repeating: 0, count: 1200)
+                    let piece = textQueue[textIndex % textQueue.count]; textIndex += 1
+                    frames += 1
+                    let stream = asf + piece
+                    return stream.flatMap { DRMCRC.bits(Int($0), 8) } + [UInt8](repeating: 0, count: tx.mscBitsPerFrame - stream.count * 8)
+                }
+                var re = sig.re, im = sig.im
+                if sc.ppm != 0 {
+                    let ratio = 1 + sc.ppm * 1e-6
+                    let cnt = Int(Double(re.count - 3) / ratio)
+                    var r2 = [Float](repeating: 0, count: cnt), i2 = r2
+                    for k in 0..<cnt { let q = Double(k) * ratio; let ai = Int(q); let fr = Float(q - Double(ai)); r2[k] = re[ai] * (1 - fr) + re[ai + 1] * fr; i2[k] = im[ai] * (1 - fr) + im[ai + 1] * fr }
+                    re = r2; im = i2
+                }
+                if sc.echoDelay > 0 { var r2 = re, i2 = im; for k in sc.echoDelay..<re.count { r2[k] += sc.echoGain * re[k - sc.echoDelay]; i2[k] += sc.echoGain * im[k - sc.echoDelay] }; re = r2; im = i2 }
+                if sc.df != 0 { for i in 0..<re.count { let ang = Float(2 * Double.pi * sc.df * Double(i) / 48_000); let c = cos(ang), s = sin(ang); let r = re[i] * c - im[i] * s; im[i] = re[i] * s + im[i] * c; re[i] = r } }
+                if let snr = sc.snr {
+                    var pw = 0.0; for i in 0..<re.count { pw += Double(re[i] * re[i] + im[i] * im[i]) }; pw /= Double(re.count)
+                    let sigma = Float((pw / pow(10, snr / 10) / 2).squareRoot())
+                    func gauss() -> Float { let u1 = Float(Double(rng.next() & 0xFFFFFF) / Double(1 << 24)) + 1e-7, u2 = Float(Double(rng.next() & 0xFFFFFF) / Double(1 << 24)); return (-2 * log(u1)).squareRoot() * cos(2 * Float.pi * u2) }
+                    for i in 0..<re.count { re[i] += sigma * gauss(); im[i] += sigma * gauss() }
+                }
+                let rx = DRMReceiver()
+                var received: [[UInt8]] = []
+                var lost = 0
+                var last: DRMStatus?
+                var text = ""
+                rx.onEvent = { e in
+                    switch e {
+                    case .status(let s): last = s
+                    case .audio(let u): for f in u.frames { if f.isEmpty { lost += 1 } else { received.append(f) } }
+                    case .text(let t): text = t
+                    }
+                }
+                var i = 0
+                while i < re.count { let j = min(i + 4800, re.count); rx.processComplex(re: Array(re[i..<j]), im: Array(im[i..<j])); i = j }
+                let first = received.first.flatMap { f in all.firstIndex(of: f) }
+                let sequential = first.map { k in received.count + k <= all.count && received == Array(all[k..<(k + received.count)]) } ?? false
+                let service = last?.services.first
+                let dec = service?.audio.flatMap { DRMXHEDecoder(param: $0) }
+                check(last?.locked == true && service?.audio?.coding == .xheaac && service?.audio?.codecConfig == a.codecConfig && dec != nil && dec?.granule == 2048 && dec?.channels == 2,
+                      "xHE-AAC Gesamtkette (\(name)): Sperre, SDC Typ 9 mit Konfiguration, Systemdecoder nimmt die gelesene Konfiguration an")
+                check(sequential && received.count >= 60 && lost <= 4 && text == "xHE-AAC in DRM",
+                      "xHE-AAC Gesamtkette (\(name)): \(received.count) Zugriffseinheiten bitgleich und der Reihe nach (ab Nr. \(first ?? -1)), \(lost) verworfen, Textnachricht „\(text)“")
+                // Ton aus den empfangenen Einheiten = Ton aus den gesendeten
+                if let k = first, sequential, received.count >= 60 {
+                    let a = decodeAll(asc, Array(all[k..<(k + received.count)])), bb = decodeAll(asc, received)
+                    check(a.pcm == bb.pcm && a.decoded > 40, "xHE-AAC Gesamtkette (\(name)): Ton aus den empfangenen Einheiten ist identisch mit dem Ton aus den gesendeten (\(a.decoded) Rahmen)")
+                }
+            }
+        } else { skip("xHE-AAC echt: TestData/DRM/xhe_sintel24.xhe liegt nicht lokal vor") }
+    }
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

@@ -12,8 +12,9 @@ func option(_ name: String) -> String? {
     return value
 }
 let dumpPath = option("--dump")
+let wavPath = option("--wav")
 guard let path = arguments.first else {
-    print("Aufruf: drm_bench.sh <aufnahme.wav> [--dump aac.bin]")
+    print("Aufruf: drm_bench.sh <aufnahme.wav> [--dump aac.bin] [--wav ton.wav]   (--wav: xHE-AAC-Dienst mit dem Systemdecoder in eine WAV-Datei)")
     exit(2)
 }
 let data = try! Data(contentsOf: URL(fileURLWithPath: path))
@@ -48,6 +49,10 @@ let rx = DRMReceiver()
 nonisolated(unsafe) var lastText = ""
 nonisolated(unsafe) var audioUnits = 0
 nonisolated(unsafe) var dump: [UInt8] = []
+nonisolated(unsafe) var xheDecoder: DRMXHEDecoder?
+nonisolated(unsafe) var xheParam: DRMAudioParam?
+nonisolated(unsafe) var xhePCM: [Float] = []
+nonisolated(unsafe) var xheChannels = 1, xheRate = 48000
 nonisolated(unsafe) var time = 0.0
 rx.onEvent = { e in
     switch e {
@@ -58,7 +63,15 @@ rx.onEvent = { e in
     case .text(let t): print(String(format: "%7.2f s  Text: %@", time, t))
     case .audio(let u):
         audioUnits += 1
-        for f in u.frames { dump += [UInt8(f.count)] + f }
+        if u.param.coding == .xheaac {
+            if xheParam != u.param { xheParam = u.param; xheDecoder = DRMXHEDecoder(param: u.param); if xheDecoder == nil { print("xHE-AAC: Konfiguration vom Systemdecoder nicht angenommen") } }
+            if let d = xheDecoder {
+                xheChannels = d.channels; xheRate = d.outputRate
+                for f in u.frames { if f.isEmpty { d.loss() }; xhePCM += d.decode(f) }
+            }
+        } else {
+            for f in u.frames { dump += [UInt8(f.count)] + f }
+        }
     }
 }
 let chunk = 4800
@@ -76,3 +89,15 @@ while index < frames {
 }
 print("Audio-Überrahmen: \(audioUnits)")
 if let dumpPath { try? Data(dump).write(to: URL(fileURLWithPath: dumpPath)) }
+if let d = xheDecoder { print("xHE-AAC: \(d.decoded) Rahmen decodiert, \(d.failed) fehlgeschlagen, \(d.skipped) übersprungen, \(xhePCM.count / max(1, xheChannels)) Proben je Kanal bei \(xheRate) Hz") }
+if let wavPath, !xhePCM.isEmpty {
+    var out = Data()
+    func put32(_ v: Int) { var x = UInt32(v).littleEndian; out.append(Data(bytes: &x, count: 4)) }
+    func put16(_ v: Int) { var x = UInt16(v).littleEndian; out.append(Data(bytes: &x, count: 2)) }
+    out.append(contentsOf: Array("RIFF".utf8)); put32(36 + xhePCM.count * 2); out.append(contentsOf: Array("WAVEfmt ".utf8))
+    put32(16); put16(1); put16(xheChannels); put32(xheRate); put32(xheRate * xheChannels * 2); put16(xheChannels * 2); put16(16)
+    out.append(contentsOf: Array("data".utf8)); put32(xhePCM.count * 2)
+    for v in xhePCM { put16(Int(Int16(max(-1, min(1, v)) * 32767)) & 0xFFFF) }
+    try? out.write(to: URL(fileURLWithPath: wavPath))
+    print("WAV geschrieben: \(wavPath)")
+}

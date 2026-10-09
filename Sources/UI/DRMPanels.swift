@@ -54,7 +54,7 @@ struct DRMMainPanel: View {
             HStack(spacing: 14) {
                 if !c.languageTitle.isEmpty, c.language != 0 { tag("SPRACHE", c.languageTitle) }
                 if !c.programmeTitle.isEmpty, c.descriptor != 0 { tag("PROGRAMM", c.programmeTitle) }
-                if let a = c.audio { tag("AUDIO", "\(a.coding.title)\(a.sbr ? " + SBR" : "") · \(a.modeTitle) · \(a.outputRate / 1000) kHz") }
+                if let a = c.audio { tag("AUDIO", "\(a.coding.title)\(a.sbr ? " + SBR" : "") · \(a.modeTitle) · \(a.outputRate % 1000 == 0 ? "\(a.outputRate / 1000)" : String(format: "%.1f", Double(a.outputRate) / 1000)) kHz") }
                 if let id = c.id { tag("KENNUNG", String(format: "%06X", id)) }
                 if c.caUsed { tag("ZUGANG", "bedingt (verschlüsselt)") }
             }

@@ -25,10 +25,13 @@ public struct DRMAudioParam: Equatable, Sendable {
     /// Abtastrate des AAC-Kerns in Hz (12000 oder 24000; mit SBR doppelt am Ausgang)
     public var sampleRate = 12_000
     public var textMessage = false
+    /// xHE-AAC: Feld „codec specific config“ (xHE-AAC Static Config); MPEG-Surround-Betriebsart des Coder-Felds
+    public var codecConfig: [UInt8] = []
+    public var surroundMode = 0
 
-    public var modeTitle: String { ["Mono", "Stereo (parametrisch)", "Stereo", "?"][min(mode, 3)] }
-    /// Ausgabe-Abtastrate (mit SBR doppelte Rate)
-    public var outputRate: Int { sbr ? sampleRate * 2 : sampleRate }
+    public var modeTitle: String { ["Mono", coding == .xheaac ? "reserviert" : "Stereo (parametrisch)", "Stereo", "?"][min(mode, 3)] }
+    /// Ausgabe-Abtastrate (AAC: mit SBR doppelte Rate; xHE-AAC: die Rate des Felds ist schon die Ausgaberate)
+    public var outputRate: Int { coding == .xheaac ? sampleRate : (sbr ? sampleRate * 2 : sampleRate) }
     /// Anzahl der AAC-Rahmen je Audio-Überrahmen (400 ms): 5 bei 12 kHz, 10 bei 24 kHz
     public var framesPerSuperframe: Int { sampleRate >= 24_000 ? 10 : 5 }
 
@@ -53,6 +56,14 @@ public struct DRMAudioParam: Equatable, Sendable {
             }
         }
         a.textMessage = get(1) == 1
+        if a.coding == .xheaac, bits.count >= 16 {
+            a.sbr = false
+            _ = get(1)                                   // enhancement flag
+            a.surroundMode = get(3)
+            _ = get(3)                                   // rfa 2 Bit und 1 Bit
+            let rest = bits.endIndex - p
+            a.codecConfig = (0..<(rest / 8)).map { _ in UInt8(get(8)) }
+        }
         return a
     }
 }

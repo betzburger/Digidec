@@ -63,6 +63,7 @@ public final class DRMDecoder: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
     private var snapshot = DRMDecoder.Output(status: DRMStatus(), inputDB: -120, audioPeak: 0, text: "", audioDescription: "", unsupportedReason: "")
     private var aac: DRMAudioDecoder?
+    private var xhe: DRMXHEDecoder?
     private var aacParam: DRMAudioParam?
 
     public init(pipeline: AudioPipeline) {
@@ -73,13 +74,13 @@ public final class DRMDecoder: @unchecked Sendable {
 
     public func setEnabled(_ on: Bool) {
         pipeline.perform { [self] in
-            if on != enabled { receiver.reset(); aac = nil; aacParam = nil }
+            if on != enabled { receiver.reset(); aac = nil; xhe = nil; aacParam = nil }
             enabled = on
             if !on { player.stop(); lock.withLockUnchecked { snapshot.status = DRMStatus(); snapshot.text = ""; snapshot.audioDescription = ""; snapshot.unsupportedReason = "" } }
         }
     }
 
-    public func setService(_ shortID: Int) { pipeline.perform { [self] in receiver.selectedService = shortID; aac = nil; aacParam = nil } }
+    public func setService(_ shortID: Int) { pipeline.perform { [self] in receiver.selectedService = shortID; aac = nil; xhe = nil; aacParam = nil } }
 
     public func setVolume(_ v: Double, muted: Bool) {
         player.volume = Float(v)
@@ -112,10 +113,16 @@ public final class DRMDecoder: @unchecked Sendable {
         case .text(let t):
             lock.withLockUnchecked { snapshot.text = t }
         case .audio(let unit):
-            if aac == nil || aacParam != unit.param {
-                aac = DRMAudioDecoder(param: unit.param)
+            if aacParam != unit.param {
+                aac = nil; xhe = nil
+                switch unit.param.coding {
+                case .aac: aac = DRMAudioDecoder(param: unit.param)
+                case .xheaac: xhe = DRMXHEDecoder(param: unit.param)
+                default: break
+                }
                 aacParam = unit.param
             }
+            if unit.param.coding == .xheaac { handleXHE(unit); return }
             guard let decoder = aac else {
                 lock.withLockUnchecked { snapshot.unsupportedReason = "Audio-Codierung \(unit.param.coding.title) wird nicht unterstützt" }
                 return
@@ -132,10 +139,37 @@ public final class DRMDecoder: @unchecked Sendable {
                 snapshot.status.audioFramesGood += unit.frames.count - bad
                 snapshot.status.audioFramesBad += bad
                 snapshot.unsupportedReason = ""
-                snapshot.audioDescription = "\(unit.param.coding.title)\(unit.param.sbr ? " + SBR" : "") · \(unit.param.modeTitle) · \(unit.param.outputRate / 1000) kHz"
+                snapshot.audioDescription = describe(unit.param)
             }
             player.write(pcm, channels: decoder.channels, rate: decoder.outputRate)
         }
+    }
+
+    private func describe(_ p: DRMAudioParam) -> String {
+        let rate = p.outputRate % 1000 == 0 ? "\(p.outputRate / 1000)" : String(format: "%.1f", Double(p.outputRate) / 1000)
+        return "\(p.coding.title)\(p.sbr ? " + SBR" : "") · \(p.modeTitle) · \(rate) kHz"
+    }
+
+    private func handleXHE(_ unit: DRMAudioUnit) {
+        guard let decoder = xhe else {
+            lock.withLockUnchecked { snapshot.unsupportedReason = "xHE-AAC: Konfiguration nicht lesbar oder vom Systemdecoder nicht angenommen" }
+            return
+        }
+        var pcm: [Float] = []
+        var good = 0, bad = 0
+        for au in unit.frames {
+            if au.isEmpty { bad += 1; decoder.loss() }
+            let out = decoder.decode(au)
+            if !au.isEmpty { good += 1 }
+            pcm += out
+        }
+        lock.withLockUnchecked {
+            snapshot.status.audioFramesGood += good
+            snapshot.status.audioFramesBad += bad
+            snapshot.unsupportedReason = ""
+            snapshot.audioDescription = describe(unit.param)
+        }
+        player.write(pcm, channels: decoder.channels, rate: decoder.outputRate)
     }
 }
 

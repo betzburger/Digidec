@@ -131,6 +131,7 @@ public final class DRMReceiver {
         lastAcquire = 0
         map = nil
         rowsRe.removeAll(); rowsIm.removeAll()
+        xheFramer.reset(); xheParam = nil
         fac = nil; sdc = nil; sdcOK = false
         deintMemory = []
         status = DRMStatus()
@@ -694,6 +695,8 @@ public final class DRMReceiver {
     }
 
     private var textMessage = DRMTextMessage()
+    private let xheFramer = DRMXHEFramer()
+    private var xheParam: DRMAudioParam?
     private var frameMSC: [Int: [(Float, Float, Float)]] = [:]
 
     private func collectMSC(frameInSuper: Int, first: Int, est: (re: [[Float]], im: [[Float]]), map: DRMCellMap) {
@@ -754,7 +757,7 @@ public final class DRMReceiver {
         // Dienst und Strom wählen
         let services = status.services
         guard let service = services.first(where: { $0.shortID == selectedService }) ?? services.first(where: { $0.isAudio }),
-              let audio = service.audio ?? sdc.audio[service.shortID], audio.coding == .aac else { return }
+              let audio = service.audio ?? sdc.audio[service.shortID] else { return }
         let streamIndex = audio.streamID
         guard streamIndex < sdc.streams.count else { return }
         let totalA = sdc.streams.reduce(0) { $0 + $1.lengthA }
@@ -764,6 +767,11 @@ public final class DRMReceiver {
         let bytes = stride(from: 0, to: bits.count - 7, by: 8).map { UInt8(DRMCRC.value(bits[$0..<($0 + 8)])) }
         guard totalA + offB + lenB <= bytes.count else { return }
         let part = Array(bytes[offA..<(offA + lenA)]) + Array(bytes[(totalA + offB)..<(totalA + offB + lenB)])
+        if audio.coding == .xheaac { handleXHE(part: part, audio: audio, service: service); return }
+        guard audio.coding == .aac else {
+            onEvent?(.audio(DRMAudioUnit(shortID: service.shortID, param: audio, frames: [], text: nil)))
+            return
+        }
         var frames = parseAAC(superframe: part, lenA: lenA, lenB: lenB, param: audio)
         var text: [UInt8]?
         if audio.textMessage, part.count >= 4 {
@@ -774,6 +782,21 @@ public final class DRMReceiver {
         if frames.isEmpty { status.audioFramesBad += audio.framesPerSuperframe; return }
         frames = frames.filter { !$0.isEmpty }
         onEvent?(.audio(DRMAudioUnit(shortID: service.shortID, param: audio, frames: frames, text: text)))
+    }
+
+    /// xHE-AAC: Der Strom (Teil A, dann Teil B) ist ein Überrahmen mit Kopf, Nutzlast und Verzeichnis; die Textnachricht sitzt in den letzten vier Byte
+    private func handleXHE(part: [UInt8], audio: DRMAudioParam, service: DRMService) {
+        if xheParam != audio { xheFramer.reset(); xheParam = audio }
+        var data = part
+        var text: [UInt8]?
+        if audio.textMessage, data.count > 4 {
+            let piece = Array(data.suffix(4))
+            data.removeLast(4)
+            text = piece
+            if textMessage.feed(piece) { onEvent?(.text(textMessage.text)) }
+        }
+        let r = xheFramer.feed(data)
+        onEvent?(.audio(DRMAudioUnit(shortID: service.shortID, param: audio, frames: r.units, text: text)))
     }
 
     /// AAC-Überrahmen: Kopf mit Rahmengrenzen (12 Bit je Grenze), CRC-Bytes und der höher geschützte Teil aller Rahmen, dahinter der niedriger geschützte
@@ -831,6 +854,7 @@ public final class DRMReceiver {
         lastAcquire = total
         rowsRe.removeAll(); rowsIm.removeAll()
         map = nil
+        xheFramer.reset(); xheParam = nil
         emitStatus()
     }
 

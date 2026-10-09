@@ -87,10 +87,17 @@ public final class DRMSignalGenerator {
         entity(type: 1, body: DRMCRC.bits(0, 2) + DRMCRC.bits(0, 2) + label.flatMap { DRMCRC.bits(Int($0), 8) }, lengthBytes: label.count)
         // Typ 9: Audio
         let a = config.audio
-        let rateCode: Int
-        switch a.sampleRate { case 12_000: rateCode = 1; case 24_000: rateCode = 3; default: rateCode = 5 }
-        entity(type: 9, body: DRMCRC.bits(0, 2) + DRMCRC.bits(a.streamID, 2) + DRMCRC.bits(a.coding.rawValue, 2) + DRMCRC.bits(a.sbr ? 1 : 0, 1) + DRMCRC.bits(a.mode, 2)
-                + DRMCRC.bits(rateCode, 3) + DRMCRC.bits(a.textMessage ? 1 : 0, 1) + DRMCRC.bits(0, 1) + DRMCRC.bits(0, 3) + DRMCRC.bits(0, 2) + DRMCRC.bits(0, 1), lengthBytes: 2)
+        if a.coding == .xheaac {
+            let rateCode = [9_600, 12_000, 16_000, 19_200, 24_000, 32_000, 38_400, 48_000].firstIndex(of: a.sampleRate) ?? 7
+            entity(type: 9, body: DRMCRC.bits(0, 2) + DRMCRC.bits(a.streamID, 2) + DRMCRC.bits(3, 2) + DRMCRC.bits(0, 1) + DRMCRC.bits(a.mode, 2)
+                    + DRMCRC.bits(rateCode, 3) + DRMCRC.bits(a.textMessage ? 1 : 0, 1) + DRMCRC.bits(0, 1) + DRMCRC.bits(a.surroundMode, 3) + DRMCRC.bits(0, 2) + DRMCRC.bits(0, 1)
+                    + a.codecConfig.flatMap { DRMCRC.bits(Int($0), 8) }, lengthBytes: 2 + a.codecConfig.count)
+        } else {
+            let rateCode: Int
+            switch a.sampleRate { case 12_000: rateCode = 1; case 24_000: rateCode = 3; default: rateCode = 5 }
+            entity(type: 9, body: DRMCRC.bits(0, 2) + DRMCRC.bits(a.streamID, 2) + DRMCRC.bits(a.coding.rawValue, 2) + DRMCRC.bits(a.sbr ? 1 : 0, 1) + DRMCRC.bits(a.mode, 2)
+                    + DRMCRC.bits(rateCode, 3) + DRMCRC.bits(a.textMessage ? 1 : 0, 1) + DRMCRC.bits(0, 1) + DRMCRC.bits(0, 3) + DRMCRC.bits(0, 2) + DRMCRC.bits(0, 1), lengthBytes: 2)
+        }
         // Typ 8: Datum und Uhrzeit (MJD 61 000 ≈ 2026, 12:34)
         entity(type: 8, body: DRMCRC.bits(61_000, 17) + DRMCRC.bits(12, 5) + DRMCRC.bits(34, 6), lengthBytes: 3)
         let total = sdcLayout.totalBits
