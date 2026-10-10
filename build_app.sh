@@ -158,6 +158,16 @@ if [ -z "$SIGN_IDENTITY" ]; then
     fi
 fi
 
+# Hardened Runtime nur auf Wunsch (HARDENED_RUNTIME=1, nötig für die Notarisierung): Sie sperrt sonst fremde Treiber (SDRplay-API u. a.)
+# und verlangt Freigaben für Mikrofon/USB. Ohne sie laufen RTL-SDR, HackRF, SDRplay und alle Audio-Eingänge ohne Sonderfreigabe.
+RUNTIME_OPT=()
+if [ "${HARDENED_RUNTIME:-0}" = "1" ]; then
+    RUNTIME_OPT=(--options runtime)
+    echo "Hardened Runtime: AN"
+else
+    echo "Hardened Runtime: aus (Standard)"
+fi
+
 # Framework-Bibliotheken vorab einzeln signieren
 FALLBACK_ADHOC=0
 if [ -d "$APP_BUNDLE/Contents/Frameworks" ]; then
@@ -166,7 +176,7 @@ if [ -d "$APP_BUNDLE/Contents/Frameworks" ]; then
         if [ "$SIGN_IDENTITY" = "-" ]; then
             codesign --force --sign - "$f"
         else
-            if ! codesign --force --options runtime --sign "$SIGN_IDENTITY" "$f" 2>/dev/null; then
+            if ! codesign --force ${RUNTIME_OPT[@]+"${RUNTIME_OPT[@]}"} --sign "$SIGN_IDENTITY" "$f" 2>/dev/null; then
                 echo "Notice: Developer ID sign failed on $f (keychain locked or non-interactive), falling back to ad-hoc signing."
                 codesign --force --sign - "$f"
                 FALLBACK_ADHOC=1
@@ -179,8 +189,8 @@ if [ "$SIGN_IDENTITY" = "-" ] || [ "$FALLBACK_ADHOC" = "1" ]; then
     echo "Signing Ad-hoc with Entitlements ($ENTITLEMENTS)..."
     codesign --force --deep --entitlements "$ENTITLEMENTS" --sign - "$APP_BUNDLE"
 else
-    echo "Signing with '$SIGN_IDENTITY', Hardened Runtime and Entitlements ($ENTITLEMENTS)..."
-    if ! codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_BUNDLE" 2>/dev/null; then
+    echo "Signing with '$SIGN_IDENTITY' and Entitlements ($ENTITLEMENTS)..."
+    if ! codesign --force --deep ${RUNTIME_OPT[@]+"${RUNTIME_OPT[@]}"} --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_BUNDLE" 2>/dev/null; then
         echo "Notice: Developer ID sign failed on app bundle, falling back to ad-hoc signing."
         codesign --force --deep --entitlements "$ENTITLEMENTS" --sign - "$APP_BUNDLE"
     fi
