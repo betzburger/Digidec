@@ -188,3 +188,42 @@ public final class FloatRingBuffer: @unchecked Sendable {
         }
     }
 }
+
+// MARK: - Abgriff für den Web-Fernzugriff
+
+/// Gibt Audio mit beliebiger Rate und Kanalzahl an einen Mithörer weiter (Web-Fernzugriff), ohne den Erzeuger aufzuhalten:
+/// die Weitergabe läuft auf einer eigenen Warteschlange, bei Rückstau werden Blöcke ausgelassen.
+/// Der Mithörer liegt in einer gewöhnlichen Variablen unter `NSLock`: in einem generischen `OSAllocatedUnfairLock<Handler?>` würde jeder
+/// lesende Zugriff den gespeicherten Abgriff in eine weitere Umwandlungsschicht packen (Stapelüberlauf nach einigen tausend Blöcken).
+public final class PCMTap: @unchecked Sendable {
+    public typealias Handler = @Sendable (UnsafeBufferPointer<Float>, Int, Int) -> Void
+    private let lock = NSLock()
+    private var handler: Handler?
+    private let queue = DispatchQueue(label: "com.peterbetz.digidec.pcmtap", qos: .userInitiated)
+    private var backlog = 0
+
+    public init() {}
+
+    public func set(_ new: Handler?) {
+        lock.lock(); handler = new; lock.unlock()
+    }
+
+    private func take() -> Handler? {
+        lock.lock(); defer { lock.unlock() }
+        return handler
+    }
+
+    /// Verschachtelte Abtastwerte; `rate` in Hz
+    public func send(_ samples: [Float], channels: Int, rate: Int) {
+        guard !samples.isEmpty, take() != nil else { return }
+        lock.lock()
+        let accept = backlog < 40
+        if accept { backlog += 1 }
+        lock.unlock()
+        guard accept else { return }
+        queue.async { [self] in
+            if let h = take() { samples.withUnsafeBufferPointer { h($0, rate, channels) } }
+            lock.lock(); backlog -= 1; lock.unlock()
+        }
+    }
+}

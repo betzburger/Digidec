@@ -36,6 +36,8 @@ public final class DigidecState: ObservableObject {
     @Published public var showWebSettings = false
     /// Eingebetteter Web-Server für Browser-Fernzugriff
     public let webServer = DigidecWebServer.shared
+    /// Zustand, den Empfangs- und Audiofäden für den Web-Server lesen
+    let webBridge = WebBridge()
     /// Info-Fenster (Version, Lizenz, Quellen) offen?
     @Published public var showAbout = false
     /// Eigener Standort für alle Karten und Entfernungen
@@ -172,7 +174,7 @@ public final class DigidecState: ObservableObject {
     /// Dial-Frequenz und Mode des Funkgeräts für das NDB-Modul
     private var ndbRigState: (hz: Int?, mode: String?) = (nil, nil)
     private var audioStarted = false
-    private var cancellables: Set<AnyCancellable> = []
+    var cancellables: Set<AnyCancellable> = []
 
     private init() {
         rigControlEnabled = UserDefaults.standard.bool(forKey: "rigControlEnabled")
@@ -472,19 +474,9 @@ public final class DigidecState: ObservableObject {
 
         webServer.delegate = self
 
-        // Textdekodierungen an den Web-Server weiterleiten
-        let broadcastText: @MainActor (String) -> Void = { [weak self] text in
-            self?.webServer.broadcastDecodedText(text)
-        }
-        rttyController.textModel.onAppendBroadcast = broadcastText
-        navtexController.textModel.onAppendBroadcast = broadcastText
-        cwController.textModel.onAppendBroadcast = broadcastText
-        pskController.textModel.onAppendBroadcast = broadcastText
-        oliviaController.textModel.onAppendBroadcast = broadcastText
-        mt63Controller.textModel.onAppendBroadcast = broadcastText
-        mfskController.textModel.onAppendBroadcast = broadcastText
+        installWebBridge()
 
-        // Web-Server bei Zustandsänderungen (Modul, Funkgerät) benachrichtigen
+        // Web-Server bei Zustandsänderungen (Modul, Funkgerät, SDR) benachrichtigen
         $activeModule
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
@@ -492,6 +484,32 @@ public final class DigidecState: ObservableObject {
 
         rig.$state
             .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
+            .store(in: &cancellables)
+
+        sdrController.$status
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
+            .store(in: &cancellables)
+
+        adsbController.$status
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
+            .store(in: &cancellables)
+
+        audio.$sourceKind
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
+            .store(in: &cancellables)
+
+        sdr.$showRFWaterfall
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
+            .store(in: &cancellables)
+
+        // Frequenz, Betriebsart, Gerät des SDR-Empfängers (auch von der App aus geändert)
+        sdr.objectWillChange
+            .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
             .store(in: &cancellables)
 
@@ -882,49 +900,5 @@ public final class DigidecState: ObservableObject {
         dabController.stopSource()
         audio.cleanup()
         webServer.stop()
-    }
-}
-
-// MARK: - WebHostDelegate Conformance
-
-extension DigidecState: WebHostDelegate {
-    public var activeModuleId: String { activeModule.id }
-    public var dialFrequencyHz: Int { rig.state.frequencyHz ?? 0 }
-    public var activeModeString: String { rig.state.mode ?? "USB" }
-    public var connectedRigName: String { rig.rigName ?? "Kein Funkgerät" }
-
-    public var waterfallRowData: Data? {
-        let snap = waterfall.processor.snapshot()
-        let spec = snap.spectrum.isEmpty ? waterfall.spectrum : snap.spectrum
-        guard !spec.isEmpty else { return nil }
-        var frame = Data(capacity: spec.count + 1)
-        frame.append(0x01)
-        let floorDB = waterfall.noiseFloor
-        let rangeDB = waterfall.rangeDB
-        for db in spec {
-            frame.append(UInt8(WaterfallColorMap.index(db: db, floorDB: floorDB, rangeDB: rangeDB)))
-        }
-        return frame
-    }
-
-    public func addAudioSink(rate: Double, _ sink: @escaping @Sendable (UnsafeBufferPointer<Float>) -> Void) -> UUID {
-        audio.pipeline.addSink(rate: rate, sink)
-    }
-
-    public func removeAudioSink(_ id: UUID) {
-        audio.pipeline.removeSink(id)
-    }
-
-    public func selectModule(id: String) {
-        if let mod = DecoderModuleInfo.allCases.first(where: { $0.id == id }) {
-            select(module: mod)
-        }
-    }
-
-    public func tuneOffset(hz: Double) {
-        if let cur = rig.state.frequencyHz {
-            let newHz = max(100_000, Int64(cur) + Int64(hz))
-            rig.tune(to: RigTuneTarget(dialHz: newHz, mode: rig.state.mode ?? "USB"))
-        }
     }
 }

@@ -147,6 +147,7 @@ public final class SDRReceiverEngine: @unchecked Sendable {
     private var onAudio: AudioHandler?
     private var onDiscriminator: DiscriminatorHandler?
     private var onStereo: StereoHandler?
+    private var onSpectrumRow: (@Sendable ([Float]) -> Void)?
     private var channel = SDRChannelConfig()
     private var offsetHz = 0.0
     private var pendingBytes = 0
@@ -184,6 +185,12 @@ public final class SDRReceiverEngine: @unchecked Sendable {
     /// Stereo-Audio des Hörkanals (Mithören); UKW-Rundfunk liefert echtes Stereo, alle anderen Betriebsarten Mono auf beiden Kanälen
     public func setStereoHandler(_ handler: StereoHandler?) {
         lock.withLock { onStereo = handler }
+    }
+
+    /// Mithörer für jede neue Spektrumzeile (z. B. der Web-Server), ohne dass `takeSpectrumRows()` der Hauptansicht Zeilen wegnimmt.
+    /// Wird auf dem Faden des Empfängers aufgerufen und muss schnell zurückkehren.
+    public func setSpectrumTap(_ handler: (@Sendable ([Float]) -> Void)?) {
+        lock.withLock { onSpectrumRow = handler }
     }
 
     private func wireDemodulator(_ d: SDRDemodulator) {
@@ -331,6 +338,9 @@ public final class SDRReceiverEngine: @unchecked Sendable {
                 }
                 let m = Dictionary(uniqueKeysWithValues: zip(ids, list.map { $0.demod.metrics }))
                 lock.withLock { extraMetrics = m }
+            }
+            if !newRows.isEmpty, let tap = lock.withLock({ onSpectrumRow }) {
+                for row in newRows { tap(row) }
             }
             let handler = lock.withLock { () -> AudioHandler? in
                 activity += (Double(sum) / Double(counted) - activity) * 0.2

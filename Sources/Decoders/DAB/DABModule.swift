@@ -120,6 +120,9 @@ public final class DABPlayer: @unchecked Sendable {
     private var mutedValue = false
     private var peakValue: Float = 0
 
+    /// Abgriff des Tons für den Web-Fernzugriff (unabhängig von Lautstärke und Stummschaltung der App)
+    public let webTap = PCMTap()
+
     public init() {}
 
     public var volume: Float {
@@ -186,6 +189,7 @@ public final class DABPlayer: @unchecked Sendable {
     /// Abtastwerte abgeben; ändert sich Kanalzahl oder Rate, wird die Ausgabe neu aufgebaut
     public func write(_ samples: [Float], channels c: Int, rate r: Int) {
         guard !samples.isEmpty, c > 0, r > 0 else { return }
+        webTap.send(samples, channels: c, rate: r)
         lock.lock(); defer { lock.unlock() }
         if !running || c != channels || r != rate { start(channels: c, rate: r) }
         guard running else { return }

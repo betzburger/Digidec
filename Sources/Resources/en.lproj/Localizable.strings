@@ -1399,6 +1399,11 @@
 "IM BROWSER ÖFFNEN" = "OPEN IN BROWSER";
 "FUNKTIONSUMFANG DES REMOTE-DASHBOARDS:" = "FEATURES OF REMOTE DASHBOARD:";
 "Web-Fernzugriff: Decoder und Live-Audio im Browser steuern und anhören. Klicken zum Starten." = "Web remote access: Control decoders and listen to live audio in browser. Click to start.";
+"Live-Audio: Ton des Empfängers im Browser, bei UKW-Rundfunk in Stereo mit 48 kHz." = "Live audio: receiver sound in the browser, in stereo at 48 kHz for FM broadcast.";
+"Wasserfall: NF mit Hz-Skala und Zoom, HF des SDR mit Frequenzskala, Zoom bis 32× und Abstimmen per Klick." = "Waterfall: AF with Hz scale and zoom, SDR RF with frequency scale, zoom up to 32× and tuning by click.";
+"Bedienung: Module, Frequenz (auch eintippen), Betriebsart USB/LSB/CW/AM/FM/WFM und SDR-Gerät." = "Control: modules, frequency (also by typing), mode USB/LSB/CW/AM/FM/WFM and SDR device.";
+"Text und Listen aller Module (auch nach dem Umschalten vollständig), Karte mit Flugzeug- und Schiffsymbolen." = "Text and lists of all modules (complete after switching, too), map with aircraft and ship symbols.";
+"Nur in der App: MEHRKANAL, Bilder (SSTV, Wetterfax), Einstellungen der Module." = "App only: MULTICHANNEL, images (SSTV, weather fax), module settings.";
 "MEHRKANAL" = "MULTICHANNEL";
 "BEIDE" = "BOTH";
 "TEXT" = "TEXT";

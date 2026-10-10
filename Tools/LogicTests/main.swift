@@ -5587,11 +5587,131 @@ if want("web") {
     check(WebDashboardAssets.html.contains("DIGIDEC"), "Web-Dashboard enthält DIGIDEC Titel")
     check(WebDashboardAssets.html.contains("RadioTheme"), "Web-Dashboard enthält RadioTheme Design-Tokens")
     check(WebDashboardAssets.html.contains("waterfall-canvas"), "Web-Dashboard enthält Wasserfall-Canvas")
+    check(WebDashboardAssets.html.contains("map-canvas"), "Web-Dashboard enthält Karten-Canvas")
+    check(WebDashboardAssets.html.contains("OpenStreetMap"), "Web-Dashboard enthält OpenStreetMap")
+    check(WebDashboardAssets.html.contains("btn-sdr"), "Web-Dashboard enthält SDR-Schaltfläche")
+    check(WebDashboardAssets.html.contains("sel-sdr-src"), "Web-Dashboard enthält SDR-Geräteauswahl")
+    check(WebDashboardAssets.html.contains("btn-wf-mode"), "Web-Dashboard enthält Wasserfall-Modus-Umschalter")
+    check(WebDashboardAssets.html.contains("splitter"), "Web-Dashboard enthält verschiebbaren Splitter")
 
-    // 5. Server-Instanz Konfiguration
+    // 5. WebMapPayload Tests
+    let sampleContent = MapContent(markers: [
+        MapMarker(id: "test-call", coordinate: GeoPoint(lat: 50.1, lon: 8.6), title: "DL1ABC", subtitle: "FT8 · vor 2 min", tone: .normal)
+    ], lines: [
+        MapLine(id: "test-line", points: [GeoPoint(lat: 50.0, lon: 10.0), GeoPoint(lat: 50.1, lon: 8.6)], tone: .dim)
+    ], home: GeoPoint(lat: 50.0, lon: 10.0), emptyHint: "Leer")
+
+    let payloadDict = WebMapPayload.dictionary(content: sampleContent, module: "ft8", hasMap: true)
+    check(payloadDict["type"] as? String == "map", "WebMapPayload: Type ist 'map'")
+    check(payloadDict["module"] as? String == "ft8", "WebMapPayload: Modul ist 'ft8'")
+    check(payloadDict["hasMap"] as? Bool == true, "WebMapPayload: hasMap ist true")
+    let markersArr = payloadDict["markers"] as? [[String: Any]]
+    check(markersArr?.count == 1, "WebMapPayload: 1 Marker vorhanden")
+    check(markersArr?.first?["title"] as? String == "DL1ABC", "WebMapPayload: Marker Title ist DL1ABC")
+
+    let jsonStr = WebMapPayload.json(content: sampleContent, module: "ft8", hasMap: true)
+    check(jsonStr != nil && jsonStr!.contains("DL1ABC"), "WebMapPayload: JSON enthält Marker")
+
+    // 5b. Umrisse der Fahrzeuge für die Karte im Browser
+    let shapes = WebMapPayload.shapes
+    check(shapes.count == MapSilhouette.allCases.count, "WebMapPayload: Umrisse aller \(MapSilhouette.allCases.count) Fahrzeuge")
+    if let cargo = shapes["cargo"] as? [String: Any] {
+        check((cargo["contours"] as? [[Any]])?.isEmpty == false, "WebMapPayload: Umriss Frachter hat Vielecke")
+        check(cargo["ship"] as? Bool == true, "WebMapPayload: Frachter ist ein Schiff")
+    } else { check(false, "WebMapPayload: Umriss Frachter fehlt") }
+    check((shapes["airliner"] as? [String: Any])?["ship"] as? Bool == false, "WebMapPayload: Verkehrsflugzeug ist kein Schiff")
+    var shipMarker = MapMarker(id: "ship-1", coordinate: GeoPoint(lat: 53.2, lon: 5.7), title: "TEST", headingDeg: 90, silhouette: .cargo)
+    shipMarker.silhouetteScale = 1.4
+    var planeMarker = MapMarker(id: "ac-1", coordinate: GeoPoint(lat: 50.0, lon: 8.0), title: "DLH1", symbol: "airplane")
+    planeMarker.headingDeg = 10
+    let shipDict = WebMapPayload.dictionary(content: MapContent(markers: [shipMarker, planeMarker]), module: "ais", hasMap: true)
+    let shipMarkers = shipDict["markers"] as? [[String: Any]]
+    check(shipMarkers?.first?["shape"] as? String == "cargo", "WebMapPayload: Marker trägt den Umriss \"cargo\"")
+    check(shipMarkers?.first?["scale"] as? Double == 1.4, "WebMapPayload: Maßstab des Umrisses (Schiffslänge)")
+    check(shipMarkers?.last?["glyph"] as? String == "✈", "WebMapPayload: SF-Symbol airplane wird zum Zeichen ✈")
+
+    // 5c. Text der Module: Begrenzung und Differenzen
+    let many = (0..<1000).map { "Zeile \($0)" }
+    let logT = WebTranscript.limited(kind: .log, title: "T", lines: many)
+    check(logT.lines.count == WebTranscript.maxLines && logT.lines.last == "Zeile 999", "WebTranscript: Protokoll behält die letzten \(WebTranscript.maxLines) Zeilen")
+    let listT = WebTranscript.limited(kind: .list, title: "T", lines: many)
+    check(listT.lines.first == "Zeile 0" && listT.lines.count == WebTranscript.maxLines, "WebTranscript: Liste behält die ersten Zeilen")
+    let longT = WebTranscript.limited(kind: .log, title: "T", lines: [String(repeating: "x", count: 5000)])
+    check(longT.lines[0].count <= WebTranscript.maxLineLength + 1, "WebTranscript: lange Zeilen werden gekürzt")
+    check(webCommonPrefix(["a", "b", "c"], ["a", "b", "c", "d"]) == 3, "webCommonPrefix: Verlängerung ab Zeile 3")
+    check(webCommonPrefix(["a", "b", "c"], ["a", "X", "c"]) == 1, "webCommonPrefix: Abweichung in Zeile 2")
+    check(webCommonPrefix([], ["a"]) == 0 && webCommonPrefix(["a"], []) == 0, "webCommonPrefix: leere Seiten")
+
+    // 5d. Beschreibung des Wasserfalls
+    var info = WebWaterfallInfo()
+    info.kind = .rf
+    info.fullLo = 103_500_000; info.fullHi = 105_900_000; info.visLo = 104_000_000; info.visHi = 104_800_000
+    info.centerHz = 104_400_000; info.zoom = 4
+    info.zoomChoices = [.init(label: "1×", value: 1), .init(label: "4×", value: 4)]
+    info.markerStyle = "dial"; info.tunable = true
+    let infoJSON = info.json ?? ""
+    check(infoJSON.contains("\"kind\":\"rf\"") && infoJSON.contains("\"visLo\":104000000") && infoJSON.contains("\"zoomChoices\""), "WebWaterfallInfo: JSON mit Art, Bereich und Zoomstufen")
+    check(info.json == info.json, "WebWaterfallInfo: gleiche Eingabe ergibt gleichen Text")
+    info.channels = [.init(frequency: 1000, label: "DL1ABC", selected: true)]
+    check(info.json?.contains("DL1ABC") == true, "WebWaterfallInfo: Skimmer-Kanäle im JSON")
+
+    // 5e. Dashboard: neue Bedienelemente und gültiges Skript
+    for id in ["preset-bar", "renderPresets", "setPreset", "bandLo", "axis-canvas", "spec-canvas", "mark-canvas", "wf-zooms", "mode-group", "freq-input", "setRFZoom", "setNFSpan", "setMode", "setFrequency", "setCenter",
+               "applyText", "playAudioChunk", "applyWfInfo", "drawShape"] {
+        check(WebDashboardAssets.html.contains(id), "Web-Dashboard enthält \(id)")
+    }
+    if let start = WebDashboardAssets.html.range(of: "<script>"), let end = WebDashboardAssets.html.range(of: "</script>", options: .backwards) {
+        let script = String(WebDashboardAssets.html[start.upperBound..<end.lowerBound])
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("digidec-dashboard-\(getpid()).js")
+        try? script.write(to: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let node = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"].first { FileManager.default.isExecutableFile(atPath: $0) }
+        if let node {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: node)
+            p.arguments = ["--check", tmp.path]
+            p.standardError = Pipe()
+            try? p.run()
+            p.waitUntilExit()
+            check(p.terminationStatus == 0, "Web-Dashboard: Skript besteht node --check")
+        }
+    }
+
+    // 5f. Auswahlmenüs, Durchlassbereich, Audio-Abgriff
+    let presetJSON = WebPresetGroup.json([WebPresetGroup(key: "channel", label: "KANAL", options: [.init(id: "eu", label: "144,800 MHz"), .init(id: "na", label: "144,390 MHz")], selected: "eu")]) ?? ""
+    check(presetJSON.contains("\"type\":\"presets\"") && presetJSON.contains("\"selected\":\"eu\"") && presetJSON.contains("144,390 MHz"), "WebPresetGroup: JSON mit Kennung, Auswahl und Optionen")
+    check(WebPresetGroup.json([]) == "{\"groups\":[],\"type\":\"presets\"}", "WebPresetGroup: leere Liste")
+    var usb = WebWaterfallInfo()
+    usb.kind = .rf; usb.bandLo = 7_074_100; usb.bandHi = 7_077_100
+    check(usb.json?.contains("\"bandLo\":7074100") == true && usb.json?.contains("\"bandHi\":7077100") == true, "WebWaterfallInfo: Durchlassbereich (USB nur oberhalb) im JSON")
+    check(WebWaterfallInfo().json?.contains("bandLo") == false, "WebWaterfallInfo: ohne Durchlassbereich kein bandLo")
+    // Der Abgriff darf nach vielen Aufrufen nicht wachsen (0.100.0: Stapelüberlauf nach etwa 6 600 Blöcken durch immer neue Umwandlungsschichten)
+    final class Counter: @unchecked Sendable { private let l = NSLock(); private var n = 0; func add(_ k: Int) { l.lock(); n += k; l.unlock() }; var value: Int { l.lock(); defer { l.unlock() }; return n } }
+    let tapCount = Counter()
+    let tap = PCMTap()
+    tap.set { _, rate, ch in tapCount.add(rate == 48_000 && ch == 2 ? 1 : 0) }
+    for _ in 0..<30_000 { tap.send([0.1, -0.1, 0.2, -0.2], channels: 2, rate: 48_000) }
+    let deadline = Date().addingTimeInterval(5)
+    while tapCount.value < 100 && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+    check(tapCount.value >= 100, "PCMTap: Blöcke kommen an (\(tapCount.value) von 30000, Rückstau lässt aus)")
+    tap.send([0.1, 0.2], channels: 1, rate: 8_000)
+    tap.set(nil)
+    tap.send([0.1, 0.2], channels: 1, rate: 8_000)
+    check(true, "PCMTap: nach 30000 Aufrufen und Abmelden kein Absturz")
+
+    // 6. Server-Instanz Konfiguration
     let server = DigidecWebServer.shared
     check(server.port >= 1024, "Web-Server: Port gültig (\(server.port))")
     check(!server.isRunning, "Web-Server: Initial nicht aktiv")
+    check(server.localURL == "http://localhost:\(server.port)", "Web-Server: localURL ist http://localhost:\(server.port)")
+    check(!server.localURL.contains(".local:"), "Web-Server: localURL enthält kein .local-Suffix")
+    check(server.localIPv4Addresses.allSatisfy { !$0.hasPrefix("127.") }, "Web-Server: localIPv4Addresses schließt Loopback aus")
+    if let lan = server.lanURL {
+        check(lan.hasPrefix("http://") && lan.hasSuffix(":\(server.port)"), "Web-Server: lanURL Format gültig (\(lan))")
+    }
+    if let bonjour = server.bonjourURL {
+        check(bonjour.hasPrefix("http://") && bonjour.contains(".local:\(server.port)"), "Web-Server: bonjourURL Format gültig (\(bonjour))")
+    }
 }
 
 

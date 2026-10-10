@@ -426,6 +426,8 @@ public final class APRSController: ObservableObject {
     public var rigDescription: String? {
         didSet { if rigDescription != oldValue { markSession() } }
     }
+    /// Externer Abgriff für den WebServer (TNC2-Meldungszeilen)
+    public var onPacketBroadcast: (@MainActor (String) -> Void)?
 
     public static let maxStations = 2000
     public static let maxPackets = 600
@@ -490,6 +492,7 @@ public final class APRSController: ObservableObject {
         if raw.repaired { repairedCount += 1 }
         lastFrameDate = now
         let line = Self.tnc2Line(frame)
+        onPacketBroadcast?(Self.utc.string(from: now) + "  " + line + (raw.repaired ? "  [repariert]" : "") + "\n")
         guard let packet = APRSParser.parse(frame) else {
             append(APRSLogEntry(time: now, packet: APRSPacket(kind: .other, source: frame.source.text, dest: frame.dest.text,
                                                               path: frame.digis.map(\.text), info: frame.infoText),

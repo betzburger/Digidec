@@ -289,6 +289,46 @@ public final class SDRSpeaker: @unchecked Sendable {
     }
 }
 
+/// Abzweig des Stereo-Audios (48 kS/s, verschachtelt L, R) des Hörkanals, unabhängig vom Lautsprecher (Web-Fernzugriff)
+public final class SDRAudioTap: @unchecked Sendable {
+    public typealias Handler = @Sendable (UnsafeBufferPointer<Float>) -> Void
+    // Der Abgriff liegt in einer gewöhnlichen Variablen unter NSLock, nicht in einem generischen `OSAllocatedUnfairLock<Handler?>`:
+    // Dort packt jeder lesende Zugriff den gespeicherten Abgriff in eine weitere Umwandlungsschicht, und nach etwa 6 600 Aufrufen
+    // lief der Stapel über (0.100.0/0.100.1: Absturz kurz nach dem Start).
+    private let lock = NSLock()
+    private var handler: Handler?
+    /// Die Weitergabe läuft nicht auf dem Faden des Empfängers: dessen Stapel ist bei breiten Fenstern (20 MS/s) schon gut gefüllt
+    private let queue = DispatchQueue(label: "com.peterbetz.digidec.sdr.webaudio", qos: .userInitiated)
+    private let backlogLock = NSLock()
+    private var backlog = 0
+
+    public init() {}
+
+    public func set(_ new: Handler?) {
+        lock.lock(); handler = new; lock.unlock()
+    }
+
+    private func current() -> Handler? {
+        lock.lock(); defer { lock.unlock() }
+        return handler
+    }
+
+    func send(_ buffer: UnsafeBufferPointer<Float>) {
+        guard !buffer.isEmpty, current() != nil else { return }
+        // Bei Rückstau Blöcke auslassen statt den Speicher zu füllen
+        backlogLock.lock()
+        let accept = backlog < 40
+        if accept { backlog += 1 }
+        backlogLock.unlock()
+        guard accept else { return }
+        let copy = Array(buffer)
+        queue.async { [self] in
+            if let h = current() { copy.withUnsafeBufferPointer { h($0) } }
+            backlogLock.lock(); backlog -= 1; backlogLock.unlock()
+        }
+    }
+}
+
 // MARK: - Controller
 
 @MainActor
@@ -297,6 +337,8 @@ public final class SDRController: ObservableObject {
     /// Abtastrate des laufenden I/Q-Stroms
     public var sampleRateHz: Double { engine.sampleRate }
     public let speaker = SDRSpeaker()
+    /// Stereo-Audio des Hörkanals für den Web-Fernzugriff
+    public let webAudioTap = SDRAudioTap()
     public let settings: SDRSettingsStore
     /// Kanalbank: mehrere Kanäle zugleich aus dem I/Q-Fenster (Modul KANÄLE)
     public let bank = SDRChannelBank()
@@ -480,7 +522,11 @@ public final class SDRController: ObservableObject {
         engine.setAudioHandler { buf in
             if let base = buf.baseAddress { pipeline.ring.write(base, count: buf.count) }
         }
-        engine.setStereoHandler { buf in speaker.writeStereo(buf) }
+        let tap = webAudioTap
+        engine.setStereoHandler { buf in
+            speaker.writeStereo(buf)
+            tap.send(buf)
+        }
         do {
             try src.start(onData: { engine.feed($0, wait: wait) }, onStop: { [weak self] reason in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.sourceStopped(reason, token: token) } }

@@ -9,7 +9,9 @@ public struct WebServerSheet: View {
     let onClose: () -> Void
 
     @State private var portString = ""
-    @State private var copied = false
+    @State private var copiedLocal = false
+    @State private var copiedLAN = false
+    @State private var copiedBonjour = false
 
     public init(server: DigidecWebServer, onClose: @escaping () -> Void) {
         self.server = server
@@ -89,39 +91,102 @@ public struct WebServerSheet: View {
                     }
                 }
 
-                // Web-URL zum Aufrufen
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Zugriffsadresse für den Browser:")
+                // Zugriffsadressen für den Browser
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("ZUGRIFFSADRESSEN:")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(RadioTheme.textDim)
+                        .foregroundColor(RadioTheme.vfdAmber)
 
-                    HStack(spacing: 8) {
-                        Text(webUrlString)
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
-                            .foregroundColor(server.isRunning ? RadioTheme.vfdCyan : RadioTheme.textMuted)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(RadioTheme.bgDeep)
-                            .cornerRadius(4)
-                            .textSelection(.enabled)
+                    // 1. Auf diesem Mac (localhost)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Lokal auf diesem Mac:")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
 
-                        Button(copied ? "KOPIERT!" : "ADRESSE KOPIEREN") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(webUrlString, forType: .string)
-                            copied = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                copied = false
+                        HStack(spacing: 8) {
+                            Text(server.localURL)
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(server.isRunning ? RadioTheme.vfdCyan : RadioTheme.textMuted)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(RadioTheme.bgDeep)
+                                .cornerRadius(4)
+                                .textSelection(.enabled)
+
+                            if server.isRunning, let url = URL(string: server.localURL) {
+                                Button("IM BROWSER ÖFFNEN") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                                .buttonStyle(ModeButtonStyle(isSelected: true))
+                            }
+
+                            Button(copiedLocal ? "KOPIERT!" : "KOPIEREN") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(server.localURL, forType: .string)
+                                copiedLocal = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    copiedLocal = false
+                                }
+                            }
+                            .buttonStyle(ModeButtonStyle(isSelected: false))
+                            .disabled(!server.isRunning)
+                        }
+                    }
+
+                    // 2. Im lokalen Netzwerk (iPad, Smartphone, Zweitrechner)
+                    if let lanURL = server.lanURL {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Im lokalen Netzwerk (iPad, Smartphone, Zweit-Mac):")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(RadioTheme.textDim)
+
+                            HStack(spacing: 8) {
+                                Text(lanURL)
+                                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                    .foregroundColor(server.isRunning ? RadioTheme.vfdCyan : RadioTheme.textMuted)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(RadioTheme.bgDeep)
+                                    .cornerRadius(4)
+                                    .textSelection(.enabled)
+
+                                Button(copiedLAN ? "KOPIERT!" : "KOPIEREN") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(lanURL, forType: .string)
+                                    copiedLAN = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                        copiedLAN = false
+                                    }
+                                }
+                                .buttonStyle(ModeButtonStyle(isSelected: false))
+                                .disabled(!server.isRunning)
                             }
                         }
-                        .buttonStyle(ModeButtonStyle(isSelected: false))
-                        .disabled(!server.isRunning)
+                    }
 
-                        if server.isRunning, let url = URL(string: webUrlString) {
-                            Button("IM BROWSER ÖFFNEN") {
-                                NSWorkspace.shared.open(url)
+                    // 3. Bonjour mDNS (falls vorhanden)
+                    if let bonjourURL = server.bonjourURL {
+                        HStack(spacing: 6) {
+                            Text("Bonjour (mDNS):")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(RadioTheme.textMuted)
+                            Text(bonjourURL)
+                                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                                .foregroundColor(server.isRunning ? RadioTheme.vfdGreen.opacity(0.8) : RadioTheme.textMuted)
+                                .textSelection(.enabled)
+                            Button(copiedBonjour ? "KOPIERT!" : "KOPIEREN") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(bonjourURL, forType: .string)
+                                copiedBonjour = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    copiedBonjour = false
+                                }
                             }
-                            .buttonStyle(ModeButtonStyle(isSelected: true))
+                            .buttonStyle(ModeButtonStyle(isSelected: false))
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .disabled(!server.isRunning)
                         }
+                        .padding(.top, 1)
                     }
                 }
                 .padding(.top, 4)
@@ -135,10 +200,11 @@ public struct WebServerSheet: View {
                 Text("FUNKTIONSUMFANG DES REMOTE-DASHBOARDS:")
                     .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdAmber)
-                bulletPoint("Live-Audio: Echzeit-Audioausgabe über die Web Audio API des Zielgeräts (iPad, Smartphone, Laptop).")
-                bulletPoint("HF- & Audio-Wasserfall: Flüssiges 30-FPS Canvas-Streaming im originalen RadioTheme Farbverlauf.")
-                bulletPoint("Fernsteuerung: Umschalten der Decoder-Module und feinstufige Frequenzabstimmung.")
-                bulletPoint("Echtzeit-Textausgabe: Sofortiges Streaming decodierter Meldungen (RTTY, NAVTEX, CW, PSK).")
+                bulletPoint("Live-Audio: Ton des Empfängers im Browser, bei UKW-Rundfunk in Stereo mit 48 kHz.")
+                bulletPoint("Wasserfall: NF mit Hz-Skala und Zoom, HF des SDR mit Frequenzskala, Zoom bis 32× und Abstimmen per Klick.")
+                bulletPoint("Bedienung: Module, Frequenz (auch eintippen), Betriebsart USB/LSB/CW/AM/FM/WFM und SDR-Gerät.")
+                bulletPoint("Text und Listen aller Module (auch nach dem Umschalten vollständig), Karte mit Flugzeug- und Schiffsymbolen.")
+                bulletPoint("Nur in der App: MEHRKANAL, Bilder (SSTV, Wetterfax), Einstellungen der Module.")
             }
             .padding(.horizontal, 4)
 
@@ -158,15 +224,10 @@ public struct WebServerSheet: View {
         .preferredColorScheme(.dark)
     }
 
-    private var webUrlString: String {
-        let host = ProcessInfo.processInfo.hostName.components(separatedBy: ".").first ?? "localhost"
-        return "http://\(host).local:\(server.port)"
-    }
-
     private func bulletPoint(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text("·").foregroundColor(RadioTheme.vfdCyan).font(.system(size: 11, weight: .black))
-            Text(text)
+            Text(LocalizedStringKey(text))
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
         }

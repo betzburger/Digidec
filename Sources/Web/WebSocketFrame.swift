@@ -27,7 +27,7 @@ public enum WebSocketFrame {
         } else {
             frame.append(127)
             var len = UInt64(length).bigEndian
-            frame.append(Data(bytes: &len, count: 8))
+            withUnsafeBytes(of: &len) { frame.append(contentsOf: $0) }
         }
         frame.append(payload)
         return frame

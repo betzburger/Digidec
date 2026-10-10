@@ -282,8 +282,10 @@ public final class ADSBController: ObservableObject {
     @Published public var logEnabled: Bool { didSet { UserDefaults.standard.set(logEnabled, forKey: "adsbLogEnabled") } }
     /// Standort des Empfängers
     public var homePoint: GeoPoint? { didSet { applyConfiguration() } }
+    /// Rückruf für Textausgabe im Web-Terminal
+    public var onLogBroadcast: (@MainActor (String) -> Void)?
 
-    private let settings: ADSBSettingsStore
+    public let settings: ADSBSettingsStore
     private let infoService: AircraftInfoService
     /// Wann und mit welchem Rufzeichen ein Flugzeug zuletzt abgefragt wurde
     private var lookedUp: [UInt32: (callsign: String?, at: Date)] = [:]
@@ -428,6 +430,11 @@ public final class ADSBController: ObservableObject {
         if rateHistory.count > 240 { rateHistory.removeFirst(rateHistory.count - 240) }
         if logEnabled {
             for a in s.expired { logger.append(Self.logLine(a), now: a.lastSeen) }
+        }
+        if let onLog = onLogBroadcast {
+            for entry in s.recent.prefix(4) {
+                onLog("\(APRSController.utc.string(from: entry.time))  \(entry.summary)\n")
+            }
         }
         if settings.webLookup && settings.autoLookup { autoLookupStep() }
         // Entwicklungshilfe (Schnappschüsse): DIGIDEC_ADSB_SELECT=<ICAO hex> wählt dieses Flugzeug, sobald es in der Liste steht
