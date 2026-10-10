@@ -149,7 +149,7 @@ struct WefaxTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -166,6 +166,16 @@ struct WefaxSettingsPanel: View {
     @ObservedObject var controller: WefaxController
     @State private var showGallery = false
 
+    @State private var editingStation: WefaxStationItem?
+    @State private var isNewStation = false
+    @State private var showStationEditor = false
+    @State private var editLabel = ""
+    @State private var editKhzText = ""
+    @State private var editNote = ""
+    @State private var editShiftHz = 850
+    @State private var editLpm = 120
+    @State private var editIoc = 576
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
@@ -181,29 +191,30 @@ struct WefaxSettingsPanel: View {
                 settingsContent
             }
         }
+        .sheet(isPresented: $showStationEditor) {
+            PresetModalSheet(
+                title: isNewStation ? "NEUE FAX-STATION" : "FAX-STATION BEARBEITEN",
+                isValid: !editLabel.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: saveStation,
+                onCancel: { showStationEditor = false }
+            ) {
+                WefaxStationEditorView(
+                    label: $editLabel,
+                    khzText: $editKhzText,
+                    note: $editNote,
+                    shiftHz: $editShiftHz,
+                    lpm: $editLpm,
+                    ioc: $editIoc
+                )
+            }
+        }
     }
 
     @ViewBuilder
     private var settingsContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                ForEach(WefaxStation.allCases) { s in
-                    Button {
-                        settings.station = s
-                    } label: {
-                        VStack(spacing: 1) {
-                            Text(s.label)
-                            Text(s.note)
-                                .font(.system(size: 7.5, weight: .medium, design: .monospaced))
-                                .foregroundColor(RadioTheme.textDim)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.station == s))
-                }
-            }
-            if let dial = settings.station.usbDial(center: settings.centerHz) {
+            stationGrid
+            if let dial = settings.activeStationItem.usbDial(center: settings.centerHz) {
                 Text(verbatim: "USB-Dial \(String(format: "%.1f", dial / 1000).replacingOccurrences(of: ".", with: ",")) kHz → Mitte \(settings.options.centerHz) Hz")
                     .font(.system(size: 8.5, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -265,8 +276,98 @@ struct WefaxSettingsPanel: View {
         }
     }
 
+    private var stationGrid: some View {
+        let count = settings.stations.count + 1
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+            ForEach(settings.stations) { s in
+                Button {
+                    settings.selectStation(id: s.id)
+                } label: {
+                    VStack(spacing: 1) {
+                        Text(s.label)
+                        Text(s.note)
+                            .font(.system(size: 7.5, weight: .medium, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedStationID == s.id))
+                .help(s.frequencyHz.map { "Frequenz: \(Int($0 / 1000)) kHz · \(s.note)" } ?? s.note)
+                .presetContextMenu(
+                    onEdit: { startEditStation(s) },
+                    onDelete: settings.stations.count > 1 ? { settings.removeStation(id: s.id) } : nil,
+                    onReset: { settings.resetStationsToDefault() }
+                )
+            }
+
+            Button {
+                startAddStation()
+            } label: {
+                VStack(spacing: 1) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .bold))
+                    Text("NEU")
+                        .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Neue Wetterfax-Station hinzufügen")
+        }
+    }
+
+    private func startAddStation() {
+        isNewStation = true
+        editingStation = nil
+        editLabel = ""
+        editKhzText = ""
+        editNote = ""
+        editShiftHz = 800
+        editLpm = 120
+        editIoc = 576
+        showStationEditor = true
+    }
+
+    private func startEditStation(_ s: WefaxStationItem) {
+        isNewStation = false
+        editingStation = s
+        editLabel = s.label
+        if let f = s.frequencyHz {
+            let khz = f / 1000
+            editKhzText = khz == khz.rounded() ? String(format: "%.0f", khz) : String(format: "%.1f", khz).replacingOccurrences(of: ".", with: ",")
+        } else {
+            editKhzText = ""
+        }
+        editNote = s.note
+        editShiftHz = s.shiftHz
+        editLpm = s.lpm
+        editIoc = s.ioc
+        showStationEditor = true
+    }
+
+    private func saveStation() {
+        let clean = editKhzText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let freqHz = clean.isEmpty ? nil : (Double(clean).map { $0 * 1000 })
+        let item = WefaxStationItem(
+            id: editingStation?.id ?? UUID().uuidString,
+            label: editLabel.trimmingCharacters(in: .whitespaces),
+            frequencyHz: freqHz,
+            note: editNote.trimmingCharacters(in: .whitespaces),
+            shiftHz: editShiftHz,
+            lpm: editLpm,
+            ioc: editIoc
+        )
+        if isNewStation {
+            settings.addStation(item)
+        } else {
+            settings.updateStation(item)
+        }
+        showStationEditor = false
+    }
+
     private func label(_ s: String) -> some View {
-        Text(s)
+        Text(LocalizedStringKey(s))
             .font(.system(size: 8, weight: .bold, design: .monospaced))
             .foregroundColor(RadioTheme.textDim)
     }

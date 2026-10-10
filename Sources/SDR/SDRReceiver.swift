@@ -374,13 +374,14 @@ public final class SDRReceiverEngine: @unchecked Sendable {
 
 // MARK: - Zoom-Faktoren des HF-Wasserfalls
 
-/// Zoom-Faktoren des HF-Wasserfalls: 1× (volles I/Q-Fenster) bis 16× um die Abstimmfrequenz
+/// Zoom-Faktoren des HF-Wasserfalls: 1× (volles I/Q-Fenster) bis 32× um die Abstimmfrequenz
 public enum SDRZoomFactor: Int, CaseIterable, Identifiable, Sendable {
     case x1 = 1
     case x2 = 2
     case x4 = 4
     case x8 = 8
     case x16 = 16
+    case x32 = 32
 
     public var id: Int { rawValue }
     public var label: String { "\(rawValue)×" }
@@ -391,7 +392,8 @@ public enum SDRZoomFactor: Int, CaseIterable, Identifiable, Sendable {
         case .x2: return .x4
         case .x4: return .x8
         case .x8: return .x16
-        case .x16: return .x16
+        case .x16: return .x32
+        case .x32: return .x32
         }
     }
 
@@ -402,6 +404,7 @@ public enum SDRZoomFactor: Int, CaseIterable, Identifiable, Sendable {
         case .x4: return .x2
         case .x8: return .x4
         case .x16: return .x8
+        case .x32: return .x16
         }
     }
 
@@ -481,7 +484,7 @@ public enum SDRWaterfallResolution: String, CaseIterable, Identifiable, Sendable
             case .x1: return 4096
             case .x2: return 8192
             case .x4: return 16384
-            case .x8, .x16: return 32768
+            case .x8, .x16, .x32: return 32768
             }
         }
     }

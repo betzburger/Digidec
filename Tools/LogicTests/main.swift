@@ -5462,7 +5462,137 @@ if want("pager") { pagerChannelTests() }
     let lw = rs.schedule.frequencies.filter { $0.presetID == "dwd-lw" }.map(\.hz)
     check(kw == [4_583_000, 7_646_000, 10_100_800, 11_039_000, 14_467_300] && lw == [147_300], "RTTY: DWD-Frequenzen aus dem Plan (KW \(kw), LW \(lw))")
 }
-if want("rtty") { rttyFrequencyTests() }
+if want("rtty") {
+    rttyFrequencyTests()
+    customizablePresetTests()
+}
+
+@MainActor func customizablePresetTests() {
+    // RTTY Presets
+    let rttyStore = RTTYSettingsStore()
+    let testPreset = RTTYPreset(id: "test-preset", name: "Test RTTY", parameters: RTTYParameters(shift: 170, baud: 45.45), note: "Test", frequencies: [RTTYFrequencyItem(id: "tf1", label: "14080", hz: 14_080_000, callsign: "20m", note: "")])
+    rttyStore.addPreset(testPreset)
+    check(rttyStore.presets.contains { $0.id == "test-preset" }, "RTTY: Preset hinzugefügt")
+    check(rttyStore.presetID == "test-preset", "RTTY: Neues Preset aktiv")
+    rttyStore.removePreset(id: "test-preset")
+    check(!rttyStore.presets.contains { $0.id == "test-preset" }, "RTTY: Preset gelöscht")
+
+    // WEFAX Stations
+    let wefaxStore = WefaxSettingsStore()
+    let testStation = WefaxStationItem(id: "test-wefax", label: "Test Fax", frequencyHz: 12_345_000, note: "Test")
+    wefaxStore.addStation(testStation)
+    check(wefaxStore.stations.contains { $0.id == "test-wefax" }, "WEFAX: Station hinzugefügt")
+    check(wefaxStore.selectedStationID == "test-wefax", "WEFAX: Neue Station gewählt")
+    check(wefaxStore.activeStationFrequencyHz == 12_345_000, "WEFAX: Frequenz stimmt")
+    wefaxStore.removeStation(id: "test-wefax")
+    check(!wefaxStore.stations.contains { $0.id == "test-wefax" }, "WEFAX: Station entfernt")
+
+    // NAVTEX Frequenzen
+    let navtexStore = NavtexSettingsStore()
+    let testNavtex = NavtexFrequencyItem(id: "test-navtex", label: "424", hz: 424_000, note: "Japan 424 kHz")
+    navtexStore.addFrequency(testNavtex)
+    check(navtexStore.frequencies.contains { $0.id == "test-navtex" }, "NAVTEX: Frequenz hinzugefügt")
+    check(navtexStore.activeFrequencyHz == 424_000, "NAVTEX: Aktive Frequenz stimmt")
+    navtexStore.removeFrequency(id: "test-navtex")
+    check(!navtexStore.frequencies.contains { $0.id == "test-navtex" }, "NAVTEX: Frequenz entfernt")
+
+    // SSTV Kanäle
+    let sstvStore = SSTVSettingsStore()
+    let testSSTV = SSTVChannelItem(id: "test-sstv", shortLabel: "6m", name: "6m SSTV", frequencyHz: 50_680_000, modulation: "USB", note: "6m")
+    sstvStore.addChannel(testSSTV)
+    check(sstvStore.channels.contains { $0.id == "test-sstv" }, "SSTV: Kanal hinzugefügt")
+    check(sstvStore.activeFrequencyHz == 50_680_000, "SSTV: Kanal Frequenz")
+    sstvStore.removeChannel(id: "test-sstv")
+    check(!sstvStore.channels.contains { $0.id == "test-sstv" }, "SSTV: Kanal gelöscht")
+
+    // DSC Kanäle
+    let dscStore = DSCSettingsStore()
+    let testDSC = DSCChannelItem(id: "test-dsc", label: "4207,5", frequencyHz: 4_207_500, isVHF: false, note: "4MHz DSC")
+    dscStore.addChannel(testDSC)
+    check(dscStore.channels.contains { $0.id == "test-dsc" }, "DSC: Kanal hinzugefügt")
+    check(dscStore.activeFrequencyHz == 4_207_500, "DSC: Frequenz")
+    dscStore.removeChannel(id: "test-dsc")
+    check(!dscStore.channels.contains { $0.id == "test-dsc" }, "DSC: Kanal gelöscht")
+
+    // Pager Kanäle
+    let pagerStore = PagerSettingsStore()
+    let testPager = PagerChannelItem(id: "test-pager", name: "Funkruf 466M", frequencyHz: 466_075_000, note: "US Pager")
+    pagerStore.addChannel(testPager)
+    check(pagerStore.channels.contains { $0.id == "test-pager" }, "Pager: Kanal hinzugefügt")
+    check(pagerStore.activeFrequencyHz == 466_075_000, "Pager: Frequenz")
+    pagerStore.removeChannel(id: "test-pager")
+    check(!pagerStore.channels.contains { $0.id == "test-pager" }, "Pager: Kanal gelöscht")
+
+    // Packet Kanäle
+    let packetStore = PacketSettingsStore()
+    let testPacket = PacketChannelItem(id: "test-packet", name: "145,050", frequencyHz: 145_050_000, note: "2m US Winlink")
+    packetStore.addChannel(testPacket)
+    check(packetStore.channels.contains { $0.id == "test-packet" }, "Packet: Kanal hinzugefügt")
+    check(packetStore.activeFrequencyHz == 145_050_000, "Packet: Frequenz")
+    packetStore.removeChannel(id: "test-packet")
+    check(!packetStore.channels.contains { $0.id == "test-packet" }, "Packet: Kanal gelöscht")
+
+    // ACARS Kanäle
+    let acarsStore = ACARSSettingsStore()
+    let testACARS = ACARSChannelItem(id: "test-acars", name: "131,450", frequencyHz: 131_450_000, note: "Japan ACARS")
+    acarsStore.addChannel(testACARS)
+    check(acarsStore.channels.contains { $0.id == "test-acars" }, "ACARS: Kanal hinzugefügt")
+    check(acarsStore.activeFrequencyHz == 131_450_000, "ACARS: Frequenz")
+    acarsStore.removeChannel(id: "test-acars")
+    check(!acarsStore.channels.contains { $0.id == "test-acars" }, "ACARS: Kanal gelöscht")
+
+    // PSK Bänder
+    let pskStore = PSKSettingsStore()
+    let testPSK = PSKBandItem(id: "test-psk", name: "6m", dialHz: 50_290_000, note: "6m PSK")
+    pskStore.addBand(testPSK)
+    check(pskStore.bands.contains { $0.id == "test-psk" }, "PSK: Band hinzugefügt")
+    check(pskStore.activeDialHz == 50_290_000, "PSK: Dial Hz")
+    pskStore.removeBand(id: "test-psk")
+    check(!pskStore.bands.contains { $0.id == "test-psk" }, "PSK: Band gelöscht")
+}
+
+// MARK: - Web-Server & WebSocket Tests
+if want("web") {
+    webServerTests()
+}
+
+@MainActor func webServerTests() {
+    // 1. WebSocket Frame Codec Tests (RFC 6455)
+    let textData = Data("Hello Digidec Web Remote".utf8)
+    let frame = WebSocketFrame.makeTextFrame("Hello Digidec Web Remote")
+    check(frame.count == 2 + textData.count, "WebSocket: Unmaskierter Text-Frame Länge korrekt (\(frame.count))")
+    check(frame[0] == 0x81, "WebSocket: Opcode Text (0x1) mit FIN Bit (0x80)")
+    check(frame[1] == UInt8(textData.count), "WebSocket: Payload-Länge stimmt überein")
+
+    // 2. Client-Frame Dekodierung mit Maskierung
+    var clientFrame = Data([0x81, 0x85]) // FIN=1, Opcode=Text, Masked=1, Len=5
+    let maskKey: [UInt8] = [0x12, 0x34, 0x56, 0x78]
+    clientFrame.append(contentsOf: maskKey)
+    let payload = [UInt8]("Hello".utf8)
+    let maskedPayload = payload.enumerated().map { $0.element ^ maskKey[$0.offset % 4] }
+    clientFrame.append(contentsOf: maskedPayload)
+
+    let parsed = WebSocketFrame.parseClientFrame(from: clientFrame)
+    check(parsed != nil, "WebSocket: Maskierter Client-Frame erfolgreich geparst")
+    check(parsed?.opcode == .text, "WebSocket: Opcode korrekt als Text erkannt")
+    check(parsed.flatMap { String(data: $0.payload, encoding: .utf8) } == "Hello", "WebSocket: Payload korrekt demaskiert ('Hello')")
+
+    // 3. Binärer Frame für Wasserfall / Audio
+    let binData = Data([0x01, 120, 130, 140, 150])
+    let binFrame = WebSocketFrame.makeBinaryFrame(binData)
+    check(binFrame[0] == 0x82, "WebSocket: Binär-Frame Opcode (0x2) mit FIN Bit (0x80)")
+
+    // 4. Web-Dashboard Assets
+    check(!WebDashboardAssets.html.isEmpty, "Web-Dashboard HTML Asset vorhanden")
+    check(WebDashboardAssets.html.contains("DIGIDEC"), "Web-Dashboard enthält DIGIDEC Titel")
+    check(WebDashboardAssets.html.contains("RadioTheme"), "Web-Dashboard enthält RadioTheme Design-Tokens")
+    check(WebDashboardAssets.html.contains("waterfall-canvas"), "Web-Dashboard enthält Wasserfall-Canvas")
+
+    // 5. Server-Instanz Konfiguration
+    let server = DigidecWebServer.shared
+    check(server.port >= 1024, "Web-Server: Port gültig (\(server.port))")
+    check(!server.isRunning, "Web-Server: Initial nicht aktiv")
+}
 
 
 // MARK: - ACARS
@@ -11373,9 +11503,9 @@ if want("sdr") {
     }
 
     // HF-Wasserfall: Zoomstufen und Frequenzbereich
-    check(SDRZoomFactor.allCases == [.x1, .x2, .x4, .x8, .x16], "SDR Zoom: Stufen 1×, 2×, 4×, 8×, 16×")
-    check(SDRZoomFactor.x1.next() == .x2 && SDRZoomFactor.x16.next() == .x16 && SDRZoomFactor.x16.previous() == .x8 && SDRZoomFactor.x1.previous() == .x1, "SDR Zoom: Vor- und Zurückschalten mit Anschlag")
-    check(SDRZoomFactor.x1.visibleSpan(sampleRate: 2_400_000) == 2_400_000 && SDRZoomFactor.x4.visibleSpan(sampleRate: 2_400_000) == 600_000 && SDRZoomFactor.x16.visibleSpan(sampleRate: 2_400_000) == 150_000, "SDR Zoom: sichtbare Bandbreite")
+    check(SDRZoomFactor.allCases == [.x1, .x2, .x4, .x8, .x16, .x32], "SDR Zoom: Stufen 1×, 2×, 4×, 8×, 16×, 32×")
+    check(SDRZoomFactor.x1.next() == .x2 && SDRZoomFactor.x32.next() == .x32 && SDRZoomFactor.x32.previous() == .x16 && SDRZoomFactor.x1.previous() == .x1, "SDR Zoom: Vor- und Zurückschalten mit Anschlag")
+    check(SDRZoomFactor.x1.visibleSpan(sampleRate: 2_400_000) == 2_400_000 && SDRZoomFactor.x4.visibleSpan(sampleRate: 2_400_000) == 600_000 && SDRZoomFactor.x16.visibleSpan(sampleRate: 2_400_000) == 150_000 && SDRZoomFactor.x32.visibleSpan(sampleRate: 2_400_000) == 75_000, "SDR Zoom: sichtbare Bandbreite")
     let full = SDRZoomFactor.x1.visibleRange(center: 144_800_000, sampleRate: 2_400_000, loHz: 145_000_000)
     check(full == (143_800_000...146_200_000), "SDR Zoom: 1× umfasst das volle I/Q-Fenster")
     let z4 = SDRZoomFactor.x4.visibleRange(center: 145_000_000, sampleRate: 2_400_000, loHz: 145_000_000)
@@ -11392,6 +11522,7 @@ if want("sdr") {
     check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x4) == 16384, "SDR Auto-Auflösung: 4× = 16384 Bins")
     check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x8) == 32768, "SDR Auto-Auflösung: 8× = 32768 Bins")
     check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x16) == 32768, "SDR Auto-Auflösung: 16× = 32768 Bins")
+    check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 2_400_000, zoom: .x32) == 32768, "SDR Auto-Auflösung: 32× = 32768 Bins")
     // Hohe Abtastrate (> 5 MS/s)
     check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 6_000_000, zoom: .x1) == 16384, "SDR Auto-Auflösung >5 MS/s: 1× = 16384 Bins")
     check(SDRWaterfallResolution.auto.effectiveBins(sampleRate: 6_000_000, zoom: .x2) == 32768, "SDR Auto-Auflösung >5 MS/s: 2× = 32768 Bins")

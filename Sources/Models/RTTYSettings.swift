@@ -75,28 +75,98 @@ public struct RTTYParameters: Equatable, Codable, Sendable {
     }
 }
 
-public struct RTTYPreset: Identifiable, Equatable, Sendable {
-    public let id: String
-    public let name: String
-    public let parameters: RTTYParameters
-    public let note: String
+/// Eine Schnellwahl-Sendefrequenz für ein RTTY-Preset
+public struct RTTYFrequencyItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var label: String
+    public var hz: Double
+    public var callsign: String
+    public var note: String
 
-    /// Presets aus PLAN.md, Abschnitt 5.2. Die DWD-Polarität (`reverse`) ist beim ersten Empfang zu prüfen.
+    public init(id: String = UUID().uuidString, label: String, hz: Double, callsign: String = "", note: String = "") {
+        self.id = id
+        self.label = label
+        self.hz = hz
+        self.callsign = callsign
+        self.note = note
+    }
+}
+
+public struct RTTYPreset: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var parameters: RTTYParameters
+    public var note: String
+    public var frequencies: [RTTYFrequencyItem]
+
+    public init(id: String, name: String, parameters: RTTYParameters, note: String, frequencies: [RTTYFrequencyItem] = []) {
+        self.id = id
+        self.name = name
+        self.parameters = parameters
+        self.note = note
+        self.frequencies = frequencies
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, parameters, note, frequencies }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        parameters = try c.decode(RTTYParameters.self, forKey: .parameters)
+        note = try c.decode(String.self, forKey: .note)
+        frequencies = try c.decodeIfPresent([RTTYFrequencyItem].self, forKey: .frequencies) ?? []
+    }
+
+    /// Presets mit Voreinstellungen und Frequenzen
     public static let all: [RTTYPreset] = [
         RTTYPreset(id: "ham", name: "Amateur",
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
-                   note: "Amateurfunk-Standard, Baudot mit US-TTY-Ziffern (fldigi-Standard)"),
-        // DWD: Mark auf der tieferen HF (bestätigt 30.09.2026 an DDK2, PLAN.md 5.2) -> reverse bezogen auf USB;
-        // europäischer ITA2-Ziffernsatz (noch zu bestätigen); kein Unshift on Space (SYNOP-Gruppen, beobachtet 30.09.2026)
+                   note: "Amateurfunk-Standard, Baudot mit US-TTY-Ziffern (fldigi-Standard)",
+                   frequencies: [
+                       RTTYFrequencyItem(id: "ham-20m", label: "14080", hz: 14_080_000, callsign: "20m", note: "Weltweiter Hauptbereich"),
+                       RTTYFrequencyItem(id: "ham-40m", label: "7040", hz: 7_040_000, callsign: "40m", note: "Europa / DX"),
+                       RTTYFrequencyItem(id: "ham-80m", label: "3590", hz: 3_590_000, callsign: "80m", note: "Abendverkehr"),
+                       RTTYFrequencyItem(id: "ham-15m", label: "21080", hz: 21_080_000, callsign: "15m", note: "DX-Band"),
+                       RTTYFrequencyItem(id: "ham-10m", label: "28080", hz: 28_080_000, callsign: "10m", note: "Sporadic-E / Solar")
+                   ]),
         RTTYPreset(id: "dwd-kw", name: "DWD KW",
                    parameters: RTTYParameters(shift: 450, baud: 50, reverse: true, ita2: true, unshiftOnSpace: false),
-                   note: "DWD Pinneberg 4583 / 7646 / 10100,8 / 11039 / 14467,3 kHz"),
+                   note: "DWD Pinneberg 4583 / 7646 / 10100,8 / 11039 / 14467,3 kHz",
+                   frequencies: [
+                       RTTYFrequencyItem(id: "dwd-4583", label: "4583 kHz", hz: 4_583_000, callsign: "DDK 2", note: "Programm 1"),
+                       RTTYFrequencyItem(id: "dwd-7646", label: "7646 kHz", hz: 7_646_000, callsign: "DDH 7", note: "Programm 1"),
+                       RTTYFrequencyItem(id: "dwd-10100", label: "10100,8", hz: 10_100_800, callsign: "DDK 9", note: "Programm 1"),
+                       RTTYFrequencyItem(id: "dwd-11039", label: "11039 kHz", hz: 11_039_000, callsign: "DDH 9", note: "Programm 2"),
+                       RTTYFrequencyItem(id: "dwd-14467", label: "14467,3", hz: 14_467_300, callsign: "DDK 8", note: "Programm 1")
+                   ]),
         RTTYPreset(id: "dwd-lw", name: "DWD LW",
                    parameters: RTTYParameters(shift: 85, baud: 50, reverse: true, ita2: true, unshiftOnSpace: false),
-                   note: "DWD DDH47 147,3 kHz"),
+                   note: "DWD DDH47 147,3 kHz",
+                   frequencies: [
+                       RTTYFrequencyItem(id: "dwd-147", label: "147,3 kHz", hz: 147_300, callsign: "DDH 47", note: "Programm 2")
+                   ]),
+        RTTYPreset(id: "uscg", name: "USCG",
+                   parameters: RTTYParameters(shift: 170, baud: 45.45, reverse: true, ita2: false, unshiftOnSpace: true),
+                   note: "US Coast Guard Weather & SITOR-B",
+                   frequencies: [
+                       RTTYFrequencyItem(id: "uscg-6340", label: "6340,5", hz: 6_340_500, callsign: "NMF", note: "Boston"),
+                       RTTYFrequencyItem(id: "uscg-8459", label: "8459 kHz", hz: 8_459_000, callsign: "NMF", note: "Boston"),
+                       RTTYFrequencyItem(id: "uscg-8682", label: "8682 kHz", hz: 8_682_000, callsign: "NMC", note: "Pt Reyes"),
+                       RTTYFrequencyItem(id: "uscg-12788", label: "12788 kHz", hz: 12_788_000, callsign: "NMC", note: "Pt Reyes")
+                   ]),
+        RTTYPreset(id: "jmh", name: "JMH Tokyo",
+                   parameters: RTTYParameters(shift: 850, baud: 50, reverse: false, ita2: true, unshiftOnSpace: false),
+                   note: "Japan Meteorological Agency",
+                   frequencies: [
+                       RTTYFrequencyItem(id: "jmh-3622", label: "3622,5", hz: 3_622_500, callsign: "JMH", note: "Tokyo"),
+                       RTTYFrequencyItem(id: "jmh-7795", label: "7795 kHz", hz: 7_795_000, callsign: "JMH", note: "Tokyo"),
+                       RTTYFrequencyItem(id: "jmh-13988", label: "13988,5", hz: 13_988_500, callsign: "JMH", note: "Tokyo")
+                   ]),
         RTTYPreset(id: "custom", name: "Eigene",
                    parameters: RTTYParameters(shift: 170, baud: 45.45),
-                   note: "Frei einstellbar")
+                   note: "Frei einstellbar",
+                   frequencies: [])
     ]
 
     public static func preset(id: String) -> RTTYPreset? {

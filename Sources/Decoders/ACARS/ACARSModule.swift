@@ -40,6 +40,37 @@ public enum ACARSChannel: String, CaseIterable, Identifiable, Codable, Sendable 
     }
 }
 
+/// Frei konfigurierbarer ACARS-Kanal
+public struct ACARSChannelItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var frequencyHz: Double?
+    public var note: String
+
+    public init(id: String = UUID().uuidString, name: String, frequencyHz: Double?, note: String = "") {
+        self.id = id
+        self.name = name
+        self.frequencyHz = frequencyHz
+        self.note = note
+    }
+
+    public var label: String {
+        frequencyHz.map { String(format: "%.3f", $0 / 1_000_000).replacingOccurrences(of: ".", with: ",") } ?? "frei"
+    }
+
+    public static let standardChannels: [ACARSChannelItem] = [
+        ACARSChannelItem(id: "f131550", name: "131,550", frequencyHz: 131_550_000, note: "131,550 MHz: Weltweiter Hauptkanal (ARINC)"),
+        ACARSChannelItem(id: "f131725", name: "131,725", frequencyHz: 131_725_000, note: "131,725 MHz: Europa (SITA)"),
+        ACARSChannelItem(id: "f131525", name: "131,525", frequencyHz: 131_525_000, note: "131,525 MHz: Europa"),
+        ACARSChannelItem(id: "f130025", name: "130,025", frequencyHz: 130_025_000, note: "130,025 MHz: Europa"),
+        ACARSChannelItem(id: "f136900", name: "136,900", frequencyHz: 136_900_000, note: "136,900 MHz: Europa, Datenfunk"),
+        ACARSChannelItem(id: "f130450", name: "130,450", frequencyHz: 130_450_000, note: "130,450 MHz: Nordamerika (ARINC)"),
+        ACARSChannelItem(id: "f131125", name: "131,125", frequencyHz: 131_125_000, note: "131,125 MHz: Nordamerika"),
+        ACARSChannelItem(id: "f131450", name: "131,450", frequencyHz: 131_450_000, note: "131,450 MHz: Japan (Avicom)"),
+        ACARSChannelItem(id: "free", name: "frei", frequencyHz: nil, note: "Funkgerät nicht abstimmen")
+    ]
+}
+
 // MARK: - Label und OOOI
 
 public enum ACARSLabels {
@@ -148,17 +179,89 @@ public final class AirportCatalog: @unchecked Sendable {
 
 @MainActor
 public final class ACARSSettingsStore: ObservableObject {
-    @Published public var channel: ACARSChannel { didSet { UserDefaults.standard.set(channel.rawValue, forKey: "acarsChannel") } }
+    @Published public private(set) var channels: [ACARSChannelItem]
+    @Published public var selectedChannelID: String { didSet { applySelectedChannel(); save() } }
+    @Published public var channel: ACARSChannel { didSet { save() } }
     /// Meldungen vom Boden zum Flugzeug zeigen
-    @Published public var showUplink: Bool { didSet { UserDefaults.standard.set(showUplink, forKey: "acarsUplink") } }
+    @Published public var showUplink: Bool { didSet { save() } }
     /// Meldungen ohne Text (Quittungen, Verbindungstests) ausblenden
-    @Published public var hideEmpty: Bool { didSet { UserDefaults.standard.set(hideEmpty, forKey: "acarsHideEmpty") } }
+    @Published public var hideEmpty: Bool { didSet { save() } }
 
     public init() {
         let d = UserDefaults.standard
-        channel = d.string(forKey: "acarsChannel").flatMap { ACARSChannel(rawValue: $0) } ?? .f131550
+        let loadedChannels: [ACARSChannelItem]
+        if let data = d.data(forKey: "acarsCustomChannels"),
+           let list = try? JSONDecoder().decode([ACARSChannelItem].self, from: data), !list.isEmpty {
+            loadedChannels = list
+        } else {
+            loadedChannels = ACARSChannelItem.standardChannels
+        }
+        let savedID = d.string(forKey: "acarsSelectedChannelID")
+        let initialID = loadedChannels.first(where: { $0.id == savedID })?.id ?? loadedChannels.first?.id ?? "f131550"
+        channels = loadedChannels
+        selectedChannelID = initialID
+        channel = ACARSChannel(rawValue: initialID) ?? .f131550
         showUplink = d.object(forKey: "acarsUplink") as? Bool ?? true
         hideEmpty = d.object(forKey: "acarsHideEmpty") as? Bool ?? true
+    }
+
+    public var activeChannelItem: ACARSChannelItem {
+        channels.first { $0.id == selectedChannelID } ?? channels[0]
+    }
+
+    public var activeFrequencyHz: Double? { activeChannelItem.frequencyHz }
+
+    public func selectChannel(id: String) {
+        guard channels.contains(where: { $0.id == id }) else { return }
+        selectedChannelID = id
+    }
+
+    public func addChannel(_ item: ACARSChannelItem) {
+        channels.append(item)
+        selectedChannelID = item.id
+        save()
+    }
+
+    public func updateChannel(_ item: ACARSChannelItem) {
+        if let idx = channels.firstIndex(where: { $0.id == item.id }) {
+            channels[idx] = item
+            if selectedChannelID == item.id {
+                applySelectedChannel()
+            }
+            save()
+        }
+    }
+
+    public func removeChannel(id: String) {
+        guard channels.count > 1 else { return }
+        channels.removeAll { $0.id == id }
+        if selectedChannelID == id {
+            selectedChannelID = channels.first?.id ?? "free"
+        }
+        save()
+    }
+
+    public func resetChannelsToDefault() {
+        channels = ACARSChannelItem.standardChannels
+        if !channels.contains(where: { $0.id == selectedChannelID }) {
+            selectedChannelID = "f131550"
+        }
+        save()
+    }
+
+    private func applySelectedChannel() {
+        channel = ACARSChannel(rawValue: activeChannelItem.id) ?? .free
+    }
+
+    private func save() {
+        let d = UserDefaults.standard
+        if let data = try? JSONEncoder().encode(channels) {
+            d.set(data, forKey: "acarsCustomChannels")
+        }
+        d.set(selectedChannelID, forKey: "acarsSelectedChannelID")
+        d.set(channel.rawValue, forKey: "acarsChannel")
+        d.set(showUplink, forKey: "acarsUplink")
+        d.set(hideEmpty, forKey: "acarsHideEmpty")
     }
 }
 

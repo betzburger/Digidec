@@ -184,7 +184,7 @@ struct DSCTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -197,16 +197,19 @@ struct DSCTuningPanel: View {
 struct DSCSettingsPanel: View {
     @ObservedObject var settings: DSCSettingsStore
 
+    @State private var editingChannel: DSCChannelItem?
+    @State private var isNewChannel = false
+    @State private var showChannelEditor = false
+    @State private var editLabel = ""
+    @State private var editFreqText = ""
+    @State private var editIsVHF = false
+    @State private var editNote = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
-                ForEach(DSCChannel.allCases) { c in
-                    Button { settings.channel = c } label: { Text(verbatim: c.label).lineLimit(1).minimumScaleFactor(0.7) }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.channel == c))
-                        .help(c.frequencyHz == nil ? "Funkgerät nicht abstimmen" : (c.isVHF ? "UKW-DSC Kanal 70, 156,525 MHz, FM (nur mit QSY AUTO wird das Funkgerät abgestimmt)" : "DSC \(c.label) kHz (nur mit QSY AUTO wird das Funkgerät abgestimmt)"))
-                }
-            }
-            if !settings.channel.isVHF {
+            channelGrid
+
+            if !settings.activeChannelItem.isVHF {
                 HStack(spacing: 6) {
                     Button("AUTO") { settings.autoCenter.toggle() }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.autoCenter))
@@ -216,11 +219,135 @@ struct DSCSettingsPanel: View {
                         .help("Seitenband umkehren (bei LSB): tiefer und hoher Ton vertauscht")
                 }
             }
-            Text(verbatim: settings.channel.isVHF
-                 ? "UKW Kanal 70: FM, Diskriminator- oder Lautsprecher-Audio, 1200 Bd. Keine Abstimmung nötig."
-                 : "USB, Rufträger bei \(Int(settings.centerHz.rounded())) Hz. Klick in den Wasserfall setzt die Mitte (schaltet AUTO aus).")
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundColor(RadioTheme.textMuted)
+            if settings.activeChannelItem.isVHF {
+                Text("UKW Kanal 70: FM, Diskriminator- oder Lautsprecher-Audio, 1200 Bd. Keine Abstimmung nötig.")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textMuted)
+            } else {
+                Text(String(format: NSLocalizedString("USB, Rufträger bei %lld Hz. Klick in den Wasserfall setzt die Mitte (schaltet AUTO aus).", comment: ""), Int(settings.centerHz.rounded())))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textMuted)
+            }
         }
+        .sheet(isPresented: $showChannelEditor) {
+            PresetModalSheet(
+                title: isNewChannel ? "NEUER DSC-KANAL" : "DSC-KANAL BEARBEITEN",
+                isValid: !editLabel.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: saveChannel,
+                onCancel: { showChannelEditor = false }
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text(LocalizedStringKey("Bezeichnung"))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .frame(width: 110, alignment: .leading)
+                        TextField("z. B. 2187,5 oder K70", text: $editLabel)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                    HStack(spacing: 8) {
+                        Text(LocalizedStringKey("Frequenz (kHz)"))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .frame(width: 110, alignment: .leading)
+                        TextField("z. B. 2187,5 oder 156525 (leer = frei)", text: $editFreqText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                    HStack(spacing: 8) {
+                        Text(LocalizedStringKey("Band / Mode"))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .frame(width: 110, alignment: .leading)
+                        Button("MF/HF (USB)") { editIsVHF = false }
+                            .buttonStyle(ModeButtonStyle(isSelected: !editIsVHF))
+                        Button("UKW (FM)") { editIsVHF = true }
+                            .buttonStyle(ModeButtonStyle(isSelected: editIsVHF))
+                    }
+                    HStack(spacing: 8) {
+                        Text(LocalizedStringKey("Notiz"))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .frame(width: 110, alignment: .leading)
+                        TextField("z. B. Seenot / Arbeitskanal", text: $editNote)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                }
+            }
+        }
+    }
+
+    private var channelGrid: some View {
+        let count = settings.channels.count + 1
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+            ForEach(settings.channels) { c in
+                Button {
+                    settings.selectChannel(id: c.id)
+                } label: {
+                    Text(verbatim: c.label).lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedChannelID == c.id))
+                .help(c.frequencyHz == nil ? "Funkgerät nicht abstimmen" : (c.isVHF ? "UKW-DSC Kanal 70, 156,525 MHz, FM" : "DSC \(c.label) kHz"))
+                .presetContextMenu(
+                    onEdit: { startEditChannel(c) },
+                    onDelete: settings.channels.count > 1 ? { settings.removeChannel(id: c.id) } : nil,
+                    onReset: { settings.resetChannelsToDefault() }
+                )
+            }
+
+            Button {
+                startAddChannel()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Neuen DSC-Kanal hinzufügen")
+        }
+    }
+
+    private func startAddChannel() {
+        isNewChannel = true
+        editingChannel = nil
+        editLabel = ""
+        editFreqText = ""
+        editIsVHF = false
+        editNote = ""
+        showChannelEditor = true
+    }
+
+    private func startEditChannel(_ c: DSCChannelItem) {
+        isNewChannel = false
+        editingChannel = c
+        editLabel = c.label
+        if let f = c.frequencyHz {
+            let khz = f / 1000
+            editFreqText = khz == khz.rounded() ? String(format: "%.0f", khz) : String(format: "%.1f", khz).replacingOccurrences(of: ".", with: ",")
+        } else {
+            editFreqText = ""
+        }
+        editIsVHF = c.isVHF
+        editNote = c.note
+        showChannelEditor = true
+    }
+
+    private func saveChannel() {
+        let clean = editFreqText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let freqHz = clean.isEmpty ? nil : (Double(clean).map { $0 * 1000 })
+        let item = DSCChannelItem(
+            id: editingChannel?.id ?? UUID().uuidString,
+            label: editLabel.trimmingCharacters(in: .whitespaces),
+            frequencyHz: freqHz,
+            isVHF: editIsVHF,
+            note: editNote.trimmingCharacters(in: .whitespaces)
+        )
+        if isNewChannel {
+            settings.addChannel(item)
+        } else {
+            settings.updateChannel(item)
+        }
+        showChannelEditor = false
     }
 }

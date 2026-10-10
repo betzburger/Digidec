@@ -11,6 +11,7 @@ public final class RTTYSettingsStore: ObservableObject {
     public static let defaultCenter: Double = 1000
 
     @Published public private(set) var presetID: String
+    @Published public private(set) var presets: [RTTYPreset]
     @Published public private(set) var customParameters: RTTYParameters
     /// Reverse-Schalter je Preset (Umschalten per REV-Knopf, ohne das Preset zu verlassen)
     @Published public private(set) var reverseByPreset: [String: Bool]
@@ -21,7 +22,7 @@ public final class RTTYSettingsStore: ObservableObject {
     @Published public private(set) var centerHz: Double
     /// Erhöht sich bei jeder Mittenwahl von Hand oder per Auftrag – nicht bei AFC-Nachführung
     @Published public private(set) var manualCenterRevision = 0
-    /// Gewählte DWD-Sendefrequenz je Preset ("dwd-kw", "dwd-lw") in Hz; ohne Eintrag gilt die Automatik (Tageszeit)
+    /// Gewählte Sendefrequenz je Preset in Hz; ohne Eintrag gilt die Automatik (Tageszeit)
     @Published public private(set) var dwdFrequencyHz: [String: Double]
     /// Seitenband: automatisch aus rigctld oder von Hand
     @Published public var sidebandMode: SidebandMode {
@@ -32,6 +33,7 @@ public final class RTTYSettingsStore: ObservableObject {
 
     private enum Keys {
         static let preset = "rttyPresetID"
+        static let presets = "rttyUserPresets"
         static let custom = "rttyCustomParameters"
         static let center = "rttyCenterHz"
         // „2“: ab 0.7.0 ist Reverse auf USB bezogen (DWD-Presets tragen reverse = true); alte Schalterstände verworfen
@@ -47,9 +49,19 @@ public final class RTTYSettingsStore: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let d = defaults
-        presetID = d.string(forKey: Keys.preset).flatMap { RTTYPreset.preset(id: $0)?.id } ?? "ham"
+        let loadedPresets: [RTTYPreset]
+        if let data = d.data(forKey: Keys.presets),
+           let list = try? JSONDecoder().decode([RTTYPreset].self, from: data), !list.isEmpty {
+            loadedPresets = list
+        } else {
+            loadedPresets = RTTYPreset.all
+        }
+        let savedID = d.string(forKey: Keys.preset)
+        let initialID = loadedPresets.first(where: { $0.id == savedID })?.id ?? loadedPresets.first?.id ?? "ham"
+        presets = loadedPresets
+        presetID = initialID
         customParameters = d.data(forKey: Keys.custom).flatMap { try? JSONDecoder().decode(RTTYParameters.self, from: $0) }
-            ?? RTTYPreset.preset(id: "custom")!.parameters
+            ?? RTTYPreset.preset(id: "custom")?.parameters ?? RTTYParameters(shift: 170, baud: 45.45)
         reverseByPreset = (d.dictionary(forKey: Keys.reverse) as? [String: Bool]) ?? [:]
         options = d.data(forKey: Keys.options).flatMap { try? JSONDecoder().decode(RTTYDecodeOptions.self, from: $0) }
             ?? RTTYDecodeOptions()
@@ -58,11 +70,15 @@ public final class RTTYSettingsStore: ObservableObject {
         // und würden das Signal an den Rand von 2,4/2,7-kHz-SSB-Filtern drücken → Standard 1.000 Hz
         centerHz = (Self.centerRange.contains(c) && (300...2200).contains(c)) ? c : Self.defaultCenter
         sidebandMode = d.string(forKey: Keys.sideband).flatMap(SidebandMode.init(rawValue:)) ?? .auto
-        dwdFrequencyHz = (d.dictionary(forKey: Keys.dwdFrequency) as? [String: Double]) ?? [:]
+        dwdFrequencyHz = ((d.dictionary(forKey: Keys.dwdFrequency) as? [String: Double]) ?? [:]).filter { $0.key == "dwd-kw" || $0.key == "dwd-lw" }
         d.removeObject(forKey: "rttyReverseByPreset")
     }
 
-    public var preset: RTTYPreset { RTTYPreset.preset(id: presetID) ?? RTTYPreset.all[0] }
+    public func preset(id: String) -> RTTYPreset? {
+        presets.first { $0.id == id } ?? RTTYPreset.preset(id: id)
+    }
+
+    public var preset: RTTYPreset { preset(id: presetID) ?? presets.first ?? RTTYPreset.all[0] }
 
     /// Parameter des Presets ohne Reverse-Schalter (beim Preset „Eigene“ die eigenen Werte)
     public var baseParameters: RTTYParameters {
@@ -105,11 +121,61 @@ public final class RTTYSettingsStore: ObservableObject {
     }
 
     public func select(presetID id: String) {
-        guard RTTYPreset.preset(id: id) != nil else { return }
+        guard preset(id: id) != nil else { return }
         presetID = id
         if !Self.centerRange.contains(centerHz) || centerHz > 1800 {
             centerHz = Self.defaultCenter
         }
+        save()
+    }
+
+    /// Presets verwalten
+    public func addPreset(_ p: RTTYPreset) {
+        presets.append(p)
+        presetID = p.id
+        save()
+    }
+
+    public func updatePreset(_ p: RTTYPreset) {
+        if let idx = presets.firstIndex(where: { $0.id == p.id }) {
+            presets[idx] = p
+            save()
+        }
+    }
+
+    public func removePreset(id: String) {
+        guard presets.count > 1 else { return }
+        presets.removeAll { $0.id == id }
+        if presetID == id {
+            presetID = presets.first?.id ?? "ham"
+        }
+        save()
+    }
+
+    public func resetPresetsToDefault() {
+        presets = RTTYPreset.all
+        if !presets.contains(where: { $0.id == presetID }) {
+            presetID = presets.first?.id ?? "ham"
+        }
+        save()
+    }
+
+    public func addFrequency(_ item: RTTYFrequencyItem, toPreset id: String) {
+        guard let idx = presets.firstIndex(where: { $0.id == id }) else { return }
+        presets[idx].frequencies.append(item)
+        save()
+    }
+
+    public func updateFrequency(_ item: RTTYFrequencyItem, inPreset id: String) {
+        guard let pIdx = presets.firstIndex(where: { $0.id == id }),
+              let fIdx = presets[pIdx].frequencies.firstIndex(where: { $0.id == item.id }) else { return }
+        presets[pIdx].frequencies[fIdx] = item
+        save()
+    }
+
+    public func removeFrequency(id: String, fromPreset idPreset: String) {
+        guard let pIdx = presets.firstIndex(where: { $0.id == idPreset }) else { return }
+        presets[pIdx].frequencies.removeAll { $0.id == id }
         save()
     }
 
@@ -128,7 +194,17 @@ public final class RTTYSettingsStore: ObservableObject {
     }
 
     /// Gewählte DWD-Frequenz des aktuellen Presets (nil = Automatik oder kein DWD-Preset)
-    public var selectedDWDFrequencyHz: Double? { dwdFrequencyHz[presetID] }
+    public var selectedDWDFrequencyHz: Double? {
+        (presetID == "dwd-kw" || presetID == "dwd-lw") ? dwdFrequencyHz[presetID] : nil
+    }
+
+    /// Frequenz für ein beliebiges Preset wählen
+    public func selectFrequency(_ hz: Double?, presetID id: String) {
+        dwdFrequencyHz[id] = hz
+        defaults.set(dwdFrequencyHz, forKey: Keys.dwdFrequency)
+    }
+
+    public var selectedFrequencyHz: Double? { dwdFrequencyHz[presetID] }
 
     public func toggleReverse() {
         if presetID == "custom" {
@@ -183,6 +259,10 @@ public final class RTTYSettingsStore: ObservableObject {
         d.set(presetID, forKey: Keys.preset)
         d.set(centerHz, forKey: Keys.center)
         d.set(reverseByPreset, forKey: Keys.reverse)
+        d.set(dwdFrequencyHz, forKey: Keys.dwdFrequency)
+        if let data = try? JSONEncoder().encode(presets) {
+            d.set(data, forKey: Keys.presets)
+        }
         if let data = try? JSONEncoder().encode(customParameters) {
             d.set(data, forKey: Keys.custom)
         }

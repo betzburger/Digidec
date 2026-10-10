@@ -112,7 +112,7 @@ struct PSKTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -157,6 +157,13 @@ struct PhaseVectorScope: View {
 struct PSKSettingsPanel: View {
     @ObservedObject var settings: PSKSettingsStore
     @State private var selectedFamily: PSKMode.Family = .bpsk
+
+    @State private var editingBand: PSKBandItem?
+    @State private var isNewBand = false
+    @State private var showBandEditor = false
+    @State private var editName = ""
+    @State private var editFreqText = ""
+    @State private var editNote = ""
 
     private static func familyTitle(_ f: PSKMode.Family) -> String {
         switch f {
@@ -206,14 +213,7 @@ struct PSKSettingsPanel: View {
                         .help(String(format: "%.0f Baud", m.baud) + Self.modeHelp(m))
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {
-                ForEach(PSKBand.allCases) { b in
-                    Button { settings.band = b } label: { Text(b.rawValue).lineLimit(1).minimumScaleFactor(0.7) }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.band == b))
-                        .help(b.dialHz.map { "Dial \(String(format: "%.3f", Double($0) / 1_000_000).replacingOccurrences(of: ".", with: ",")) MHz USB (nur mit QSY AUTO)" }
-                              ?? "Funkgerät nicht abstimmen")
-                }
-            }
+            bandGrid
             HStack(spacing: 6) {
                 Button("AFC") { settings.options.afc.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
@@ -239,5 +239,79 @@ struct PSKSettingsPanel: View {
         .onChange(of: settings.options.mode) { _, m in
             selectedFamily = m.family
         }
+        .sheet(isPresented: $showBandEditor) {
+            PresetModalSheet(
+                title: isNewBand ? "NEUES PSK-BAND" : "PSK-BAND BEARBEITEN",
+                isValid: !editName.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: saveBand,
+                onCancel: { showBandEditor = false }
+            ) {
+                SimpleChannelEditorView(unitTitle: "Dial (MHz)", name: $editName, freqText: $editFreqText, note: $editNote)
+            }
+        }
+    }
+
+    private var bandGrid: some View {
+        let count = settings.bands.count + 1
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 6)), spacing: 4) {
+            ForEach(settings.bands) { b in
+                Button {
+                    settings.selectBand(id: b.id)
+                } label: {
+                    Text(b.name).lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedBandID == b.id))
+                .help(b.dialHz.map { "Dial \(String(format: "%.3f", Double($0) / 1_000_000).replacingOccurrences(of: ".", with: ",")) MHz USB (nur mit QSY AUTO)" }
+                      ?? "Funkgerät nicht abstimmen")
+                .presetContextMenu(
+                    onEdit: { startEditBand(b) },
+                    onDelete: settings.bands.count > 1 ? { settings.removeBand(id: b.id) } : nil,
+                    onReset: { settings.resetBandsToDefault() }
+                )
+            }
+
+            Button {
+                startAddBand()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Neues PSK-Band hinzufügen")
+        }
+    }
+
+    private func startAddBand() {
+        isNewBand = true
+        editingBand = nil
+        editName = ""
+        editFreqText = ""
+        editNote = ""
+        showBandEditor = true
+    }
+
+    private func startEditBand(_ b: PSKBandItem) {
+        isNewBand = false
+        editingBand = b
+        editName = b.name
+        editFreqText = b.dialHz.map { String(format: "%.3f", Double($0) / 1_000_000).replacingOccurrences(of: ".", with: ",") } ?? ""
+        editNote = b.note
+        showBandEditor = true
+    }
+
+    private func saveBand() {
+        let cleanText = editFreqText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let mhz = Double(cleanText)
+        let hz = mhz.map { Int(($0 * 1_000_000).rounded()) }
+        let name = editName.trimmingCharacters(in: .whitespaces)
+
+        if isNewBand {
+            let item = PSKBandItem(id: UUID().uuidString, name: name, dialHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.addBand(item)
+        } else if let editingBand {
+            let item = PSKBandItem(id: editingBand.id, name: name, dialHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.updateBand(item)
+        }
+        showBandEditor = false
     }
 }

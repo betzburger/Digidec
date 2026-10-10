@@ -11,7 +11,8 @@ swift build -c release --manifest-cache none   # Package.swift prüft, ob Local/
 
 APP_NAME="Digidec"
 APP_BUNDLE="$DIR/$APP_NAME.app"
-VERSION="0.97.7"
+VERSION="$(sed -n 's/.*static let short = "\(.*\)".*/\1/p' "$DIR/Sources/App/AppVersion.swift")"
+[ -n "$VERSION" ] || VERSION="0.98.0"
 
 echo "=== 2. Creating macOS App Bundle: $APP_BUNDLE ==="
 rm -rf "$APP_BUNDLE"
@@ -115,9 +116,9 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.97.7</string>
+    <string>0.99.2</string>
     <key>CFBundleVersion</key>
-    <string>0.97.7</string>
+    <string>0.99.2</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -158,23 +159,31 @@ if [ -z "$SIGN_IDENTITY" ]; then
 fi
 
 # Framework-Bibliotheken vorab einzeln signieren
+FALLBACK_ADHOC=0
 if [ -d "$APP_BUNDLE/Contents/Frameworks" ]; then
     for f in "$APP_BUNDLE/Contents/Frameworks"/*.dylib; do
         [ -e "$f" ] || continue
         if [ "$SIGN_IDENTITY" = "-" ]; then
             codesign --force --sign - "$f"
         else
-            codesign --force --options runtime --sign "$SIGN_IDENTITY" "$f"
+            if ! codesign --force --options runtime --sign "$SIGN_IDENTITY" "$f" 2>/dev/null; then
+                echo "Notice: Developer ID sign failed on $f (keychain locked or non-interactive), falling back to ad-hoc signing."
+                codesign --force --sign - "$f"
+                FALLBACK_ADHOC=1
+            fi
         fi
     done
 fi
 
-if [ "$SIGN_IDENTITY" = "-" ]; then
+if [ "$SIGN_IDENTITY" = "-" ] || [ "$FALLBACK_ADHOC" = "1" ]; then
     echo "Signing Ad-hoc with Entitlements ($ENTITLEMENTS)..."
     codesign --force --deep --entitlements "$ENTITLEMENTS" --sign - "$APP_BUNDLE"
 else
     echo "Signing with '$SIGN_IDENTITY', Hardened Runtime and Entitlements ($ENTITLEMENTS)..."
-    codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+    if ! codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_BUNDLE" 2>/dev/null; then
+        echo "Notice: Developer ID sign failed on app bundle, falling back to ad-hoc signing."
+        codesign --force --deep --entitlements "$ENTITLEMENTS" --sign - "$APP_BUNDLE"
+    fi
 fi
 
 echo "=== 5. Registering URL scheme digidec:// with Launch Services ==="

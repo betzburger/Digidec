@@ -12,7 +12,7 @@ struct SDRplayNotchButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text("NOTCH")
+            Text(LocalizedStringKey("NOTCH"))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Button("RF") { rf.toggle() }
@@ -39,12 +39,12 @@ struct SDRplayOverloadHint: View {
             case .none:
                 EmptyView()
             case .recent:
-                Text("SDRplay war kurz übersteuert. Wenn der Empfang gestört ist: bei LNA-DÄMPFUNG auf „+“ klicken (weniger Verstärkung).")
+                Text(LocalizedStringKey("SDRplay war kurz übersteuert. Wenn der Empfang gestört ist: bei LNA-DÄMPFUNG auf „+“ klicken (weniger Verstärkung)."))
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdAmber)
                     .fixedSize(horizontal: false, vertical: true)
             case .active:
-                Text("SDRplay übersteuert: zu viel Signal am Eingang. Weniger Verstärkung einstellen: bei LNA-DÄMPFUNG auf „+“ klicken (höhere Stufe = weniger Verstärkung), alternativ die Notch einschalten.")
+                Text(LocalizedStringKey("SDRplay übersteuert: zu viel Signal am Eingang. Weniger Verstärkung einstellen: bei LNA-DÄMPFUNG auf „+“ klicken (höhere Stufe = weniger Verstärkung), alternativ die Notch einschalten."))
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.ledRed)
                     .fixedSize(horizontal: false, vertical: true)

@@ -110,6 +110,567 @@ public struct MainWindowView: View {
                             }
     }
 
+    /// Oberer Wasserfall- bzw. HF-/Empfangsbereich
+    @ViewBuilder
+    private var waterfallPanel: some View {
+        SDRWaterfallHost(audio: state.audio, settings: state.sdr, controller: state.sdrController, module: state.activeModule) {
+            Group {
+                if state.activeModule == .navtex {
+                    WaterfallView(model: state.waterfall, rtty: state.navtex, audio: state.audio)
+                } else if state.activeModule == .cw {
+                    WaterfallView(model: state.waterfall, rtty: state.cw, audio: state.audio)
+                } else if state.activeModule == .olivia {
+                    WaterfallView(model: state.waterfall, rtty: state.olivia, audio: state.audio)
+                } else if state.activeModule == .mt63 {
+                    WaterfallView(model: state.waterfall, rtty: state.mt63, audio: state.audio)
+                } else if state.activeModule == .mfsk {
+                    WaterfallView(model: state.waterfall, rtty: state.mfsk, audio: state.audio)
+                } else if state.activeModule == .hell {
+                    WaterfallView(model: state.waterfall, rtty: state.hell, audio: state.audio)
+                } else if state.activeModule == .dsc {
+                    WaterfallView(model: state.waterfall, rtty: state.dsc, audio: state.audio)
+                } else if state.activeModule == .ale {
+                    WaterfallView(model: state.waterfall, rtty: state.ale, audio: state.audio)
+                } else if state.activeModule == .aprs {
+                    WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
+                } else if state.activeModule == .adsb {
+                    ADSBScopePanel(controller: state.adsbController)
+                } else if state.activeModule == .sensors {
+                    SensorsScopePanel(controller: state.sensorsController)
+                } else if state.activeModule == .tetra {
+                    TETRAScopePanel(controller: state.tetraController)
+                } else if state.activeModule == .dab {
+                    DABSpectrumPanel(controller: state.dabController, settings: state.dab)
+                } else if state.activeModule == .rds {
+                    WaterfallView(model: state.waterfall, rtty: state.rds, audio: state.audio)
+                } else if state.activeModule == .vdl2 {
+                    VDL2ScopePanel(controller: state.vdl2Controller)
+                } else if state.activeModule == .vor {
+                    NavScopePanel(controller: state.navController, settings: state.nav)
+                } else if state.activeModule == .packet {
+                    WaterfallView(model: state.waterfall, rtty: state.packet, audio: state.audio)
+                } else if state.activeModule == .acars {
+                    WaterfallView(model: state.waterfall, rtty: state.acars, audio: state.audio)
+                } else if state.activeModule == .ais {
+                    WaterfallView(model: state.waterfall, rtty: state.ais, audio: state.audio)
+                } else if state.activeModule == .dstar {
+                    WaterfallView(model: state.waterfall, rtty: state.dstar, audio: state.audio)
+                } else if state.activeModule == .ysf {
+                    WaterfallView(model: state.waterfall, rtty: state.ysf, audio: state.audio)
+                } else if state.activeModule == .dmr {
+                    WaterfallView(model: state.waterfall, rtty: state.dmr, audio: state.audio)
+                } else if state.activeModule == .dpmr {
+                    WaterfallView(model: state.waterfall, rtty: state.dpmr, audio: state.audio)
+                } else if state.activeModule == .nxdn {
+                    WaterfallView(model: state.waterfall, rtty: state.nxdn, audio: state.audio)
+                } else if state.activeModule == .p25 {
+                    WaterfallView(model: state.waterfall, rtty: state.p25, audio: state.audio)
+                } else if state.activeModule == .m17 {
+                    WaterfallView(model: state.waterfall, rtty: state.m17, audio: state.audio)
+                } else if state.activeModule == .freedv {
+                    WaterfallView(model: state.waterfall, rtty: state.freedv, audio: state.audio)
+                } else if state.activeModule == .drm {
+                    WaterfallView(model: state.waterfall, rtty: state.drm, audio: state.audio)
+                } else if state.activeModule == .hfdl {
+                    WaterfallView(model: state.waterfall, rtty: state.hfdl, audio: state.audio)
+                } else if state.activeModule == .sonde {
+                    WaterfallView(model: state.waterfall, rtty: state.sonde, audio: state.audio)
+                } else if state.activeModule == .pager {
+                    WaterfallView(model: state.waterfall, rtty: state.pager, audio: state.audio)
+                } else if state.activeModule == .tones {
+                    WaterfallView(model: state.waterfall, rtty: state.tones, audio: state.audio)
+                } else if state.activeModule == .psk {
+                    WaterfallView(model: state.waterfall, rtty: state.psk, audio: state.audio)
+                } else if state.activeModule == .skimmer {
+                    WaterfallView(model: state.waterfall, rtty: state.skimmer, audio: state.audio)
+                } else if state.activeModule == .wefax {
+                    WaterfallView(model: state.waterfall, rtty: state.wefax, audio: state.audio)
+                } else if state.activeModule == .ft8 {
+                    WaterfallView(model: state.waterfall, rtty: state.ft8, audio: state.audio)
+                } else if state.activeModule == .ft4 {
+                    WaterfallView(model: state.waterfall, rtty: state.ft4, audio: state.audio)
+                } else if state.activeModule == .ft2 {
+                    WaterfallView(model: state.waterfall, rtty: state.ft2, audio: state.audio)
+                } else if state.activeModule == .wspr {
+                    WaterfallView(model: state.waterfall, rtty: state.wspr, audio: state.audio)
+                } else if state.activeModule == .js8 {
+                    WaterfallView(model: state.waterfall, rtty: state.js8, audio: state.audio)
+                } else if state.activeModule == .ndb {
+                    WaterfallView(model: state.waterfall, rtty: state.ndb, audio: state.audio)
+                } else if state.activeModule == .dcf77 {
+                    WaterfallView(model: state.waterfall, rtty: state.dcf77, audio: state.audio)
+                } else if state.activeModule == .efr {
+                    WaterfallView(model: state.waterfall, rtty: state.efr, audio: state.audio)
+                } else if state.activeModule == .sstv {
+                    WaterfallView(model: state.waterfall, rtty: state.sstv, audio: state.audio)
+                } else {
+                    WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
+                }
+            }
+        }
+    }
+
+    private var waterfallTitle: String {
+        switch state.activeModule {
+        case .adsb, .sensors, .vdl2, .tetra, .vor, .dab:
+            return "Empfang"
+        case .channels:
+            return "HF-Fenster"
+        default:
+            return "Wasserfall"
+        }
+    }
+
+    private var mainPanelTitle: String {
+        switch state.activeModule {
+        case .aprs: return "APRS Stationen"
+        case .packet: return "Packet-Radio"
+        case .adsb: return "Flugzeuge"
+        case .acars: return "ACARS Meldungen"
+        case .ais: return "AIS Schiffe"
+        case .dstar: return "D-Star Aussendungen"
+        case .ysf: return "YSF Aussendungen"
+        case .dmr: return "DMR Gespräche"
+        case .dpmr: return "dPMR Gespräche"
+        case .nxdn: return "NXDN Gespräche"
+        case .p25: return "P25 Gespräche"
+        case .drm: return "DRM Dienste"
+        case .tetra: return "TETRA Gespräche"
+        case .ndb: return "NDB Funkfeuer"
+        case .m17: return "M17 Gespräche"
+        case .sensors: return "Funksensoren"
+        case .dab: return "DAB Dienste"
+        case .vdl2: return "VDL2 Flugzeuge"
+        case .vor: return "VOR/ILS Messwerte"
+        case .freedv: return "FreeDV Übertragungen"
+        case .hfdl: return "HFDL Meldungen"
+        case .skimmer: return "Skimmer Signale"
+        case .sonde: return "Radiosonden"
+        case .pager: return "Funkruf"
+        case .tones: return "Tonfolgen"
+        case .wefax: return "Wetterfax"
+        case .sstv: return "SSTV Bild"
+        case .ft8, .ft4, .ft2: return "Bandaktivität"
+        case .wspr: return "WSPR Spots"
+        case .js8: return "JS8 Aktivität"
+        case .dsc: return "DSC Rufe"
+        case .ale: return "ALE Aussendungen"
+        case .dcf77: return "DCF77 Atomzeit"
+        case .efr: return "EFR Rundsteuerung"
+        case .channels: return "Mehrkanal"
+        default: return "Empfangstext"
+        }
+    }
+
+    @ViewBuilder
+    private var leftColumnContent: some View {
+        GeometryReader { geo in
+            let totalH = geo.size.height
+            let minWf = DigidecState.minWaterfallHeight
+            let minPanel = DigidecState.minPanelHeight
+
+            switch state.mapLayout(state.activeModule) {
+            case .list:
+                let minListTotal = minWf + minPanel + 48
+                let contentH = max(totalH, minListTotal)
+                let maxWf = max(minWf, contentH - minPanel - 48)
+                let effectiveWf = min(max(state.waterfallHeight, minWf), maxWf)
+                let listStack = VStack(spacing: 6) {
+                    waterfallPanel
+                        .frame(height: effectiveWf)
+                        .radioCard(title: waterfallTitle)
+
+                    VerticalResizeDivider(
+                        height: $state.waterfallHeight,
+                        range: minWf...maxWf,
+                        defaultHeight: DigidecState.defaultWaterfallHeight,
+                        onReset: { state.resetWaterfallHeight() }
+                    )
+
+                    mainPanel
+                        .frame(minHeight: minPanel, maxHeight: .infinity)
+                        .radioCard(title: mainPanelTitle)
+                }
+
+                if totalH < minListTotal {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        listStack
+                            .frame(width: geo.size.width - 6, height: minListTotal)
+                            .padding(.trailing, 2)
+                    }
+                    .frame(width: geo.size.width, height: totalH)
+                } else {
+                    listStack
+                        .frame(width: geo.size.width, height: totalH)
+                }
+
+            case .map:
+                let minMapTotal = minWf + minPanel + 48
+                let contentH = max(totalH, minMapTotal)
+                let maxWf = max(minWf, contentH - minPanel - 48)
+                let effectiveWf = min(max(state.waterfallHeight, minWf), maxWf)
+                let mapStack = VStack(spacing: 6) {
+                    waterfallPanel
+                        .frame(height: effectiveWf)
+                        .radioCard(title: waterfallTitle)
+
+                    VerticalResizeDivider(
+                        height: $state.waterfallHeight,
+                        range: minWf...maxWf,
+                        defaultHeight: DigidecState.defaultWaterfallHeight,
+                        onReset: { state.resetWaterfallHeight() }
+                    )
+
+                    ModuleMapView(state: state)
+                        .frame(minHeight: minPanel, maxHeight: .infinity)
+                        .radioCard(title: "Karte")
+                }
+
+                if totalH < minMapTotal {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        mapStack
+                            .frame(width: geo.size.width - 6, height: minMapTotal)
+                            .padding(.trailing, 2)
+                    }
+                    .frame(width: geo.size.width, height: totalH)
+                } else {
+                    mapStack
+                        .frame(width: geo.size.width, height: totalH)
+                }
+
+            case .split:
+                let overhead: CGFloat = 85
+                let minSplitTotal = minWf + (minPanel * 2) + overhead
+                let contentH = max(totalH, minSplitTotal)
+                let maxWf = max(minWf, contentH - (minPanel * 2) - overhead)
+                let effectiveWf = min(max(state.waterfallHeight, minWf), maxWf)
+
+                let remainingH = max((minPanel * 2) + 30, contentH - effectiveWf - 55)
+                let maxMap = max(minPanel, remainingH - minPanel - 35)
+                let effectiveMap = min(max(state.splitMapHeight, minPanel), maxMap)
+
+                let splitStack = VStack(spacing: 6) {
+                    waterfallPanel
+                        .frame(height: effectiveWf)
+                        .radioCard(title: waterfallTitle)
+
+                    VerticalResizeDivider(
+                        height: $state.waterfallHeight,
+                        range: minWf...maxWf,
+                        defaultHeight: DigidecState.defaultWaterfallHeight,
+                        onReset: { state.resetWaterfallHeight() }
+                    )
+
+                    mainPanel
+                        .frame(minHeight: minPanel, maxHeight: .infinity)
+                        .radioCard(title: mainPanelTitle)
+
+                    VerticalResizeDivider(
+                        height: $state.splitMapHeight,
+                        range: minPanel...maxMap,
+                        defaultHeight: DigidecState.defaultSplitMapHeight,
+                        isReversed: true,
+                        onReset: { state.resetSplitMapHeight() }
+                    )
+
+                    ModuleMapView(state: state)
+                        .frame(height: effectiveMap)
+                        .radioCard(title: "Karte")
+                }
+
+                if totalH < minSplitTotal {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        splitStack
+                            .frame(width: geo.size.width - 6, height: minSplitTotal)
+                            .padding(.trailing, 2)
+                    }
+                    .frame(width: geo.size.width, height: totalH)
+                } else {
+                    splitStack
+                        .frame(width: geo.size.width, height: totalH)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var rightColumnPanels: some View {
+        if state.activeModule == .navtex {
+            NavtexTuningPanel(controller: state.navtexController, settings: state.navtex)
+                .radioCard(title: "Abstimmanzeige")
+            NavtexSettingsPanel(settings: state.navtex)
+                .radioCard(title: "NAVTEX")
+            NavtexMessageList(controller: state.navtexController)
+                .radioCard(title: "Nachrichten")
+        } else if state.activeModule == .cw {
+            CWTuningPanel(controller: state.cwController, settings: state.cw)
+                .radioCard(title: "Abstimmanzeige")
+            CWSettingsPanel(settings: state.cw)
+                .radioCard(title: "CW")
+        } else if state.activeModule == .olivia {
+            OliviaTuningPanel(controller: state.oliviaController, settings: state.olivia)
+                .radioCard(title: "Abstimmanzeige")
+            OliviaSettingsPanel(settings: state.olivia)
+                .radioCard(title: "OLIVIA · CONTESTIA")
+        } else if state.activeModule == .ale {
+            ALETuningPanel(controller: state.aleController, settings: state.ale)
+                .radioCard(title: "Abstimmanzeige")
+            ALESettingsPanel(settings: state.ale)
+                .radioCard(title: "ALE")
+        } else if state.activeModule == .aprs {
+            APRSTuningPanel(controller: state.aprsController, settings: state.aprs)
+                .radioCard(title: "Abstimmanzeige")
+            APRSSettingsPanel(settings: state.aprs)
+                .radioCard(title: "APRS")
+        } else if state.activeModule == .adsb {
+            ADSBTuningPanel(controller: state.adsbController, settings: state.adsb)
+                .radioCard(title: "Abstimmanzeige")
+            ADSBSettingsPanel(controller: state.adsbController, settings: state.adsb)
+                .radioCard(title: "ADS-B")
+        } else if state.activeModule == .packet {
+            PacketTuningPanel(controller: state.packetController, settings: state.packet)
+                .radioCard(title: "Abstimmanzeige")
+            PacketSettingsPanel(settings: state.packet)
+                .radioCard(title: "PACKET")
+        } else if state.activeModule == .acars {
+            ACARSTuningPanel(controller: state.acarsController, settings: state.acars)
+                .radioCard(title: "Abstimmanzeige")
+            ACARSSettingsPanel(settings: state.acars)
+                .radioCard(title: "ACARS")
+        } else if state.activeModule == .ais {
+            AISTuningPanel(controller: state.aisController, settings: state.ais, home: state.home)
+                .radioCard(title: "Abstimmanzeige")
+            AISSettingsPanel(settings: state.ais)
+                .radioCard(title: "AIS")
+        } else if state.activeModule == .dstar {
+            DStarTuningPanel(controller: state.dstarController, settings: state.dstar)
+                .radioCard(title: "Abstimmanzeige")
+            DStarSettingsPanel(controller: state.dstarController, settings: state.dstar)
+                .radioCard(title: "D-STAR")
+        } else if state.activeModule == .ysf {
+            YSFTuningPanel(controller: state.ysfController, settings: state.ysf, output: state.dstarController.output)
+                .radioCard(title: "Abstimmanzeige")
+            YSFSettingsPanel(output: state.dstarController.output)
+                .radioCard(title: "YSF")
+        } else if state.activeModule == .dmr {
+            DMRTuningPanel(controller: state.dmrController, settings: state.dmr, output: state.dstarController.output)
+                .radioCard(title: "Abstimmanzeige")
+            DMRSettingsPanel(settings: state.dmr, output: state.dstarController.output)
+                .radioCard(title: "DMR")
+        } else if state.activeModule == .dpmr {
+            DPMRTuningPanel(controller: state.dpmrController, settings: state.dpmr, output: state.dstarController.output)
+                .radioCard(title: "Abstimmanzeige")
+            DPMRSettingsPanel(settings: state.dpmr, output: state.dstarController.output)
+                .radioCard(title: "dPMR")
+        } else if state.activeModule == .nxdn {
+            NXDNTuningPanel(controller: state.nxdnController, settings: state.nxdn, output: state.dstarController.output)
+                .radioCard(title: "Abstimmanzeige")
+            NXDNSettingsPanel(settings: state.nxdn, output: state.dstarController.output)
+                .radioCard(title: "NXDN")
+        } else if state.activeModule == .p25 {
+            P25TuningPanel(controller: state.p25Controller, settings: state.p25, output: state.dstarController.output)
+                .radioCard(title: "Abstimmanzeige")
+            P25SettingsPanel(settings: state.p25, output: state.dstarController.output)
+                .radioCard(title: "P25")
+        } else if state.activeModule == .sensors {
+            SensorsTuningPanel(controller: state.sensorsController, settings: state.sensors)
+                .radioCard(title: "Abstimmanzeige")
+            SensorsSettingsPanel(controller: state.sensorsController, settings: state.sensors)
+                .radioCard(title: "SENSOREN")
+        } else if state.activeModule == .tetra {
+            TETRATuningPanel(controller: state.tetraController, settings: state.tetra)
+                .radioCard(title: "Abstimmanzeige")
+            TETRASettingsPanel(controller: state.tetraController, settings: state.tetra)
+                .radioCard(title: "TETRA")
+        } else if state.activeModule == .channels {
+            ChannelsSettingsPanel(bank: state.sdrController.bank, settings: state.sdr, controller: state.sdrController)
+                .radioCard(title: "MEHRKANAL")
+        } else if state.activeModule == .dab {
+            DABTuningPanel(controller: state.dabController)
+                .radioCard(title: "Abstimmanzeige")
+            DABSettingsPanel(controller: state.dabController, settings: state.dab)
+                .radioCard(title: "DAB")
+        } else if state.activeModule == .rds {
+            RDSTuningPanel(controller: state.rdsController, settings: state.rds)
+                .radioCard(title: "Abstimmanzeige")
+            RDSSettingsPanel(controller: state.rdsController, settings: state.rds, sdr: state.sdrController)
+                .radioCard(title: "RDS")
+        } else if state.activeModule == .vdl2 {
+            VDL2TuningPanel(controller: state.vdl2Controller, settings: state.vdl2)
+                .radioCard(title: "Abstimmanzeige")
+            VDL2SettingsPanel(controller: state.vdl2Controller, settings: state.vdl2)
+                .radioCard(title: "VDL2")
+        } else if state.activeModule == .vor {
+            NavTuningPanel(controller: state.navController, settings: state.nav)
+                .radioCard(title: "Abstimmanzeige")
+            NavSettingsPanel(controller: state.navController, settings: state.nav)
+                .radioCard(title: "VOR/ILS")
+        } else if state.activeModule == .m17 {
+            M17TuningPanel(controller: state.m17Controller, settings: state.m17)
+                .radioCard(title: "Abstimmanzeige")
+            M17SettingsPanel(settings: state.m17)
+                .radioCard(title: "M17")
+        } else if state.activeModule == .freedv {
+            FreeDVTuningPanel(controller: state.freedvController, settings: state.freedv)
+                .radioCard(title: "Abstimmanzeige")
+            FreeDVSettingsPanel(settings: state.freedv)
+                .radioCard(title: "FREEDV")
+        } else if state.activeModule == .drm {
+            DRMTuningPanel(controller: state.drmController, settings: state.drm)
+                .radioCard(title: "Abstimmanzeige")
+            DRMSettingsPanel(settings: state.drm, controller: state.drmController)
+                .radioCard(title: "DRM")
+        } else if state.activeModule == .hfdl {
+            HFDLTuningPanel(controller: state.hfdlController, settings: state.hfdl)
+                .radioCard(title: "Abstimmanzeige")
+            HFDLSettingsPanel(controller: state.hfdlController, settings: state.hfdl)
+                .radioCard(title: "HFDL")
+        } else if state.activeModule == .sonde {
+            SondeTuningPanel(controller: state.sondeController, settings: state.sonde)
+                .radioCard(title: "Abstimmanzeige")
+            SondeSettingsPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan, scanner: state.sondeScanner)
+                .radioCard(title: "SONDE")
+        } else if state.activeModule == .pager {
+            PagerTuningPanel(controller: state.pagerController, settings: state.pager)
+                .radioCard(title: "Abstimmanzeige")
+            PagerSettingsPanel(settings: state.pager)
+                .radioCard(title: "PAGER")
+        } else if state.activeModule == .tones {
+            TonesTuningPanel(controller: state.tonesController, settings: state.tones)
+                .radioCard(title: "Abstimmanzeige")
+            TonesSettingsPanel(settings: state.tones)
+                .radioCard(title: "TÖNE")
+        } else if state.activeModule == .dsc {
+            DSCTuningPanel(controller: state.dscController, settings: state.dsc)
+                .radioCard(title: "Abstimmanzeige")
+            DSCSettingsPanel(settings: state.dsc)
+                .radioCard(title: "DSC")
+        } else if state.activeModule == .mt63 {
+            MT63TuningPanel(controller: state.mt63Controller, settings: state.mt63)
+                .radioCard(title: "Abstimmanzeige")
+            MT63SettingsPanel(settings: state.mt63)
+                .radioCard(title: "MT63")
+        } else if state.activeModule == .mfsk {
+            MFSKTuningPanel(controller: state.mfskController, settings: state.mfsk)
+                .radioCard(title: "Abstimmanzeige")
+            MFSKSettingsPanel(settings: state.mfsk)
+                .radioCard(title: "MFSK · DOMINOEX · THOR · THROB · IFKP · FSQ")
+        } else if state.activeModule == .hell {
+            HellTuningPanel(controller: state.hellController, settings: state.hell)
+                .radioCard(title: "Abstimmanzeige")
+            HellSettingsPanel(settings: state.hell)
+                .radioCard(title: "HELL")
+        } else if state.activeModule == .psk {
+            PSKTuningPanel(controller: state.pskController, settings: state.psk)
+                .radioCard(title: "Abstimmanzeige")
+            PSKSettingsPanel(settings: state.psk)
+                .radioCard(title: "PSK")
+        } else if state.activeModule == .skimmer {
+            SkimmerTuningPanel(controller: state.skimmerController, settings: state.skimmer)
+                .radioCard(title: "Abstimmanzeige")
+            SkimmerSettingsPanel(settings: state.skimmer)
+                .radioCard(title: "SKIMMER")
+        } else if state.activeModule == .wefax {
+            WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.autoRecorder)
+                .radioCard(title: "Abstimmanzeige")
+            WefaxSettingsPanel(settings: state.wefax, controller: state.wefaxController)
+                .radioCard(title: "WEFAX")
+        } else if state.activeModule == .ft8 {
+            FT8CyclePanel(controller: state.ft8Controller, settings: state.ft8)
+                .radioCard(title: "Zyklus · Rx-Frequenz")
+            FT8SettingsPanel(settings: state.ft8)
+                .radioCard(title: "FT8")
+        } else if state.activeModule == .ft4 {
+            FT4CyclePanel(controller: state.ft4Controller, settings: state.ft4)
+                .radioCard(title: "Zyklus · Rx-Frequenz")
+            FT4SettingsPanel(settings: state.ft4)
+                .radioCard(title: "FT4")
+        } else if state.activeModule == .ft2 {
+            FT4CyclePanel(controller: state.ft2Controller, settings: state.ft2)
+                .radioCard(title: "Zyklus · Rx-Frequenz")
+            FT4SettingsPanel(settings: state.ft2)
+                .radioCard(title: "FT2")
+        } else if state.activeModule == .wspr {
+            WSPRCyclePanel(controller: state.wsprController, settings: state.wspr)
+                .radioCard(title: "Zyklus")
+            WSPRSettingsPanel(settings: state.wspr)
+                .radioCard(title: "WSPR")
+        } else if state.activeModule == .js8 {
+            JS8CyclePanel(controller: state.js8Controller, settings: state.js8)
+                .radioCard(title: "Zyklus · Rx-Frequenz")
+            JS8SettingsPanel(settings: state.js8)
+                .radioCard(title: "JS8")
+        } else if state.activeModule == .ndb {
+            NDBTuningPanel(controller: state.ndbController, settings: state.ndb)
+                .radioCard(title: "Signal · Ton")
+            NDBSettingsPanel(controller: state.ndbController, settings: state.ndb)
+                .radioCard(title: "NDB")
+        } else if state.activeModule == .dcf77 {
+            DCF77TuningPanel(controller: state.dcf77Controller, settings: state.dcf77)
+                .radioCard(title: "Signal · Pegel")
+            DCF77SettingsPanel(settings: state.dcf77, controller: state.dcf77Controller)
+                .radioCard(title: "DCF77")
+            DCF77HistoryPanel(controller: state.dcf77Controller)
+                .radioCard(title: "Telegramme")
+        } else if state.activeModule == .efr {
+            EFRTuningPanel(controller: state.efrController, settings: state.efr)
+                .radioCard(title: "Signal · Pegel")
+            EFRSettingsPanel(settings: state.efr, controller: state.efrController)
+                .radioCard(title: "EFR")
+        } else if state.activeModule == .sstv {
+            SSTVTuningPanel(controller: state.sstvController, settings: state.sstv)
+                .radioCard(title: "Abstimmanzeige")
+            SSTVSettingsPanel(settings: state.sstv, controller: state.sstvController)
+                .radioCard(title: "SSTV")
+            SSTVGallery(controller: state.sstvController)
+                .radioCard(title: "Bilder")
+        } else {
+            TuningPanel(controller: state.rttyController, settings: state.rtty)
+                .radioCard(title: "Abstimmanzeige")
+
+            VStack(spacing: 8) {
+                PresetPanel(rtty: state.rtty, schedule: state.rttySchedule)
+                RTTYQuickControls(settings: state.rtty, showSettings: $showRTTYSettings)
+            }
+            .radioCard(title: "Preset")
+        }
+
+        SDRconnectControlHost(rig: state.rig)
+
+        if state.activeModule == .adsb {
+            ADSBReceiverCard(controller: state.adsbController)
+                .radioCard(title: "Empfänger")
+        } else if state.activeModule == .sensors {
+            SensorsReceiverCard(controller: state.sensorsController)
+                .radioCard(title: "Empfänger")
+        } else if state.activeModule == .tetra {
+            TETRAReceiverCard(controller: state.tetraController)
+                .radioCard(title: "Empfänger")
+        } else if state.activeModule == .dab {
+            DABReceiverCard()
+                .radioCard(title: "Empfänger")
+        } else if state.activeModule == .vdl2 {
+            VDL2ReceiverCard(controller: state.vdl2Controller)
+                .radioCard(title: "Empfänger")
+        } else {
+            InputPanelView(audio: state.audio)
+                .radioCard(title: "Eingang")
+        }
+    }
+
+    private var rightColumnContent: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: 10) {
+                rightColumnPanels
+            }
+            .frame(width: 322)
+            .padding(.trailing, 4)
+            .padding(.bottom, 10)
+        }
+        .frame(width: 330)
+    }
+
     public var body: some View {
         ZStack {
             RadioTheme.bgPanel.ignoresSafeArea()
@@ -120,392 +681,9 @@ public struct MainWindowView: View {
                 ModuleBar(state: state)
 
                 HStack(alignment: .top, spacing: 10) {
-                    VStack(spacing: 10) {
-                        SDRWaterfallHost(audio: state.audio, settings: state.sdr, controller: state.sdrController, module: state.activeModule) {
-                        Group {
-                            if state.activeModule == .navtex {
-                                WaterfallView(model: state.waterfall, rtty: state.navtex, audio: state.audio)
-                            } else if state.activeModule == .cw {
-                                WaterfallView(model: state.waterfall, rtty: state.cw, audio: state.audio)
-                            } else if state.activeModule == .olivia {
-                                WaterfallView(model: state.waterfall, rtty: state.olivia, audio: state.audio)
-                            } else if state.activeModule == .mt63 {
-                                WaterfallView(model: state.waterfall, rtty: state.mt63, audio: state.audio)
-                            } else if state.activeModule == .mfsk {
-                                WaterfallView(model: state.waterfall, rtty: state.mfsk, audio: state.audio)
-                            } else if state.activeModule == .hell {
-                                WaterfallView(model: state.waterfall, rtty: state.hell, audio: state.audio)
-                            } else if state.activeModule == .dsc {
-                                WaterfallView(model: state.waterfall, rtty: state.dsc, audio: state.audio)
-                            } else if state.activeModule == .ale {
-                                WaterfallView(model: state.waterfall, rtty: state.ale, audio: state.audio)
-                            } else if state.activeModule == .aprs {
-                                WaterfallView(model: state.waterfall, rtty: state.aprs, audio: state.audio)
-                            } else if state.activeModule == .adsb {
-                                ADSBScopePanel(controller: state.adsbController)
-                            } else if state.activeModule == .sensors {
-                                SensorsScopePanel(controller: state.sensorsController)
-                            } else if state.activeModule == .tetra {
-                                TETRAScopePanel(controller: state.tetraController)
-                            } else if state.activeModule == .dab {
-                                DABSpectrumPanel(controller: state.dabController, settings: state.dab)
-                            } else if state.activeModule == .rds {
-                                WaterfallView(model: state.waterfall, rtty: state.rds, audio: state.audio)
-                            } else if state.activeModule == .vdl2 {
-                                VDL2ScopePanel(controller: state.vdl2Controller)
-                            } else if state.activeModule == .vor {
-                                NavScopePanel(controller: state.navController, settings: state.nav)
-                            } else if state.activeModule == .packet {
-                                WaterfallView(model: state.waterfall, rtty: state.packet, audio: state.audio)
-                            } else if state.activeModule == .acars {
-                                WaterfallView(model: state.waterfall, rtty: state.acars, audio: state.audio)
-                            } else if state.activeModule == .ais {
-                                WaterfallView(model: state.waterfall, rtty: state.ais, audio: state.audio)
-                            } else if state.activeModule == .dstar {
-                                WaterfallView(model: state.waterfall, rtty: state.dstar, audio: state.audio)
-                            } else if state.activeModule == .ysf {
-                                WaterfallView(model: state.waterfall, rtty: state.ysf, audio: state.audio)
-                            } else if state.activeModule == .dmr {
-                                WaterfallView(model: state.waterfall, rtty: state.dmr, audio: state.audio)
-                            } else if state.activeModule == .dpmr {
-                                WaterfallView(model: state.waterfall, rtty: state.dpmr, audio: state.audio)
-                            } else if state.activeModule == .nxdn {
-                                WaterfallView(model: state.waterfall, rtty: state.nxdn, audio: state.audio)
-                            } else if state.activeModule == .p25 {
-                                WaterfallView(model: state.waterfall, rtty: state.p25, audio: state.audio)
-                            } else if state.activeModule == .m17 {
-                                WaterfallView(model: state.waterfall, rtty: state.m17, audio: state.audio)
-                            } else if state.activeModule == .freedv {
-                                WaterfallView(model: state.waterfall, rtty: state.freedv, audio: state.audio)
-                            } else if state.activeModule == .drm {
-                                WaterfallView(model: state.waterfall, rtty: state.drm, audio: state.audio)
-                            } else if state.activeModule == .hfdl {
-                                WaterfallView(model: state.waterfall, rtty: state.hfdl, audio: state.audio)
-                            } else if state.activeModule == .sonde {
-                                WaterfallView(model: state.waterfall, rtty: state.sonde, audio: state.audio)
-                            } else if state.activeModule == .pager {
-                                WaterfallView(model: state.waterfall, rtty: state.pager, audio: state.audio)
-                            } else if state.activeModule == .tones {
-                                WaterfallView(model: state.waterfall, rtty: state.tones, audio: state.audio)
-                            } else if state.activeModule == .psk {
-                                WaterfallView(model: state.waterfall, rtty: state.psk, audio: state.audio)
-                            } else if state.activeModule == .skimmer {
-                                WaterfallView(model: state.waterfall, rtty: state.skimmer, audio: state.audio)
-                            } else if state.activeModule == .wefax {
-                                WaterfallView(model: state.waterfall, rtty: state.wefax, audio: state.audio)
-                            } else if state.activeModule == .ft8 {
-                                WaterfallView(model: state.waterfall, rtty: state.ft8, audio: state.audio)
-                            } else if state.activeModule == .ft4 {
-                                WaterfallView(model: state.waterfall, rtty: state.ft4, audio: state.audio)
-                            } else if state.activeModule == .ft2 {
-                                WaterfallView(model: state.waterfall, rtty: state.ft2, audio: state.audio)
-                            } else if state.activeModule == .wspr {
-                                WaterfallView(model: state.waterfall, rtty: state.wspr, audio: state.audio)
-                            } else if state.activeModule == .js8 {
-                                WaterfallView(model: state.waterfall, rtty: state.js8, audio: state.audio)
-                            } else if state.activeModule == .ndb {
-                                WaterfallView(model: state.waterfall, rtty: state.ndb, audio: state.audio)
-                            } else if state.activeModule == .dcf77 {
-                                WaterfallView(model: state.waterfall, rtty: state.dcf77, audio: state.audio)
-                            } else if state.activeModule == .efr {
-                                WaterfallView(model: state.waterfall, rtty: state.efr, audio: state.audio)
-                            } else if state.activeModule == .sstv {
-                                WaterfallView(model: state.waterfall, rtty: state.sstv, audio: state.audio)
-                            } else {
-                                WaterfallView(model: state.waterfall, rtty: state.rtty, audio: state.audio)
-                            }
-                        }
-                        }
-                        .frame(height: 260)
-                        .radioCard(title: state.activeModule == .adsb || state.activeModule == .sensors || state.activeModule == .vdl2 || state.activeModule == .tetra || state.activeModule == .vor || state.activeModule == .dab ? "Empfang" : state.activeModule == .channels ? "HF-Fenster" : "Wasserfall")
+                    leftColumnContent
 
-                        Group {
-                            switch state.mapLayout(state.activeModule) {
-                            case .list:
-                                mainPanel
-                            case .map:
-                                ModuleMapView(state: state)
-                            case .split:
-                                GeometryReader { geo in
-                                    VStack(spacing: 8) {
-                                        mainPanel.frame(maxHeight: .infinity)
-                                        ModuleMapView(state: state)
-                                            .frame(height: max(190, geo.size.height * 0.42))
-                                    }
-                                }
-                            }
-                        }
-                        .frame(maxHeight: .infinity)
-                        .radioCard(title: state.mapLayout(state.activeModule) == .map ? "Karte" : state.activeModule == .aprs ? "APRS Stationen" : state.activeModule == .packet ? "Packet-Radio" : state.activeModule == .adsb ? "Flugzeuge" : state.activeModule == .acars ? "ACARS Meldungen" : state.activeModule == .ais ? "AIS Schiffe" : state.activeModule == .dstar ? "D-Star Aussendungen" : state.activeModule == .ysf ? "YSF Aussendungen" : state.activeModule == .dmr ? "DMR Gespräche" : state.activeModule == .dpmr ? "dPMR Gespräche" : state.activeModule == .nxdn ? "NXDN Gespräche" : state.activeModule == .p25 ? "P25 Gespräche" : state.activeModule == .drm ? "DRM Dienste" : state.activeModule == .tetra ? "TETRA Gespräche" : state.activeModule == .ndb ? "NDB Funkfeuer" : state.activeModule == .m17 ? "M17 Gespräche" : state.activeModule == .sensors ? "Funksensoren" : state.activeModule == .dab ? "DAB Dienste" : state.activeModule == .vdl2 ? "VDL2 Flugzeuge" : state.activeModule == .vor ? "VOR/ILS Messwerte" : state.activeModule == .freedv ? "FreeDV Übertragungen" : state.activeModule == .hfdl ? "HFDL Meldungen" : state.activeModule == .skimmer ? "Skimmer Signale" : state.activeModule == .sonde ? "Radiosonden" : state.activeModule == .pager ? "Funkruf" : state.activeModule == .tones ? "Tonfolgen" : state.activeModule == .wefax ? "Wetterfax" : state.activeModule == .sstv ? "SSTV Bild" : (state.activeModule == .ft8 || state.activeModule == .ft4) ? "Bandaktivität" : state.activeModule == .wspr ? "WSPR Spots" : state.activeModule == .js8 ? "JS8 Aktivität" : state.activeModule == .dsc ? "DSC Rufe" : state.activeModule == .ale ? "ALE Aussendungen" : state.activeModule == .dcf77 ? "DCF77 Atomzeit" : state.activeModule == .efr ? "EFR Rundsteuerung" : state.activeModule == .channels ? "Mehrkanal" : "Empfangstext")
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    VStack(spacing: 10) {
-                        if state.activeModule == .navtex {
-                            NavtexTuningPanel(controller: state.navtexController, settings: state.navtex)
-                                .radioCard(title: "Abstimmanzeige")
-                            NavtexSettingsPanel(settings: state.navtex)
-                                .radioCard(title: "NAVTEX")
-                            NavtexMessageList(controller: state.navtexController)
-                                .radioCard(title: "Nachrichten")
-                        } else if state.activeModule == .cw {
-                            CWTuningPanel(controller: state.cwController, settings: state.cw)
-                                .radioCard(title: "Abstimmanzeige")
-                            CWSettingsPanel(settings: state.cw)
-                                .radioCard(title: "CW")
-                        } else if state.activeModule == .olivia {
-                            OliviaTuningPanel(controller: state.oliviaController, settings: state.olivia)
-                                .radioCard(title: "Abstimmanzeige")
-                            OliviaSettingsPanel(settings: state.olivia)
-                                .radioCard(title: "OLIVIA · CONTESTIA")
-                        } else if state.activeModule == .ale {
-                            ALETuningPanel(controller: state.aleController, settings: state.ale)
-                                .radioCard(title: "Abstimmanzeige")
-                            ALESettingsPanel(settings: state.ale)
-                                .radioCard(title: "ALE")
-                        } else if state.activeModule == .aprs {
-                            APRSTuningPanel(controller: state.aprsController, settings: state.aprs)
-                                .radioCard(title: "Abstimmanzeige")
-                            APRSSettingsPanel(settings: state.aprs)
-                                .radioCard(title: "APRS")
-                        } else if state.activeModule == .adsb {
-                            ADSBTuningPanel(controller: state.adsbController, settings: state.adsb)
-                                .radioCard(title: "Abstimmanzeige")
-                            ADSBSettingsPanel(controller: state.adsbController, settings: state.adsb)
-                                .radioCard(title: "ADS-B")
-                        } else if state.activeModule == .packet {
-                            PacketTuningPanel(controller: state.packetController, settings: state.packet)
-                                .radioCard(title: "Abstimmanzeige")
-                            PacketSettingsPanel(settings: state.packet)
-                                .radioCard(title: "PACKET")
-                        } else if state.activeModule == .acars {
-                            ACARSTuningPanel(controller: state.acarsController, settings: state.acars)
-                                .radioCard(title: "Abstimmanzeige")
-                            ACARSSettingsPanel(settings: state.acars)
-                                .radioCard(title: "ACARS")
-                        } else if state.activeModule == .ais {
-                            AISTuningPanel(controller: state.aisController, settings: state.ais, home: state.home)
-                                .radioCard(title: "Abstimmanzeige")
-                            AISSettingsPanel(settings: state.ais)
-                                .radioCard(title: "AIS")
-                        } else if state.activeModule == .dstar {
-                            DStarTuningPanel(controller: state.dstarController, settings: state.dstar)
-                                .radioCard(title: "Abstimmanzeige")
-                            DStarSettingsPanel(controller: state.dstarController, settings: state.dstar)
-                                .radioCard(title: "D-STAR")
-                        } else if state.activeModule == .ysf {
-                            YSFTuningPanel(controller: state.ysfController, settings: state.ysf, output: state.dstarController.output)
-                                .radioCard(title: "Abstimmanzeige")
-                            YSFSettingsPanel(output: state.dstarController.output)
-                                .radioCard(title: "YSF")
-                        } else if state.activeModule == .dmr {
-                            DMRTuningPanel(controller: state.dmrController, settings: state.dmr, output: state.dstarController.output)
-                                .radioCard(title: "Abstimmanzeige")
-                            DMRSettingsPanel(settings: state.dmr, output: state.dstarController.output)
-                                .radioCard(title: "DMR")
-                        } else if state.activeModule == .dpmr {
-                            DPMRTuningPanel(controller: state.dpmrController, settings: state.dpmr, output: state.dstarController.output)
-                                .radioCard(title: "Abstimmanzeige")
-                            DPMRSettingsPanel(settings: state.dpmr, output: state.dstarController.output)
-                                .radioCard(title: "dPMR")
-                        } else if state.activeModule == .nxdn {
-                            NXDNTuningPanel(controller: state.nxdnController, settings: state.nxdn, output: state.dstarController.output)
-                                .radioCard(title: "Abstimmanzeige")
-                            NXDNSettingsPanel(settings: state.nxdn, output: state.dstarController.output)
-                                .radioCard(title: "NXDN")
-                        } else if state.activeModule == .p25 {
-                            P25TuningPanel(controller: state.p25Controller, settings: state.p25, output: state.dstarController.output)
-                                .radioCard(title: "Abstimmanzeige")
-                            P25SettingsPanel(settings: state.p25, output: state.dstarController.output)
-                                .radioCard(title: "P25")
-                        } else if state.activeModule == .sensors {
-                            SensorsTuningPanel(controller: state.sensorsController, settings: state.sensors)
-                                .radioCard(title: "Abstimmanzeige")
-                            SensorsSettingsPanel(controller: state.sensorsController, settings: state.sensors)
-                                .radioCard(title: "SENSOREN")
-                        } else if state.activeModule == .tetra {
-                            TETRATuningPanel(controller: state.tetraController, settings: state.tetra)
-                                .radioCard(title: "Abstimmanzeige")
-                            TETRASettingsPanel(controller: state.tetraController, settings: state.tetra)
-                                .radioCard(title: "TETRA")
-                        } else if state.activeModule == .channels {
-                            ChannelsSettingsPanel(bank: state.sdrController.bank, settings: state.sdr, controller: state.sdrController)
-                                .radioCard(title: "MEHRKANAL")
-                        } else if state.activeModule == .dab {
-                            DABTuningPanel(controller: state.dabController)
-                                .radioCard(title: "Abstimmanzeige")
-                            DABSettingsPanel(controller: state.dabController, settings: state.dab)
-                                .radioCard(title: "DAB")
-                        } else if state.activeModule == .rds {
-                            RDSTuningPanel(controller: state.rdsController, settings: state.rds)
-                                .radioCard(title: "Abstimmanzeige")
-                            RDSSettingsPanel(controller: state.rdsController, settings: state.rds, sdr: state.sdrController)
-                                .radioCard(title: "RDS")
-                        } else if state.activeModule == .vdl2 {
-                            VDL2TuningPanel(controller: state.vdl2Controller, settings: state.vdl2)
-                                .radioCard(title: "Abstimmanzeige")
-                            VDL2SettingsPanel(controller: state.vdl2Controller, settings: state.vdl2)
-                                .radioCard(title: "VDL2")
-                        } else if state.activeModule == .vor {
-                            NavTuningPanel(controller: state.navController, settings: state.nav)
-                                .radioCard(title: "Abstimmanzeige")
-                            NavSettingsPanel(controller: state.navController, settings: state.nav)
-                                .radioCard(title: "VOR/ILS")
-                        } else if state.activeModule == .m17 {
-                            M17TuningPanel(controller: state.m17Controller, settings: state.m17)
-                                .radioCard(title: "Abstimmanzeige")
-                            M17SettingsPanel(settings: state.m17)
-                                .radioCard(title: "M17")
-                        } else if state.activeModule == .freedv {
-                            FreeDVTuningPanel(controller: state.freedvController, settings: state.freedv)
-                                .radioCard(title: "Abstimmanzeige")
-                            FreeDVSettingsPanel(settings: state.freedv)
-                                .radioCard(title: "FREEDV")
-                        } else if state.activeModule == .drm {
-                            DRMTuningPanel(controller: state.drmController, settings: state.drm)
-                                .radioCard(title: "Abstimmanzeige")
-                            DRMSettingsPanel(settings: state.drm, controller: state.drmController)
-                                .radioCard(title: "DRM")
-                        } else if state.activeModule == .hfdl {
-                            HFDLTuningPanel(controller: state.hfdlController, settings: state.hfdl)
-                                .radioCard(title: "Abstimmanzeige")
-                            HFDLSettingsPanel(controller: state.hfdlController, settings: state.hfdl)
-                                .radioCard(title: "HFDL")
-                        } else if state.activeModule == .sonde {
-                            SondeTuningPanel(controller: state.sondeController, settings: state.sonde)
-                                .radioCard(title: "Abstimmanzeige")
-                            SondeSettingsPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan, scanner: state.sondeScanner)
-                                .radioCard(title: "SONDE")
-                        } else if state.activeModule == .pager {
-                            PagerTuningPanel(controller: state.pagerController, settings: state.pager)
-                                .radioCard(title: "Abstimmanzeige")
-                            PagerSettingsPanel(settings: state.pager)
-                                .radioCard(title: "PAGER")
-                        } else if state.activeModule == .tones {
-                            TonesTuningPanel(controller: state.tonesController, settings: state.tones)
-                                .radioCard(title: "Abstimmanzeige")
-                            TonesSettingsPanel(settings: state.tones)
-                                .radioCard(title: "TÖNE")
-                        } else if state.activeModule == .dsc {
-                            DSCTuningPanel(controller: state.dscController, settings: state.dsc)
-                                .radioCard(title: "Abstimmanzeige")
-                            DSCSettingsPanel(settings: state.dsc)
-                                .radioCard(title: "DSC")
-                        } else if state.activeModule == .mt63 {
-                            MT63TuningPanel(controller: state.mt63Controller, settings: state.mt63)
-                                .radioCard(title: "Abstimmanzeige")
-                            MT63SettingsPanel(settings: state.mt63)
-                                .radioCard(title: "MT63")
-                        } else if state.activeModule == .mfsk {
-                            MFSKTuningPanel(controller: state.mfskController, settings: state.mfsk)
-                                .radioCard(title: "Abstimmanzeige")
-                            MFSKSettingsPanel(settings: state.mfsk)
-                                .radioCard(title: "MFSK · DOMINOEX · THOR · THROB · IFKP · FSQ")
-                        } else if state.activeModule == .hell {
-                            HellTuningPanel(controller: state.hellController, settings: state.hell)
-                                .radioCard(title: "Abstimmanzeige")
-                            HellSettingsPanel(settings: state.hell)
-                                .radioCard(title: "HELL")
-                        } else if state.activeModule == .psk {
-                            PSKTuningPanel(controller: state.pskController, settings: state.psk)
-                                .radioCard(title: "Abstimmanzeige")
-                            PSKSettingsPanel(settings: state.psk)
-                                .radioCard(title: "PSK")
-                        } else if state.activeModule == .skimmer {
-                            SkimmerTuningPanel(controller: state.skimmerController, settings: state.skimmer)
-                                .radioCard(title: "Abstimmanzeige")
-                            SkimmerSettingsPanel(settings: state.skimmer)
-                                .radioCard(title: "SKIMMER")
-                        } else if state.activeModule == .wefax {
-                            WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.autoRecorder)
-                                .radioCard(title: "Abstimmanzeige")
-                            WefaxSettingsPanel(settings: state.wefax, controller: state.wefaxController)
-                                .radioCard(title: "WEFAX")
-                        } else if state.activeModule == .ft8 {
-                            FT8CyclePanel(controller: state.ft8Controller, settings: state.ft8)
-                                .radioCard(title: "Zyklus · Rx-Frequenz")
-                            FT8SettingsPanel(settings: state.ft8)
-                                .radioCard(title: "FT8")
-                        } else if state.activeModule == .ft4 {
-                            FT4CyclePanel(controller: state.ft4Controller, settings: state.ft4)
-                                .radioCard(title: "Zyklus · Rx-Frequenz")
-                            FT4SettingsPanel(settings: state.ft4)
-                                .radioCard(title: "FT4")
-                        } else if state.activeModule == .ft2 {
-                            FT4CyclePanel(controller: state.ft2Controller, settings: state.ft2)
-                                .radioCard(title: "Zyklus · Rx-Frequenz")
-                            FT4SettingsPanel(settings: state.ft2)
-                                .radioCard(title: "FT2")
-                        } else if state.activeModule == .wspr {
-                            WSPRCyclePanel(controller: state.wsprController, settings: state.wspr)
-                                .radioCard(title: "Zyklus")
-                            WSPRSettingsPanel(settings: state.wspr)
-                                .radioCard(title: "WSPR")
-                        } else if state.activeModule == .js8 {
-                            JS8CyclePanel(controller: state.js8Controller, settings: state.js8)
-                                .radioCard(title: "Zyklus · Rx-Frequenz")
-                            JS8SettingsPanel(settings: state.js8)
-                                .radioCard(title: "JS8")
-                        } else if state.activeModule == .ndb {
-                            NDBTuningPanel(controller: state.ndbController, settings: state.ndb)
-                                .radioCard(title: "Signal · Ton")
-                            NDBSettingsPanel(controller: state.ndbController, settings: state.ndb)
-                                .radioCard(title: "NDB")
-                        } else if state.activeModule == .dcf77 {
-                            DCF77TuningPanel(controller: state.dcf77Controller, settings: state.dcf77)
-                                .radioCard(title: "Signal · Pegel")
-                            DCF77SettingsPanel(settings: state.dcf77, controller: state.dcf77Controller)
-                                .radioCard(title: "DCF77")
-                            DCF77HistoryPanel(controller: state.dcf77Controller)
-                                .radioCard(title: "Telegramme")
-                        } else if state.activeModule == .efr {
-                            EFRTuningPanel(controller: state.efrController, settings: state.efr)
-                                .radioCard(title: "Signal · Pegel")
-                            EFRSettingsPanel(settings: state.efr, controller: state.efrController)
-                                .radioCard(title: "EFR")
-                        } else if state.activeModule == .sstv {
-                            SSTVTuningPanel(controller: state.sstvController, settings: state.sstv)
-                                .radioCard(title: "Abstimmanzeige")
-                            SSTVSettingsPanel(settings: state.sstv, controller: state.sstvController)
-                                .radioCard(title: "SSTV")
-                            SSTVGallery(controller: state.sstvController)
-                                .radioCard(title: "Bilder")
-                        } else {
-                            TuningPanel(controller: state.rttyController, settings: state.rtty)
-                                .radioCard(title: "Abstimmanzeige")
-
-                            VStack(spacing: 8) {
-                                PresetPanel(rtty: state.rtty, schedule: state.rttySchedule)
-                                RTTYQuickControls(settings: state.rtty, showSettings: $showRTTYSettings)
-                            }
-                            .radioCard(title: "Preset")
-                        }
-
-                        SDRconnectControlHost(rig: state.rig)
-
-                        if state.activeModule == .adsb {
-                            ADSBReceiverCard(controller: state.adsbController)
-                                .radioCard(title: "Empfänger")
-                        } else if state.activeModule == .sensors {
-                            SensorsReceiverCard(controller: state.sensorsController)
-                                .radioCard(title: "Empfänger")
-                        } else if state.activeModule == .tetra {
-                            TETRAReceiverCard(controller: state.tetraController)
-                                .radioCard(title: "Empfänger")
-                        } else if state.activeModule == .dab {
-                            DABReceiverCard()
-                                .radioCard(title: "Empfänger")
-                        } else if state.activeModule == .vdl2 {
-                            VDL2ReceiverCard(controller: state.vdl2Controller)
-                                .radioCard(title: "Empfänger")
-                        } else {
-                            InputPanelView(audio: state.audio)
-                                .radioCard(title: "Eingang")
-                        }
-
-                        Spacer(minLength: 0)
-                    }
-                    .frame(width: 330)
+                    rightColumnContent
                 }
                 .padding(.horizontal, 14)
 
@@ -516,7 +694,7 @@ public struct MainWindowView: View {
                 .ignoresSafeArea()
             }
         }
-        .frame(minWidth: 1060, minHeight: 730)
+        .frame(minWidth: 1060, minHeight: 540)
         .task {
             // Entwicklungshilfe: DIGIDEC_AIS_INFO=<MMSI> öffnet das Fenster „Schiffsdaten“ nach 5 s (für Schnappschüsse)
             if let v = ProcessInfo.processInfo.environment["DIGIDEC_AIS_INFO"], let mmsi = UInt32(v) {
@@ -544,6 +722,9 @@ public struct MainWindowView: View {
         }
         .sheet(isPresented: $state.showRigSettings) {
             RigSettingsSheet(state: state)
+        }
+        .sheet(isPresented: $state.showWebSettings) {
+            WebServerSheet(server: state.webServer, onClose: { state.showWebSettings = false })
         }
         .sheet(isPresented: $state.showAbout) {
             AboutSheet()
@@ -589,6 +770,7 @@ private struct HeaderBar: View {
 
             MapToggleButton(state: state)
             ScheduleButton(state: state, auto: state.autoRecorder)
+            WebServerButton(server: state.webServer, onTap: { state.showWebSettings = true })
             RigControlToggle(state: state, rig: state.rig)
             RigBadge(rig: state.rig, audio: state.audio, onTap: { state.showRigSettings = true })
             AboutButton(onTap: { state.showAbout = true })
@@ -608,14 +790,14 @@ private struct MapToggleButton: View {
         let current = state.mapLayout(module)
         HStack(spacing: 2) {
             segment(module.mainViewIcon, module.mainViewName, .list, current, module, help: module.mainViewHelp)
-            segment("map", "KARTE", .map, current, module, help: "Nur die Karte zeigen (Stationen, Sender, Positionen)")
-            segment("rectangle.split.1x2", "BEIDE", .split, current, module, help: "\(module.mainViewName.capitalized) oben, Karte darunter")
+            segment("map", "KARTE", .map, current, module, help: String(localized: "Nur die Karte zeigen (Stationen, Sender, Positionen)"))
+            segment("rectangle.split.1x2", "BEIDE", .split, current, module, help: String(format: String(localized: "%@ oben, Karte darunter"), NSLocalizedString(module.mainViewName, comment: "").capitalized))
         }
         .padding(2)
         .background(RadioTheme.bgDeep)
         .cornerRadius(5)
         .opacity(module.hasMap ? 1 : 0.5)
-        .help(module.hasMap ? "Darstellung umschalten" : "\(module.displayName) hat keine Ortsdaten, daher keine Karte")
+        .help(module.hasMap ? String(localized: "Darstellung umschalten") : String(format: String(localized: "%@ hat keine Ortsdaten, daher keine Karte"), NSLocalizedString(module.displayName, comment: "")))
     }
 
     private func segment(_ icon: String, _ text: String, _ layout: MapLayout, _ current: MapLayout, _ module: DecoderModuleInfo, help: String) -> some View {
@@ -624,7 +806,7 @@ private struct MapToggleButton: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 9, weight: .bold))
-                Text(text).font(.system(size: 9, weight: .bold, design: .monospaced))
+                Text(LocalizedStringKey(text)).font(.system(size: 9, weight: .bold, design: .monospaced))
             }
             .foregroundColor(current == layout ? RadioTheme.vfdCyan : RadioTheme.textMuted)
             .padding(.horizontal, 7)
@@ -699,6 +881,34 @@ private struct RigControlToggle: View {
             : "Digidec liest nur Frequenz und Mode. Klicken, damit es das Funkgerät auf Band, Kanal oder Sender des Moduls abstimmt."
         if let m = rig.tuneMessage { s += "\n\(m)" }
         return s
+    }
+}
+
+/// Web-Fernzugriff / HTTP-Server Status und Dialog-Öffner
+private struct WebServerButton: View {
+    @ObservedObject var server: DigidecWebServer
+    var onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(server.isRunning ? RadioTheme.vfdGreen : RadioTheme.textDim)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: server.isRunning ? RadioTheme.vfdGreen.opacity(0.8) : .clear, radius: 3)
+                Text(server.isRunning ? "WEB (\(server.clientCount))" : "WEB")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(server.isRunning ? RadioTheme.vfdCyan : RadioTheme.textBright)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RadioTheme.bgDeep)
+            .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+        .help(server.isRunning
+              ? "Web-Server läuft auf Port \(server.port) · \(server.clientCount) verbundene Clients. Klicken für Einstellungen & URL."
+              : "Web-Fernzugriff: Decoder und Live-Audio im Browser steuern und anhören. Klicken zum Starten.")
     }
 }
 
@@ -823,7 +1033,7 @@ private struct ModuleBar: View {
         let selected = state.activeModule == module
         return Button { state.select(module: module) } label: {
             VStack(spacing: 3) {
-                Text(module.displayName)
+                Text(LocalizedStringKey(module.displayName))
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                 Text("HF + VHF/UHF")
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
@@ -859,13 +1069,15 @@ private struct ModuleBar: View {
             Color.clear.frame(width: Self.multiWidth, height: 1)
             FlowLayout(spacing: 6, lineSpacing: 6) {
                 ForEach(band.modules) { module in
-                    Button(module.displayName) {
+                    Button {
                         state.select(module: module)
+                    } label: {
+                        Text(LocalizedStringKey(module.displayName))
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: state.activeModule == module))
                     .disabled(!module.isAvailable)
                     .opacity(module.isAvailable ? 1.0 : 0.45)
-                    .help(module.isAvailable ? "\(module.displayName) · \(band.title)" : "\(module.displayName) – geplant")
+                    .help(module.isAvailable ? "\(NSLocalizedString(module.displayName, comment: "")) · \(band.title)" : String(format: String(localized: "%@ – geplant"), NSLocalizedString(module.displayName, comment: "")))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -933,58 +1145,158 @@ struct PresetPanel: View {
     @ObservedObject var rtty: RTTYSettingsStore
     @ObservedObject var schedule: RttyScheduleStore
 
+    @State private var editingPreset: RTTYPreset?
+    @State private var isNewPreset = false
+    @State private var showPresetEditor = false
+
+    // Preset-Editor Felder
+    @State private var editName = ""
+    @State private var editShiftText = ""
+    @State private var editBaudText = ""
+    @State private var editBits = 5
+    @State private var editStopBits = 1.5
+    @State private var editReverse = false
+    @State private var editITA2 = false
+    @State private var editUnshiftOnSpace = true
+    @State private var editNote = ""
+
+    // Frequenz-Editor Felder
+    @State private var editingFrequency: RTTYFrequencyItem?
+    @State private var isNewFrequency = false
+    @State private var showFreqEditor = false
+    @State private var freqLabel = ""
+    @State private var freqKhzText = ""
+    @State private var freqCallsign = ""
+    @State private var freqNote = ""
+
     var body: some View {
         VStack(spacing: 8) {
             presetGrid
-            if rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw" {
+            if !displayFrequencies.isEmpty || rtty.presetID != "custom" {
                 frequencyRow
+            }
+        }
+        .sheet(isPresented: $showPresetEditor) {
+            PresetModalSheet(
+                title: isNewPreset ? "NEUES RTTY-PRESET" : "RTTY-PRESET BEARBEITEN",
+                isValid: !editName.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: savePreset,
+                onCancel: { showPresetEditor = false }
+            ) {
+                RTTYPresetEditorView(
+                    name: $editName,
+                    shiftText: $editShiftText,
+                    baudText: $editBaudText,
+                    bits: $editBits,
+                    stopBits: $editStopBits,
+                    reverse: $editReverse,
+                    ita2: $editITA2,
+                    unshiftOnSpace: $editUnshiftOnSpace,
+                    note: $editNote
+                )
+            }
+        }
+        .sheet(isPresented: $showFreqEditor) {
+            PresetModalSheet(
+                title: isNewFrequency ? "NEUE FREQUENZ HINZUFÜGEN" : "FREQUENZ BEARBEITEN",
+                isValid: !freqLabel.trimmingCharacters(in: .whitespaces).isEmpty && (Double(freqKhzText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0,
+                onSave: saveFrequency,
+                onCancel: { showFreqEditor = false }
+            ) {
+                FrequencyItemEditor(
+                    label: $freqLabel,
+                    khzText: $freqKhzText,
+                    callsign: $freqCallsign,
+                    note: $freqNote
+                )
             }
         }
     }
 
-    /// Frequenzen des gewählten DWD-Presets aus dem Sendeplan (Langwelle oder Kurzwelle)
-    private var frequencies: [RttyFrequency] {
-        schedule.schedule.frequencies.filter { $0.presetID == rtty.presetID }.sorted { $0.hz < $1.hz }
+    /// Frequenzen des gewählten Presets: entweder aus DWD-Sendeplan oder den konfigurierten Preset-Frequenzen
+    private var displayFrequencies: [RTTYFrequencyItem] {
+        if (rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw") && !schedule.schedule.frequencies.isEmpty {
+            let sched = schedule.schedule.frequencies.filter { $0.presetID == rtty.presetID }.sorted { $0.hz < $1.hz }
+            if !sched.isEmpty {
+                return sched.map { RTTYFrequencyItem(id: $0.id, label: $0.label, hz: $0.hz, callsign: "\($0.callsign) · P\($0.program)", note: "DWD Sendeplan") }
+            }
+        }
+        return rtty.preset.frequencies
     }
 
     /// Aktive Frequenz: Wahl des Nutzers, sonst Automatik nach Tageszeit
     private var activeHz: Double? {
-        rtty.selectedDWDFrequencyHz ?? schedule.automaticFrequency(program: rtty.presetID == "dwd-lw" ? 2 : 1, at: Date())?.hz
+        if rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw" {
+            return rtty.selectedDWDFrequencyHz ?? schedule.automaticFrequency(program: rtty.presetID == "dwd-lw" ? 2 : 1, at: Date())?.hz
+        } else {
+            return rtty.selectedFrequencyHz
+        }
     }
 
     private var frequencyRow: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: frequencies.count > 3 ? 3 : max(1, frequencies.count)), spacing: 4) {
-                ForEach(frequencies) { f in
+            let freqs = displayFrequencies
+            let count = freqs.count + 1 // +1 für den „+“-Knopf
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 4)), spacing: 4) {
+                ForEach(freqs) { f in
                     Button {
-                        rtty.selectDWDFrequency(f.hz, presetID: rtty.presetID)
+                        if rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw" {
+                            rtty.selectDWDFrequency(f.hz, presetID: rtty.presetID)
+                        } else {
+                            rtty.selectFrequency(f.hz, presetID: rtty.presetID)
+                        }
                     } label: {
                         VStack(spacing: 1) {
                             Text(f.label)
-                            Text("\(f.callsign) · P\(f.program)")
-                                .font(.system(size: 7.5, weight: .medium, design: .monospaced))
-                                .foregroundColor(RadioTheme.textDim)
+                            if !f.callsign.isEmpty {
+                                Text(f.callsign)
+                                    .font(.system(size: 7.5, weight: .medium, design: .monospaced))
+                                    .foregroundColor(RadioTheme.textDim)
+                                    .lineLimit(1)
+                            }
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: activeHz == f.hz))
-                    .help("\(f.callsign), Programm \(f.program), \(f.label), Hub ±\(String(format: "%g", f.shiftHalfHz).replacingOccurrences(of: ".", with: ",")) Hz. Nur mit QSY AUTO wird das Funkgerät auf den USB-Dial (Frequenz minus NF-Mitte) abgestimmt")
+                    .help(f.note.isEmpty ? "\(f.label) (\(f.callsign))" : f.note)
+                    .presetContextMenu(
+                        onEdit: { startEditFrequency(f) },
+                        onDelete: { rtty.removeFrequency(id: f.id, fromPreset: rtty.presetID) },
+                        onReset: { rtty.resetPresetsToDefault() }
+                    )
                 }
+
+                Button {
+                    startAddFrequency()
+                } label: {
+                    VStack(spacing: 1) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("NEU")
+                            .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Neue Frequenz zu diesem Preset hinzufügen")
             }
-            Text(rtty.selectedDWDFrequencyHz == nil ? "Frequenz automatisch nach Tageszeit" : "Frequenz von Hand gewählt")
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                .foregroundColor(RadioTheme.textMuted)
+
+            if rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw" {
+                Text(rtty.selectedDWDFrequencyHz == nil ? "Frequenz automatisch nach Tageszeit" : "Frequenz von Hand gewählt")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundColor(RadioTheme.textMuted)
+            }
         }
     }
 
     private var presetGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-            ForEach(RTTYPreset.all) { preset in
+            ForEach(rtty.presets) { preset in
                 Button {
                     rtty.select(presetID: preset.id)
                 } label: {
                     VStack(spacing: 2) {
-                        Text(preset.name)
+                        Text(LocalizedStringKey(preset.name))
                         Text(detail(for: preset))
                             .font(.system(size: 8, weight: .medium, design: .monospaced))
                             .foregroundColor(RadioTheme.textDim)
@@ -995,7 +1307,30 @@ struct PresetPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help(preset.note)
+                .presetContextMenu(
+                    onEdit: { startEditPreset(preset) },
+                    onDelete: rtty.presets.count > 1 ? { rtty.removePreset(id: preset.id) } : nil,
+                    onReset: { rtty.resetPresetsToDefault() }
+                )
             }
+
+            Button {
+                startAddPreset()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("+ PRESET")
+                }
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(RadioTheme.bgPanel.opacity(0.6))
+                .cornerRadius(5)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(RadioTheme.borderSubtle, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Neues RTTY-Preset anlegen")
         }
     }
 
@@ -1003,6 +1338,104 @@ struct PresetPanel: View {
         let p = preset.id == "custom" ? rtty.customParameters : preset.parameters
         let b = p.baud == p.baud.rounded() ? String(format: "%.0f", p.baud) : String(format: "%.2f", p.baud).replacingOccurrences(of: ".", with: ",")
         return "\(b) Bd · \(Int(p.shift)) Hz"
+    }
+
+    // MARK: - Aktionen Preset-Editor
+
+    private func startAddPreset() {
+        isNewPreset = true
+        editingPreset = nil
+        editName = String(localized: "Neues Preset")
+        editShiftText = "170"
+        editBaudText = "45,45"
+        editBits = 5
+        editStopBits = 1.5
+        editReverse = false
+        editITA2 = false
+        editUnshiftOnSpace = true
+        editNote = ""
+        showPresetEditor = true
+    }
+
+    private func startEditPreset(_ p: RTTYPreset) {
+        isNewPreset = false
+        editingPreset = p
+        editName = p.name
+        editShiftText = "\(Int(p.parameters.shift))"
+        let b = p.parameters.baud
+        editBaudText = b == b.rounded() ? String(format: "%.0f", b) : String(format: "%.2f", b).replacingOccurrences(of: ".", with: ",")
+        editBits = p.parameters.bits
+        editStopBits = p.parameters.stopBits
+        editReverse = p.parameters.reverse
+        editITA2 = p.parameters.ita2
+        editUnshiftOnSpace = p.parameters.unshiftOnSpace
+        editNote = p.note
+        showPresetEditor = true
+    }
+
+    private func savePreset() {
+        let shift = Double(editShiftText.replacingOccurrences(of: ",", with: ".")) ?? 170
+        let baud = Double(editBaudText.replacingOccurrences(of: ",", with: ".")) ?? 45.45
+        let params = RTTYParameters(
+            shift: shift,
+            baud: baud,
+            bits: editBits,
+            parity: .none,
+            stopBits: editStopBits,
+            reverse: editReverse,
+            ita2: editITA2,
+            unshiftOnSpace: editUnshiftOnSpace
+        )
+        if isNewPreset {
+            let newID = "preset-\(UUID().uuidString.prefix(6))"
+            let p = RTTYPreset(id: newID, name: editName, parameters: params, note: editNote, frequencies: [])
+            rtty.addPreset(p)
+        } else if let orig = editingPreset {
+            let updated = RTTYPreset(id: orig.id, name: editName, parameters: params, note: editNote, frequencies: orig.frequencies)
+            rtty.updatePreset(updated)
+        }
+        showPresetEditor = false
+    }
+
+    // MARK: - Aktionen Frequenz-Editor
+
+    private func startAddFrequency() {
+        isNewFrequency = true
+        editingFrequency = nil
+        freqLabel = ""
+        freqKhzText = ""
+        freqCallsign = ""
+        freqNote = ""
+        showFreqEditor = true
+    }
+
+    private func startEditFrequency(_ f: RTTYFrequencyItem) {
+        isNewFrequency = false
+        editingFrequency = f
+        freqLabel = f.label
+        let khz = f.hz / 1000
+        freqKhzText = khz == khz.rounded() ? String(format: "%.0f", khz) : String(format: "%.3f", khz).replacingOccurrences(of: ".", with: ",")
+        freqCallsign = f.callsign
+        freqNote = f.note
+        showFreqEditor = true
+    }
+
+    private func saveFrequency() {
+        let khz = Double(freqKhzText.replacingOccurrences(of: ",", with: ".")) ?? 0
+        let hz = khz * 1000
+        let item = RTTYFrequencyItem(
+            id: editingFrequency?.id ?? UUID().uuidString,
+            label: freqLabel,
+            hz: hz,
+            callsign: freqCallsign,
+            note: freqNote
+        )
+        if isNewFrequency {
+            rtty.addFrequency(item, toPreset: rtty.presetID)
+        } else {
+            rtty.updateFrequency(item, inPreset: rtty.presetID)
+        }
+        showFreqEditor = false
     }
 }
 
@@ -1091,15 +1524,21 @@ private struct StatusBar: View {
         .padding(.horizontal, 14)
     }
 
+    private var centerLabel: String { String(localized: "Mitte") }
+    private var sqlOffLabel: String { String(localized: "SQL aus") }
+    private var hzWideLabel: String { String(localized: "Hz breit") }
+
     /// Aktueller Decoder-Stand, z. B. „RTTY · DWD KW · 50 Bd · 450 Hz · 5/1,5 · REV · LSB (auto) · Mitte 1696 Hz“
     private var current: String {
         let p = rtty.parameters
-        var s = "\(state.activeModule.displayName) · \(rtty.preset.name) · \(p.summary)"
+        let modName = NSLocalizedString(state.activeModule.displayName, comment: "")
+        let presName = NSLocalizedString(rtty.preset.name, comment: "")
+        var s = "\(modName) · \(presName) · \(p.summary)"
         if p.reverse { s += " · REV" }
         s += p.ita2 ? " · ITA2" : " · US-TTY"
         s += " · \(rtty.effectiveLSB ? "LSB" : "USB")"
-        if rtty.sidebandMode == .auto { s += rtty.rigIsLSB == nil ? " (auto, unbekannt)" : " (auto)" }
-        s += " · Mitte \(Int(rtty.centerHz.rounded())) Hz"
+        if rtty.sidebandMode == .auto { s += rtty.rigIsLSB == nil ? " (auto, \(String(localized: "unbekannt")))" : " (auto)" }
+        s += " · \(centerLabel) \(Int(rtty.centerHz.rounded())) Hz"
         return s
     }
 
@@ -1109,50 +1548,50 @@ private struct StatusBar: View {
         if navtex.reverse { s += " · REV" }
         s += navtex.ita2 ? " · ITA2" : " · US-TTY"
         s += " · \(navtex.effectiveLSB ? "LSB" : "USB")"
-        if navtex.sidebandMode == .auto { s += navtex.rigIsLSB == nil ? " (auto, unbekannt)" : " (auto)" }
-        s += " · Mitte \(Int(navtex.centerHz.rounded())) Hz"
+        if navtex.sidebandMode == .auto { s += navtex.rigIsLSB == nil ? " (auto, \(String(localized: "unbekannt")))" : " (auto)" }
+        s += " · \(centerLabel) \(Int(navtex.centerHz.rounded())) Hz"
         return s
     }
 
     private var currentLine: String {
         switch state.activeModule {
-        case .channels: return "MEHRKANAL · \(state.sdrController.bank.slots.filter(\.enabled).count) Decoder zugleich aus einem Fenster des SDR"
+        case .channels: return String(format: String(localized: "MEHRKANAL · %lld Decoder zugleich aus einem Fenster des SDR"), state.sdrController.bank.slots.filter(\.enabled).count)
         case .navtex: return navtexCurrent
         case .cw: return cwCurrent
         case .psk: return pskCurrent
         case .skimmer: return skimmerCurrent
-        case .olivia: return "\(olivia.options.familyName.uppercased()) · \(olivia.options.label) · Mitte \(Int(olivia.centerHz.rounded())) Hz" + (olivia.options.reverse ? " · REV" : "") + (olivia.options.squelchOn ? " · SQL \(Int(olivia.options.squelch))" : " · SQL aus")
-        case .acars: return "ACARS · \(acars.channel.label) MHz AM · MSK 2400 Bd" + (acars.hideEmpty ? " · ohne leere" : "") + (acars.showUplink ? "" : " · nur Abwärts")
-        case .hfdl: return "HFDL · \(HFDLChannels.label(hfdl.frequencyKHz)) kHz USB · PSK 1800 Bd · Träger 1440 Hz" + (hfdl.showUplink ? "" : " · nur Abwärts") + (hfdl.onlyContent ? " · nur Inhalt" : "")
+        case .olivia: return "\(olivia.options.familyName.uppercased()) · \(olivia.options.label) · \(centerLabel) \(Int(olivia.centerHz.rounded())) Hz" + (olivia.options.reverse ? " · REV" : "") + (olivia.options.squelchOn ? " · SQL \(Int(olivia.options.squelch))" : " · \(sqlOffLabel)")
+        case .acars: return "ACARS · \(acars.channel.label) MHz AM · MSK 2400 Bd" + (acars.hideEmpty ? " · \(String(localized: "ohne leere"))" : "") + (acars.showUplink ? "" : " · \(String(localized: "nur Abwärts"))")
+        case .hfdl: return "HFDL · \(HFDLChannels.label(hfdl.frequencyKHz)) kHz USB · PSK 1800 Bd · \(String(localized: "Träger")) 1440 Hz" + (hfdl.showUplink ? "" : " · \(String(localized: "nur Abwärts"))") + (hfdl.onlyContent ? " · \(String(localized: "nur Inhalt"))" : "")
         case .sonde: return sondeCurrent
         case .ais: return aisCurrent
         case .dstar: return "D-STAR · DV · GMSK 4800 Bd · FM-Diskriminator-Audio"
         case .ysf: return "YSF · C4FM 4800 Bd · FM-Diskriminator-Audio"
         case .dpmr: return "dPMR · 4FSK 2400 Bd · 6,25 kHz · FM-Diskriminator-Audio"
-        case .drm: return "DRM · \(String(format: "%.1f", drm.frequencyKHz).replacingOccurrences(of: ".0", with: "")) kHz USB (Dial 6 kHz tiefer) · OFDM 4,5 bis 20 kHz"
+        case .drm: return "DRM · \(String(format: "%.1f", drm.frequencyKHz).replacingOccurrences(of: ".0", with: "")) kHz USB (Dial 6 kHz \(String(localized: "tiefer"))) · OFDM 4,5 bis 20 kHz"
         case .p25: return "P25 Phase 1 · C4FM 4800 Bd · 12,5 kHz · FM-Diskriminator-Audio"
         case .nxdn: return "NXDN · 4FSK 2400 Bd (6,25 kHz) und 4800 Bd (12,5 kHz) · FM-Diskriminator-Audio"
         case .ndb: return "NDB · Funkfeuer 190 bis 535 kHz · AM-Audio, Kennungston 400/1020 Hz oder Überlagerungston"
         case .tetra: return "TETRA · π/4-DQPSK 18 000 Bd · 25 kHz · I/Q direkt vom Gerät"
-        case .dmr: return "DMR · 4FSK 4800 Bd · 2 Zeitschlitze · FM-Diskriminator-Audio"
+        case .dmr: return "DMR · 4FSK 4800 Bd · \(String(localized: "2 Zeitschlitze")) · FM-Diskriminator-Audio"
         case .m17: return "M17 · 4FSK 4800 Bd · Codec2 · FM-Diskriminator-Audio"
-        case .sensors: return "SENSOREN · Funksensoren 433,92 und 868,3 MHz · I/Q direkt vom Gerät"
+        case .sensors: return "\(String(localized: "SENSOREN")) · Funksensoren 433,92 und 868,3 MHz · I/Q direkt vom Gerät"
         case .vor: return "VOR/ILS · Peilung und Kennung · AM-Audio 48 kHz (Bandbreite ≥ 25 kHz)"
         case .dab: return "DAB · Digitalradio Band III · 174 bis 240 MHz · COFDM · DAB+ (HE-AAC) · I/Q direkt vom Gerät"
-        case .rds: return "RDS · \(String(format: "%.1f MHz", state.rds.frequencyHz / 1e6).replacingOccurrences(of: ".", with: ",")) · WFM 230 kHz · Stereo · 57 kHz RDS-Unterträger · UKW-Rundfunk (87,5–108 MHz)"
+        case .rds: return "RDS · \(String(format: "%.1f MHz", state.rds.frequencyHz / 1e6).replacingOccurrences(of: ".", with: ",")) · WFM 230 kHz · Stereo · 57 kHz RDS-Unterträger · \(String(localized: "UKW-Rundfunk")) (87,5–108 MHz)"
         case .vdl2: return "VDL2 · VDL Mode 2 · 136,725 bis 136,975 MHz · D8PSK 10 500 Bd · I/Q direkt vom Gerät"
         case .freedv: return "FREEDV · digitale Sprache KW · USB · NF 500 bis 2500 Hz"
         case .packet: return packetCurrent
         case .adsb: return adsbCurrent
         case .pager: return "PAGER · \(pager.channel.label) MHz FM · POCSAG " + POCSAG.rates.filter(pager.rates.contains).map(String.init).joined(separator: "/") + (pager.flex ? " · FLEX" : "")
-        case .tones: return "TÖNE · " + ToneStandard.allCases.filter(tones.standards.contains).map(\.name).joined(separator: ", ")
-        case .aprs: return "APRS · \(aprs.channel.label) MHz FM · AFSK 1200 Bd · Töne \(Int(aprs.centerHz - 500)) / \(Int(aprs.centerHz + 500)) Hz" + (aprs.repairBits ? " · Korrektur" : "") + (aprs.emphasis == .auto ? "" : aprs.emphasis == .on ? " · DE-EMPH." : " · FLACH")
-        case .ale: return "ALE · 8-FSK 125 Bd · Verstimmung \(Int(ale.offsetHz.rounded())) Hz" + (ale.auto ? " · AUTO" : "") + " · \(ale.sensitivity.rawValue)"
+        case .tones: return "\(String(localized: "TÖNE")) · " + ToneStandard.allCases.filter(tones.standards.contains).map(\.name).joined(separator: ", ")
+        case .aprs: return "APRS · \(aprs.channel.label) MHz FM · AFSK 1200 Bd · Töne \(Int(aprs.centerHz - 500)) / \(Int(aprs.centerHz + 500)) Hz" + (aprs.repairBits ? " · \(String(localized: "Korrektur"))" : "") + (aprs.emphasis == .auto ? "" : aprs.emphasis == .on ? " · DE-EMPH." : " · FLACH")
+        case .ale: return "ALE · 8-FSK 125 Bd · \(String(localized: "Verstimmung")) \(Int(ale.offsetHz.rounded())) Hz" + (ale.auto ? " · AUTO" : "") + " · \(ale.sensitivity.rawValue)"
         case .dsc where dsc.channel.isVHF: return "DSC · UKW Kanal 70 · 156,525 MHz FM · 1200 Bd / 1300 + 2100 Hz"
-        case .dsc: return "DSC · \(dsc.channel.label) kHz · Mitte \(Int(dsc.centerHz.rounded())) Hz · 100 Bd / 170 Hz" + (dsc.autoCenter ? " · AUTO" : "") + (dsc.reversed ? " · REV" : "")
-        case .mt63: return "MT63 · \(mt63.options.label) · Mitte \(Int(mt63.centerHz.rounded())) Hz" + (mt63.options.squelchOn ? " · SQL \(Int(mt63.options.squelch))" : " · SQL aus")
-        case .mfsk: return "\(mfsk.options.mode.displayName.uppercased()) · Mitte \(Int(mfsk.centerHz.rounded())) Hz · \(Int(mfsk.options.mode.bandwidthHz)) Hz breit" + (mfsk.options.reverse ? " · REV" : "") + (mfsk.options.squelchOn ? " · SQL \(Int(mfsk.options.squelch))" : " · SQL aus")
-        case .hell: return "\(hell.options.mode.displayName.uppercased()) · Mitte \(Int(hell.centerHz.rounded())) Hz · \(Int(hell.options.mode.bandwidthHz)) Hz breit" + (hell.options.reverse && hell.options.mode.isFSK ? " · REV" : "") + (hell.options.squelchOn ? " · SQL \(Int(hell.options.squelch))" : " · SQL aus")
+        case .dsc: return "DSC · \(dsc.channel.label) kHz · \(centerLabel) \(Int(dsc.centerHz.rounded())) Hz · 100 Bd / 170 Hz" + (dsc.autoCenter ? " · AUTO" : "") + (dsc.reversed ? " · REV" : "")
+        case .mt63: return "MT63 · \(mt63.options.label) · \(centerLabel) \(Int(mt63.centerHz.rounded())) Hz" + (mt63.options.squelchOn ? " · SQL \(Int(mt63.options.squelch))" : " · \(sqlOffLabel)")
+        case .mfsk: return "\(mfsk.options.mode.displayName.uppercased()) · \(centerLabel) \(Int(mfsk.centerHz.rounded())) Hz · \(Int(mfsk.options.mode.bandwidthHz)) \(hzWideLabel)" + (mfsk.options.reverse ? " · REV" : "") + (mfsk.options.squelchOn ? " · SQL \(Int(mfsk.options.squelch))" : " · \(sqlOffLabel)")
+        case .hell: return "\(hell.options.mode.displayName.uppercased()) · \(centerLabel) \(Int(hell.centerHz.rounded())) Hz · \(Int(hell.options.mode.bandwidthHz)) \(hzWideLabel)" + (hell.options.reverse && hell.options.mode.isFSK ? " · REV" : "") + (hell.options.squelchOn ? " · SQL \(Int(hell.options.squelch))" : " · \(sqlOffLabel)")
         case .wefax: return wefaxCurrent
         case .ft8: return ft8Current
         case .ft4: return ft4Current(ft4)
@@ -1186,9 +1625,9 @@ private struct StatusBar: View {
     private var skimmerCurrent: String {
         var s = "SKIMMER · \(skimmer.mode.name)"
         if let d = skimmer.dialHz { s += String(format: " · Dial %.3f MHz", Double(d) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
-        s += " · Schwelle \(Int(skimmer.thresholdDB)) dB"
+        s += " · " + String(localized: "Schwelle") + " \(Int(skimmer.thresholdDB)) dB"
         let live = skimmerController.stations.filter(\.isLive)
-        s += " · \(live.count) Signale · \(live.filter { $0.call != nil }.count) mit Rufzeichen"
+        s += " · \(live.count) " + String(localized: "Signale") + " · \(live.filter { $0.call != nil }.count) " + String(localized: "mit Rufzeichen")
         return s
     }
 
@@ -1197,8 +1636,8 @@ private struct StatusBar: View {
         var s = "ADS-B · 1090 MHz · \(adsb.source.title)"
         let n = adsbController.aircraft.count
         if n > 0 {
-            s += " · \(n) Flugzeug" + (n == 1 ? "" : "e") + " · \(adsbController.aircraft.filter(\.hasPosition).count) mit Position"
-            s += " · \(Int(adsbController.stats.messagesPerSecond.rounded())) Meldungen/s"
+            s += " · \(n) " + (n == 1 ? String(localized: "Flugzeug") : String(localized: "Flugzeuge")) + " · \(adsbController.aircraft.filter(\.hasPosition).count) " + String(localized: "mit Position")
+            s += " · \(Int(adsbController.stats.messagesPerSecond.rounded())) " + String(localized: "Meldungen/s")
         }
         return s
     }
@@ -1208,9 +1647,9 @@ private struct StatusBar: View {
         var s = "PACKET · \(packet.channel.label) MHz FM · " + (packet.baud == .baud9600 ? "G3RUH 9600 Bd" : "AFSK 1200 Bd")
         let c = packetController
         if c.frameCount > 0 {
-            s += " · \(c.stations.count) Stationen"
-            if !c.sessions.isEmpty { s += " · \(c.sessions.count) Verbindung" + (c.sessions.count == 1 ? "" : "en") }
-            if !c.mail.isEmpty { s += " · \(c.mail.count) Nachricht" + (c.mail.count == 1 ? "" : "en") }
+            s += " · \(c.stations.count) " + String(localized: "Stationen")
+            if !c.sessions.isEmpty { s += " · \(c.sessions.count) " + (c.sessions.count == 1 ? String(localized: "Verbindung") : String(localized: "Verbindungen")) }
+            if !c.mail.isEmpty { s += " · \(c.mail.count) " + (c.mail.count == 1 ? String(localized: "Nachricht") : String(localized: "Nachrichten")) }
         }
         return s
     }
@@ -1219,8 +1658,8 @@ private struct StatusBar: View {
     private var aisCurrent: String {
         var s = "AIS · \(ais.channel.label) MHz FM · GMSK 9600 Bd"
         let n = aisController.ships.filter { $0.kind != .aid && $0.kind != .base }.count
-        if n > 0 { s += " · \(n) Schiff" + (n == 1 ? "" : "e") }
-        s += " · \(aisController.messageCount) Meldungen"
+        if n > 0 { s += " · \(n) " + (n == 1 ? String(localized: "Schiff") : String(localized: "Schiffe")) }
+        s += " · \(aisController.messageCount) " + String(localized: "Meldungen")
         return s
     }
 
@@ -1228,17 +1667,17 @@ private struct StatusBar: View {
     private var sondeCurrent: String {
         var s = "SONDE · \(sonde.frequencyText) FM \(sonde.filterKHz) kHz · RS41/DFM/M10/M20"
         let n = sondeController.flights.count
-        if n > 0 { s += " · \(n) Sonde" + (n == 1 ? "" : "n") }
-        s += " · \(sondeController.stats.frames) Rahmen"
+        if n > 0 { s += " · \(n) " + (n == 1 ? String(localized: "Sonde") : String(localized: "Sonden")) }
+        s += " · \(sondeController.stats.frames) " + String(localized: "Rahmen")
         return s
     }
 
     /// „PSK · BPSK31 · Mitte 1000 Hz · AFC · SQL 5“
     private var pskCurrent: String {
-        var s = "PSK · \(psk.options.mode.displayName) · Mitte \(Int(psk.centerHz.rounded())) Hz"
-        s += psk.options.afc ? " · AFC" : " · AFC aus"
+        var s = "PSK · \(psk.options.mode.displayName) · \(centerLabel) \(Int(psk.centerHz.rounded())) Hz"
+        s += psk.options.afc ? " · AFC" : " · " + String(localized: "AFC aus")
         if psk.options.reverse { s += " · REV" }
-        s += psk.options.squelchOn ? " · SQL \(Int(psk.options.squelch))" : " · SQL aus"
+        s += psk.options.squelchOn ? " · SQL \(Int(psk.options.squelch))" : " · \(sqlOffLabel)"
         if let d = psk.band.dialHz { s += String(format: " · %.3f MHz", Double(d) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
         return s
     }
@@ -1248,7 +1687,7 @@ private struct StatusBar: View {
         let dial = String(format: "%.4f", Double(wspr.dialHz) / 1_000_000).replacingOccurrences(of: ".", with: ",")
         var s = "WSPR · \(wspr.band.rawValue) · Dial \(dial) MHz"
         s += wspr.core.wide ? " · 1350–1650 Hz" : " · 1390–1610 Hz"
-        if wspr.core.deep { s += " · tief" }
+        if wspr.core.deep { s += " · " + String(localized: "tief") }
         s += " · \(wspr.locator)"
         if !wspr.myCall.isEmpty { s += " · \(wspr.myCall)" }
         return s
@@ -1256,7 +1695,7 @@ private struct StatusBar: View {
 
     /// „EFR · DCF49 Mainflingen · 200 Bd · Shift 340 Hz · DIN 19244 · Ton 1500 Hz“
     private var efrCurrent: String {
-        var s = "EFR · \(efr.station.name) · 200 Bd · Shift 340 Hz · DIN 19244 · Ton \(Int(efr.centerHz.rounded())) Hz"
+        var s = "EFR · \(efr.station.name) · 200 Bd · Shift 340 Hz · DIN 19244 · " + String(localized: "Ton") + " \(Int(efr.centerHz.rounded())) Hz"
         if let st = efrController.status {
             s += String(format: " · SNR %.1f dB · %d Telegramme", st.snrDb, st.telegramsDecoded)
         }
@@ -1265,9 +1704,9 @@ private struct StatusBar: View {
 
     /// „DCF77 · 77,5 kHz · AM 100/200 ms · Ton 1000 Hz · SYNC OK · SNR 24.5 dB“
     private var dcf77Current: String {
-        var s = "DCF77 · 77,5 kHz · AM 100/200 ms · Ton \(Int(dcf77.centerHz.rounded())) Hz"
+        var s = "DCF77 · 77,5 kHz · AM 100/200 ms · " + String(localized: "Ton") + " \(Int(dcf77.centerHz.rounded())) Hz"
         if let st = dcf77Controller.status {
-            s += st.isSynchronized ? " · SYNC OK" : (st.currentSecond >= 0 ? " · Sekunde \(st.currentSecond)" : " · SUCHE...")
+            s += st.isSynchronized ? " · SYNC OK" : (st.currentSecond >= 0 ? " · " + String(format: String(localized: "Sekunde %d"), st.currentSecond) : " · " + String(localized: "SUCHE..."))
             s += String(format: " · SNR %.1f dB", st.snrDb)
         }
         return s
@@ -1278,7 +1717,7 @@ private struct StatusBar: View {
         let dial = String(format: "%.3f", Double(ft8.dialHz) / 1_000_000).replacingOccurrences(of: ".", with: ",")
         var s = "FT8 · \(ft8.band.rawValue) · Dial \(dial) MHz"
         s += " · \(Int(ft8.core.minHz))–\(Int(ft8.core.maxHz)) Hz"
-        s += " · " + String(format: "%.1f", ft8.core.budgetSeconds).replacingOccurrences(of: ".", with: ",") + " s Rechenzeit"
+        s += " · " + String(format: "%.1f", ft8.core.budgetSeconds).replacingOccurrences(of: ".", with: ",") + " s " + String(localized: "Rechenzeit")
         s += " · \(ft8.locator)"
         if !ft8.myCall.isEmpty { s += " · \(ft8.myCall)" }
         return s
@@ -1298,8 +1737,8 @@ private struct StatusBar: View {
     /// „WEFAX · DWD 7880 · IOC 576 · 120 LPM · Hub 850 Hz · Mitte 1900 Hz · AFC“
     private var wefaxCurrent: String {
         let o = wefax.options
-        var s = "WEFAX · " + (wefax.station == .custom ? "Frei" : "DWD \(wefax.station.label)")
-        s += " · IOC \(o.ioc) · \(o.lpm) LPM · Hub \(o.shiftHz) Hz · Mitte \(o.centerHz) Hz"
+        var s = "WEFAX · " + (wefax.station == .custom ? String(localized: "Frei") : "DWD \(wefax.station.label)")
+        s += " · IOC \(o.ioc) · \(o.lpm) LPM · " + String(localized: "Hub") + " \(o.shiftHz) Hz · \(centerLabel) \(o.centerHz) Hz"
         if o.afc { s += " · AFC" }
         if wefax.rigIsLSB == true { s += " · LSB!" }
         return s
@@ -1308,10 +1747,10 @@ private struct StatusBar: View {
     /// „CW · Ton 700 Hz · Filter 150 Hz · Start 18 WpM · Nachführung 8–28“
     private var cwCurrent: String {
         let o = cw.options
-        var s = "CW · Ton \(Int(cw.centerHz.rounded())) Hz · Filter \(Int(cw.effectiveBandwidth)) Hz"
+        var s = "CW · " + String(localized: "Ton") + " \(Int(cw.centerHz.rounded())) Hz · Filter \(Int(cw.effectiveBandwidth)) Hz"
         if o.matchedFilter { s += " (MF)" }
         s += " · Start \(o.speedWPM) WpM"
-        s += o.track ? " · Nachführung \(max(o.lowerWPM, o.speedWPM - o.rangeWPM))–\(min(o.upperWPM, o.speedWPM + o.rangeWPM))" : " · fest"
+        s += o.track ? " · " + String(localized: "Nachführung") + " \(max(o.lowerWPM, o.speedWPM - o.rangeWPM))–\(min(o.upperWPM, o.speedWPM + o.rangeWPM))" : " · " + String(localized: "fest")
         if o.somDecoding { s += " · SOM" }
         return s
     }
@@ -1350,3 +1789,105 @@ private struct PlaceholderPanel: View {
         .cornerRadius(6)
     }
 }
+
+// MARK: - Vertikaler Größenversteller
+
+/// Eleganter Größenversteller zwischen gestapelten RadioTheme-Karten (Wasserfall, Text, Karte)
+public struct VerticalResizeDivider: View {
+    @Binding public var height: CGFloat
+    public let range: ClosedRange<CGFloat>
+    public let defaultHeight: CGFloat
+    public var isReversed: Bool = false
+    public var onReset: (() -> Void)? = nil
+
+    @State private var isHovered = false
+    @State private var isDragging = false
+    @State private var hasPushedCursor = false
+    @State private var dragStartHeight: CGFloat? = nil
+
+    public init(
+        height: Binding<CGFloat>,
+        range: ClosedRange<CGFloat>,
+        defaultHeight: CGFloat,
+        isReversed: Bool = false,
+        onReset: (() -> Void)? = nil
+    ) {
+        self._height = height
+        self.range = range
+        self.defaultHeight = defaultHeight
+        self.isReversed = isReversed
+        self.onReset = onReset
+    }
+
+    public var body: some View {
+        ZStack {
+            // Trefferfläche (10 pt Höhe)
+            Rectangle()
+                .fill(Color.clear)
+                .frame(height: 10)
+                .contentShape(Rectangle())
+
+            // Feine Trennlinie über die gesamte Breite
+            Rectangle()
+                .fill(isDragging ? RadioTheme.vfdCyan : (isHovered ? RadioTheme.vfdCyan.opacity(0.6) : RadioTheme.borderSubtle.opacity(0.7)))
+                .frame(height: 1)
+
+            // Zentrierter Griff-Indikator
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(isDragging ? RadioTheme.vfdCyan : (isHovered ? RadioTheme.vfdCyan.opacity(0.9) : RadioTheme.textDim.opacity(0.75)))
+                .frame(width: 38, height: 3)
+                .shadow(color: isDragging ? RadioTheme.vfdCyan.opacity(0.7) : (isHovered ? RadioTheme.vfdCyan.opacity(0.35) : .clear), radius: 3)
+        }
+        .frame(height: 10)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                if !hasPushedCursor {
+                    NSCursor.resizeUpDown.push()
+                    hasPushedCursor = true
+                }
+            } else if !isDragging {
+                if hasPushedCursor {
+                    NSCursor.pop()
+                    hasPushedCursor = false
+                }
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { value in
+                    if dragStartHeight == nil {
+                        dragStartHeight = height
+                        isDragging = true
+                    }
+                    guard let start = dragStartHeight else { return }
+                    let delta = isReversed ? -value.translation.height : value.translation.height
+                    let target = start + delta
+                    height = min(max(target, range.lowerBound), range.upperBound)
+                    NSCursor.resizeUpDown.set()
+                }
+                .onEnded { _ in
+                    dragStartHeight = nil
+                    isDragging = false
+                    if !isHovered && hasPushedCursor {
+                        NSCursor.pop()
+                        hasPushedCursor = false
+                    }
+                }
+        )
+        .onTapGesture(count: 2) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                height = defaultHeight
+                onReset?()
+            }
+        }
+        .onDisappear {
+            if hasPushedCursor {
+                NSCursor.pop()
+                hasPushedCursor = false
+            }
+        }
+        .help(LocalizedStringKey("Höhe durch Ziehen verstellen · Doppelklick: Standardgröße"))
+    }
+}
+

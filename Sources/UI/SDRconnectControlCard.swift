@@ -110,7 +110,7 @@ struct SDRconnectControlCard: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
+            Text(LocalizedStringKey(label)).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
             Text(value).font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundColor(RadioTheme.vfdCyan)
         }
     }

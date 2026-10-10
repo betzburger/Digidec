@@ -58,12 +58,50 @@ public enum WefaxStation: String, CaseIterable, Identifiable, Codable, Sendable 
     public func usbDial(center: Double) -> Double? { frequencyHz.map { $0 - center } }
 }
 
+/// Frei konfigurierbare Wetterfax-Station (Name, Frequenz in Hz, Notiz, Hub, LPM, IOC)
+public struct WefaxStationItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var label: String
+    public var frequencyHz: Double?
+    public var note: String
+    public var shiftHz: Int
+    public var lpm: Int
+    public var ioc: Int
+
+    public init(id: String = UUID().uuidString, label: String, frequencyHz: Double?, note: String, shiftHz: Int = 850, lpm: Int = 120, ioc: Int = 576) {
+        self.id = id
+        self.label = label
+        self.frequencyHz = frequencyHz
+        self.note = note
+        self.shiftHz = shiftHz
+        self.lpm = lpm
+        self.ioc = ioc
+    }
+
+    public func usbDial(center: Double) -> Double? { frequencyHz.map { $0 - center } }
+
+    public static let standardStations: [WefaxStationItem] = [
+        WefaxStationItem(id: "dwd-3855", label: "3855", frequencyHz: 3_855_000, note: "DWD Nacht", shiftHz: 850, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "dwd-7880", label: "7880", frequencyHz: 7_880_000, note: "DWD", shiftHz: 850, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "dwd-13882", label: "13882,5", frequencyHz: 13_882_500, note: "DWD Tag", shiftHz: 850, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "nmf-6340", label: "6340,5", frequencyHz: 6_340_500, note: "USCG Boston", shiftHz: 800, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "nmf-9110", label: "9110", frequencyHz: 9_110_000, note: "USCG Boston", shiftHz: 800, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "nmc-8682", label: "8682", frequencyHz: 8_682_000, note: "USCG Pt Reyes", shiftHz: 800, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "jmh-7795", label: "7795", frequencyHz: 7_795_000, note: "JMA Tokyo", shiftHz: 800, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "gya-8040", label: "8040", frequencyHz: 8_040_000, note: "UK Met Northwood", shiftHz: 800, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "vmc-11030", label: "11030", frequencyHz: 11_030_000, note: "BOM Australien", shiftHz: 800, lpm: 120, ioc: 576),
+        WefaxStationItem(id: "custom", label: "Frei", frequencyHz: nil, note: "eigene", shiftHz: 850, lpm: 120, ioc: 576)
+    ]
+}
+
 // MARK: - Einstellungen
 
 @MainActor
 public final class WefaxSettingsStore: ObservableObject {
     public static let centerRange: ClosedRange<Double> = 1000...2500
 
+    @Published public private(set) var stations: [WefaxStationItem]
+    @Published public var selectedStationID: String { didSet { applySelectedStation(); save() } }
     @Published public var station: WefaxStation { didSet { stationChanged(); save() } }
     @Published public var options: FldigiWefaxCore.Options { didSet { save() } }
     @Published public private(set) var manualCenterRevision = 0
@@ -76,15 +114,81 @@ public final class WefaxSettingsStore: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let d = defaults
-        station = d.string(forKey: "wefaxStation").flatMap(WefaxStation.init(rawValue:)) ?? .dwd7880
+        let loadedStations: [WefaxStationItem]
+        if let data = d.data(forKey: "wefaxCustomStations"),
+           let list = try? JSONDecoder().decode([WefaxStationItem].self, from: data), !list.isEmpty {
+            loadedStations = list
+        } else {
+            loadedStations = WefaxStationItem.standardStations
+        }
+        let savedID = d.string(forKey: "wefaxSelectedStationID")
+        let initialID = loadedStations.first(where: { $0.id == savedID })?.id ?? loadedStations.first?.id ?? "dwd-7880"
+        let initialStation = WefaxStation(rawValue: initialID) ?? .custom
+        stations = loadedStations
+        selectedStationID = initialID
+        station = initialStation
         options = d.data(forKey: "wefaxOptions").flatMap { try? JSONDecoder().decode(FldigiWefaxCore.Options.self, from: $0) }
-            ?? Self.defaults(for: .dwd7880)
+            ?? Self.defaults(for: initialStation)
     }
 
     public static func defaults(for station: WefaxStation) -> FldigiWefaxCore.Options {
         var o = FldigiWefaxCore.Options()
         if let s = station.shiftHz { o.shiftHz = s }
         return o
+    }
+
+    public var activeStationItem: WefaxStationItem {
+        stations.first { $0.id == selectedStationID } ?? stations[0]
+    }
+
+    public var activeStationFrequencyHz: Double? {
+        activeStationItem.frequencyHz
+    }
+
+    public func selectStation(id: String) {
+        guard stations.contains(where: { $0.id == id }) else { return }
+        selectedStationID = id
+    }
+
+    public func addStation(_ s: WefaxStationItem) {
+        stations.append(s)
+        selectedStationID = s.id
+        save()
+    }
+
+    public func updateStation(_ s: WefaxStationItem) {
+        if let idx = stations.firstIndex(where: { $0.id == s.id }) {
+            stations[idx] = s
+            if selectedStationID == s.id {
+                applySelectedStation()
+            }
+            save()
+        }
+    }
+
+    public func removeStation(id: String) {
+        guard stations.count > 1 else { return }
+        stations.removeAll { $0.id == id }
+        if selectedStationID == id {
+            selectedStationID = stations.first?.id ?? "custom"
+        }
+        save()
+    }
+
+    public func resetStationsToDefault() {
+        stations = WefaxStationItem.standardStations
+        if !stations.contains(where: { $0.id == selectedStationID }) {
+            selectedStationID = "dwd-7880"
+        }
+        save()
+    }
+
+    private func applySelectedStation() {
+        let item = activeStationItem
+        station = WefaxStation(rawValue: item.id) ?? (item.frequencyHz == nil ? .custom : .custom)
+        if options.shiftHz != item.shiftHz { options.shiftHz = item.shiftHz }
+        if options.lpm != item.lpm { options.lpm = item.lpm }
+        if options.ioc != item.ioc { options.ioc = item.ioc }
     }
 
     public var centerHz: Double { Double(options.centerHz) }
@@ -100,7 +204,9 @@ public final class WefaxSettingsStore: ObservableObject {
 
     private func save() {
         let d = defaults
+        d.set(selectedStationID, forKey: "wefaxSelectedStationID")
         d.set(station.rawValue, forKey: "wefaxStation")
+        if let data = try? JSONEncoder().encode(stations) { d.set(data, forKey: "wefaxCustomStations") }
         if let data = try? JSONEncoder().encode(options) { d.set(data, forKey: "wefaxOptions") }
     }
 }

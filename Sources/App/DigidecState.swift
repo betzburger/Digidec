@@ -32,6 +32,10 @@ public final class DigidecState: ObservableObject {
     public let rigProfiles = RigProfileStore()
     /// Dialog „Funkgerät“ offen?
     @Published public var showRigSettings = false
+    /// Dialog / Sheet „Web-Fernzugriff“ offen?
+    @Published public var showWebSettings = false
+    /// Eingebetteter Web-Server für Browser-Fernzugriff
+    public let webServer = DigidecWebServer.shared
     /// Info-Fenster (Version, Lizenz, Quellen) offen?
     @Published public var showAbout = false
     /// Eigener Standort für alle Karten und Entfernungen
@@ -144,6 +148,21 @@ public final class DigidecState: ObservableObject {
         for m in UserDefaults.standard.stringArray(forKey: "mapModules") ?? [] where d[m] == nil { d[m] = MapLayout.map.rawValue }
         return d
     }()
+    /// Standard- und Grenzmaße für die Fensterhöhen
+    public static let defaultWaterfallHeight: CGFloat = 260
+    public static let defaultSplitMapHeight: CGFloat = 240
+    public static let minWaterfallHeight: CGFloat = 140
+    public static let minPanelHeight: CGFloat = 120
+
+    /// Höhe des oberen Wasserfall-/HF-Fensters in pt (gemerkt)
+    @Published public var waterfallHeight: CGFloat {
+        didSet { UserDefaults.standard.set(Double(waterfallHeight), forKey: "waterfallHeight") }
+    }
+    /// Höhe der Karte im geteilten Modus (BEIDE) in pt (gemerkt)
+    @Published public var splitMapHeight: CGFloat {
+        didSet { UserDefaults.standard.set(Double(splitMapHeight), forKey: "splitMapHeight") }
+    }
+
     /// Darf Digidec das Funkgerät über den rigctld des Commanders abstimmen? Standard: aus (nur lesen).
     @Published public var rigControlEnabled: Bool {
         didSet { UserDefaults.standard.set(rigControlEnabled, forKey: "rigControlEnabled") }
@@ -157,6 +176,10 @@ public final class DigidecState: ObservableObject {
 
     private init() {
         rigControlEnabled = UserDefaults.standard.bool(forKey: "rigControlEnabled")
+        let savedWf = UserDefaults.standard.double(forKey: "waterfallHeight")
+        waterfallHeight = savedWf >= Double(Self.minWaterfallHeight) ? CGFloat(savedWf) : Self.defaultWaterfallHeight
+        let savedMap = UserDefaults.standard.double(forKey: "splitMapHeight")
+        splitMapHeight = savedMap >= Double(Self.minPanelHeight) ? CGFloat(savedMap) : Self.defaultSplitMapHeight
         audio = AudioInputManager()
         waterfall = WaterfallModel(pipeline: audio.pipeline)
         rttyController = RTTYController(pipeline: audio.pipeline, settings: rtty)
@@ -313,24 +336,29 @@ public final class DigidecState: ObservableObject {
         observeForTuning(wspr.$band)
         observeForTuning(js8.$band)
         observeForTuning(psk.$band)
+        observeForTuning(psk.$selectedBandID)
         observeForTuning(skimmer.$cwBand)
         observeForTuning(skimmer.$pskBand)
         observeForTuning(skimmer.$mode)
         observeForTuning(dsc.$channel)
         observeForTuning(aprs.$channel)
         observeForTuning(packet.$channel)
+        observeForTuning(packet.$selectedChannelID)
         observeForTuning(packet.$baud)
         observeForTuning(acars.$channel)
+        observeForTuning(acars.$selectedChannelID)
         observeForTuning(ais.$channel)
         observeForTuning(hfdl.$frequencyKHz)
         observeForTuning(drm.$frequencyKHz)
         observeForTuning(sonde.$frequencyKHz)
         observeForTuning(sonde.$filterKHz)
         observeForTuning(pager.$channel)
-        observeForTuning(sstv.$channel)
+        observeForTuning(pager.$selectedChannelID)
+        observeForTuning(dsc.$selectedChannelID)
+        observeForTuning(sstv.$selectedChannelID)
         observeForTuning(efr.$station)
-        observeForTuning(wefax.$station)
-        observeForTuning(navtex.$frequency)
+        observeForTuning(wefax.$selectedStationID)
+        observeForTuning(navtex.$selectedFrequencyID)
         observeForTuning(rtty.$presetID)
         observeForTuning(rtty.$dwdFrequencyHz)
         observeForTuning(rds.$frequencyHz)
@@ -441,6 +469,36 @@ public final class DigidecState: ObservableObject {
             sstvController.sourceDescription = rig.description
             rttyController.rigState = state
         }
+
+        webServer.delegate = self
+
+        // Textdekodierungen an den Web-Server weiterleiten
+        let broadcastText: @MainActor (String) -> Void = { [weak self] text in
+            self?.webServer.broadcastDecodedText(text)
+        }
+        rttyController.textModel.onAppendBroadcast = broadcastText
+        navtexController.textModel.onAppendBroadcast = broadcastText
+        cwController.textModel.onAppendBroadcast = broadcastText
+        pskController.textModel.onAppendBroadcast = broadcastText
+        oliviaController.textModel.onAppendBroadcast = broadcastText
+        mt63Controller.textModel.onAppendBroadcast = broadcastText
+        mfskController.textModel.onAppendBroadcast = broadcastText
+
+        // Web-Server bei Zustandsänderungen (Modul, Funkgerät) benachrichtigen
+        $activeModule
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
+            .store(in: &cancellables)
+
+        rig.$state
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.webServer.broadcastStateUpdate() }
+            .store(in: &cancellables)
+
+        // Web-Server starten, wenn in den Einstellungen aktiviert
+        if UserDefaults.standard.bool(forKey: "webServerEnabled") {
+            webServer.start()
+        }
     }
 
     /// Modul KANÄLE gewählt: der SDR-Empfänger wird als Quelle gewählt und die Kanalbank läuft; sonst hält sie an
@@ -468,28 +526,37 @@ public final class DigidecState: ObservableObject {
         case .ft2:    return .ft4(band: ft2.band, mode: .ft2)
         case .wspr:   return .wspr(band: wspr.band)
         case .js8:    return .js8(band: js8.band)
-        case .psk:    return .psk(band: psk.band)
+        case .psk:    return .psk(dialHz: psk.activeDialHz)
         case .skimmer: return .skimmer(mode: skimmer.mode, cwBand: skimmer.cwBand, pskBand: skimmer.pskBand)
-        case .sstv:   return .sstv(channel: sstv.channel)
+        case .sstv:   return .sstv(frequencyHz: sstv.activeFrequencyHz, modulation: sstv.activeModulation)
         case .efr:    return .efr(station: efr.station, centerHz: efr.centerHz)
         case .dcf77:  return .dcf77(centerHz: dcf77.centerHz)
-        case .wefax:  return .wefax(station: wefax.station, centerHz: wefax.centerHz)
-        case .navtex: return .navtex(frequency: navtex.frequency, centerHz: navtex.centerHz)
-        case .dsc:    return .dsc(channel: dsc.channel, centerHz: dsc.centerHz)
+        case .wefax:  return .wefax(frequencyHz: wefax.activeStationFrequencyHz, centerHz: wefax.centerHz)
+        case .navtex: return .navtex(frequencyHz: navtex.activeFrequencyHz, centerHz: navtex.centerHz)
+        case .dsc:    return .dsc(frequencyHz: dsc.activeFrequencyHz, isVHF: dsc.activeChannelItem.isVHF, centerHz: dsc.centerHz)
         case .aprs:   return .aprs(channel: aprs.channel)
-        case .packet: return .packet(channel: packet.channel, baud: packet.baud)
+        case .packet: return .packet(frequencyHz: packet.activeFrequencyHz, baud: packet.baud)
         case .adsb:   return nil
-        case .acars:  return .acars(channel: acars.channel)
+        case .acars:  return .acars(frequencyHz: acars.activeFrequencyHz)
         case .ais:    return .ais(channel: ais.channel)
         case .rds:    return .rds(frequencyHz: rds.frequencyHz)
         case .dstar, .ysf, .dmr, .dpmr, .nxdn, .p25, .tetra, .m17, .sensors, .vdl2, .dab, .vor, .freedv, .channels: return nil
         case .hfdl:   return .hfdl(frequencyKHz: hfdl.frequencyKHz)
         case .drm:    return .drm(frequencyKHz: drm.frequencyKHz)
         case .sonde:  return .sonde(frequencyKHz: sonde.frequencyKHz, filterKHz: sonde.filterKHz)
-        case .pager:  return .pager(channel: pager.channel)
-        case .rtty:   return rttyDWDTarget
+        case .pager:  return .pager(frequencyHz: pager.activeFrequencyHz)
+        case .rtty:   return rttyTarget
         case .cw, .olivia, .mt63, .mfsk, .hell, .ale, .tones, .ndb: return nil
         }
+    }
+
+    /// RTTY-Abstimmziel: DWD nach Sendeplan/Wahl, bei anderen Presets die gewählte Frequenz (nil: nichts)
+    public var rttyTarget: RigTuneTarget? {
+        if let dwd = rttyDWDTarget { return dwd }
+        if let hz = rtty.selectedFrequencyHz {
+            return RigTuneTarget.rtty(frequencyHz: hz, centerHz: rtty.centerHz)
+        }
+        return nil
     }
 
     /// DWD-Funkfernschreiben: gewählte Frequenz des Presets, sonst die Automatik des Sendeplans (Tageszeit); andere Presets nichts
@@ -773,6 +840,16 @@ public final class DigidecState: ObservableObject {
         UserDefaults.standard.set(mapLayouts, forKey: "mapLayouts")
     }
 
+    /// Setzt die Wasserfall-Fensterhöhe auf die Standardgröße zurück
+    public func resetWaterfallHeight() {
+        waterfallHeight = Self.defaultWaterfallHeight
+    }
+
+    /// Setzt die Karten-Fensterhöhe im Split-Modus auf die Standardgröße zurück
+    public func resetSplitMapHeight() {
+        splitMapHeight = Self.defaultSplitMapHeight
+    }
+
     /// Zeigt das Modul die Karte (allein oder neben der Liste)?
     public func isMapVisible(_ module: DecoderModuleInfo) -> Bool {
         mapLayout(module) != .list
@@ -804,5 +881,50 @@ public final class DigidecState: ObservableObject {
         sdrController.stopSource()                                          // Gerät sauber schließen
         dabController.stopSource()
         audio.cleanup()
+        webServer.stop()
+    }
+}
+
+// MARK: - WebHostDelegate Conformance
+
+extension DigidecState: WebHostDelegate {
+    public var activeModuleId: String { activeModule.id }
+    public var dialFrequencyHz: Int { rig.state.frequencyHz ?? 0 }
+    public var activeModeString: String { rig.state.mode ?? "USB" }
+    public var connectedRigName: String { rig.rigName ?? "Kein Funkgerät" }
+
+    public var waterfallRowData: Data? {
+        let snap = waterfall.processor.snapshot()
+        let spec = snap.spectrum.isEmpty ? waterfall.spectrum : snap.spectrum
+        guard !spec.isEmpty else { return nil }
+        var frame = Data(capacity: spec.count + 1)
+        frame.append(0x01)
+        let floorDB = waterfall.noiseFloor
+        let rangeDB = waterfall.rangeDB
+        for db in spec {
+            frame.append(UInt8(WaterfallColorMap.index(db: db, floorDB: floorDB, rangeDB: rangeDB)))
+        }
+        return frame
+    }
+
+    public func addAudioSink(rate: Double, _ sink: @escaping @Sendable (UnsafeBufferPointer<Float>) -> Void) -> UUID {
+        audio.pipeline.addSink(rate: rate, sink)
+    }
+
+    public func removeAudioSink(_ id: UUID) {
+        audio.pipeline.removeSink(id)
+    }
+
+    public func selectModule(id: String) {
+        if let mod = DecoderModuleInfo.allCases.first(where: { $0.id == id }) {
+            select(module: mod)
+        }
+    }
+
+    public func tuneOffset(hz: Double) {
+        if let cur = rig.state.frequencyHz {
+            let newHz = max(100_000, Int64(cur) + Int64(hz))
+            rig.tune(to: RigTuneTarget(dialHz: newHz, mode: rig.state.mode ?? "USB"))
+        }
     }
 }

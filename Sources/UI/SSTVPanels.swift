@@ -163,6 +163,15 @@ public struct SSTVTuningPanel: View {
     @ObservedObject var controller: SSTVController
     @ObservedObject var settings: SSTVSettingsStore
 
+    @State private var editingChannel: SSTVChannelItem?
+    @State private var isNewChannel = false
+    @State private var showChannelEditor = false
+    @State private var editShortLabel = ""
+    @State private var editName = ""
+    @State private var editMhzText = ""
+    @State private var editModulation = "USB"
+    @State private var editNote = ""
+
     public init(controller: SSTVController, settings: SSTVSettingsStore) {
         self.controller = controller
         self.settings = settings
@@ -171,29 +180,12 @@ public struct SSTVTuningPanel: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Kanal-Schnellauswahl
-            HStack(spacing: 4) {
-                ForEach(SSTVChannel.allCases) { ch in
-                    Button {
-                        settings.channel = ch
-                    } label: {
-                        VStack(spacing: 1) {
-                            Text(ch.shortLabel)
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            Text(ch.modulation)
-                                .font(.system(size: 7, weight: .medium, design: .monospaced))
-                                .foregroundColor(RadioTheme.textDim)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.channel == ch))
-                    .help(ch.note)
-                }
-            }
+            channelGrid
 
             // Frequenz- und Modulationshinweis
-            if let f = settings.channel.frequencyHz {
+            if let f = settings.activeChannelItem.frequencyHz {
                 let mhz = String(format: "%.3f", f / 1_000_000).replacingOccurrences(of: ".", with: ",")
-                Text("Kanal: \(settings.channel.name) · Dial \(mhz) MHz \(settings.channel.modulation)")
+                Text("Kanal: \(settings.activeChannelItem.name) · Dial \(mhz) MHz \(settings.activeChannelItem.modulation)")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
             }
@@ -210,21 +202,124 @@ public struct SSTVTuningPanel: View {
             }
 
             // Seitenband-Warnung bei Fehlabstimmung
-            if settings.channel.modulation == "USB" && settings.rigIsLSB == true {
+            if settings.activeChannelItem.modulation == "USB" && settings.rigIsLSB == true {
                 Label("Funkgerät steht auf LSB – Kanal erfordert USB!", systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.ledYellow)
-            } else if settings.channel.modulation == "LSB" && settings.rigIsLSB == false {
+            } else if settings.activeChannelItem.modulation == "LSB" && settings.rigIsLSB == false {
                 Label("Funkgerät steht auf USB – Kanal erfordert LSB!", systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.ledYellow)
             }
         }
+        .sheet(isPresented: $showChannelEditor) {
+            PresetModalSheet(
+                title: isNewChannel ? "NEUER SSTV-KANAL" : "SSTV-KANAL BEARBEITEN",
+                isValid: !editShortLabel.trimmingCharacters(in: .whitespaces).isEmpty && !editName.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: saveChannel,
+                onCancel: { showChannelEditor = false }
+            ) {
+                SSTVChannelEditorView(
+                    shortLabel: $editShortLabel,
+                    name: $editName,
+                    mhzText: $editMhzText,
+                    modulation: $editModulation,
+                    note: $editNote
+                )
+            }
+        }
+    }
+
+    private var channelGrid: some View {
+        let count = settings.channels.count + 1
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+            ForEach(settings.channels) { ch in
+                Button {
+                    settings.selectChannel(id: ch.id)
+                } label: {
+                    VStack(spacing: 1) {
+                        Text(ch.shortLabel)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        Text(ch.modulation)
+                            .font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedChannelID == ch.id))
+                .help(ch.note)
+                .presetContextMenu(
+                    onEdit: { startEditChannel(ch) },
+                    onDelete: settings.channels.count > 1 ? { settings.removeChannel(id: ch.id) } : nil,
+                    onReset: { settings.resetChannelsToDefault() }
+                )
+            }
+
+            Button {
+                startAddChannel()
+            } label: {
+                VStack(spacing: 1) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .bold))
+                    Text("NEU")
+                        .font(.system(size: 7, weight: .bold, design: .monospaced))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Neuen SSTV-Kanal hinzufügen")
+        }
+    }
+
+    private func startAddChannel() {
+        isNewChannel = true
+        editingChannel = nil
+        editShortLabel = ""
+        editName = ""
+        editMhzText = ""
+        editModulation = "USB"
+        editNote = ""
+        showChannelEditor = true
+    }
+
+    private func startEditChannel(_ ch: SSTVChannelItem) {
+        isNewChannel = false
+        editingChannel = ch
+        editShortLabel = ch.shortLabel
+        editName = ch.name
+        if let f = ch.frequencyHz {
+            let mhz = f / 1_000_000
+            editMhzText = mhz == mhz.rounded() ? String(format: "%.0f", mhz) : String(format: "%.3f", mhz).replacingOccurrences(of: ".", with: ",")
+        } else {
+            editMhzText = ""
+        }
+        editModulation = ch.modulation
+        editNote = ch.note
+        showChannelEditor = true
+    }
+
+    private func saveChannel() {
+        let clean = editMhzText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let freqHz = clean.isEmpty ? nil : (Double(clean).map { $0 * 1_000_000 })
+        let item = SSTVChannelItem(
+            id: editingChannel?.id ?? UUID().uuidString,
+            shortLabel: editShortLabel.trimmingCharacters(in: .whitespaces),
+            name: editName.trimmingCharacters(in: .whitespaces),
+            frequencyHz: freqHz,
+            modulation: editModulation,
+            note: editNote.trimmingCharacters(in: .whitespaces)
+        )
+        if isNewChannel {
+            settings.addChannel(item)
+        } else {
+            settings.updateChannel(item)
+        }
+        showChannelEditor = false
     }
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 3) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 7.5, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)

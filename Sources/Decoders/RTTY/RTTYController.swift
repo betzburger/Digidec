@@ -13,6 +13,8 @@ public final class ReceiveTextModel: ObservableObject {
     /// Wird von der Textansicht gesetzt: hängt neuen Text an bzw. leert die Anzeige
     var onAppend: ((String, Bool) -> Void)?
     var onClear: (() -> Void)?
+    /// Externer Abgriff für den WebServer (oder weitere Hörer)
+    public var onAppendBroadcast: ((String) -> Void)?
     @Published public private(set) var characterCount = 0
     /// Rufzeichen und SYNOP-Meldungen aus dem Text, für die Karte
     public let calls = CallsignLog()
@@ -47,6 +49,7 @@ public final class ReceiveTextModel: ObservableObject {
         } else {
             onAppend?(display, decoded)
         }
+        onAppendBroadcast?(display)
         characterCount = text.count
     }
 

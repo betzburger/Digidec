@@ -223,7 +223,7 @@ struct PagerTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -251,20 +251,16 @@ struct PagerLevelBar: View {
 struct PagerSettingsPanel: View {
     @ObservedObject var settings: PagerSettingsStore
 
+    @State private var editingChannel: PagerChannelItem?
+    @State private var isNewChannel = false
+    @State private var showChannelEditor = false
+    @State private var editName = ""
+    @State private var editFreqText = ""
+    @State private var editNote = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
-                ForEach(PagerChannel.allCases) { c in
-                    Button { settings.channel = c } label: {
-                        VStack(spacing: 1) {
-                            Text(verbatim: c.name)
-                            Text(verbatim: c.label).font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(RadioTheme.textDim)
-                        }
-                    }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.channel == c))
-                    .help(c.note + (c.frequencyHz == nil ? "" : " (nur mit QSY AUTO wird das Funkgerät in FM abgestimmt)"))
-                }
-            }
+            channelGrid
             // Zwei Reihen: oben, was gelesen wird, darunter, wie der Text angezeigt wird (alle Knöpfe einzeilig, sonst brechen „1.200“ und „SKYPER“ um)
             HStack(spacing: 6) {
                 Text("POCSAG")
@@ -315,6 +311,82 @@ struct PagerSettingsPanel: View {
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }
+        .sheet(isPresented: $showChannelEditor) {
+            PresetModalSheet(
+                title: isNewChannel ? "NEUER FUNKRUF-KANAL" : "FUNKRUF-KANAL BEARBEITEN",
+                isValid: !editName.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: saveChannel,
+                onCancel: { showChannelEditor = false }
+            ) {
+                SimpleChannelEditorView(unitTitle: "Frequenz (MHz)", name: $editName, freqText: $editFreqText, note: $editNote)
+            }
+        }
+    }
+
+    private var channelGrid: some View {
+        let count = settings.channels.count + 1
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+            ForEach(settings.channels) { c in
+                Button {
+                    settings.selectChannel(id: c.id)
+                } label: {
+                    VStack(spacing: 1) {
+                        Text(verbatim: c.name).lineLimit(1).minimumScaleFactor(0.8)
+                        Text(verbatim: c.label).font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundColor(RadioTheme.textDim)
+                    }
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedChannelID == c.id))
+                .help(c.note + (c.frequencyHz == nil ? "" : " (nur mit QSY AUTO wird das Funkgerät in FM abgestimmt)"))
+                .presetContextMenu(
+                    onEdit: { startEditChannel(c) },
+                    onDelete: settings.channels.count > 1 ? { settings.removeChannel(id: c.id) } : nil,
+                    onReset: { settings.resetChannelsToDefault() }
+                )
+            }
+
+            Button {
+                startAddChannel()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Neuen Funkruf-Kanal hinzufügen")
+        }
+    }
+
+    private func startAddChannel() {
+        isNewChannel = true
+        editingChannel = nil
+        editName = ""
+        editFreqText = ""
+        editNote = ""
+        showChannelEditor = true
+    }
+
+    private func startEditChannel(_ c: PagerChannelItem) {
+        isNewChannel = false
+        editingChannel = c
+        editName = c.name
+        editFreqText = c.frequencyHz.map { String(format: "%.4f", $0 / 1_000_000).replacingOccurrences(of: ".", with: ",") } ?? ""
+        editNote = c.note
+        showChannelEditor = true
+    }
+
+    private func saveChannel() {
+        let cleanText = editFreqText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let mhz = Double(cleanText)
+        let hz = mhz.map { $0 * 1_000_000 }
+        let name = editName.trimmingCharacters(in: .whitespaces)
+
+        if isNewChannel {
+            let item = PagerChannelItem(id: UUID().uuidString, name: name, frequencyHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.addChannel(item)
+        } else if let editingChannel {
+            let item = PagerChannelItem(id: editingChannel.id, name: name, frequencyHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.updateChannel(item)
+        }
+        showChannelEditor = false
     }
 }
 

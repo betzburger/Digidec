@@ -175,7 +175,7 @@ struct NavMainPanel: View {
 
     private func readout(_ label: String, _ value: String, help: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
+            Text(LocalizedStringKey(label)).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
             Text(value).font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundColor(RadioTheme.vfdCyan)
         }
         .help(help)

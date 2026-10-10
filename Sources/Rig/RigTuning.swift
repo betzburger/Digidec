@@ -35,13 +35,26 @@ public struct RigTuneTarget: Equatable, Sendable {
     public static func ft4(band: FT4Band, mode: FT4Mode = .ft4) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz(for: mode) ?? band.dialHz), mode: "USB") }
 
     /// DSC-Kanal: Rufträger bei `centerHz` im NF (USB), UKW Kanal 70 in FM; frei = nichts
+    public static func dsc(frequencyHz: Double?, isVHF: Bool, centerHz: Double) -> RigTuneTarget? {
+        guard let f = frequencyHz else { return nil }
+        if isVHF {
+            return RigTuneTarget(dialHz: Int64(f.rounded()), mode: "FM")
+        } else {
+            return RigTuneTarget(dialHz: Int64((f - centerHz).rounded()), mode: "USB")
+        }
+    }
+
     public static func dsc(channel: DSCChannel, centerHz: Double) -> RigTuneTarget? {
-        channel.dial(center: centerHz).map { RigTuneTarget(dialHz: $0, mode: channel.isVHF ? "FM" : "USB") }
+        dsc(frequencyHz: channel.frequencyHz, isVHF: channel.isVHF, centerHz: centerHz)
     }
 
     /// PSK31-Anruffrequenz des Bandes (nil = „frei“)
+    public static func psk(dialHz: Int?) -> RigTuneTarget? {
+        dialHz.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
+    }
+
     public static func psk(band: PSKBand) -> RigTuneTarget? {
-        band.dialHz.map { RigTuneTarget(dialHz: Int64($0), mode: "USB") }
+        psk(dialHz: band.dialHz)
     }
 
     /// Skimmer: Dial des gewählten Bandes in USB (CW: Anfang des CW-Bereichs, PSK: PSK31-Anruffrequenz; frei = nichts)
@@ -66,13 +79,21 @@ public struct RigTuneTarget: Equatable, Sendable {
     }
 
     /// Packet-Kanal: FM auf der Kanalfrequenz (frei = nichts); 9600 Bd (G3RUH) braucht einen breiten Filter (die Aussendung belegt etwa 20 kHz)
+    public static func packet(frequencyHz: Double?, baud: PacketBaud = .baud1200) -> RigTuneTarget? {
+        frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM", passbandHz: baud == .baud9600 ? 25_000 : nil) }
+    }
+
     public static func packet(channel: PacketChannel, baud: PacketBaud = .baud1200) -> RigTuneTarget? {
-        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM", passbandHz: baud == .baud9600 ? 25_000 : nil) }
+        packet(frequencyHz: channel.frequencyHz, baud: baud)
     }
 
     /// ACARS-Kanal: AM auf der Kanalfrequenz (frei = nichts)
+    public static func acars(frequencyHz: Double?) -> RigTuneTarget? {
+        frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "AM") }
+    }
+
     public static func acars(channel: ACARSChannel) -> RigTuneTarget? {
-        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "AM") }
+        acars(frequencyHz: channel.frequencyHz)
     }
 
     /// HFDL-Kanal: USB, Dial = zugewiesene Frequenz (das Signal liegt bei 1440 Hz im NF)
@@ -86,8 +107,12 @@ public struct RigTuneTarget: Equatable, Sendable {
     }
 
     /// Funkruf-Kanal: FM auf der Kanalfrequenz (frei = nichts)
+    public static func pager(frequencyHz: Double?) -> RigTuneTarget? {
+        frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
+    }
+
     public static func pager(channel: PagerChannel) -> RigTuneTarget? {
-        channel.frequencyHz.map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "FM") }
+        pager(frequencyHz: channel.frequencyHz)
     }
 
     public static func wspr(band: WSPRBand) -> RigTuneTarget { RigTuneTarget(dialHz: Int64(band.dialHz), mode: "USB") }
@@ -99,10 +124,14 @@ public struct RigTuneTarget: Equatable, Sendable {
         RigTuneTarget(dialHz: Int64(frequencyHz.rounded()), mode: "WFM", passbandHz: 230_000)
     }
 
+    public static func sstv(frequencyHz: Double?, modulation: String) -> RigTuneTarget? {
+        guard let f = frequencyHz else { return nil }
+        let mode = ["USB", "LSB", "FM"].contains(modulation) ? modulation : "USB"
+        return RigTuneTarget(dialHz: Int64(f.rounded()), mode: mode)
+    }
+
     public static func sstv(channel: SSTVChannel) -> RigTuneTarget? {
-        guard let f = channel.frequencyHz else { return nil }
-        let mode = ["USB", "LSB", "FM"].contains(channel.modulation) ? channel.modulation : nil
-        return mode.map { RigTuneTarget(dialHz: Int64(f.rounded()), mode: $0) }
+        sstv(frequencyHz: channel.frequencyHz, modulation: channel.modulation)
     }
 
     /// Sendefrequenz der Station minus NF-Mitte (Empfang in USB)
@@ -115,8 +144,12 @@ public struct RigTuneTarget: Equatable, Sendable {
         RigTuneTarget(dialHz: 77_500 - Int64(centerHz.rounded()), mode: "USB")
     }
 
+    public static func wefax(frequencyHz: Double?, centerHz: Double) -> RigTuneTarget? {
+        frequencyHz.map { RigTuneTarget(dialHz: Int64(($0 - centerHz).rounded()), mode: "USB") }
+    }
+
     public static func wefax(station: WefaxStation, centerHz: Double) -> RigTuneTarget? {
-        station.usbDial(center: centerHz).map { RigTuneTarget(dialHz: Int64($0.rounded()), mode: "USB") }
+        wefax(frequencyHz: station.frequencyHz, centerHz: centerHz)
     }
 
     /// RTTY auf einer Sendefrequenz (Träger in der Mitte von Mark und Space): Dial = Frequenz − NF-Mitte, USB
@@ -124,8 +157,12 @@ public struct RigTuneTarget: Equatable, Sendable {
         RigTuneTarget(dialHz: Int64(frequencyHz.rounded()) - Int64(centerHz.rounded()), mode: "USB")
     }
 
+    public static func navtex(frequencyHz: Double, centerHz: Double) -> RigTuneTarget {
+        RigTuneTarget(dialHz: Int64((frequencyHz - centerHz).rounded()), mode: "USB")
+    }
+
     public static func navtex(frequency: NavtexFrequency, centerHz: Double) -> RigTuneTarget {
-        RigTuneTarget(dialHz: Int64(frequency.usbDial(center: centerHz).rounded()), mode: "USB")
+        navtex(frequencyHz: frequency.hz, centerHz: centerHz)
     }
 }
 

@@ -39,24 +39,64 @@ public enum PagerChannel: String, CaseIterable, Identifiable, Codable, Sendable 
     }
 }
 
+/// Frei konfigurierbarer Funkruf-Kanal
+public struct PagerChannelItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var frequencyHz: Double?
+    public var note: String
+
+    public init(id: String = UUID().uuidString, name: String, frequencyHz: Double?, note: String = "") {
+        self.id = id
+        self.name = name
+        self.frequencyHz = frequencyHz
+        self.note = note
+    }
+
+    public var label: String {
+        frequencyHz.map { String(format: "%.4f", $0 / 1_000_000).replacingOccurrences(of: ".", with: ",") } ?? "frei"
+    }
+
+    public static let standardChannels: [PagerChannelItem] = [
+        PagerChannelItem(id: "dapnet", name: "DAPNET", frequencyHz: 439_987_500, note: "DAPNET Amateurfunk 439,9875 MHz POCSAG"),
+        PagerChannelItem(id: "vhf-1", name: "VHF 1", frequencyHz: 153_125_000, note: "153,125 MHz POCSAG"),
+        PagerChannelItem(id: "vhf-2", name: "VHF 2", frequencyHz: 153_350_000, note: "153,350 MHz POCSAG"),
+        PagerChannelItem(id: "us-pocsag", name: "US 466M", frequencyHz: 466_075_000, note: "466,075 MHz US POCSAG"),
+        PagerChannelItem(id: "free", name: "frei", frequencyHz: nil, note: "Funkgerät nicht abstimmen")
+    ]
+}
+
 // MARK: - Einstellungen
 
 @MainActor
 public final class PagerSettingsStore: ObservableObject {
-    @Published public var channel: PagerChannel { didSet { UserDefaults.standard.set(channel.rawValue, forKey: "pagerChannel") } }
+    @Published public private(set) var channels: [PagerChannelItem]
+    @Published public var selectedChannelID: String { didSet { applySelectedChannel(); save() } }
+    @Published public var channel: PagerChannel { didSet { save() } }
     /// Eingeschaltete POCSAG-Baudraten (512, 1200, 2400)
-    @Published public var rates: Set<Int> { didSet { UserDefaults.standard.set(Array(rates), forKey: "pagerRates") } }
-    @Published public var flex: Bool { didSet { UserDefaults.standard.set(flex, forKey: "pagerFlex") } }
+    @Published public var rates: Set<Int> { didSet { save() } }
+    @Published public var flex: Bool { didSet { save() } }
     /// Rufnummern, die hervorgehoben werden (durch Komma getrennt)
-    @Published public var watch: String { didSet { UserDefaults.standard.set(watch, forKey: "pagerWatch") } }
+    @Published public var watch: String { didSet { save() } }
     /// Deutsche Umlaute anzeigen: Funkrufempfänger (z. B. AlphaPoc) belegen `{ | } ~` mit ä ö ü ß, `[ \ ]` mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003)
-    @Published public var umlauts: Bool { didSet { UserDefaults.standard.set(umlauts, forKey: "pagerUmlauts") } }
+    @Published public var umlauts: Bool { didSet { save() } }
     /// Skyper-Meldungen lesbar machen: jedes Zeichen ist um 1 nach oben verschoben (Leerzeichen = `!`), davor stehen Rubrik und Nummer
-    @Published public var skyper: Bool { didSet { UserDefaults.standard.set(skyper, forKey: "pagerSkyper") } }
+    @Published public var skyper: Bool { didSet { save() } }
 
     public init() {
         let d = UserDefaults.standard
-        channel = d.string(forKey: "pagerChannel").flatMap(PagerChannel.init(rawValue:)) ?? .dapnet
+        let loadedChannels: [PagerChannelItem]
+        if let data = d.data(forKey: "pagerCustomChannels"),
+           let list = try? JSONDecoder().decode([PagerChannelItem].self, from: data), !list.isEmpty {
+            loadedChannels = list
+        } else {
+            loadedChannels = PagerChannelItem.standardChannels
+        }
+        let savedID = d.string(forKey: "pagerSelectedChannelID")
+        let initialID = loadedChannels.first(where: { $0.id == savedID })?.id ?? loadedChannels.first?.id ?? "dapnet"
+        channels = loadedChannels
+        selectedChannelID = initialID
+        channel = PagerChannel(rawValue: initialID) ?? .dapnet
         let r = (d.array(forKey: "pagerRates") as? [Int]) ?? POCSAG.rates
         rates = Set(r).intersection(POCSAG.rates)
         flex = d.object(forKey: "pagerFlex") as? Bool ?? true
@@ -68,6 +108,68 @@ public final class PagerSettingsStore: ObservableObject {
     /// Hervorgehobene Rufnummern als Zahlen
     public var watched: Set<Int> {
         Set(watch.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) })
+    }
+
+    public var activeChannelItem: PagerChannelItem {
+        channels.first { $0.id == selectedChannelID } ?? channels[0]
+    }
+
+    public var activeFrequencyHz: Double? { activeChannelItem.frequencyHz }
+
+    public func selectChannel(id: String) {
+        guard channels.contains(where: { $0.id == id }) else { return }
+        selectedChannelID = id
+    }
+
+    public func addChannel(_ item: PagerChannelItem) {
+        channels.append(item)
+        selectedChannelID = item.id
+        save()
+    }
+
+    public func updateChannel(_ item: PagerChannelItem) {
+        if let idx = channels.firstIndex(where: { $0.id == item.id }) {
+            channels[idx] = item
+            if selectedChannelID == item.id {
+                applySelectedChannel()
+            }
+            save()
+        }
+    }
+
+    public func removeChannel(id: String) {
+        guard channels.count > 1 else { return }
+        channels.removeAll { $0.id == id }
+        if selectedChannelID == id {
+            selectedChannelID = channels.first?.id ?? "free"
+        }
+        save()
+    }
+
+    public func resetChannelsToDefault() {
+        channels = PagerChannelItem.standardChannels
+        if !channels.contains(where: { $0.id == selectedChannelID }) {
+            selectedChannelID = "dapnet"
+        }
+        save()
+    }
+
+    private func applySelectedChannel() {
+        channel = PagerChannel(rawValue: activeChannelItem.id) ?? .free
+    }
+
+    private func save() {
+        let d = UserDefaults.standard
+        if let data = try? JSONEncoder().encode(channels) {
+            d.set(data, forKey: "pagerCustomChannels")
+        }
+        d.set(selectedChannelID, forKey: "pagerSelectedChannelID")
+        d.set(channel.rawValue, forKey: "pagerChannel")
+        d.set(Array(rates), forKey: "pagerRates")
+        d.set(flex, forKey: "pagerFlex")
+        d.set(watch, forKey: "pagerWatch")
+        d.set(umlauts, forKey: "pagerUmlauts")
+        d.set(skyper, forKey: "pagerSkyper")
     }
 }
 

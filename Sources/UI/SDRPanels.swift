@@ -477,12 +477,12 @@ struct SDRWindowPicker: View {
         let rate = settings.effectiveSampleRate
         let choices = SDRSettingsStore.sampleRateChoices(for: settings.source)
         HStack(spacing: 6) {
-            Text("FENSTER")
+            Text(LocalizedStringKey("FENSTER"))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Menu {
                 ForEach(choices, id: \.self) { r in
-                    Button("\(Self.rateText(r)) · nutzbar \(Self.widthText(r))") { settings.sampleRateHz = r }
+                    Button("\(Self.rateText(r)) · \(String(localized: "nutzbar")) \(Self.widthText(r))") { settings.sampleRateHz = r }
                 }
             } label: {
                 Text("\(Self.rateText(rate)) · \(Self.widthText(rate))")
@@ -494,7 +494,7 @@ struct SDRWindowPicker: View {
             .help(helpText(choices.count))
             Spacer(minLength: 0)
             if rate >= 14_400_000 {
-                Text("viel Rechenlast")
+                Text(LocalizedStringKey("viel Rechenlast"))
                     .font(.system(size: 8, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.ledYellow)
             }
@@ -780,7 +780,7 @@ struct SDRControlView: View {
     }
 
     private func label(_ text: String) -> some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.system(size: 8, weight: .bold, design: .monospaced))
             .foregroundColor(RadioTheme.textDim)
     }
@@ -810,7 +810,7 @@ struct SDRControlView: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 Spacer()
-                Text("MITTE " + SDRFormat.frequency(controller.loHz) + " MHz")
+                Text("\(String(localized: "MITTE")) \(SDRFormat.frequency(controller.loHz)) MHz")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
             }
@@ -1023,7 +1023,7 @@ struct SDRControlView: View {
                 HStack(spacing: 4) {
                     label("FILTER")
                     Menu {
-                        Button("Automatisch (nach der Rate)") { settings.sdrplayBandwidth = 0 }
+                        Button(String(localized: "Automatisch (nach der Rate)")) { settings.sdrplayBandwidth = 0 }
                         ForEach(SDRplayPlan.bandwidthsKHz, id: \.self) { kHz in
                             Button(Self.filterName(kHz)) { settings.sdrplayBandwidth = kHz }
                         }
@@ -1039,7 +1039,7 @@ struct SDRControlView: View {
                 }
                 .scaleEffect(0.9, anchor: .leading)
                 let maxLNA = SDRplayPlan.maxLNAState(frequencyHz: settings.frequencyHz)
-                stepper("LNA-DÄMPFUNG", "Stufe \(min(maxLNA, settings.sdrplayLNAState))",
+                stepper("LNA-DÄMPFUNG", "\(String(localized: "Stufe")) \(min(maxLNA, settings.sdrplayLNAState))",
                         minus: { settings.sdrplayLNAState = max(0, min(maxLNA, settings.sdrplayLNAState) - 1) },
                         plus: { settings.sdrplayLNAState = min(maxLNA, settings.sdrplayLNAState + 1) },
                         help: SDRplayHelp.lna)

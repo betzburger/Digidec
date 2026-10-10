@@ -80,6 +80,37 @@ public enum SSTVChannel: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 }
 
+/// Frei konfigurierbarer SSTV-Kanal
+public struct SSTVChannelItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var shortLabel: String
+    public var name: String
+    public var frequencyHz: Double?
+    public var modulation: String
+    public var note: String
+
+    public init(id: String = UUID().uuidString, shortLabel: String, name: String, frequencyHz: Double?, modulation: String = "USB", note: String = "") {
+        self.id = id
+        self.shortLabel = shortLabel
+        self.name = name
+        self.frequencyHz = frequencyHz
+        self.modulation = modulation
+        self.note = note
+    }
+
+    public static let standardChannels: [SSTVChannelItem] = [
+        SSTVChannelItem(id: "20m", shortLabel: "20m", name: "20m (14,230 MHz USB)", frequencyHz: 14_230_000, modulation: "USB", note: "Weltweiter SSTV-Hauptanrufkanal"),
+        SSTVChannelItem(id: "40m", shortLabel: "40m", name: "40m (7,171 MHz LSB)", frequencyHz: 7_171_000, modulation: "LSB", note: "Europa SSTV-Aktivität"),
+        SSTVChannelItem(id: "80m", shortLabel: "80m", name: "80m (3,730 MHz LSB)", frequencyHz: 3_730_000, modulation: "LSB", note: "Abendrunde Europa"),
+        SSTVChannelItem(id: "80m-us", shortLabel: "80m US", name: "80m US (3,845 MHz LSB)", frequencyHz: 3_845_000, modulation: "LSB", note: "Nordamerika"),
+        SSTVChannelItem(id: "10m", shortLabel: "10m", name: "10m (28,680 MHz USB)", frequencyHz: 28_680_000, modulation: "USB", note: "Sporadic-E / Bandöffnungen"),
+        SSTVChannelItem(id: "iss", shortLabel: "ISS", name: "ISS (145,800 MHz FM)", frequencyHz: 145_800_000, modulation: "FM", note: "ARISS Raumstation ISS"),
+        SSTVChannelItem(id: "2m", shortLabel: "2m", name: "2m (144,500 MHz FM)", frequencyHz: 144_500_000, modulation: "FM", note: "VHF Anrufkanal"),
+        SSTVChannelItem(id: "70cm", shortLabel: "70cm", name: "70cm (433,400 MHz FM)", frequencyHz: 433_400_000, modulation: "FM", note: "UHF Anrufkanal"),
+        SSTVChannelItem(id: "custom", shortLabel: "Frei", name: "Frei / Eigene", frequencyHz: nil, modulation: "SSB/FM", note: "Beliebige Empfangsfrequenz")
+    ]
+}
+
 // MARK: - Gespeichertes Bild
 
 public struct SSTVSavedImage: Identifiable, Sendable {
@@ -115,6 +146,8 @@ public struct SSTVSavedImage: Identifiable, Sendable {
 public final class SSTVSettingsStore: ObservableObject {
     public static let centerDefault: Double = 1750.0
 
+    @Published public private(set) var channels: [SSTVChannelItem]
+    @Published public var selectedChannelID: String { didSet { applySelectedChannel(); save() } }
     @Published public var channel: SSTVChannel { didSet { save() } }
     @Published public var manualMode: SSTVMode? { didSet { save() } }
     @Published public var autoSync: Bool { didSet { save() } }
@@ -131,7 +164,18 @@ public final class SSTVSettingsStore: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let d = defaults
-        channel = d.string(forKey: "sstvChannel").flatMap(SSTVChannel.init(rawValue:)) ?? .twenty
+        let loadedChannels: [SSTVChannelItem]
+        if let data = d.data(forKey: "sstvCustomChannels"),
+           let list = try? JSONDecoder().decode([SSTVChannelItem].self, from: data), !list.isEmpty {
+            loadedChannels = list
+        } else {
+            loadedChannels = SSTVChannelItem.standardChannels
+        }
+        let savedID = d.string(forKey: "sstvSelectedChannelID")
+        let initialID = loadedChannels.first(where: { $0.id == savedID })?.id ?? loadedChannels.first?.id ?? "20m"
+        channels = loadedChannels
+        selectedChannelID = initialID
+        channel = SSTVChannel(rawValue: initialID) ?? .twenty
         if let modeRaw = d.string(forKey: "sstvManualMode"), let m = SSTVMode(rawValue: modeRaw) {
             manualMode = m
         } else {
@@ -141,6 +185,55 @@ public final class SSTVSettingsStore: ObservableObject {
         autoSave = d.object(forKey: "sstvAutoSave") as? Bool ?? true
         slantPpm = d.object(forKey: "sstvSlantPpm") as? Double ?? 0.0
         centerHz = d.object(forKey: "sstvCenterHz") as? Double ?? Self.centerDefault
+    }
+
+    public var activeChannelItem: SSTVChannelItem {
+        channels.first { $0.id == selectedChannelID } ?? channels[0]
+    }
+
+    public var activeFrequencyHz: Double? { activeChannelItem.frequencyHz }
+    public var activeModulation: String { activeChannelItem.modulation }
+
+    public func selectChannel(id: String) {
+        guard channels.contains(where: { $0.id == id }) else { return }
+        selectedChannelID = id
+    }
+
+    public func addChannel(_ item: SSTVChannelItem) {
+        channels.append(item)
+        selectedChannelID = item.id
+        save()
+    }
+
+    public func updateChannel(_ item: SSTVChannelItem) {
+        if let idx = channels.firstIndex(where: { $0.id == item.id }) {
+            channels[idx] = item
+            if selectedChannelID == item.id {
+                applySelectedChannel()
+            }
+            save()
+        }
+    }
+
+    public func removeChannel(id: String) {
+        guard channels.count > 1 else { return }
+        channels.removeAll { $0.id == id }
+        if selectedChannelID == id {
+            selectedChannelID = channels.first?.id ?? "custom"
+        }
+        save()
+    }
+
+    public func resetChannelsToDefault() {
+        channels = SSTVChannelItem.standardChannels
+        if !channels.contains(where: { $0.id == selectedChannelID }) {
+            selectedChannelID = "20m"
+        }
+        save()
+    }
+
+    private func applySelectedChannel() {
+        channel = SSTVChannel(rawValue: activeChannelItem.id) ?? .custom
     }
 
     public func setCenter(_ hz: Double) {
@@ -153,7 +246,11 @@ public final class SSTVSettingsStore: ObservableObject {
 
     private func save() {
         let d = defaults
+        d.set(selectedChannelID, forKey: "sstvSelectedChannelID")
         d.set(channel.rawValue, forKey: "sstvChannel")
+        if let data = try? JSONEncoder().encode(channels) {
+            d.set(data, forKey: "sstvCustomChannels")
+        }
         d.set(manualMode?.rawValue, forKey: "sstvManualMode")
         d.set(autoSync, forKey: "sstvAutoSync")
         d.set(autoSave, forKey: "sstvAutoSave")

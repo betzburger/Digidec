@@ -94,6 +94,7 @@ SRC=(
     $S/Decoders/DAB/DABTables.swift $S/Decoders/DAB/DABViterbi.swift $S/Decoders/DAB/DABOFDM.swift $S/Decoders/DAB/DABFIC.swift $S/Decoders/DAB/DABEnsemble.swift $S/Decoders/DAB/DABCharset.swift $S/Decoders/DAB/DABMSC.swift $S/Decoders/DAB/DABPAD.swift $S/Decoders/DAB/DABSignalGenerator.swift Tools/DABBench/DABSelfTest.swift $S/SDR/SDRDSP.swift $S/SDR/SDRDemodulator.swift $S/SDR/SDRWFM.swift $S/SDR/SDRReceiver.swift $S/SDR/SDRSignalGenerator.swift $S/SDR/SDRChannelBank.swift $S/SDR/SDRModule.swift $S/Channels/ChannelCatalog.swift $S/Models/Propagation.swift
     $S/Decoders/RDS/RDSCore.swift $S/Decoders/RDS/RDSDemodulator.swift $S/Decoders/RDS/RDSDecoder.swift $S/Decoders/RDS/RDSSignalGenerator.swift $S/Decoders/RDS/RDSModule.swift
     Modules/VoiceCore/Sources/VoiceCore/VoiceDecoder.swift Modules/VoiceCore/Sources/VoiceCore/VoiceAudio.swift
+    $S/Web/WebSocketFrame.swift $S/Web/WebDashboardAssets.swift $S/Web/DigidecWebServer.swift
 )
 
 # Übersetzen: parallel je Datei (ohne Whole-Module-Optimierung) und inkrementell. Ohne Zusatz ist das etwa dreimal schneller als ein einziger Durchlauf.

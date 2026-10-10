@@ -31,6 +31,39 @@ public enum PSKBand: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 }
 
+/// Frei konfigurierbares PSK-Band / Anruffrequenz
+public struct PSKBandItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var dialHz: Int?
+    public var note: String
+
+    public init(id: String = UUID().uuidString, name: String, dialHz: Int?, note: String = "") {
+        self.id = id
+        self.name = name
+        self.dialHz = dialHz
+        self.note = note
+    }
+
+    public var label: String {
+        dialHz.map { String(format: "%.3f", Double($0) / 1_000_000).replacingOccurrences(of: ".", with: ",") } ?? "frei"
+    }
+
+    public static let standardBands: [PSKBandItem] = [
+        PSKBandItem(id: "160m", name: "160m", dialHz: 1_838_000, note: "1,838 MHz USB (160m)"),
+        PSKBandItem(id: "80m", name: "80m", dialHz: 3_580_000, note: "3,580 MHz USB (80m)"),
+        PSKBandItem(id: "40m", name: "40m", dialHz: 7_040_000, note: "7,040 MHz USB (40m)"),
+        PSKBandItem(id: "30m", name: "30m", dialHz: 10_142_000, note: "10,142 MHz USB (30m)"),
+        PSKBandItem(id: "20m", name: "20m", dialHz: 14_070_000, note: "14,070 MHz USB (20m PSK Hauptfrequenz)"),
+        PSKBandItem(id: "17m", name: "17m", dialHz: 18_100_000, note: "18,100 MHz USB (17m)"),
+        PSKBandItem(id: "15m", name: "15m", dialHz: 21_070_000, note: "21,070 MHz USB (15m)"),
+        PSKBandItem(id: "12m", name: "12m", dialHz: 24_920_000, note: "24,920 MHz USB (12m)"),
+        PSKBandItem(id: "10m", name: "10m", dialHz: 28_120_000, note: "28,120 MHz USB (10m)"),
+        PSKBandItem(id: "6m", name: "6m", dialHz: 50_290_000, note: "50,290 MHz USB (6m)"),
+        PSKBandItem(id: "free", name: "frei", dialHz: nil, note: "Funkgerät nicht abstimmen")
+    ]
+}
+
 // MARK: - Einstellungen
 
 /// Einstellungen des PSK-Moduls (fldigi Modem/PSK/Rx). Mitte = Trägerfrequenz im NF.
@@ -38,6 +71,8 @@ public enum PSKBand: String, CaseIterable, Identifiable, Codable, Sendable {
 public final class PSKSettingsStore: ObservableObject {
     public static let centerRange: ClosedRange<Double> = 200...3500
 
+    @Published public private(set) var bands: [PSKBandItem]
+    @Published public var selectedBandID: String { didSet { applySelectedBand(); save() } }
     @Published public private(set) var centerHz: Double
     /// Wird bei jedem Setzen von Hand erhöht (nicht bei der AFC), damit der Decoder die Mitte übernimmt
     @Published public private(set) var manualCenterRevision = 0
@@ -50,7 +85,66 @@ public final class PSKSettingsStore: ObservableObject {
         centerHz = Self.centerRange.contains(c) ? c : 1000
         options = d.data(forKey: "pskOptions").flatMap { try? JSONDecoder().decode(FldigiPSKCore.Options.self, from: $0) }
             ?? FldigiPSKCore.Options()
-        band = d.string(forKey: "pskBand").flatMap(PSKBand.init(rawValue:)) ?? .free
+        let loadedBands: [PSKBandItem]
+        if let data = d.data(forKey: "pskCustomBands"),
+           let list = try? JSONDecoder().decode([PSKBandItem].self, from: data), !list.isEmpty {
+            loadedBands = list
+        } else {
+            loadedBands = PSKBandItem.standardBands
+        }
+        let savedID = d.string(forKey: "pskSelectedBandID")
+        let initialID = loadedBands.first(where: { $0.id == savedID })?.id ?? loadedBands.first?.id ?? "free"
+        bands = loadedBands
+        selectedBandID = initialID
+        band = PSKBand(rawValue: initialID) ?? .free
+    }
+
+    public var activeBandItem: PSKBandItem {
+        bands.first { $0.id == selectedBandID } ?? bands[0]
+    }
+
+    public var activeDialHz: Int? { activeBandItem.dialHz }
+
+    public func selectBand(id: String) {
+        guard bands.contains(where: { $0.id == id }) else { return }
+        selectedBandID = id
+    }
+
+    public func addBand(_ item: PSKBandItem) {
+        bands.append(item)
+        selectedBandID = item.id
+        save()
+    }
+
+    public func updateBand(_ item: PSKBandItem) {
+        if let idx = bands.firstIndex(where: { $0.id == item.id }) {
+            bands[idx] = item
+            if selectedBandID == item.id {
+                applySelectedBand()
+            }
+            save()
+        }
+    }
+
+    public func removeBand(id: String) {
+        guard bands.count > 1 else { return }
+        bands.removeAll { $0.id == id }
+        if selectedBandID == id {
+            selectedBandID = bands.first?.id ?? "free"
+        }
+        save()
+    }
+
+    public func resetBandsToDefault() {
+        bands = PSKBandItem.standardBands
+        if !bands.contains(where: { $0.id == selectedBandID }) {
+            selectedBandID = "free"
+        }
+        save()
+    }
+
+    private func applySelectedBand() {
+        band = PSKBand(rawValue: activeBandItem.id) ?? .free
     }
 
     public func setCenter(_ hz: Double) {
@@ -65,10 +159,15 @@ public final class PSKSettingsStore: ObservableObject {
     }
 
     private func save() {
+        let d = UserDefaults.standard
         if let data = try? JSONEncoder().encode(options) {
-            UserDefaults.standard.set(data, forKey: "pskOptions")
+            d.set(data, forKey: "pskOptions")
         }
-        UserDefaults.standard.set(band.rawValue, forKey: "pskBand")
+        if let data = try? JSONEncoder().encode(bands) {
+            d.set(data, forKey: "pskCustomBands")
+        }
+        d.set(selectedBandID, forKey: "pskSelectedBandID")
+        d.set(band.rawValue, forKey: "pskBand")
     }
 }
 

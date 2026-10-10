@@ -473,7 +473,7 @@ private struct RTTYMapView: View {
             .help("Höchste und niedrigste Werte der gewählten Ebene")
             .popover(isPresented: $showExtremes) { extremesView }
             if let rawNote {
-                Text(rawNote)
+                Text(LocalizedStringKey(rawNote))
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdAmber)
                     .padding(.horizontal, 6).padding(.vertical, 3)
@@ -485,7 +485,7 @@ private struct RTTYMapView: View {
 
     private var layerPicker: some View {
         Picker("", selection: $layerRaw) {
-            ForEach(SynopLog.Layer.allCases) { Text($0.title).tag($0.rawValue) }
+            ForEach(SynopLog.Layer.allCases) { Text(LocalizedStringKey($0.title)).tag($0.rawValue) }
         }
         .pickerStyle(.menu)
         .labelsHidden()
@@ -501,10 +501,10 @@ private struct RTTYMapView: View {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             if let result {
-                extremeList("HÖCHSTE", result.highest, tint: RadioTheme.ledRed)
-                if !result.lowest.isEmpty { extremeList("NIEDRIGSTE", result.lowest, tint: RadioTheme.vfdCyan) }
+                extremeList(String(localized: "HÖCHSTE"), result.highest, tint: RadioTheme.ledRed)
+                if !result.lowest.isEmpty { extremeList(String(localized: "NIEDRIGSTE"), result.lowest, tint: RadioTheme.vfdCyan) }
             } else {
-                Text("Noch keine Station mit diesem Messwert und Ort")
+                Text(LocalizedStringKey("Noch keine Station mit diesem Messwert und Ort"))
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
             }

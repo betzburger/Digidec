@@ -386,7 +386,7 @@ struct AISTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -451,7 +451,7 @@ struct AISSettingsPanel: View {
     }
 
     private func label(_ s: String) -> some View {
-        Text(s)
+        Text(LocalizedStringKey(s))
             .font(.system(size: 8, weight: .bold, design: .monospaced))
             .foregroundColor(RadioTheme.textDim)
     }

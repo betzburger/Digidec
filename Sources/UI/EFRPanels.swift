@@ -226,7 +226,7 @@ struct EFRTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 7, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)

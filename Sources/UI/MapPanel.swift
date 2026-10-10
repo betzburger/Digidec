@@ -258,7 +258,7 @@ struct MapPanel: View {
                 .help("Eigener Standort (Maidenhead-Locator), gilt für alle Module")
                 .popover(isPresented: $showHomeEditor) { homeEditor }
                 Picker("", selection: $appearanceRaw) {
-                    ForEach(MapAppearance.allCases) { Text($0.title).tag($0.rawValue) }
+                    ForEach(MapAppearance.allCases) { Text(LocalizedStringKey($0.title)).tag($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -280,7 +280,7 @@ struct MapPanel: View {
                 }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
                 .help("Den sichtbaren Kartenausschnitt mit Punkten, Isobaren und Flächen als PNG speichern (~/Documents/Digidec/Maps)")
-                Text(content.markers.count == 1 ? "1 Punkt" : "\(content.markers.count) Punkte")
+                Text(content.markers.count == 1 ? String(localized: "1 Punkt") : String(format: String(localized: "%lld Punkte"), content.markers.count))
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
                     .padding(.horizontal, 6).padding(.vertical, 3)
@@ -297,7 +297,7 @@ struct MapPanel: View {
                 }
             }
             if let note = snapshotMessage ?? content.note {
-                Text(note)
+                Text(LocalizedStringKey(note))
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(snapshotMessage != nil ? RadioTheme.vfdCyan : RadioTheme.vfdAmber)
                     .padding(.horizontal, 6).padding(.vertical, 3)

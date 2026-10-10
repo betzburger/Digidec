@@ -170,7 +170,7 @@ public enum DecoderModuleInfo: String, CaseIterable, Identifiable, Sendable {
     /// Preset-IDs, die das Modul über das URL-Schema annimmt. Erstes Element = Standard.
     public var presetIDs: [String] {
         switch self {
-        case .rtty: return ["ham", "dwd-kw", "dwd-lw", "custom"]
+        case .rtty: return ["ham", "dwd-kw", "dwd-lw", "uscg", "jmh", "custom"]
         case .navtex: return ["518", "490", "4209"]   // = NavtexFrequency.rawValue
         case .cw: return ["ham"]
         case .psk: return ["bpsk31", "bpsk63", "bpsk125", "bpsk250", "qpsk31", "qpsk63", "qpsk125", "qpsk250", "psk125r", "psk250r", "psk500r", "psk1000r",

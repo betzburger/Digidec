@@ -638,7 +638,7 @@ struct PacketTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -666,16 +666,34 @@ private struct PacketLevelBar: View {
 struct PacketSettingsPanel: View {
     @ObservedObject var settings: PacketSettingsStore
 
+    @State private var editingChannel: PacketChannelItem?
+    @State private var isNewChannel = false
+    @State private var showChannelEditor = false
+    @State private var editName = ""
+    @State private var editFreqText = ""
+    @State private var editNote = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("2 m")
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(RadioTheme.textDim)
-            channelGrid(PacketChannel.allCases.filter { !$0.isUHF && $0 != .free })
-            Text("70 cm")
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(RadioTheme.textDim)
-            channelGrid(PacketChannel.allCases.filter { $0.isUHF } + [.free])
+            let vhfChannels = settings.channels.filter { !$0.isUHF && $0.frequencyHz != nil }
+            let otherChannels = settings.channels.filter { $0.isUHF || $0.frequencyHz == nil }
+
+            if !vhfChannels.isEmpty {
+                Text("2 m / VHF")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                channelGrid(vhfChannels, showPlus: otherChannels.isEmpty)
+            }
+
+            if !otherChannels.isEmpty {
+                Text("70 cm / UHF & FREI")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundColor(RadioTheme.textDim)
+                channelGrid(otherChannels, showPlus: true)
+            } else if vhfChannels.isEmpty {
+                channelGrid(settings.channels, showPlus: true)
+            }
+
             HStack(spacing: 6) {
                 Text("BITRATE")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
@@ -706,19 +724,81 @@ struct PacketSettingsPanel: View {
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }
+        .sheet(isPresented: $showChannelEditor) {
+            PresetModalSheet(
+                title: isNewChannel ? "NEUER PACKET-KANAL" : "PACKET-KANAL BEARBEITEN",
+                isValid: !editName.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: saveChannel,
+                onCancel: { showChannelEditor = false }
+            ) {
+                SimpleChannelEditorView(unitTitle: "Frequenz (MHz)", name: $editName, freqText: $editFreqText, note: $editNote)
+            }
+        }
     }
 
-    private func channelGrid(_ channels: [PacketChannel]) -> some View {
+    private func channelGrid(_ channels: [PacketChannelItem], showPlus: Bool) -> some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
             ForEach(channels) { c in
-                Button { settings.channel = c } label: {
-                    Text(verbatim: c == .free ? "frei" : c.name)
+                Button {
+                    settings.selectChannel(id: c.id)
+                } label: {
+                    Text(verbatim: c.name)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: settings.channel == c))
-                .help(c.note + (c.frequencyHz == nil ? "" : " (nur mit QSY AUTO wird das Funkgerät in FM abgestimmt)"))
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedChannelID == c.id))
+                .help(c.note.isEmpty ? (c.frequencyHz == nil ? "Funkgerät nicht abstimmen" : "Packet \(c.name) MHz") : c.note)
+                .presetContextMenu(
+                    onEdit: { startEditChannel(c) },
+                    onDelete: settings.channels.count > 1 ? { settings.removeChannel(id: c.id) } : nil,
+                    onReset: { settings.resetChannelsToDefault() }
+                )
+            }
+
+            if showPlus {
+                Button {
+                    startAddChannel()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: false))
+                .help("Neuen Packet-Kanal hinzufügen")
             }
         }
+    }
+
+    private func startAddChannel() {
+        isNewChannel = true
+        editingChannel = nil
+        editName = ""
+        editFreqText = ""
+        editNote = ""
+        showChannelEditor = true
+    }
+
+    private func startEditChannel(_ c: PacketChannelItem) {
+        isNewChannel = false
+        editingChannel = c
+        editName = c.name
+        editFreqText = c.frequencyHz.map { String(format: "%.4f", $0 / 1_000_000).replacingOccurrences(of: ".", with: ",") } ?? ""
+        editNote = c.note
+        showChannelEditor = true
+    }
+
+    private func saveChannel() {
+        let cleanText = editFreqText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let mhz = Double(cleanText)
+        let hz = mhz.map { $0 * 1_000_000 }
+        let name = editName.trimmingCharacters(in: .whitespaces)
+
+        if isNewChannel {
+            let item = PacketChannelItem(id: UUID().uuidString, name: name, frequencyHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.addChannel(item)
+        } else if let editingChannel {
+            let item = PacketChannelItem(id: editingChannel.id, name: name, frequencyHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.updateChannel(item)
+        }
+        showChannelEditor = false
     }
 }

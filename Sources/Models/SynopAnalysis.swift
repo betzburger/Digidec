@@ -163,15 +163,17 @@ extension SynopLog {
                 }
                 for (i, e) in WeatherField.extrema(of: grid).enumerated() {
                     let value = Int(e.value.rounded())
-                    result.centers.append(MapMarker(id: "hl-\(i)", coordinate: e.point, title: e.isHigh ? "Hoch" : "Tief",
-                                                    subtitle: "\(value) hPa · berechnet",
-                                                    details: [Geo.format(e.point), "Aus \(samples.count) Stationen berechnet (Näherung)"],
-                                                    tone: .weather, valueText: (e.isHigh ? "H " : "T ") + String(value),
+                    result.centers.append(MapMarker(id: "hl-\(i)", coordinate: e.point,
+                                                    title: e.isHigh ? String(localized: "Hoch") : String(localized: "Tief"),
+                                                    subtitle: "\(value) hPa · " + String(localized: "berechnet"),
+                                                    details: [Geo.format(e.point), String(format: String(localized: "Aus %lld Stationen berechnet (Näherung)"), samples.count)],
+                                                    tone: .weather,
+                                                    valueText: (e.isHigh ? String(localized: "H ") : String(localized: "T ")) + String(value),
                                                     valueLevel: e.isHigh ? 0.0 : 1.0))
                 }
-                if result.contours.isEmpty { notes.append("Isobaren: kein Druckgefälle im Gebiet") }
+                if result.contours.isEmpty { notes.append(String(localized: "Isobaren: kein Druckgefälle im Gebiet")) }
             } else {
-                notes.append("Isobaren: mindestens 5 Stationen mit Druck auf Meereshöhe nötig (jetzt \(samples.count))")
+                notes.append(String(format: String(localized: "Isobaren: mindestens 5 Stationen mit Druck auf Meereshöhe nötig (jetzt %lld)"), samples.count))
             }
         }
 
@@ -183,7 +185,7 @@ extension SynopLog {
             if let grid = WeatherField.grid(samples: samples) {
                 result.patches = WeatherField.patches(of: grid, bandWidth: 2.5) { min(max(($0 + 20) / 55, 0), 1) }
             } else {
-                notes.append("Temperaturfläche: mindestens 5 Stationen mit Temperatur nötig (jetzt \(samples.count))")
+                notes.append(String(format: String(localized: "Temperaturfläche: mindestens 5 Stationen mit Temperatur nötig (jetzt %lld)"), samples.count))
             }
         }
 

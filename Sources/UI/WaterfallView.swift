@@ -94,12 +94,12 @@ struct WaterfallView<Tuning: TuningTarget>: View {
             if let h = hoverHz { s += " · ▸ \(Int(h.rounded())) Hz" }
             return s
         case .channels(let marks):
-            var s = marks.isEmpty ? "SKIMMER · noch kein Signal gefunden" : "SKIMMER · \(marks.count) Signal" + (marks.count == 1 ? "" : "e")
+            var s = marks.isEmpty ? String(localized: "SKIMMER · noch kein Signal gefunden") : "SKIMMER · \(marks.count) " + (marks.count == 1 ? String(localized: "Signal") : String(localized: "Signale"))
             if let h = hoverHz { s += " · ▸ \(Int(h.rounded())) Hz" }
             return s
         case .tones: break
         }
-        var s = "MITTE \(Int(rtty.centerHz)) Hz · M \(Int(t.mark.rounded())) · S \(Int(t.space.rounded()))"
+        var s = "\(String(localized: "MITTE")) \(Int(rtty.centerHz)) Hz · M \(Int(t.mark.rounded())) · S \(Int(t.space.rounded()))"
         if let h = hoverHz { s += " · ▸ \(Int(h.rounded())) Hz" }
         return s
     }

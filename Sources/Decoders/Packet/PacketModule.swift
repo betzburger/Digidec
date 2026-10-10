@@ -55,6 +55,56 @@ public enum PacketChannel: String, CaseIterable, Identifiable, Codable, Sendable
     }
 }
 
+/// Frei konfigurierbarer Packet-Radio-Kanal
+public struct PacketChannelItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var frequencyHz: Double?
+    public var note: String
+
+    public init(id: String = UUID().uuidString, name: String, frequencyHz: Double?, note: String = "") {
+        self.id = id
+        self.name = name
+        self.frequencyHz = frequencyHz
+        self.note = note
+    }
+
+    public var label: String {
+        guard let f = frequencyHz else { return "frei" }
+        let hz = Int64(f.rounded())
+        let text = hz % 1000 == 0 ? String(format: "%.3f", f / 1_000_000) : String(format: "%.4f", f / 1_000_000)
+        return text.replacingOccurrences(of: ".", with: ",")
+    }
+
+    public var isUHF: Bool { (frequencyHz ?? 0) > 400_000_000 }
+
+    public static let standardChannels: [PacketChannelItem] = [
+        // 2m EU
+        PacketChannelItem(id: "v8125", name: "144,8125", frequencyHz: 144_812_500, note: "2 m EU Winlink / AX.25"),
+        PacketChannelItem(id: "v8375", name: "144,8375", frequencyHz: 144_837_500, note: "2 m EU Winlink / AX.25"),
+        PacketChannelItem(id: "v8625", name: "144,8625", frequencyHz: 144_862_500, note: "2 m EU Winlink / AX.25"),
+        PacketChannelItem(id: "v8875", name: "144,8875", frequencyHz: 144_887_500, note: "2 m EU Winlink / AX.25"),
+        PacketChannelItem(id: "v9125", name: "144,9125", frequencyHz: 144_912_500, note: "2 m EU Winlink / AX.25"),
+        PacketChannelItem(id: "v9375", name: "144,9375", frequencyHz: 144_937_500, note: "2 m EU Winlink / AX.25"),
+        PacketChannelItem(id: "v9625", name: "144,9625", frequencyHz: 144_962_500, note: "2 m EU Winlink / AX.25"),
+        PacketChannelItem(id: "v9875", name: "144,9875", frequencyHz: 144_987_500, note: "2 m EU Winlink / AX.25"),
+        // 2m US Winlink / Packet
+        PacketChannelItem(id: "us14501", name: "145,010", frequencyHz: 145_010_000, note: "2 m US Packet / Winlink"),
+        PacketChannelItem(id: "us14503", name: "145,030", frequencyHz: 145_030_000, note: "2 m US Packet / Winlink"),
+        PacketChannelItem(id: "us14505", name: "145,050", frequencyHz: 145_050_000, note: "2 m US Packet / Winlink"),
+        PacketChannelItem(id: "us14507", name: "145,070", frequencyHz: 145_070_000, note: "2 m US Packet / Winlink"),
+        // 70cm EU
+        PacketChannelItem(id: "u625", name: "433,625", frequencyHz: 433_625_000, note: "70 cm EU Winlink / AX.25"),
+        PacketChannelItem(id: "u650", name: "433,650", frequencyHz: 433_650_000, note: "70 cm EU Winlink / AX.25"),
+        PacketChannelItem(id: "u675", name: "433,675", frequencyHz: 433_675_000, note: "70 cm EU Winlink / AX.25"),
+        PacketChannelItem(id: "u700", name: "433,700", frequencyHz: 433_700_000, note: "70 cm EU Winlink / AX.25"),
+        PacketChannelItem(id: "u725", name: "433,725", frequencyHz: 433_725_000, note: "70 cm EU Winlink / AX.25"),
+        PacketChannelItem(id: "u750", name: "433,750", frequencyHz: 433_750_000, note: "70 cm EU Winlink / AX.25"),
+        PacketChannelItem(id: "u775", name: "433,775", frequencyHz: 433_775_000, note: "70 cm EU Winlink / AX.25"),
+        PacketChannelItem(id: "free", name: "frei", frequencyHz: nil, note: "Funkgerät nicht abstimmen")
+    ]
+}
+
 /// Bitrate des Packet-Radios
 public enum PacketBaud: Int, CaseIterable, Sendable {
     case baud1200 = 1200, baud9600 = 9600
@@ -69,20 +119,33 @@ public enum PacketBaud: Int, CaseIterable, Sendable {
 public final class PacketSettingsStore: ObservableObject {
     public static let offsetRange: ClosedRange<Double> = -250...250
 
-    @Published public var channel: PacketChannel { didSet { UserDefaults.standard.set(channel.rawValue, forKey: "packetChannel") } }
+    @Published public private(set) var channels: [PacketChannelItem]
+    @Published public var selectedChannelID: String { didSet { applySelectedChannel(); save() } }
+    @Published public var channel: PacketChannel { didSet { save() } }
     /// 1200 Bd (AFSK, 2 m und 70 cm) oder 9600 Bd (G3RUH-Basisband, meist 70 cm und Satelliten)
-    @Published public var baud: PacketBaud { didSet { UserDefaults.standard.set(baud.rawValue, forKey: "packetBaud") } }
+    @Published public var baud: PacketBaud { didSet { save() } }
     /// Abweichung der Töne in Hz (Mitte 1700 Hz): Klick im Wasserfall setzt sie
     @Published public private(set) var offsetHz: Double
-    @Published public var repairBits: Bool { didSet { UserDefaults.standard.set(repairBits, forKey: "packetRepair") } }
-    @Published public var emphasis: AFSKReceiver.Emphasis { didSet { UserDefaults.standard.set(emphasis.rawValue, forKey: "packetEmphasis") } }
-    @Published public var slicers: Int { didSet { UserDefaults.standard.set(slicers, forKey: "packetSlicers") } }
+    @Published public var repairBits: Bool { didSet { save() } }
+    @Published public var emphasis: AFSKReceiver.Emphasis { didSet { save() } }
+    @Published public var slicers: Int { didSet { save() } }
     /// Nachrichten (Winlink) entpacken und anzeigen
-    @Published public var decodeMail: Bool { didSet { UserDefaults.standard.set(decodeMail, forKey: "packetDecodeMail") } }
+    @Published public var decodeMail: Bool { didSet { save() } }
 
     public init() {
         let d = UserDefaults.standard
-        channel = d.string(forKey: "packetChannel").flatMap(PacketChannel.init(rawValue:)) ?? .v8125
+        let loadedChannels: [PacketChannelItem]
+        if let data = d.data(forKey: "packetCustomChannels"),
+           let list = try? JSONDecoder().decode([PacketChannelItem].self, from: data), !list.isEmpty {
+            loadedChannels = list
+        } else {
+            loadedChannels = PacketChannelItem.standardChannels
+        }
+        let savedID = d.string(forKey: "packetSelectedChannelID")
+        let initialID = loadedChannels.first(where: { $0.id == savedID })?.id ?? loadedChannels.first?.id ?? "v8125"
+        channels = loadedChannels
+        selectedChannelID = initialID
+        channel = PacketChannel(rawValue: initialID) ?? .v8125
         baud = PacketBaud(rawValue: d.integer(forKey: "packetBaud")) ?? .baud1200
         offsetHz = Self.offsetRange.contains(d.double(forKey: "packetOffsetHz")) ? d.double(forKey: "packetOffsetHz") : 0
         repairBits = d.object(forKey: "packetRepair") as? Bool ?? true
@@ -91,11 +154,74 @@ public final class PacketSettingsStore: ObservableObject {
         decodeMail = d.object(forKey: "packetDecodeMail") as? Bool ?? true
     }
 
+    public var activeChannelItem: PacketChannelItem {
+        channels.first { $0.id == selectedChannelID } ?? channels[0]
+    }
+
+    public var activeFrequencyHz: Double? { activeChannelItem.frequencyHz }
+
+    public func selectChannel(id: String) {
+        guard channels.contains(where: { $0.id == id }) else { return }
+        selectedChannelID = id
+    }
+
+    public func addChannel(_ item: PacketChannelItem) {
+        channels.append(item)
+        selectedChannelID = item.id
+        save()
+    }
+
+    public func updateChannel(_ item: PacketChannelItem) {
+        if let idx = channels.firstIndex(where: { $0.id == item.id }) {
+            channels[idx] = item
+            if selectedChannelID == item.id {
+                applySelectedChannel()
+            }
+            save()
+        }
+    }
+
+    public func removeChannel(id: String) {
+        guard channels.count > 1 else { return }
+        channels.removeAll { $0.id == id }
+        if selectedChannelID == id {
+            selectedChannelID = channels.first?.id ?? "free"
+        }
+        save()
+    }
+
+    public func resetChannelsToDefault() {
+        channels = PacketChannelItem.standardChannels
+        if !channels.contains(where: { $0.id == selectedChannelID }) {
+            selectedChannelID = "v8125"
+        }
+        save()
+    }
+
+    private func applySelectedChannel() {
+        channel = PacketChannel(rawValue: activeChannelItem.id) ?? .free
+    }
+
+    private func save() {
+        let d = UserDefaults.standard
+        if let data = try? JSONEncoder().encode(channels) {
+            d.set(data, forKey: "packetCustomChannels")
+        }
+        d.set(selectedChannelID, forKey: "packetSelectedChannelID")
+        d.set(channel.rawValue, forKey: "packetChannel")
+        d.set(baud.rawValue, forKey: "packetBaud")
+        d.set(offsetHz, forKey: "packetOffsetHz")
+        d.set(repairBits, forKey: "packetRepair")
+        d.set(emphasis.rawValue, forKey: "packetEmphasis")
+        d.set(slicers, forKey: "packetSlicers")
+        d.set(decodeMail, forKey: "packetDecodeMail")
+    }
+
     public var centerHz: Double { baud == .baud9600 ? 2400 : 1700 + offsetHz }
 
     public func setCenter(_ hz: Double) {
         offsetHz = min(max(hz - 1700, Self.offsetRange.lowerBound), Self.offsetRange.upperBound).rounded()
-        UserDefaults.standard.set(offsetHz, forKey: "packetOffsetHz")
+        save()
     }
 
     var options: AFSKDemodulator.Options {

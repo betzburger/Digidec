@@ -94,7 +94,7 @@ struct NavtexTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -110,25 +110,16 @@ struct NavtexSettingsPanel: View {
     @ObservedObject var settings: NavtexSettingsStore
     @State private var locatorText = ""
 
+    @State private var editingFreq: NavtexFrequencyItem?
+    @State private var isNewFreq = false
+    @State private var showFreqEditor = false
+    @State private var editLabel = ""
+    @State private var editKhzText = ""
+    @State private var editNote = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                ForEach(NavtexFrequency.allCases) { f in
-                    Button {
-                        settings.frequency = f
-                    } label: {
-                        VStack(spacing: 2) {
-                            Text(f.label)
-                            Text(f.note)
-                                .font(.system(size: 7.5, weight: .medium, design: .monospaced))
-                                .foregroundColor(RadioTheme.textDim)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.frequency == f))
-                }
-            }
+            freqGrid
             Text(tuningHint)
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
@@ -163,10 +154,101 @@ struct NavtexSettingsPanel: View {
                     .foregroundColor(RadioTheme.textDim)
             }
         }
+        .sheet(isPresented: $showFreqEditor) {
+            PresetModalSheet(
+                title: isNewFreq ? "NEUE NAVTEX-FREQUENZ" : "NAVTEX-FREQUENZ BEARBEITEN",
+                isValid: !editLabel.trimmingCharacters(in: .whitespaces).isEmpty && (Double(editKhzText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0,
+                onSave: saveFrequency,
+                onCancel: { showFreqEditor = false }
+            ) {
+                FrequencyItemEditor(
+                    label: $editLabel,
+                    khzText: $editKhzText,
+                    callsign: .constant(""),
+                    note: $editNote
+                )
+            }
+        }
+    }
+
+    private var freqGrid: some View {
+        let count = settings.frequencies.count + 1
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+            ForEach(settings.frequencies) { f in
+                Button {
+                    settings.selectFrequency(id: f.id)
+                } label: {
+                    VStack(spacing: 1) {
+                        Text(f.label)
+                        Text(f.note)
+                            .font(.system(size: 7.5, weight: .medium, design: .monospaced))
+                            .foregroundColor(RadioTheme.textDim)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedFrequencyID == f.id))
+                .help("\(f.label): \(f.note)")
+                .presetContextMenu(
+                    onEdit: { startEditFrequency(f) },
+                    onDelete: settings.frequencies.count > 1 ? { settings.removeFrequency(id: f.id) } : nil,
+                    onReset: { settings.resetFrequenciesToDefault() }
+                )
+            }
+
+            Button {
+                startAddFrequency()
+            } label: {
+                VStack(spacing: 1) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .bold))
+                    Text("NEU")
+                        .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Neue NAVTEX-Frequenz hinzufügen")
+        }
+    }
+
+    private func startAddFrequency() {
+        isNewFreq = true
+        editingFreq = nil
+        editLabel = ""
+        editKhzText = ""
+        editNote = ""
+        showFreqEditor = true
+    }
+
+    private func startEditFrequency(_ f: NavtexFrequencyItem) {
+        isNewFreq = false
+        editingFreq = f
+        editLabel = f.label
+        let khz = f.hz / 1000
+        editKhzText = khz == khz.rounded() ? String(format: "%.0f", khz) : String(format: "%.1f", khz).replacingOccurrences(of: ".", with: ",")
+        editNote = f.note
+        showFreqEditor = true
+    }
+
+    private func saveFrequency() {
+        let khz = Double(editKhzText.replacingOccurrences(of: ",", with: ".")) ?? 0
+        let item = NavtexFrequencyItem(
+            id: editingFreq?.id ?? UUID().uuidString,
+            label: editLabel.trimmingCharacters(in: .whitespaces),
+            hz: khz * 1000,
+            note: editNote.trimmingCharacters(in: .whitespaces)
+        )
+        if isNewFreq {
+            settings.addFrequency(item)
+        } else {
+            settings.updateFrequency(item)
+        }
+        showFreqEditor = false
     }
 
     private var tuningHint: String {
-        let dial = settings.frequency.usbDial(center: settings.centerHz) / 1000
+        let dial = settings.activeFrequencyItem.usbDial(center: settings.centerHz) / 1000
         let s = String(format: "%.3f", dial).replacingOccurrences(of: ".", with: ",")
         return "USB-Dial \(s) kHz → Mitte \(Int(settings.centerHz.rounded())) Hz"
     }

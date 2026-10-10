@@ -181,7 +181,7 @@ struct ACARSTuningPanel: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             Text(value)
@@ -194,20 +194,17 @@ struct ACARSTuningPanel: View {
 struct ACARSSettingsPanel: View {
     @ObservedObject var settings: ACARSSettingsStore
 
+    @State private var editingChannel: ACARSChannelItem?
+    @State private var isNewChannel = false
+    @State private var showChannelEditor = false
+    @State private var editName = ""
+    @State private var editFreqText = ""
+    @State private var editNote = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
-                ForEach(ACARSChannel.allCases) { c in
-                    Button { settings.channel = c } label: {
-                        VStack(spacing: 1) {
-                            Text(verbatim: c == .free ? "frei" : c.label)
-                                .lineLimit(1).minimumScaleFactor(0.7)
-                        }
-                    }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.channel == c))
-                    .help(c.note + (c.frequencyHz == nil ? "" : " (nur mit QSY AUTO wird das Funkgerät in AM abgestimmt)"))
-                }
-            }
+            channelGrid
+
             HStack(spacing: 6) {
                 Button("UPLINK") { settings.showUplink.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.showUplink))
@@ -220,5 +217,79 @@ struct ACARSSettingsPanel: View {
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         }
+        .sheet(isPresented: $showChannelEditor) {
+            PresetModalSheet(
+                title: isNewChannel ? "NEUER ACARS-KANAL" : "ACARS-KANAL BEARBEITEN",
+                isValid: !editName.trimmingCharacters(in: .whitespaces).isEmpty,
+                onSave: saveChannel,
+                onCancel: { showChannelEditor = false }
+            ) {
+                SimpleChannelEditorView(unitTitle: "Frequenz (MHz)", name: $editName, freqText: $editFreqText, note: $editNote)
+            }
+        }
+    }
+
+    private var channelGrid: some View {
+        let count = settings.channels.count + 1
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 4)), spacing: 4) {
+            ForEach(settings.channels) { c in
+                Button {
+                    settings.selectChannel(id: c.id)
+                } label: {
+                    Text(verbatim: c.label)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: settings.selectedChannelID == c.id))
+                .help(c.note.isEmpty ? (c.frequencyHz == nil ? "Funkgerät nicht abstimmen" : "ACARS \(c.label) MHz") : c.note)
+                .presetContextMenu(
+                    onEdit: { startEditChannel(c) },
+                    onDelete: settings.channels.count > 1 ? { settings.removeChannel(id: c.id) } : nil,
+                    onReset: { settings.resetChannelsToDefault() }
+                )
+            }
+
+            Button {
+                startAddChannel()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: false))
+            .help("Neuen ACARS-Kanal hinzufügen")
+        }
+    }
+
+    private func startAddChannel() {
+        isNewChannel = true
+        editingChannel = nil
+        editName = ""
+        editFreqText = ""
+        editNote = ""
+        showChannelEditor = true
+    }
+
+    private func startEditChannel(_ c: ACARSChannelItem) {
+        isNewChannel = false
+        editingChannel = c
+        editName = c.name
+        editFreqText = c.frequencyHz.map { String(format: "%.3f", $0 / 1_000_000).replacingOccurrences(of: ".", with: ",") } ?? ""
+        editNote = c.note
+        showChannelEditor = true
+    }
+
+    private func saveChannel() {
+        let cleanText = editFreqText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let mhz = Double(cleanText)
+        let hz = mhz.map { $0 * 1_000_000 }
+        let name = editName.trimmingCharacters(in: .whitespaces)
+
+        if isNewChannel {
+            let item = ACARSChannelItem(id: UUID().uuidString, name: name, frequencyHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.addChannel(item)
+        } else if let editingChannel {
+            let item = ACARSChannelItem(id: editingChannel.id, name: name, frequencyHz: hz, note: editNote.trimmingCharacters(in: .whitespaces))
+            settings.updateChannel(item)
+        }
+        showChannelEditor = false
     }
 }

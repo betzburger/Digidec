@@ -47,6 +47,39 @@ public enum DSCChannel: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 }
 
+/// Frei konfigurierbarer DSC-Kanal
+public struct DSCChannelItem: Identifiable, Equatable, Codable, Sendable {
+    public var id: String
+    public var label: String
+    public var frequencyHz: Double?
+    public var isVHF: Bool
+    public var note: String
+
+    public init(id: String = UUID().uuidString, label: String, frequencyHz: Double?, isVHF: Bool = false, note: String = "") {
+        self.id = id
+        self.label = label
+        self.frequencyHz = frequencyHz
+        self.isVHF = isVHF
+        self.note = note
+    }
+
+    public func dial(center: Double) -> Int64? {
+        if isVHF { return frequencyHz.map { Int64($0.rounded()) } }
+        return frequencyHz.map { Int64(($0 - center).rounded()) }
+    }
+
+    public static let standardChannels: [DSCChannelItem] = [
+        DSCChannelItem(id: "70", label: "K70", frequencyHz: 156_525_000, isVHF: true, note: "UKW-DSC Kanal 70 (156,525 MHz FM)"),
+        DSCChannelItem(id: "2187", label: "2187,5", frequencyHz: 2_187_500, isVHF: false, note: "MF Grenzwelle Seenot/Anruf"),
+        DSCChannelItem(id: "4207", label: "4207,5", frequencyHz: 4_207_500, isVHF: false, note: "4 MHz KW Seenot/Anruf"),
+        DSCChannelItem(id: "6312", label: "6312", frequencyHz: 6_312_000, isVHF: false, note: "6 MHz KW Seenot/Anruf"),
+        DSCChannelItem(id: "8414", label: "8414,5", frequencyHz: 8_414_500, isVHF: false, note: "8 MHz KW Seenot/Anruf"),
+        DSCChannelItem(id: "12577", label: "12577", frequencyHz: 12_577_000, isVHF: false, note: "12 MHz KW Seenot/Anruf"),
+        DSCChannelItem(id: "16804", label: "16804,5", frequencyHz: 16_804_500, isVHF: false, note: "16 MHz KW Seenot/Anruf"),
+        DSCChannelItem(id: "free", label: "frei", frequencyHz: nil, isVHF: false, note: "Funkgerät nicht abstimmen")
+    ]
+}
+
 // MARK: - Einstellungen
 
 @MainActor
@@ -55,11 +88,13 @@ public final class DSCSettingsStore: ObservableObject {
 
     @Published public private(set) var centerHz: Double
     @Published public private(set) var manualCenterRevision = 0
+    @Published public private(set) var channels: [DSCChannelItem]
+    @Published public var selectedChannelID: String { didSet { applySelectedChannel(); save() } }
     /// Mitte automatisch aus den beiden Tönen nachführen (Standard an)
-    @Published public var autoCenter: Bool { didSet { defaults.set(autoCenter, forKey: "dscAuto") } }
+    @Published public var autoCenter: Bool { didSet { save() } }
     /// Seitenband umgekehrt (LSB)
-    @Published public var reversed: Bool { didSet { defaults.set(reversed, forKey: "dscReversed") } }
-    @Published public var channel: DSCChannel { didSet { defaults.set(channel.rawValue, forKey: "dscChannel") } }
+    @Published public var reversed: Bool { didSet { save() } }
+    @Published public var channel: DSCChannel { didSet { save() } }
 
     /// Einstellungen; `defaults` ist beim Mehrkanalbetrieb ein eigener Speicher je Kanal, damit ein Kanal die Einstellungen des Moduls nicht verändert
     private let defaults: UserDefaults
@@ -71,16 +106,75 @@ public final class DSCSettingsStore: ObservableObject {
         centerHz = Self.centerRange.contains(c) ? c : 1700
         autoCenter = d.object(forKey: "dscAuto") as? Bool ?? true
         reversed = d.bool(forKey: "dscReversed")
-        channel = d.string(forKey: "dscChannel").flatMap(DSCChannel.init(rawValue:)) ?? .f8414
+        let loadedChannels: [DSCChannelItem]
+        if let data = d.data(forKey: "dscCustomChannels"),
+           let list = try? JSONDecoder().decode([DSCChannelItem].self, from: data), !list.isEmpty {
+            loadedChannels = list
+        } else {
+            loadedChannels = DSCChannelItem.standardChannels
+        }
+        let savedID = d.string(forKey: "dscSelectedChannelID")
+        let initialID = loadedChannels.first(where: { $0.id == savedID })?.id ?? loadedChannels.first?.id ?? "8414"
+        channels = loadedChannels
+        selectedChannelID = initialID
+        channel = DSCChannel(rawValue: initialID) ?? .f8414
+    }
+
+    public var activeChannelItem: DSCChannelItem {
+        channels.first { $0.id == selectedChannelID } ?? channels[0]
+    }
+
+    public var activeFrequencyHz: Double? { activeChannelItem.frequencyHz }
+
+    public func selectChannel(id: String) {
+        guard channels.contains(where: { $0.id == id }) else { return }
+        selectedChannelID = id
+    }
+
+    public func addChannel(_ item: DSCChannelItem) {
+        channels.append(item)
+        selectedChannelID = item.id
+        save()
+    }
+
+    public func updateChannel(_ item: DSCChannelItem) {
+        if let idx = channels.firstIndex(where: { $0.id == item.id }) {
+            channels[idx] = item
+            if selectedChannelID == item.id {
+                applySelectedChannel()
+            }
+            save()
+        }
+    }
+
+    public func removeChannel(id: String) {
+        guard channels.count > 1 else { return }
+        channels.removeAll { $0.id == id }
+        if selectedChannelID == id {
+            selectedChannelID = channels.first?.id ?? "free"
+        }
+        save()
+    }
+
+    public func resetChannelsToDefault() {
+        channels = DSCChannelItem.standardChannels
+        if !channels.contains(where: { $0.id == selectedChannelID }) {
+            selectedChannelID = "8414"
+        }
+        save()
+    }
+
+    private func applySelectedChannel() {
+        channel = DSCChannel(rawValue: activeChannelItem.id) ?? (activeChannelItem.isVHF ? .vhf70 : .free)
     }
 
     /// Von Hand (Klick im Wasserfall): schaltet die Automatik ab
     public func setCenter(_ hz: Double) {
-        if channel.isVHF { return }          // UKW: feste Töne 1300/2100 Hz
+        if activeChannelItem.isVHF { return }          // UKW: feste Töne 1300/2100 Hz
         centerHz = min(max(hz, Self.centerRange.lowerBound), Self.centerRange.upperBound).rounded()
         manualCenterRevision += 1
         autoCenter = false
-        defaults.set(centerHz, forKey: "dscCenterHz")
+        save()
     }
 
     /// Die Automatik hat die Mitte verschoben (Anzeige folgt)
@@ -88,7 +182,19 @@ public final class DSCSettingsStore: ObservableObject {
         centerHz = hz.rounded()
     }
 
-    public var dialHz: Int64? { channel.dial(center: centerHz) }
+    public var dialHz: Int64? { activeChannelItem.dial(center: centerHz) }
+
+    private func save() {
+        let d = defaults
+        d.set(selectedChannelID, forKey: "dscSelectedChannelID")
+        d.set(channel.rawValue, forKey: "dscChannel")
+        if let data = try? JSONEncoder().encode(channels) {
+            d.set(data, forKey: "dscCustomChannels")
+        }
+        d.set(autoCenter, forKey: "dscAuto")
+        d.set(reversed, forKey: "dscReversed")
+        d.set(centerHz, forKey: "dscCenterHz")
+    }
 }
 
 extension DSCSettingsStore: TuningTarget {
