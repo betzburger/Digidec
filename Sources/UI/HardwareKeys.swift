@@ -113,11 +113,12 @@ struct HardwareKeyFace: ViewModifier {
     }
 
     private var faceColors: [Color] {
+        let p = ThemeModel.shared.palette
         switch (isSelected, isPressed) {
-        case (false, false): return [Color(red: 0.255, green: 0.285, blue: 0.345), Color(red: 0.130, green: 0.150, blue: 0.190)]
-        case (false, true):  return [Color(red: 0.090, green: 0.105, blue: 0.135), Color(red: 0.160, green: 0.180, blue: 0.225)]
-        case (true, false):  return [Color(red: 0.060, green: 0.420, blue: 0.490), Color(red: 0.020, green: 0.200, blue: 0.250)]
-        case (true, true):   return [Color(red: 0.020, green: 0.160, blue: 0.210), Color(red: 0.050, green: 0.300, blue: 0.360)]
+        case (false, false): return [Color(p.keyTop), Color(p.keyBottom)]
+        case (false, true):  return [Color(p.keyPressedTop), Color(p.keyPressedBottom)]
+        case (true, false):  return [Color(p.keySelectedTop), Color(p.keySelectedBottom)]
+        case (true, true):   return [Color(p.keySelectedPressedTop), Color(p.keySelectedPressedBottom)]
         }
     }
 

@@ -783,6 +783,7 @@ private struct HeaderBar: View {
                 RigControlToggle(state: state, rig: state.rig)
             }
             RigBadge(rig: state.rig, audio: state.audio, onTap: { state.showRigSettings = true })
+            ThemeButton()
             AboutButton(onTap: { state.showAbout = true })
             UTCClock()
         }
@@ -998,6 +999,72 @@ private struct RigBadge: View {
 }
 
 /// Info-Knopf in der Kopfzeile: Version, Lizenz, Quellen
+/// Farbtheme wählen (Nacht, Bernstein, Rotnacht, Marine): Palette-Symbol, Auswahl in einem Fenster mit Farbmuster
+private struct ThemeButton: View {
+    @State private var show = false
+
+    var body: some View {
+        Button { show.toggle() } label: {
+            Image(systemName: "paintpalette")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(show ? RadioTheme.vfdCyan : RadioTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 3)
+        }
+        .buttonStyle(.plain)
+        .help("Farbtheme wählen")
+        .popover(isPresented: $show, arrowEdge: .bottom) { ThemePicker(isPresented: $show) }
+    }
+}
+
+private struct ThemePicker: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        let current = ThemeModel.shared.theme
+        VStack(alignment: .leading, spacing: 4) {
+            Text("FARBTHEMA")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(RadioTheme.textDim)
+                .tracking(1.2)
+                .padding(.bottom, 2)
+            ForEach(AppTheme.allCases) { t in
+                let p = t.palette
+                Button {
+                    ThemeModel.shared.theme = t
+                    isPresented = false
+                } label: {
+                    HStack(spacing: 10) {
+                        HStack(spacing: 0) {
+                            ForEach([p.bgDeep, p.vfdGreen, p.vfdCyan, p.vfdAmber, p.ledRed], id: \.r) { c in
+                                Rectangle().fill(Color(c)).frame(width: 14, height: 22)
+                            }
+                        }
+                        .cornerRadius(3)
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(RadioTheme.borderSubtle, lineWidth: 1))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(LocalizedStringKey(t.title)).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textBright)
+                            Text(LocalizedStringKey(t.detail)).font(.system(size: 9, design: .monospaced)).foregroundColor(RadioTheme.textMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 6)
+                        if t == current { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundColor(RadioTheme.vfdCyan) }
+                    }
+                    .padding(6)
+                    .frame(width: 330, alignment: .leading)
+                    .background(t == current ? RadioTheme.bgCard : Color.clear)
+                    .cornerRadius(5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .background(RadioTheme.bgPanel)
+        .preferredColorScheme(.dark)
+    }
+}
+
 private struct AboutButton: View {
     var onTap: () -> Void
 

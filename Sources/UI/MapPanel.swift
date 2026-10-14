@@ -78,6 +78,8 @@ struct MapPanel: View {
     @State private var showHomeEditor = false
     @State private var locatorText = ""
     @AppStorage("mapAppearance") private var appearanceRaw = MapAppearance.standard.rawValue
+    /// Tagesdarstellung der Karte (hell) statt Nachtdarstellung (dunkel, passend zum Rest der App)
+    @AppStorage("mapDayMode") private var dayMode = false
     /// Wege (Spuren) der Punkte zeichnen
     @AppStorage("mapTracks") private var showTracks = true
 
@@ -224,6 +226,7 @@ struct MapPanel: View {
             }
         }
         .mapStyle(appearance.style)
+        .environment(\.colorScheme, dayMode ? .light : .dark)
         .mapControls {
             MapScaleView()
             MapCompass()
@@ -265,7 +268,18 @@ struct MapPanel: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: 170)
+                .colorScheme(.dark)
+                .padding(2)
+                .background(RadioTheme.bgDeep.opacity(0.9))
+                .cornerRadius(6)
                 .help("Kartendarstellung")
+                ButtonGrid {
+                    Button { dayMode.toggle() } label: {
+                        Label(dayMode ? "TAG" : "NACHT", systemImage: dayMode ? "sun.max" : "moon")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: dayMode))
+                    .help("Karte in der Tagesdarstellung (hell) oder Nachtdarstellung (dunkel) zeigen")
+                }
                 ButtonGrid {
                     if content.markers.contains(where: { $0.track.count > 1 }) {
                         Button {
@@ -329,9 +343,9 @@ struct MapPanel: View {
             return
         }
         flash("Bild wird erstellt …", keep: true)
-        let content = self.content, appearance = self.appearance, tracks = showTracks, size = mapSize, name = snapshotName, title = legend
+        let content = self.content, appearance = self.appearance, day = dayMode, tracks = showTracks, size = mapSize, name = snapshotName, title = legend
         Task { @MainActor in
-            let result = await MapSnapshotExporter.save(content: content, region: region, size: size, appearance: appearance,
+            let result = await MapSnapshotExporter.save(content: content, region: region, size: size, appearance: appearance, day: day,
                                                         showTracks: tracks, name: name, title: title)
             switch result {
             case .success(let url):

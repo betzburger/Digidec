@@ -97,7 +97,7 @@ struct PropagationRuler: View {
             let color: Color
             if let d = snapshot.data {
                 let c = PropagationModel.color(score: PropagationModel.score(frequencyMHz: mid, data: d, elevation: snapshot.elevation, declination: snapshot.declination, latitude: snapshot.latitude))
-                color = Color(red: c.r, green: c.g, blue: c.b)
+                color = Color(red: c.r, green: c.g, blue: c.b)   // Ausbreitung: Rot bis Grün in allen Themes, wird nicht umgefärbt
             } else {
                 color = Color.gray.opacity(0.35)
             }

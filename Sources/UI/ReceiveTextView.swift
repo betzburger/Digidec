@@ -38,21 +38,43 @@ struct ReceiveTextView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     static let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .medium)
-    static let color = NSColor(red: 0.00, green: 0.95, blue: 0.45, alpha: 1)   // RadioTheme.vfdGreen
+    static var color: NSColor { NSColor(ThemeModel.shared.palette.vfdGreen) }
     /// SYNOP-Klartext: etwas kleiner, in Amber
     static let decodedFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
-    static let decodedColor = NSColor(red: 1.00, green: 0.72, blue: 0.10, alpha: 1)   // RadioTheme.vfdAmber
+    static var decodedColor: NSColor { NSColor(ThemeModel.shared.palette.vfdAmber) }
+    /// Kennzeichnet Klartext (SYNOP): nur damit lassen sich die Farben beim Wechsel des Themes neu setzen
+    static let decodedKey = NSAttributedString.Key("digidecDecoded")
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
 
+        override init() {
+            super.init()
+            // schwach gehalten: nach dem Abbau der Ansicht tut der Beobachter nichts mehr
+            NotificationCenter.default.addObserver(forName: ThemeModel.notification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.recolor() }
+            }
+        }
+
+        /// Farben des vorhandenen Textes dem neuen Theme anpassen
+        private func recolor() {
+            guard let tv = textView, let storage = tv.textStorage else { return }
+            tv.textColor = ReceiveTextView.color
+            storage.beginEditing()
+            storage.enumerateAttribute(ReceiveTextView.decodedKey, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                let color = (value as? Bool) == true ? ReceiveTextView.decodedColor : ReceiveTextView.color
+                storage.addAttribute(.foregroundColor, value: color, range: range)
+            }
+            storage.endEditing()
+        }
+
         func append(_ s: String, decoded: Bool) {
             guard let tv = textView, let storage = tv.textStorage else { return }
             let atEnd = isScrolledToEnd
             let attrs: [NSAttributedString.Key: Any] = decoded
-                ? [.font: ReceiveTextView.decodedFont, .foregroundColor: ReceiveTextView.decodedColor]
+                ? [.font: ReceiveTextView.decodedFont, .foregroundColor: ReceiveTextView.decodedColor, ReceiveTextView.decodedKey: true]
                 : [.font: ReceiveTextView.font, .foregroundColor: ReceiveTextView.color]
             // Klartext auf eigenen Zeilen
             let text = decoded && !(storage.string.hasSuffix("\n") || storage.length == 0) ? "\n" + s : s

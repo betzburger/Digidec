@@ -1,24 +1,69 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
+import AppKit
+import Observation
 
+// MARK: - Farbthemes
+
+extension Color {
+    init(_ c: RGB) { self.init(red: c.r, green: c.g, blue: c.b) }
+}
+
+extension NSColor {
+    convenience init(_ c: RGB) { self.init(red: c.r, green: c.g, blue: c.b, alpha: 1) }
+}
+
+/// Das gewählte Farbtheme. `@Observable`: jede Ansicht, die beim Aufbau eine Farbe aus `RadioTheme` liest, wird beim Wechsel neu gezeichnet.
+/// Ansichten, die ihre Farben in einer Zeichenfläche (Canvas) oder in AppKit lesen, rufen dafür zusätzlich `ThemeModel.shared.theme` im Aufbau ab.
+@Observable
+public final class ThemeModel: @unchecked Sendable {
+    nonisolated(unsafe) public static let shared = ThemeModel()
+    public static let notification = Notification.Name("DigidecThemeChanged")
+    private static let key = "appTheme"
+
+    public var theme: AppTheme {
+        didSet {
+            guard theme != oldValue else { return }
+            palette = theme.palette
+            UserDefaults.standard.set(theme.rawValue, forKey: Self.key)
+            WaterfallColorMap.install(stops: palette.waterfall.map { ($0.0, ($0.1.r, $0.1.g, $0.1.b)) })
+            NotificationCenter.default.post(name: Self.notification, object: nil)
+        }
+    }
+    public private(set) var palette: ThemePalette
+
+    private init() {
+        // DIGIDEC_THEME=amber|redNight|marine|night wählt das Theme für einen Lauf (Prüfhilfe), ohne die Einstellung zu ändern
+        let env = ProcessInfo.processInfo.environment["DIGIDEC_THEME"].flatMap(AppTheme.init(rawValue:))
+        let saved = UserDefaults.standard.string(forKey: Self.key).flatMap(AppTheme.init(rawValue:))
+        let t = env ?? saved ?? .night
+        theme = t
+        palette = t.palette
+        WaterfallColorMap.install(stops: t.palette.waterfall.map { ($0.0, ($0.1.r, $0.1.g, $0.1.b)) })
+    }
+}
+
+/// Farben der Oberfläche; folgen dem gewählten Theme (`ThemeModel`)
 public struct RadioTheme {
-    public static let bgDeep        = Color(red: 0.07, green: 0.08, blue: 0.10)
-    public static let bgPanel       = Color(red: 0.10, green: 0.11, blue: 0.14)
-    public static let bgCard        = Color(red: 0.13, green: 0.15, blue: 0.19)
-    public static let borderSubtle  = Color(red: 0.20, green: 0.24, blue: 0.30)
-    public static let borderActive  = Color(red: 0.00, green: 0.85, blue: 1.00)
+    private static var p: ThemePalette { ThemeModel.shared.palette }
 
-    public static let vfdAmber      = Color(red: 1.00, green: 0.72, blue: 0.10)
-    public static let vfdCyan       = Color(red: 0.00, green: 0.90, blue: 1.00)
-    public static let vfdGreen      = Color(red: 0.00, green: 0.95, blue: 0.45)
-    public static let ledRed        = Color(red: 1.00, green: 0.20, blue: 0.30)
-    public static let ledYellow     = Color(red: 1.00, green: 0.80, blue: 0.00)
+    public static var bgDeep: Color        { Color(p.bgDeep) }
+    public static var bgPanel: Color       { Color(p.bgPanel) }
+    public static var bgCard: Color        { Color(p.bgCard) }
+    public static var borderSubtle: Color  { Color(p.borderSubtle) }
+    public static var borderActive: Color  { Color(p.borderActive) }
 
-    public static let textBright    = Color(red: 0.95, green: 0.97, blue: 1.00)
-    public static let textLight     = textBright
-    public static let textMuted     = Color(red: 0.60, green: 0.65, blue: 0.75)
-    public static let textDim       = Color(red: 0.40, green: 0.45, blue: 0.52)
+    public static var vfdAmber: Color      { Color(p.vfdAmber) }
+    public static var vfdCyan: Color       { Color(p.vfdCyan) }
+    public static var vfdGreen: Color      { Color(p.vfdGreen) }
+    public static var ledRed: Color        { Color(p.ledRed) }
+    public static var ledYellow: Color     { Color(p.ledYellow) }
+
+    public static var textBright: Color    { Color(p.textBright) }
+    public static var textLight: Color     { textBright }
+    public static var textMuted: Color     { Color(p.textMuted) }
+    public static var textDim: Color       { Color(p.textDim) }
 }
 
 public struct RadioBox<Content: View>: View {

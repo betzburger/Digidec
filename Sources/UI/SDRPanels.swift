@@ -28,6 +28,7 @@ final class SDRSpectrumModel: ObservableObject {
     private var dbRows: [[Float]] = []
     private var needsRedraw = false
     private var timer: Timer?
+    private var themeObserver: NSObjectProtocol?
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
     init(rows: @escaping @MainActor () -> [[Float]]) {
@@ -36,6 +37,14 @@ final class SDRSpectrumModel: ObservableObject {
         rangeDB = (20...90).contains(saved) ? saved : 55
         columns = Self.defaultColumns
         pixels = [UInt32](repeating: WaterfallColorMap.lut[0], count: columns * Self.history)
+        // Wechsel des Farbthemes: Bild mit der neuen Farbtabelle neu zeichnen
+        themeObserver = NotificationCenter.default.addObserver(forName: ThemeModel.notification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                for i in self.pixels.indices { self.pixels[i] = WaterfallColorMap.lut[0] }
+                self.needsRedraw = true
+            }
+        }
     }
 
     /// Zeilen mit 25 Hz holen, solange die Ansicht sichtbar ist

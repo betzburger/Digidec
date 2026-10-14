@@ -195,7 +195,9 @@ enum SnapshotHelper {
             @MainActor func next() {
                 guard n <= steps.count else { NSApplication.shared.terminate(nil); return }
                 let parts = steps[n - 1].split(separator: ":").map(String.init)
-                if let m = DecoderModuleInfo(rawValue: parts[0]) {
+                if parts[0] == "theme", parts.count > 1, let t = AppTheme(rawValue: parts[1]) {
+                    ThemeModel.shared.theme = t
+                } else if let m = DecoderModuleInfo(rawValue: parts[0]) {
                     DigidecState.shared.select(module: m)
                     if parts.count > 1 {
                         let layout: MapLayout = parts[1] == "karte" ? .map : parts[1] == "beide" ? .split : .list

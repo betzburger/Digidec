@@ -36,11 +36,12 @@ enum MapSnapshotExporter {
 
     /// Bild erzeugen und speichern; Rückgabe: Datei oder Fehlertext
     @MainActor
-    static func save(content: MapContent, region: MKCoordinateRegion, size: CGSize, appearance: MapAppearance,
+    static func save(content: MapContent, region: MKCoordinateRegion, size: CGSize, appearance: MapAppearance, day: Bool = false,
                      showTracks: Bool, name: String, title: String?) async -> Result<URL, SnapshotError> {
         let options = MKMapSnapshotter.Options()
         options.region = region
         options.size = size
+        options.appearance = NSAppearance(named: day ? .aqua : .darkAqua)
         switch appearance {
         case .standard: options.mapType = .mutedStandard
         case .hybrid: options.mapType = .hybrid

@@ -13844,5 +13844,52 @@ if want("assistant") {
     }
 }
 
+// MARK: - Farbthemes
+if want("theme") {
+    func approx(_ a: Double, _ b: Double, _ tol: Double) -> Bool { abs(a - b) <= tol }
+    check(AppTheme.allCases.count == 4 && Set(AppTheme.allCases.map(\.rawValue)).count == 4 && AppTheme(rawValue: "night") == .night, "Themes: vier eindeutige Kennungen")
+    // Das Standard-Theme bleibt genau das bisherige Design
+    let n = AppTheme.night.palette
+    check(n.bgDeep == RGB(0.07, 0.08, 0.10) && n.vfdGreen == RGB(0.00, 0.95, 0.45) && n.vfdCyan == RGB(0.00, 0.90, 1.00) && n.vfdAmber == RGB(1.00, 0.72, 0.10) && n.ledRed == RGB(1.00, 0.20, 0.30) && n.textMuted == RGB(0.60, 0.65, 0.75),
+          "Theme Nacht: Farben wie im bisherigen Design")
+    check(approx(n.keyPressedTop.r, 0.090, 0.006) && approx(n.keyPressedBottom.b, 0.225, 0.01) && approx(n.keySelectedPressedTop.g, 0.160, 0.01) && approx(n.keySelectedPressedBottom.b, 0.348, 0.02),
+          "Theme Nacht: abgeleitete Tastenfarben (gedrückt) wie bisher")
+    for t in AppTheme.allCases {
+        let p = t.palette
+        // Kontrast aller Schrift- und Leuchtfarben auf allen Hintergründen
+        var worst = (name: "", ratio: 99.0)
+        var ok = true
+        for (fname, fg, minimum) in p.foregrounds {
+            for (bname, bg) in p.backgrounds {
+                let ratio = fg.contrast(with: bg)
+                if ratio < minimum { ok = false; if ratio < worst.ratio { worst = ("\(fname) auf \(bname)", ratio) } }
+            }
+        }
+        check(ok, "Theme \(t.rawValue): Kontrast aller Textfarben ausreichend (schwächste Stelle: \(worst.name) \(worst.ratio))")
+        // Hintergründe werden nach oben heller, Text nach unten dunkler
+        check(p.bgDeep.luminance < p.bgPanel.luminance && p.bgPanel.luminance < p.bgCard.luminance && p.textBright.luminance > p.textMuted.luminance && p.textMuted.luminance > p.textDim.luminance,
+              "Theme \(t.rawValue): Helligkeitsstufen der Flächen und der Schrift geordnet")
+        // Tasten: aktive Taste heller als der Hintergrund, Ruhetaste vom Hintergrund abgesetzt
+        check(p.keyTop.luminance > p.keyBottom.luminance && p.keySelectedTop.luminance > p.keySelectedBottom.luminance && p.keyBottom.luminance > p.bgDeep.luminance,
+              "Theme \(t.rawValue): Tastenverläufe laufen von hell nach dunkel und heben sich ab")
+        // Wasserfall: beginnt mit dem Hintergrund, steigt in der Helligkeit, endet hell
+        let wf = p.waterfall
+        let mono = zip(wf.dropFirst(), wf).allSatisfy { $0.0 > $1.0 }
+        check(wf.first?.0 == 0 && wf.last?.0 == 1 && wf.first?.1 == p.bgDeep && mono && (wf.last?.1.luminance ?? 0) > 0.6, "Theme \(t.rawValue): Wasserfallverlauf von Hintergrund bis hell")
+        let lut = WaterfallColorMap.makeLUT(stops: wf.map { ($0.0, ($0.1.r, $0.1.g, $0.1.b)) })
+        func lum(_ v: UInt32) -> Double { RGB(Double(v & 255) / 255, Double((v >> 8) & 255) / 255, Double((v >> 16) & 255) / 255).luminance }
+        let rising = (1..<256).filter { lum(lut[$0]) + 0.02 < lum(lut[$0 - 1]) }.count
+        check(lut.count == 256 && lut.allSatisfy { $0 >> 24 == 0xFF } && rising < 4 && lum(lut[255]) > lum(lut[0]) + 0.5, "Theme \(t.rawValue): Farbtabelle 256 Einträge, Helligkeit steigt (\(rising) Rücksprünge)")
+    }
+    // Farbtabelle austauschen und zurücksetzen
+    let before = WaterfallColorMap.lut
+    WaterfallColorMap.install(stops: AppTheme.amber.palette.waterfall.map { ($0.0, ($0.1.r, $0.1.g, $0.1.b)) })
+    let amberLUT = WaterfallColorMap.lut
+    WaterfallColorMap.install(stops: WaterfallColorMap.defaultStops)
+    check(amberLUT != before && WaterfallColorMap.lut == before && before == WaterfallColorMap.makeLUT(stops: AppTheme.night.palette.waterfall.map { ($0.0, ($0.1.r, $0.1.g, $0.1.b)) }),
+          "Farbtabelle: Wechsel und Rückkehr; Nacht entspricht der Standardtabelle")
+    check(RGB(1, 1, 1).contrast(with: RGB(0, 0, 0)) > 20.9 && approx(RGB(0.5, 0.5, 0.5).contrast(with: RGB(0.5, 0.5, 0.5)), 1, 0.0001), "Kontrastverhältnis: Schwarz/Weiß 21, gleiche Farbe 1")
+}
+
 print("\(checks) Prüfungen, \(failures) Fehler")
 exit(failures == 0 ? 0 : 1)

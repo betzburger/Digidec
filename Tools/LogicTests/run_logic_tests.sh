@@ -49,7 +49,7 @@ Tools/build_fldigi.sh "$OUT/fldigi"
 
 # 3. Testprogramm mit den getesteten Quellen bauen
 SRC=(
-    Tools/LogicTests/main.swift Tools/LogicTests/FakeLLMServer.swift $S/Assistant/SignalMeasure.swift $S/Assistant/LLMProtocol.swift $S/Assistant/LLMClient.swift $S/Assistant/LLMSettings.swift $S/Assistant/AssistantContext.swift $S/Assistant/SignalHints.swift $S/Assistant/AssistantMarkdown.swift Tools/LogicTests/FakeRigctld.swift Tools/LogicTests/FakeSDRconnect.swift $S/Rig/SDRconnectRig.swift
+    Tools/LogicTests/main.swift Tools/LogicTests/FakeLLMServer.swift $S/Assistant/SignalMeasure.swift $S/Assistant/LLMProtocol.swift $S/Assistant/LLMClient.swift $S/Assistant/LLMSettings.swift $S/Assistant/AssistantContext.swift $S/Assistant/SignalHints.swift $S/Assistant/AssistantMarkdown.swift $S/Models/ThemePalette.swift Tools/LogicTests/FakeRigctld.swift Tools/LogicTests/FakeSDRconnect.swift $S/Rig/SDRconnectRig.swift
     $S/Models/RigProfile.swift $S/Rig/RigModel.swift $S/Models/LicenseDocuments.swift
     $S/Models/DecoderModuleInfo.swift $S/Models/DecodeRequest.swift $S/Models/DXCC.swift $S/Models/QRZ.swift
     $S/Audio/AudioInputDevice.swift $S/Audio/RadioCodecLocator.swift $S/Audio/AudioBasics.swift $S/Audio/SampleRateConverter.swift

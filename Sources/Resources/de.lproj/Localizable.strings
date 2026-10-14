@@ -1500,3 +1500,16 @@
 "Obergrenze der Antwort in Token. Denkmodelle brauchen viel, weil das Nachdenken mitzählt (z. B. 4000 bis 8000)" = "Obergrenze der Antwort in Token. Denkmodelle brauchen viel, weil das Nachdenken mitzählt (z. B. 4000 bis 8000)";
 "Liegt im Schlüsselbund. llama-server braucht einen, wenn er mit --api-key oder --api-key-file gestartet wurde" = "Liegt im Schlüsselbund. llama-server braucht einen, wenn er mit --api-key oder --api-key-file gestartet wurde";
 "Denkmodelle nachdenken lassen (aus = schneller, nur llama-server)" = "Denkmodelle nachdenken lassen (aus = schneller, nur llama-server)";
+"TAG" = "TAG";
+"NACHT" = "NACHT";
+"Karte in der Tagesdarstellung (hell) oder Nachtdarstellung (dunkel) zeigen" = "Karte in der Tagesdarstellung (hell) oder Nachtdarstellung (dunkel) zeigen";
+"FARBTHEMA" = "FARBTHEMA";
+"Farbtheme wählen" = "Farbtheme wählen";
+"Nacht" = "Nacht";
+"Bernstein" = "Bernstein";
+"Rotnacht" = "Rotnacht";
+"Marine" = "Marine";
+"Das gewohnte Design: grünes und cyanfarbenes VFD-Leuchten auf Blauschwarz" = "Das gewohnte Design: grünes und cyanfarbenes VFD-Leuchten auf Blauschwarz";
+"Einfarbig bernsteinfarben wie ein alter Datensichtschirm" = "Einfarbig bernsteinfarben wie ein alter Datensichtschirm";
+"Nur rote Töne: schont die Dunkeladaption in abgedunkelten Räumen" = "Nur rote Töne: schont die Dunkeladaption in abgedunkelten Räumen";
+"Blauschwarz mit hellblauer Schrift und goldenen Messwerten" = "Blauschwarz mit hellblauer Schrift und goldenen Messwerten";

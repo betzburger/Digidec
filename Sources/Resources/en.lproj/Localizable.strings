@@ -1500,3 +1500,16 @@
 "Obergrenze der Antwort in Token. Denkmodelle brauchen viel, weil das Nachdenken mitzählt (z. B. 4000 bis 8000)" = "Upper limit of the answer in tokens. Reasoning models need a lot because the thinking counts (e.g. 4000 to 8000)";
 "Liegt im Schlüsselbund. llama-server braucht einen, wenn er mit --api-key oder --api-key-file gestartet wurde" = "Stored in the keychain. llama-server needs one if it was started with --api-key or --api-key-file";
 "Denkmodelle nachdenken lassen (aus = schneller, nur llama-server)" = "Let reasoning models think (off = faster, llama-server only)";
+"TAG" = "DAY";
+"NACHT" = "NIGHT";
+"Karte in der Tagesdarstellung (hell) oder Nachtdarstellung (dunkel) zeigen" = "Show the map in day (light) or night (dark) appearance";
+"FARBTHEMA" = "COLOUR THEME";
+"Farbtheme wählen" = "Choose colour theme";
+"Nacht" = "Night";
+"Bernstein" = "Amber";
+"Rotnacht" = "Red night";
+"Marine" = "Marine";
+"Das gewohnte Design: grünes und cyanfarbenes VFD-Leuchten auf Blauschwarz" = "The familiar design: green and cyan VFD glow on blue-black";
+"Einfarbig bernsteinfarben wie ein alter Datensichtschirm" = "Single-colour amber like an old data terminal";
+"Nur rote Töne: schont die Dunkeladaption in abgedunkelten Räumen" = "Red tones only: preserves dark adaptation in dimmed rooms";
+"Blauschwarz mit hellblauer Schrift und goldenen Messwerten" = "Blue-black with light-blue text and golden readings";

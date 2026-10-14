@@ -43,6 +43,7 @@ public final class WaterfallModel: ObservableObject {
     private var dbRows: [[Float]] = []       // für Neufärbung bei geänderter Dynamik
     private var timer: Timer?
     private var needsRedraw = false
+    private var themeObserver: NSObjectProtocol?
     private var tick = 0
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
@@ -56,6 +57,10 @@ public final class WaterfallModel: ObservableObject {
 
         let proc = processor
         pipeline.addSink { proc.consume($0) }
+        // Wechsel des Farbthemes: Bild mit der neuen Farbtabelle neu zeichnen
+        themeObserver = NotificationCenter.default.addObserver(forName: ThemeModel.notification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.themeChanged() }
+        }
 
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.update() }
@@ -73,6 +78,11 @@ public final class WaterfallModel: ObservableObject {
     public func clear() {
         processor.reset()
         dbRows.removeAll()
+        for i in pixels.indices { pixels[i] = WaterfallColorMap.lut[0] }
+        needsRedraw = true
+    }
+
+    private func themeChanged() {
         for i in pixels.indices { pixels[i] = WaterfallColorMap.lut[0] }
         needsRedraw = true
     }
