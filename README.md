@@ -13,17 +13,39 @@ From marine weather fax and SYNOP teleprinter messages to amateur radio digital 
 
 ---
 
+### 🎨 A new look: tactile keys, four colour themes, analog S-meter
+
+Digidec now looks like a piece of lab equipment:
+
+- **Hardware-style keys** with light edge, shadow and press effect, in a fixed grid in every module
+- **Analog S-meter** as a backlit retro instrument (S-scale per IARU), switchable with the tuning display
+- **Four colour themes**, switched live via the palette icon: *Night* (default), *Amber*, *Red night* (red tones only, keeps your dark adaptation) and *Marine*
+- **Maps in day or night appearance**, plus a shared map for the **MEHRKANAL** multi-channel mode
+- Optional **AI assistant**: right-click a signal in the RF waterfall and ask what it could be
+
 <p align="center">
-  <img src="docs/images/FT8.png" alt="Digidec FT8 Decoder" width="90%">
+  <img src="docs/images/UI-ADS-B-Amber.png" alt="Digidec ADS-B in the Amber theme with day map, aircraft data window and analog S-meter" width="100%">
   <br>
-  <em>Digidec decoding FT8 amateur radio activity with live spectrum, decode list, and interactive station map</em>
+  <em><b>ADS-B in the Amber theme:</b> aircraft with tracks and type silhouettes on the day map, aircraft data window with photo and route, analog S-meter, message-rate and range diagrams.</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/UI-AIS-Marine.png" alt="Digidec AIS in the Marine theme with satellite map and vessel details" width="100%">
+  <br>
+  <em><b>AIS in the Marine theme:</b> vessels with course and track on the satellite map, vessel details, SDRplay receiver controls and live S-meter.</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/UI-FT8-RedNight.png" alt="Digidec FT8 in the Red night theme with night map and great-circle paths" width="100%">
+  <br>
+  <em><b>FT8 in the Red night theme:</b> red-only palette for dark rooms, band activity list, waterfall and a night map with great-circle paths to the heard stations.</em>
 </p>
 
 ---
 
 > [!WARNING]
 > ### ⚠️ Project Status: Early Alpha & Invitation to Test!
-> Digidec is currently in active **Alpha status (v0.97.6 Alpha)**. 
+> Digidec is currently in active **Alpha status (v0.105.0 Alpha)**. 
 > 
 > - **Many decoders and features have been mathematically verified against recordings and test vectors, but have not yet undergone extensive live on-air field testing.**
 > - Bugs, rough edges, and unexpected quirks may still occur. 
@@ -56,18 +78,6 @@ However, **proprietary AMBE/AMBE+2 voice synthesis** requires dedicated vocoder 
 ## Visual Showcase
 
 <table width="100%">
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/images/ADS-B.png" alt="ADS-B Aviation Tracking" width="100%"><br>
-      <b>1090 MHz ADS-B Radar</b><br>
-      <em>Direct I/Q decoding with directional polar range diagram, flight details, and realistic aircraft silhouettes.</em>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/images/AIS.png" alt="AIS Marine Vessel Tracking" width="100%"><br>
-      <b>Marine AIS Dual-Channel Tracker</b><br>
-      <em>Vessel tracking with speed/heading vectors, ship type silhouettes, search-and-rescue alerts, and vessel database info.</em>
-    </td>
-  </tr>
   <tr>
     <td width="50%" align="center">
       <img src="docs/images/DWD.png" alt="DWD Weather Teleprinter & Fax" width="100%"><br>

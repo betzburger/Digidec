@@ -2,7 +2,35 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.83.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.105.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+
+## Neues Aussehen: Tasten, vier Farbthemes, analoges S-Meter
+
+Digidec sieht jetzt aus wie ein Messgerät:
+
+- **Tasten wie am Messgerät** mit Lichtkante, Schatten und Eindruck-Effekt, in allen Modulen im festen Raster
+- **Analoges S-Meter** als hinterleuchtetes Retro-Instrument (S-Skala nach IARU), umschaltbar mit der Abstimmanzeige
+- **Vier Farbthemes**, live über das Palette-Symbol umschaltbar: *Nacht* (Vorgabe), *Bernstein*, *Rotnacht* (nur Rottöne, schont die Dunkeladaption) und *Marine*
+- **Karten in Tag- oder Nachtdarstellung** und eine gemeinsame Karte für den **MEHRKANAL**-Betrieb
+- Optionaler **KI-Assistent**: Rechtsklick auf ein Signal im HF-Wasserfall und fragen, was es sein könnte
+
+<p align="center">
+  <img src="docs/images/UI-ADS-B-Amber.png" alt="Digidec ADS-B im Theme Bernstein mit Tageskarte, Flugzeugdaten und analogem S-Meter" width="100%">
+  <br>
+  <em><b>ADS-B im Theme Bernstein:</b> Flugzeuge mit Wegen und Typ-Umrissen auf der Tageskarte, Flugzeugdaten-Fenster mit Foto und Strecke, analoges S-Meter.</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/UI-AIS-Marine.png" alt="Digidec AIS im Theme Marine mit Satellitenkarte und Schiffsdaten" width="100%">
+  <br>
+  <em><b>AIS im Theme Marine:</b> Schiffe mit Kurs und Weg auf der Satellitenkarte, Schiffsdaten, SDRplay-Empfängerbedienung und S-Meter.</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/UI-FT8-RedNight.png" alt="Digidec FT8 im Theme Rotnacht mit Nachtkarte und Großkreisen" width="100%">
+  <br>
+  <em><b>FT8 im Theme Rotnacht:</b> nur Rottöne für abgedunkelte Räume, Bandaktivität, Wasserfall und Nachtkarte mit Großkreisen zu den gehörten Stationen.</em>
+</p>
 
 ## Was Digidec kann
 
