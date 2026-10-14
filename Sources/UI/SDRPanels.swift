@@ -124,7 +124,7 @@ struct SDRWaterfallHost<Content: View>: View {
                 nf().overlay(alignment: .topTrailing) {
                     Button("HF") { settings.showRFWaterfall = true }
                         .buttonStyle(ModeButtonStyle(isSelected: false))
-                        .scaleEffect(0.85)
+                        .padding(6)
                         .help("HF-Wasserfall des SDR-Empfängers zeigen")
                 }
             }
@@ -293,17 +293,18 @@ struct SDRSpectrumView: View {
 
     private var controls: some View {
         HStack(spacing: 6) {
-            Button("NF") { settings.showRFWaterfall = false }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Zum NF-Wasserfall (Audio des Empfängers) wechseln")
-            Text("HF")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(RadioTheme.vfdCyan)
-
-            ForEach(SDRZoomFactor.allCases) { z in
-                Button(z.label) { setZoom(z) }
-                    .buttonStyle(ModeButtonStyle(isSelected: zoom == z))
-                    .help("HF-Zoom: \(z.label)" + (z == .x1 ? " (gesamtes I/Q-Fenster)" : " um die Abstimmfrequenz"))
+            ButtonGrid {
+                Button("NF") { settings.showRFWaterfall = false }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Zum NF-Wasserfall (Audio des Empfängers) wechseln")
+                Button("HF") {}
+                    .buttonStyle(ModeButtonStyle(isSelected: true))
+                    .help("HF-Wasserfall des SDR-Empfängers (angezeigt)")
+                ForEach(SDRZoomFactor.allCases) { z in
+                    Button(z.label) { setZoom(z) }
+                        .buttonStyle(ModeButtonStyle(isSelected: zoom == z))
+                        .help("HF-Zoom: \(z.label)" + (z == .x1 ? " (gesamtes I/Q-Fenster)" : " um die Abstimmfrequenz"))
+                }
             }
 
             Spacer(minLength: 8)
@@ -346,12 +347,14 @@ struct SDRSpectrumView: View {
                 .foregroundColor(RadioTheme.textDim)
             Button { model.value.rangeDB = min(90, model.value.rangeDB + 5) } label: { Image(systemName: "minus") }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
+                .fixedKey()
             Text("\(Int(model.value.rangeDB)) dB")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundColor(RadioTheme.vfdCyan)
                 .frame(width: 44)
             Button { model.value.rangeDB = max(20, model.value.rangeDB - 5) } label: { Image(systemName: "plus") }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
+                .fixedKey()
         }
     }
 
@@ -788,7 +791,7 @@ struct SDRControlView: View {
     private var frequencyRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Button("−") { controller.step(-1) }.buttonStyle(ModeButtonStyle(isSelected: false))
+                Button("−") { controller.step(-1) }.buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
                 TextField("MHz", text: $frequencyText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 20, weight: .bold, design: .monospaced))
@@ -800,7 +803,7 @@ struct SDRControlView: View {
                     .background(RadioTheme.bgDeep)
                     .cornerRadius(5)
                     .help("Frequenz in MHz eingeben und Return drücken; im HF-Wasserfall klicken oder das Mausrad drehen")
-                Button("+") { controller.step(1) }.buttonStyle(ModeButtonStyle(isSelected: false))
+                Button("+") { controller.step(1) }.buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
             }
             HStack(spacing: 6) {
                 label("SCHRITT")
@@ -818,7 +821,7 @@ struct SDRControlView: View {
     }
 
     private var modeRow: some View {
-        HStack(spacing: 4) {
+        ButtonGrid(columns: .fill(6)) {
             ForEach([SDRMode.wfm, .nfm, .am, .usb, .lsb, .cw]) { m in
                 Button(m.title) { settings.select(mode: m) }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.mode == m || (m == .cw && settings.mode == .cwr)))
@@ -840,14 +843,15 @@ struct SDRControlView: View {
     }
 
     private var bandwidthRow: some View {
-        HStack(spacing: 4) {
-            label("BREITE")
-            ForEach(settings.mode.bandwidthChoices, id: \.self) { b in
-                Button(Self.bwText(b)) { settings.bandwidthHz = b }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.bandwidthHz == b))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .scaleEffect(0.9)
+        HStack(spacing: RadioMetrics.keySpacing) {
+            label("BREITE").frame(width: 44, alignment: .leading)
+            ButtonGrid(columns: .fill(max(1, settings.mode.bandwidthChoices.count))) {
+                ForEach(settings.mode.bandwidthChoices, id: \.self) { b in
+                    Button(Self.bwText(b)) { settings.bandwidthHz = b }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.bandwidthHz == b))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
             }
         }
     }
@@ -895,7 +899,7 @@ struct SDRControlView: View {
             HStack(spacing: 6) {
                 Button("SQUELCH") { settings.squelchEnabled.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.squelchEnabled))
-                    .scaleEffect(0.9, anchor: .leading)
+                    .fixedKey(width: 96)
                     .help("Ton sperren, wenn die Kanalleistung unter der Schwelle liegt (nicht für digitale Verfahren einschalten, die Rauschen brauchen)")
                 Slider(value: $settings.squelchDB, in: -100...(-10))
                     .disabled(!settings.squelchEnabled)
@@ -907,7 +911,7 @@ struct SDRControlView: View {
             HStack(spacing: 6) {
                 Button("MITHÖREN") { settings.monitor.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.monitor))
-                    .scaleEffect(0.9, anchor: .leading)
+                    .fixedKey(width: 96)
                     .help("Das demodulierte Audio über den Standard-Ausgang des Macs hören")
                 Slider(value: $settings.volume, in: 0...1)
                     .disabled(!settings.monitor)
@@ -916,39 +920,32 @@ struct SDRControlView: View {
     }
 
     private var optionsRow: some View {
-        HStack(spacing: 4) {
+        ButtonGrid(columns: .fill(2)) {
             Button("FOLGT MODUL") { settings.followModules.toggle() }
                 .buttonStyle(ModeButtonStyle(isSelected: settings.followModules))
                 .lineLimit(1)
-                .scaleEffect(0.85, anchor: .leading)
                 .help("Das gewählte Modul (AIS, APRS, Funkruf, FT8 …) stellt Frequenz, Betriebsart und Breite ein, wenn es eine feste Frequenz hat")
-            Spacer(minLength: 0)
             if settings.mode == .wfm {
                 Button("STEREO") { settings.wfmStereo.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.wfmStereo))
-                    .scaleEffect(0.85)
                     .help("Stereo decodieren, sobald der 19-kHz-Pilot da ist; bei schwachem Empfang wird langsam auf Mono übergeblendet")
                 Button(settings.wfmDeemphasis75 ? "75 µs" : "50 µs") { settings.wfmDeemphasis75.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .scaleEffect(0.85)
                     .help("Zeitkonstante der De-Emphase: 50 µs in Europa, 75 µs in Amerika und Japan")
             }
             if settings.mode == .nfm || settings.mode == .wfm {
                 Button("DE-EMPH") { settings.deemphasis.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.deemphasis))
-                    .scaleEffect(0.85)
                     .help(settings.mode == .wfm ? "De-Emphase des Rundfunks (hell = an; Rundfunk braucht sie)" : "De-Emphase für Sprache (75 µs). Für Digitalverfahren aus.")
             }
             if settings.mode == .nfm {
                 Button("AFC") { settings.afc.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.afc))
-                    .scaleEffect(0.85)
                     .help("Gleichanteil des Demodulators nachführen (gleicht eine Frequenzablage des Senders aus)")
             }
             if settings.mode.isSSB {
                 Button("AGC") { settings.agc.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.agc))
-                    .scaleEffect(0.85)
                     .help("Automatische Verstärkungsregelung")
             }
         }
@@ -956,26 +953,25 @@ struct SDRControlView: View {
 
     private var deviceRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                label("GERÄT")
-                ForEach([ADSBSourceKind.hackrf, .rtlsdr, .sdrplay]) { k in
-                    Button(k.title) {
-                        if settings.source == k {
-                            controller.retry()
-                        } else {
-                            settings.source = k
+            HStack(spacing: RadioMetrics.keySpacing) {
+                label("GERÄT").frame(width: 44, alignment: .leading)
+                ButtonGrid(columns: .fill(4)) {
+                    ForEach([ADSBSourceKind.hackrf, .rtlsdr, .sdrplay]) { k in
+                        Button(k.title) {
+                            if settings.source == k {
+                                controller.retry()
+                            } else {
+                                settings.source = k
+                            }
                         }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
+                        .lineLimit(1)
+                        .help(k.detail)
                     }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
-                    .lineLimit(1)
-                    .scaleEffect(0.9)
-                    .help(k.detail)
+                    Button(showGain ? "▾ GAIN" : "▸ GAIN") { showGain.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: showGain))
+                        .help("Verstärkung und Zusatzfunktionen des Geräts")
                 }
-                Spacer(minLength: 0)
-                Button(showGain ? "▾ GAIN" : "▸ GAIN") { showGain.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: showGain))
-                    .scaleEffect(0.9, anchor: .trailing)
-                    .help("Verstärkung und Zusatzfunktionen des Geräts")
             }
             SDRWindowPicker(settings: settings)
             if settings.source == .sdrplay { SDRplayOverloadHint() }
@@ -988,11 +984,11 @@ struct SDRControlView: View {
         switch settings.source {
         case .hackrf:
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
+                ButtonGrid(columns: .fill(2)) {
                     Button("AMP 14 dB") { settings.hackrfAmp.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp)).scaleEffect(0.9, anchor: .leading)
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp))
                     Button("BIAS-T") { settings.hackrfBias.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfBias)).scaleEffect(0.9, anchor: .leading)
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfBias))
                 }
                 stepper("LNA", "\(settings.hackrfLNA) dB", minus: { settings.hackrfLNA = max(0, settings.hackrfLNA - 8) }, plus: { settings.hackrfLNA = min(40, settings.hackrfLNA + 8) })
                 stepper("VGA", "\(settings.hackrfVGA) dB", minus: { settings.hackrfVGA = max(0, settings.hackrfVGA - 2) }, plus: { settings.hackrfVGA = min(62, settings.hackrfVGA + 2) })
@@ -1002,24 +998,24 @@ struct SDRControlView: View {
                 stepper("GAIN", settings.rtlGain > 0 ? String(format: "%.1f dB", settings.rtlGain) : "AGC",
                         minus: { settings.rtlGain = settings.rtlGain <= 0 ? 0 : max(0, settings.rtlGain - 4) },
                         plus: { settings.rtlGain = min(49.6, settings.rtlGain + 4) })
-                HStack(spacing: 4) {
+                ButtonGrid(columns: .fill(2)) {
                     Button("BIAS-T") { settings.rtlBias.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.rtlBias)).scaleEffect(0.9, anchor: .leading)
-                    stepper("PPM", "\(settings.rtlPPM)", minus: { settings.rtlPPM -= 1 }, plus: { settings.rtlPPM += 1 })
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.rtlBias))
                 }
+                stepper("PPM", "\(settings.rtlPPM)", minus: { settings.rtlPPM -= 1 }, plus: { settings.rtlPPM += 1 })
             }
         default:
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    label("TUNER")
-                    Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
-                    Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
-                    Button("AGC") { settings.sdrplayAGC.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
-                    Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                HStack(spacing: RadioMetrics.keySpacing) {
+                    label("TUNER").frame(width: 44, alignment: .leading)
+                    ButtonGrid(columns: .fill(4)) {
+                        Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
+                        Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
+                        Button("AGC") { settings.sdrplayAGC.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                        Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                    }
                 }
-                .scaleEffect(0.9, anchor: .leading)
                 SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch)
-                    .scaleEffect(0.9, anchor: .leading)
                 HStack(spacing: 4) {
                     label("FILTER")
                     Menu {
@@ -1037,7 +1033,6 @@ struct SDRControlView: View {
                     .fixedSize()
                     .help("Analoger ZF-Filter des SDRplay vor dem Wandler (200 kHz bis 8 MHz). Automatisch: bei Raten ab 2 MS/s der größte, der nicht breiter ist als die Rate; darunter der kleinste, der die Rate noch durchlässt. Ein schmalerer Filter hält Nachbarsender fern, muss aber mindestens so breit sein wie das Signal. Bei Raten unter 2 MS/s dezimiert die API digital.")
                 }
-                .scaleEffect(0.9, anchor: .leading)
                 let maxLNA = SDRplayPlan.maxLNAState(frequencyHz: settings.frequencyHz)
                 stepper("LNA-DÄMPFUNG", "\(String(localized: "Stufe")) \(min(maxLNA, settings.sdrplayLNAState))",
                         minus: { settings.sdrplayLNAState = max(0, min(maxLNA, settings.sdrplayLNAState) - 1) },
@@ -1055,13 +1050,13 @@ struct SDRControlView: View {
 
     private func stepper(_ title: String, _ value: String, minus: @escaping () -> Void, plus: @escaping () -> Void, help: String = "") -> some View {
         HStack(spacing: 6) {
-            label(title)
-            Button("−", action: minus).buttonStyle(ModeButtonStyle(isSelected: false))
+            label(title).frame(width: 96, alignment: .leading).lineLimit(1).minimumScaleFactor(0.7)
+            Button("−", action: minus).buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
             Text(value)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundColor(RadioTheme.vfdCyan)
-                .frame(minWidth: 52)
-            Button("+", action: plus).buttonStyle(ModeButtonStyle(isSelected: false))
+                .frame(maxWidth: .infinity)
+            Button("+", action: plus).buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
         }
         .help(help)
     }

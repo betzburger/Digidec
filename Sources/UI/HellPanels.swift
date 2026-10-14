@@ -24,21 +24,23 @@ struct HellRasterPanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    save()
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
+                ButtonGrid {
+                    Button {
+                        save()
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .disabled(raster.image == nil)
+                    .help("Das Bild als PNG speichern")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Bild löschen")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .disabled(raster.image == nil)
-                .help("Das Bild als PNG speichern")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Bild löschen")
             }
             GeometryReader { geo in
                 ZStack(alignment: .bottomLeading) {
@@ -113,7 +115,7 @@ struct HellSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+            ButtonGrid(columns: .fill(4)) {
                 ForEach(HellMode.allCases) { m in
                     Button { settings.options.mode = m } label: { Text(verbatim: m.shortName).lineLimit(1).minimumScaleFactor(0.6) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.options.mode == m))
@@ -122,38 +124,46 @@ struct HellSettingsPanel: View {
             }
             HStack(spacing: 4) {
                 Text("HÖHE").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim).frame(width: 38, alignment: .leading)
-                ForEach([14, 20, 28, 36, 42], id: \.self) { h in
-                    Button("\(h)") { settings.options.columnHeight = h }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.columnHeight == h))
-                        .help("Spaltenlänge in Pixeln: die Schrifthöhe im Bild")
+                ButtonGrid(columns: .spread) {
+                    ForEach([14, 20, 28, 36, 42], id: \.self) { h in
+                        Button("\(h)") { settings.options.columnHeight = h }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.columnHeight == h))
+                            .help("Spaltenlänge in Pixeln: die Schrifthöhe im Bild")
+                    }
                 }
             }
             HStack(spacing: 4) {
                 Text("BREITE").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim).frame(width: 38, alignment: .leading)
-                ForEach(1...3, id: \.self) { w in
-                    Button("\(w)×") { settings.options.columnRepeat = w }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.columnRepeat == w))
-                        .help("Jede Spalte so oft zeichnen: breitere Schrift")
+                ButtonGrid {
+                    ForEach(1...3, id: \.self) { w in
+                        Button("\(w)×") { settings.options.columnRepeat = w }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.columnRepeat == w))
+                            .help("Jede Spalte so oft zeichnen: breitere Schrift")
+                    }
                 }
                 Text("AGC").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim).padding(.leading, 6)
-                ForEach([(1, "1"), (2, "2"), (3, "3")], id: \.0) { a in
-                    Button(a.1) { settings.options.agc = a.0 }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.agc == a.0))
-                        .help("Pegelnachführung: 1 langsam, 2 mittel, 3 schnell")
+                ButtonGrid {
+                    ForEach([(1, "1"), (2, "2"), (3, "3")], id: \.0) { a in
+                        Button(a.1) { settings.options.agc = a.0 }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.agc == a.0))
+                            .help("Pegelnachführung: 1 langsam, 2 mittel, 3 schnell")
+                    }
                 }
             }
             HStack(spacing: 6) {
-                if settings.options.mode.isFSK {
-                    Button("REV") { settings.options.reverse.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
-                        .help("FSK-Hell: Töne vertauschen (bei LSB)")
+                ButtonGrid {
+                    if settings.options.mode.isFSK {
+                        Button("REV") { settings.options.reverse.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
+                            .help("FSK-Hell: Töne vertauschen (bei LSB)")
+                    }
+                    Button("TAFEL") { settings.options.blackboard.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.blackboard))
+                        .help("Umkehrdarstellung: weiße Schrift auf Schwarz")
+                    Button("SQL") { settings.options.squelchOn.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
+                        .help("Spalten nur bei ausreichender Signalstärke schreiben")
                 }
-                Button("TAFEL") { settings.options.blackboard.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.blackboard))
-                    .help("Umkehrdarstellung: weiße Schrift auf Schwarz")
-                Button("SQL") { settings.options.squelchOn.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
-                    .help("Spalten nur bei ausreichender Signalstärke schreiben")
                 Slider(value: $settings.options.squelch, in: 0...100)
                     .disabled(!settings.options.squelchOn)
             }

@@ -42,16 +42,25 @@ public struct RadioBox<Content: View>: View {
 
 public struct RadioCardModifier: ViewModifier {
     public var title: String? = nil
+    /// Bedienelement rechts neben dem Titel (z. B. Umschalter)
+    public var accessory: AnyView? = nil
 
     public func body(content: Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let title = title {
-                Text(LocalizedStringKey(title))
-                    .textCase(.uppercase)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(RadioTheme.textDim)
-                    .tracking(1.2)
-                    .padding(.horizontal, 4)
+                HStack(spacing: 8) {
+                    Text(LocalizedStringKey(title))
+                        .textCase(.uppercase)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(RadioTheme.textDim)
+                        .tracking(1.2)
+                        .lineLimit(1)
+                    if let accessory {
+                        Spacer(minLength: 0)
+                        accessory
+                    }
+                }
+                .padding(.horizontal, 4)
             }
             content
                 .padding(10)
@@ -66,29 +75,7 @@ public struct RadioCardModifier: ViewModifier {
 }
 
 public extension View {
-    func radioCard(title: String? = nil) -> some View {
-        modifier(RadioCardModifier(title: title))
-    }
-}
-
-public struct ModeButtonStyle: ButtonStyle {
-    public var isSelected: Bool
-
-    public func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
-            .background(
-                isSelected ? RadioTheme.vfdCyan.opacity(0.2) : RadioTheme.bgPanel
-            )
-            .foregroundColor(isSelected ? RadioTheme.vfdCyan : RadioTheme.textMuted)
-            .cornerRadius(5)
-            .overlay(
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(isSelected ? RadioTheme.vfdCyan : RadioTheme.borderSubtle, lineWidth: isSelected ? 1.5 : 1)
-            )
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .shadow(color: isSelected ? RadioTheme.vfdCyan.opacity(0.3) : .clear, radius: 4)
+    func radioCard(title: String? = nil, accessory: AnyView? = nil) -> some View {
+        modifier(RadioCardModifier(title: title, accessory: accessory))
     }
 }

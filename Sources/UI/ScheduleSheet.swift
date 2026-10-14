@@ -95,18 +95,20 @@ private struct PlanHeader: View {
                     .font(.system(size: 14, weight: .black, design: .monospaced))
                     .foregroundColor(RadioTheme.textBright)
                 Spacer()
-                if let onUpdate {
-                    Button(action: onUpdate) {
-                        HStack(spacing: 5) {
-                            if isUpdating { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") }
-                            Text("AKTUALISIEREN")
+                ButtonGrid {
+                    if let onUpdate {
+                        Button(action: onUpdate) {
+                            HStack(spacing: 5) {
+                                if isUpdating { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") }
+                                Text("AKTUALISIEREN")
+                            }
                         }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .disabled(isUpdating)
+                        .help(updateHelp)
                     }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .disabled(isUpdating)
-                    .help(updateHelp)
+                    Button("SCHLIESSEN", action: onClose).buttonStyle(ModeButtonStyle(isSelected: false))
                 }
-                Button("SCHLIESSEN", action: onClose).buttonStyle(ModeButtonStyle(isSelected: false))
             }
             ForEach(lines, id: \.self) { l in
                 Text(l)
@@ -201,8 +203,10 @@ private struct AutoFooter: View {
                 Text("\(selectedCount) gewählt")
                     .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                if let onAll { Button("ALLE", action: onAll).buttonStyle(ModeButtonStyle(isSelected: false)) }
-                if let onNone { Button("KEINE", action: onNone).buttonStyle(ModeButtonStyle(isSelected: false)) }
+                ButtonGrid {
+                    if let onAll { Button("ALLE", action: onAll).buttonStyle(ModeButtonStyle(isSelected: false)) }
+                    if let onNone { Button("KEINE", action: onNone).buttonStyle(ModeButtonStyle(isSelected: false)) }
+                }
             }
             HStack(spacing: 14) {
                 if let extra { extra }

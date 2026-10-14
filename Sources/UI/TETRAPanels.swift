@@ -41,17 +41,19 @@ struct TETRAMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Rufe, Sprecher, Kurznachrichten und Netzdaten in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Log-Datei im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Listen leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Rufe, Sprecher, Kurznachrichten und Netzdaten in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button { NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Log-Datei im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Listen leeren")
             }
             Group {
                 switch tab {
@@ -631,7 +633,7 @@ struct TETRASettingsPanel: View {
                     .onSubmit { commit() }
             }
             .help("Weitere Träger des Netzes (Verkehrskanäle), durch Leerzeichen getrennt. Nicht nötig, wenn „Träger automatisch zuschalten“ an ist.")
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("TRÄGER AUTOMATISCH") { settings.autoFollow.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.autoFollow))
                     .help("Träger zuschalten, auf die eine Kanalzuweisung verweist (innerhalb des Empfangsfensters von rund 1,7 MHz)")
@@ -655,7 +657,7 @@ struct TETRASettingsPanel: View {
                 .frame(height: 54)
                 .cornerRadius(4)
                 .help("Je Zeile eine Kennung und ihr Name, etwa „100601=Werkschutz“")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {
+            ButtonGrid(columns: .fill(5)) {
                 ForEach(ADSBSourceKind.allCases) { k in
                     Button { settings.source = k } label: { Text(LocalizedStringKey(k.title)).lineLimit(1).minimumScaleFactor(0.5) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
@@ -701,7 +703,7 @@ struct TETRASettingsPanel: View {
         switch settings.source {
         case .hackrf:
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
+                ButtonGrid(columns: .spread) {
                     Button("AMP 14 dB") { settings.hackrfAmp.toggle() }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp))
                         .help("Eingebauter Vorverstärker (14 dB)")
@@ -733,12 +735,14 @@ struct TETRASettingsPanel: View {
                     Text("TUNER")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                    Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
-                    Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
-                    Button("AGC") { settings.sdrplayAGC.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
-                        .help("Automatische Verstärkungsregelung (ZF)")
-                    Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                    ButtonGrid(columns: .spread) {
+                        Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
+                        Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
+                        Button("AGC") { settings.sdrplayAGC.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                            .help("Automatische Verstärkungsregelung (ZF)")
+                        Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                    }
                 }
                 SDRplayOverloadHint()
                 SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch)

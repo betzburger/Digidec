@@ -19,38 +19,41 @@ struct CWReceivePanel: View {
             HStack(spacing: 6) {
                 ActivityLED(lastChar: controller.lastCharacterDate)
                 Text("\(textModel.characterCount) Zeichen")
+                    .lineLimit(1).fixedSize()
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(controller.textModel.text, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Gesamten Empfangstext kopieren")
+                    Button {
+                        controller.clearText()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Anzeige leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(controller.textModel.text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Gesamten Empfangstext kopieren")
-                Button {
-                    controller.clearText()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Anzeige leeren (Log bleibt)")
             }
             ReceiveTextView(model: controller.textModel)
                 .background(RadioTheme.bgDeep)
@@ -163,16 +166,18 @@ struct CWSettingsPanel: View {
             }
             HStack(spacing: 6) {
                 label("FILTER")
-                ForEach(CWSettingsStore.bandwidths, id: \.self) { bw in
-                    Button("\(bw)") {
-                        settings.options.bandwidthHz = bw
-                        settings.options.matchedFilter = false
+                ButtonGrid(columns: .spread) {
+                    ForEach(CWSettingsStore.bandwidths, id: \.self) { bw in
+                        Button("\(bw)") {
+                            settings.options.bandwidthHz = bw
+                            settings.options.matchedFilter = false
+                        }
+                        .buttonStyle(ModeButtonStyle(isSelected: !settings.options.matchedFilter && settings.options.bandwidthHz == bw))
                     }
-                    .buttonStyle(ModeButtonStyle(isSelected: !settings.options.matchedFilter && settings.options.bandwidthHz == bw))
+                    Button("MF") { settings.options.matchedFilter.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.matchedFilter))
+                        .help("Matched Filter: Bandbreite = 2 × WpM (fldigi)")
                 }
-                Button("MF") { settings.options.matchedFilter.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.matchedFilter))
-                    .help("Matched Filter: Bandbreite = 2 × WpM (fldigi)")
             }
             HStack(spacing: 6) {
                 label("ATTACK").frame(width: 46, alignment: .leading)
@@ -206,7 +211,7 @@ struct CWSettingsPanel: View {
     }
 
     private func picker3(_ key: WritableKeyPath<FldigiCWCore.Options, Int>) -> some View {
-        HStack(spacing: 3) {
+        ButtonGrid(columns: .spread) {
             ForEach(Array(["LANGSAM", "MITTEL", "SCHNELL"].enumerated()), id: \.offset) { i, s in
                 Button(s) { settings.options[keyPath: key] = i }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.options[keyPath: key] == i))

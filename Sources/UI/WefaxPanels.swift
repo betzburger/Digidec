@@ -29,36 +29,38 @@ struct WefaxImagePanel: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                Button {
-                    openSchedule()
-                } label: {
-                    Label("SENDEPLAN", systemImage: auto.session != nil ? "record.circle.fill" : "calendar")
+                ButtonGrid {
+                    Button {
+                        openSchedule()
+                    } label: {
+                        Label("SENDEPLAN", systemImage: auto.session != nil ? "record.circle.fill" : "calendar")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: schedule.autoEnabled && !schedule.selected.isEmpty))
+                    .foregroundColor(auto.session != nil ? RadioTheme.ledRed : nil)
+                    .help("DWD-Sendeplan ansehen, aktualisieren und Sendungen zur automatischen Aufnahme wählen")
+                    Button {
+                        controller.autoSave.toggle()
+                    } label: {
+                        Label("AUTO", systemImage: controller.autoSave ? "square.and.arrow.down.fill" : "square.and.arrow.down")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.autoSave))
+                    .help("Fertige Bilder automatisch als PNG ablegen: \(controller.directory.path)")
+                    Button {
+                        controller.saveNow()
+                    } label: {
+                        Image(systemName: "camera")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Aktuelles Bild jetzt speichern (Empfang läuft weiter)")
+                    Button {
+                        try? FileManager.default.createDirectory(at: controller.directory, withIntermediateDirectories: true)
+                        NSWorkspace.shared.open(controller.directory)
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Bildordner im Finder öffnen")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: schedule.autoEnabled && !schedule.selected.isEmpty))
-                .foregroundColor(auto.session != nil ? RadioTheme.ledRed : nil)
-                .help("DWD-Sendeplan ansehen, aktualisieren und Sendungen zur automatischen Aufnahme wählen")
-                Button {
-                    controller.autoSave.toggle()
-                } label: {
-                    Label("AUTO", systemImage: controller.autoSave ? "square.and.arrow.down.fill" : "square.and.arrow.down")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.autoSave))
-                .help("Fertige Bilder automatisch als PNG ablegen: \(controller.directory.path)")
-                Button {
-                    controller.saveNow()
-                } label: {
-                    Image(systemName: "camera")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Aktuelles Bild jetzt speichern (Empfang läuft weiter)")
-                Button {
-                    try? FileManager.default.createDirectory(at: controller.directory, withIntermediateDirectories: true)
-                    NSWorkspace.shared.open(controller.directory)
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Bildordner im Finder öffnen")
             }
             GeometryReader { geo in
                 ScrollViewReader { proxy in
@@ -127,12 +129,14 @@ struct WefaxTuningPanel: View {
                     .foregroundColor(RadioTheme.ledYellow)
             }
             HStack(spacing: 6) {
-                Button { controller.skipAPT() } label: { Label("APT", systemImage: "forward.end.fill") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("APT überspringen: nicht auf den Startton warten, gleich Phasing suchen (fldigi: Skip APT)")
-                Button { controller.skipPhasing() } label: { Label("PHASING", systemImage: "forward.end.fill") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Phasing überspringen: sofort Bildzeilen schreiben (fldigi: Skip phasing)")
+                ButtonGrid {
+                    Button { controller.skipAPT() } label: { Label("APT", systemImage: "forward.end.fill") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("APT überspringen: nicht auf den Startton warten, gleich Phasing suchen (fldigi: Skip APT)")
+                    Button { controller.skipPhasing() } label: { Label("PHASING", systemImage: "forward.end.fill") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Phasing überspringen: sofort Bildzeilen schreiben (fldigi: Skip phasing)")
+                }
                 Spacer()
                 Button { controller.abort() } label: { Image(systemName: "xmark") }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
@@ -179,10 +183,12 @@ struct WefaxSettingsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
-                Button("EINSTELLUNGEN") { showGallery = false }
-                    .buttonStyle(ModeButtonStyle(isSelected: !showGallery))
-                Button("BILDER (\(controller.gallery.count))") { showGallery = true }
-                    .buttonStyle(ModeButtonStyle(isSelected: showGallery))
+                ButtonGrid(columns: .spread) {
+                    Button("EINSTELLUNGEN") { showGallery = false }
+                        .buttonStyle(ModeButtonStyle(isSelected: !showGallery))
+                    Button("BILDER (\(controller.gallery.count))") { showGallery = true }
+                        .buttonStyle(ModeButtonStyle(isSelected: showGallery))
+                }
                 Spacer()
             }
             if showGallery {
@@ -222,45 +228,55 @@ struct WefaxSettingsPanel: View {
             }
             HStack(spacing: 6) {
                 label("LPM").frame(width: 40, alignment: .leading)
-                ForEach(FldigiWefaxCore.lpmValues, id: \.self) { v in
-                    Button("\(v)") { settings.options.lpm = v }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.lpm == v))
+                ButtonGrid(columns: .spread) {
+                    ForEach(FldigiWefaxCore.lpmValues, id: \.self) { v in
+                        Button("\(v)") { settings.options.lpm = v }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.lpm == v))
+                    }
                 }
                 Spacer()
             }
             .help("Zeilen je Minute (DWD: 120)")
             HStack(spacing: 6) {
                 label("IOC").frame(width: 40, alignment: .leading)
-                ForEach([576, 288], id: \.self) { v in
-                    Button("\(v)") { settings.options.ioc = v }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.ioc == v))
+                ButtonGrid {
+                    ForEach([576, 288], id: \.self) { v in
+                        Button("\(v)") { settings.options.ioc = v }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.ioc == v))
+                    }
                 }
                 Spacer()
                 label("HUB")
-                ForEach([800, 850], id: \.self) { v in
-                    Button("\(v)") { settings.options.shiftHz = v }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.shiftHz == v))
+                ButtonGrid {
+                    ForEach([800, 850], id: \.self) { v in
+                        Button("\(v)") { settings.options.shiftHz = v }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.shiftHz == v))
+                    }
                 }
             }
             HStack(spacing: 6) {
                 label("FILTER").frame(width: 40, alignment: .leading)
-                ForEach(Array(["SCHMAL", "MITTEL", "BREIT"].enumerated()), id: \.offset) { i, s in
-                    Button(s) { settings.options.filter = i }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.filter == i))
-                        .help("ACfax-Tiefpass aus fldigi")
+                ButtonGrid(columns: .spread) {
+                    ForEach(Array(["SCHMAL", "MITTEL", "BREIT"].enumerated()), id: \.offset) { i, s in
+                        Button(s) { settings.options.filter = i }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.filter == i))
+                            .help("ACfax-Tiefpass aus fldigi")
+                    }
                 }
                 Spacer()
             }
             HStack(spacing: 6) {
-                Button("AFC") { settings.options.afc.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
-                    .help("Mitte automatisch nachführen (fldigi, höchstens ±25 Hz)")
-                Button("ZENTR.") { settings.options.autoCenter.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.autoCenter))
-                    .help("Bild horizontal am Rand ausrichten (fldigi Auto-Center, Zeilen 30–500)")
-                Button("ENTST.") { settings.options.noiseRemoval.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.noiseRemoval))
-                    .help("Einzelne Störpixel entfernen (fldigi Noise removal)")
+                ButtonGrid(columns: .spread) {
+                    Button("AFC") { settings.options.afc.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
+                        .help("Mitte automatisch nachführen (fldigi, höchstens ±25 Hz)")
+                    Button("ZENTR.") { settings.options.autoCenter.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.autoCenter))
+                        .help("Bild horizontal am Rand ausrichten (fldigi Auto-Center, Zeilen 30–500)")
+                    Button("ENTST.") { settings.options.noiseRemoval.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.noiseRemoval))
+                        .help("Einzelne Störpixel entfernen (fldigi Noise removal)")
+                }
                 Spacer()
             }
             HStack(spacing: 6) {
@@ -278,7 +294,7 @@ struct WefaxSettingsPanel: View {
 
     private var stationGrid: some View {
         let count = settings.stations.count + 1
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+        return ButtonGrid(columns: .fill(min(count, 5))) {
             ForEach(settings.stations) { s in
                 Button {
                     settings.selectStation(id: s.id)
@@ -445,21 +461,23 @@ struct WefaxGallery: View {
                                     .foregroundColor(RadioTheme.textDim)
                             }
                             Spacer()
-                            Button {
-                                editing = img
-                            } label: {
-                                Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right")
-                            }
-                            .buttonStyle(ModeButtonStyle(isSelected: false))
-                            .help("Bild verschieben – wenn der linke Rand mitten in der Karte beginnt")
-                            if let url = img.fileURL {
+                            ButtonGrid {
                                 Button {
-                                    NSWorkspace.shared.open(url)
+                                    editing = img
                                 } label: {
-                                    Image(systemName: "arrow.up.forward.square")
+                                    Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right")
                                 }
                                 .buttonStyle(ModeButtonStyle(isSelected: false))
-                                .help("In Vorschau öffnen: \(url.lastPathComponent)")
+                                .help("Bild verschieben – wenn der linke Rand mitten in der Karte beginnt")
+                                if let url = img.fileURL {
+                                    Button {
+                                        NSWorkspace.shared.open(url)
+                                    } label: {
+                                        Image(systemName: "arrow.up.forward.square")
+                                    }
+                                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                                    .help("In Vorschau öffnen: \(url.lastPathComponent)")
+                                }
                             }
                         }
                     }

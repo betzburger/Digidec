@@ -186,7 +186,7 @@ struct RTTYSettingsSheet: View {
 
     private func segmented<T: Hashable>(_ values: [T], selected: T, label: @escaping (T) -> String,
                                         action: @escaping (T) -> Void) -> some View {
-        HStack(spacing: 4) {
+        ButtonGrid(columns: .spread) {
             ForEach(values, id: \.self) { v in
                 Button(label(v)) { action(v) }
                     .buttonStyle(ModeButtonStyle(isSelected: v == selected))

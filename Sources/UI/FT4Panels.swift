@@ -16,33 +16,35 @@ struct FT4ActivityPanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button("NUR CQ") { settings.cqOnly.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.cqOnly))
-                    .help("Nur CQ-Rufe (und Meldungen an das eigene Rufzeichen) zeigen")
-                Button("?") { settings.showUncertain.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.showUncertain))
-                    .help("Unsichere Decodes zeigen (wenig übereinstimmende Bits oder unplausible Rufzeichen; wie WSJT-X „?“)")
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button("NUR CQ") { settings.cqOnly.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.cqOnly))
+                        .help("Nur CQ-Rufe (und Meldungen an das eigene Rufzeichen) zeigen")
+                    Button("?") { settings.showUncertain.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.showUncertain))
+                        .help("Unsichere Decodes zeigen (wenig übereinstimmende Bits oder unplausible Rufzeichen; wie WSJT-X „?“)")
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Decodes im WSJT-X-Format (ALL.TXT) in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Decodes im WSJT-X-Format (ALL.TXT) in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             FT4Table(entries: controller.visible)
                 .background(RadioTheme.bgDeep)
@@ -209,7 +211,7 @@ struct FT4SettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 4) {
+            ButtonGrid(columns: .fill(6)) {
                 ForEach(FT4Band.available(for: settings.mode)) { b in
                     Button(b.rawValue) { settings.band = b }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.band == b))

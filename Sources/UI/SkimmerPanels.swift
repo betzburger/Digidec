@@ -32,27 +32,29 @@ struct SkimmerMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Spots in Tagesdatei schreiben (Frequenz, Rufzeichen, Geschwindigkeit, Rauschabstand): \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Listen leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Spots in Tagesdatei schreiben (Frequenz, Rufzeichen, Geschwindigkeit, Rauschabstand): \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Listen leeren (Log bleibt)")
             }
             switch tab {
             case .stations:
@@ -320,7 +322,7 @@ struct SkimmerSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
+            ButtonGrid(columns: .spread) {
                 ForEach(SkimMode.allCases) { m in
                     Button(m.name) { settings.mode = m }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.mode == m))
@@ -331,7 +333,7 @@ struct SkimmerSettingsPanel: View {
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
             if settings.mode == .cw {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+                ButtonGrid(columns: .fill(4)) {
                     ForEach(SkimBand.allCases) { b in
                         Button { settings.cwBand = b } label: { Text(verbatim: b == .free ? "frei" : b.rawValue.replacingOccurrences(of: "m", with: " m")).lineLimit(1).minimumScaleFactor(0.7) }
                             .buttonStyle(ModeButtonStyle(isSelected: settings.cwBand == b))
@@ -339,7 +341,7 @@ struct SkimmerSettingsPanel: View {
                     }
                 }
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+                ButtonGrid(columns: .fill(4)) {
                     ForEach(PSKBand.allCases) { b in
                         Button { settings.pskBand = b } label: { Text(verbatim: b == .free ? "frei" : b.rawValue.replacingOccurrences(of: "m", with: " m")).lineLimit(1).minimumScaleFactor(0.7) }
                             .buttonStyle(ModeButtonStyle(isSelected: settings.pskBand == b))

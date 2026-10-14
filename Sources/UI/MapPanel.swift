@@ -245,18 +245,20 @@ struct MapPanel: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
-                Button("ALLE") { fit(force: true) }
+                ButtonGrid {
+                    Button("ALLE") { fit(force: true) }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Alle Punkte und den Standort ins Bild holen")
+                    Button {
+                        locatorText = home.locator
+                        showHomeEditor.toggle()
+                    } label: {
+                        Label("QTH", systemImage: "house")
+                    }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Alle Punkte und den Standort ins Bild holen")
-                Button {
-                    locatorText = home.locator
-                    showHomeEditor.toggle()
-                } label: {
-                    Label("QTH", systemImage: "house")
+                    .help("Eigener Standort (Maidenhead-Locator), gilt für alle Module")
+                    .popover(isPresented: $showHomeEditor) { homeEditor }
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Eigener Standort (Maidenhead-Locator), gilt für alle Module")
-                .popover(isPresented: $showHomeEditor) { homeEditor }
                 Picker("", selection: $appearanceRaw) {
                     ForEach(MapAppearance.allCases) { Text(LocalizedStringKey($0.title)).tag($0.rawValue) }
                 }
@@ -264,22 +266,24 @@ struct MapPanel: View {
                 .labelsHidden()
                 .frame(width: 170)
                 .help("Kartendarstellung")
-                if content.markers.contains(where: { $0.track.count > 1 }) {
-                    Button {
-                        showTracks.toggle()
-                    } label: {
-                        Label("SPUR", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                ButtonGrid {
+                    if content.markers.contains(where: { $0.track.count > 1 }) {
+                        Button {
+                            showTracks.toggle()
+                        } label: {
+                            Label("SPUR", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        }
+                        .buttonStyle(ModeButtonStyle(isSelected: showTracks))
+                        .help("Weg der bewegten Stationen als Linie zeichnen; ein Klick auf einen Punkt zeigt seinen ganzen Weg")
                     }
-                    .buttonStyle(ModeButtonStyle(isSelected: showTracks))
-                    .help("Weg der bewegten Stationen als Linie zeichnen; ein Klick auf einen Punkt zeigt seinen ganzen Weg")
+                    Button {
+                        saveImage()
+                    } label: {
+                        Label("BILD", systemImage: "camera")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Den sichtbaren Kartenausschnitt mit Punkten, Isobaren und Flächen als PNG speichern (~/Documents/Digidec/Maps)")
                 }
-                Button {
-                    saveImage()
-                } label: {
-                    Label("BILD", systemImage: "camera")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Den sichtbaren Kartenausschnitt mit Punkten, Isobaren und Flächen als PNG speichern (~/Documents/Digidec/Maps)")
                 Text(content.markers.count == 1 ? String(localized: "1 Punkt") : String(format: String(localized: "%lld Punkte"), content.markers.count))
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)

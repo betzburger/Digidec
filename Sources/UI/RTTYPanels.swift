@@ -22,73 +22,76 @@ struct ReceivePanel: View {
             HStack(spacing: 6) {
                 ActivityLED(lastChar: controller.lastCharacterDate)
                 Text("\(textModel.characterCount) Zeichen")
+                    .lineLimit(1).fixedSize()
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.toggleRecording()
-                } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button {
+                        controller.toggleRecording()
+                    } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (mit Begleitdatei der Einstellungen) – für den Vergleich mit fldigi. "
+                          + "Ordner: ~/Documents/Digidec/Recordings")
+                    Button {
+                        settings.options.synopDecoding.toggle()
+                    } label: {
+                        Text("SYNOP")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.synopDecoding))
+                    .help("Wettermeldungen (SYNOP/SHIP/BUOY) erkennen und als Klartext in Amber darunter anzeigen (fldigi-Decoder)")
+                    Button {
+                        showFilter.toggle()
+                    } label: {
+                        Label("FILTER", systemImage: "line.3.horizontal.decrease")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.textFilter.enabled))
+                    .help("Textfilter für Anzeige und Log: nur zwischen Start- und Stopptext ausgeben, RYRY-Füllzeichen weglassen. "
+                          + "Aktuell: \(controller.textFilter.summary). Karten und SYNOP-Auswertung sehen weiter den ganzen Text.")
+                    .popover(isPresented: $showFilter) { filterEditor }
+                    Button {
+                        controller.csvEnabled.toggle()
+                    } label: {
+                        Text("CSV")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.csvEnabled))
+                    .help("Jede vollständig decodierte Wettermeldung als Zeile in eine Tabelle (CSV) schreiben: \(controller.csvWriter.fileURL().path)")
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+                            ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme bzw. Log-Datei im Finder zeigen")
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(controller.textModel.text, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Gesamten Empfangstext kopieren")
+                    Button {
+                        controller.clearText()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Anzeige leeren (das Log bleibt erhalten)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (mit Begleitdatei der Einstellungen) – für den Vergleich mit fldigi. "
-                      + "Ordner: ~/Documents/Digidec/Recordings")
-                Button {
-                    settings.options.synopDecoding.toggle()
-                } label: {
-                    Text("SYNOP")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: settings.options.synopDecoding))
-                .help("Wettermeldungen (SYNOP/SHIP/BUOY) erkennen und als Klartext in Amber darunter anzeigen (fldigi-Decoder)")
-                Button {
-                    showFilter.toggle()
-                } label: {
-                    Label("FILTER", systemImage: "line.3.horizontal.decrease")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.textFilter.enabled))
-                .help("Textfilter für Anzeige und Log: nur zwischen Start- und Stopptext ausgeben, RYRY-Füllzeichen weglassen. "
-                      + "Aktuell: \(controller.textFilter.summary). Karten und SYNOP-Auswertung sehen weiter den ganzen Text.")
-                .popover(isPresented: $showFilter) { filterEditor }
-                Button {
-                    controller.csvEnabled.toggle()
-                } label: {
-                    Text("CSV")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.csvEnabled))
-                .help("Jede vollständig decodierte Wettermeldung als Zeile in eine Tabelle (CSV) schreiben: \(controller.csvWriter.fileURL().path)")
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-                        ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme bzw. Log-Datei im Finder zeigen")
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(controller.textModel.text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Gesamten Empfangstext kopieren")
-                Button {
-                    controller.clearText()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Anzeige leeren (das Log bleibt erhalten)")
             }
             ReceiveTextView(model: controller.textModel)
                 .background(RadioTheme.bgDeep)
@@ -290,7 +293,7 @@ struct RTTYQuickControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .fill(5)) {
                 Button("REV") { settings.toggleReverse() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.isReversed))
                     .help("Mark und Space vertauschen (Reverse)")
@@ -306,7 +309,6 @@ struct RTTYQuickControls: View {
                     .buttonStyle(ModeButtonStyle(isSelected: settings.sidebandMode != .auto))
                     .help("Seitenband für die Kehrlage-Korrektur: AUTO (vom Funkgerät per rigctld) → USB → LSB. "
                           + "REV bezieht sich immer auf USB – bei LSB dreht Digidec automatisch um (wie fldigi).")
-                Spacer()
                 Button {
                     showSettings = true
                 } label: {

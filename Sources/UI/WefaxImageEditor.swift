@@ -60,31 +60,35 @@ struct WefaxImageEditor: View {
             }
 
             HStack(spacing: 6) {
-                ForEach([-100, -10, -1], id: \.self) { d in
-                    Button(String(format: "%+d", d)) { nudge(d) }.buttonStyle(ModeButtonStyle(isSelected: false))
-                }
-                ForEach([1, 10, 100], id: \.self) { d in
-                    Button(String(format: "%+d", d)) { nudge(d) }.buttonStyle(ModeButtonStyle(isSelected: false))
-                }
-                Button {
-                    let dx = WefaxImageTools.autoShift(image.pixels, width: image.width, height: image.height)
-                    shift = dx
-                    autoNote = dx == 0 ? "Kein heller Randstreifen gefunden – von Hand verschieben" : "Heller Randstreifen an den Bildrand gelegt"
-                } label: {
-                    Label("AUTO", systemImage: "wand.and.stars")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Sucht den weißen Randstreifen der Wetterkarte und legt ihn an den Bildrand")
-                Button("ZURÜCK") { shift = 0; autoNote = nil }.buttonStyle(ModeButtonStyle(isSelected: false))
-                Spacer()
-                Button("NEU SPEICHERN") { save(replace: false) }
-                    .buttonStyle(ModeButtonStyle(isSelected: shift != 0))
-                    .disabled(shift == 0)
-                    .help("Als neue Datei „…_korr.png“ neben dem Original ablegen")
-                Button("ORIGINAL ERSETZEN") { save(replace: true) }
+                ButtonGrid {
+                    ForEach([-100, -10, -1], id: \.self) { d in
+                        Button(String(format: "%+d", d)) { nudge(d) }.buttonStyle(ModeButtonStyle(isSelected: false))
+                    }
+                    ForEach([1, 10, 100], id: \.self) { d in
+                        Button(String(format: "%+d", d)) { nudge(d) }.buttonStyle(ModeButtonStyle(isSelected: false))
+                    }
+                    Button {
+                        let dx = WefaxImageTools.autoShift(image.pixels, width: image.width, height: image.height)
+                        shift = dx
+                        autoNote = dx == 0 ? "Kein heller Randstreifen gefunden – von Hand verschieben" : "Heller Randstreifen an den Bildrand gelegt"
+                    } label: {
+                        Label("AUTO", systemImage: "wand.and.stars")
+                    }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .disabled(shift == 0)
-                    .help("Datei ersetzen; das Original bleibt einmalig als „…_original.png“ erhalten")
+                    .help("Sucht den weißen Randstreifen der Wetterkarte und legt ihn an den Bildrand")
+                    Button("ZURÜCK") { shift = 0; autoNote = nil }.buttonStyle(ModeButtonStyle(isSelected: false))
+                }
+                Spacer()
+                ButtonGrid {
+                    Button("NEU SPEICHERN") { save(replace: false) }
+                        .buttonStyle(ModeButtonStyle(isSelected: shift != 0))
+                        .disabled(shift == 0)
+                        .help("Als neue Datei „…_korr.png“ neben dem Original ablegen")
+                    Button("ORIGINAL ERSETZEN") { save(replace: true) }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .disabled(shift == 0)
+                        .help("Datei ersetzen; das Original bleibt einmalig als „…_original.png“ erhalten")
+                }
             }
 
             if let note = autoNote ?? message {

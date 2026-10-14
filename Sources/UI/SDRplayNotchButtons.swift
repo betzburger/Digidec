@@ -11,16 +11,19 @@ struct SDRplayNotchButtons: View {
     var hint: String? = nil
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: RadioMetrics.keySpacing) {
             Text(LocalizedStringKey("NOTCH"))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
-            Button("RF") { rf.toggle() }
-                .buttonStyle(ModeButtonStyle(isSelected: rf))
-                .help("RF-Notch des SDRplay: schaltet das Notch-Filter gegen Rundfunk ein (am RSPduo gemessen: UKW-Rundfunk um etwa 20 dB gedämpft). Hilft, wenn starke Rundfunksender in der Nähe den Eingang übersteuern. Gibt es beim RSP1A/1B, RSP2, RSPduo (Tuner A) und RSPdx; der RSP1 hat keinen.")
-            Button("DAB") { dab.toggle() }
-                .buttonStyle(ModeButtonStyle(isSelected: dab))
-                .help("DAB-Notch des SDRplay: schaltet das Notch-Filter für Band III (174 … 240 MHz) ein. Am RSPduo gemessen dämpft es 222 MHz um etwa 14 dB, auch Frequenzen darunter. Das ist keine Sperre: bei einem starken DAB-Sender in der Nähe, der den Eingang übersteuert, kann es den Empfang erst möglich machen. Gibt es beim RSP1A/1B, RSPduo (Tuner A) und RSPdx." + (hint.map { "\n" + $0 } ?? ""))
+                .frame(width: 44, alignment: .leading)
+            ButtonGrid(columns: .fill(4)) {
+                Button("RF") { rf.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: rf))
+                    .help("RF-Notch des SDRplay: schaltet das Notch-Filter gegen Rundfunk ein (am RSPduo gemessen: UKW-Rundfunk um etwa 20 dB gedämpft). Hilft, wenn starke Rundfunksender in der Nähe den Eingang übersteuern. Gibt es beim RSP1A/1B, RSP2, RSPduo (Tuner A) und RSPdx; der RSP1 hat keinen.")
+                Button("DAB") { dab.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: dab))
+                    .help("DAB-Notch des SDRplay: schaltet das Notch-Filter für Band III (174 … 240 MHz) ein. Am RSPduo gemessen dämpft es 222 MHz um etwa 14 dB, auch Frequenzen darunter. Das ist keine Sperre: bei einem starken DAB-Sender in der Nähe, der den Eingang übersteuert, kann es den Empfang erst möglich machen. Gibt es beim RSP1A/1B, RSPduo (Tuner A) und RSPdx." + (hint.map { "\n" + $0 } ?? ""))
+            }
         }
     }
 }

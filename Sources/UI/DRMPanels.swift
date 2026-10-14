@@ -71,7 +71,7 @@ struct DRMMainPanel: View {
                 .foregroundColor(RadioTheme.ledYellow)
         }
         if s.services.count > 1 {
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 ForEach(s.services, id: \.shortID) { sv in
                     Button("\(sv.shortID + 1) · \(sv.label.isEmpty ? (sv.isAudio ? "Audio" : "Daten") : sv.label)") { settings.service = sv.shortID }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.service == sv.shortID))

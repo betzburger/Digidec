@@ -175,9 +175,11 @@ public struct WefaxStationEditorView: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 110, alignment: .leading)
-                ForEach([800, 850], id: \.self) { s in
-                    Button("\(s) Hz") { shiftHz = s }
-                        .buttonStyle(ModeButtonStyle(isSelected: shiftHz == s))
+                ButtonGrid(columns: .spread) {
+                    ForEach([800, 850], id: \.self) { s in
+                        Button("\(s) Hz") { shiftHz = s }
+                            .buttonStyle(ModeButtonStyle(isSelected: shiftHz == s))
+                    }
                 }
             }
 
@@ -186,9 +188,11 @@ public struct WefaxStationEditorView: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 110, alignment: .leading)
-                ForEach([60, 90, 120, 240], id: \.self) { l in
-                    Button("\(l)") { lpm = l }
-                        .buttonStyle(ModeButtonStyle(isSelected: lpm == l))
+                ButtonGrid(columns: .spread) {
+                    ForEach([60, 90, 120, 240], id: \.self) { l in
+                        Button("\(l)") { lpm = l }
+                            .buttonStyle(ModeButtonStyle(isSelected: lpm == l))
+                    }
                 }
             }
 
@@ -197,9 +201,11 @@ public struct WefaxStationEditorView: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 110, alignment: .leading)
-                ForEach([576, 288], id: \.self) { v in
-                    Button("\(v)") { ioc = v }
-                        .buttonStyle(ModeButtonStyle(isSelected: ioc == v))
+                ButtonGrid(columns: .spread) {
+                    ForEach([576, 288], id: \.self) { v in
+                        Button("\(v)") { ioc = v }
+                            .buttonStyle(ModeButtonStyle(isSelected: ioc == v))
+                    }
                 }
             }
         }
@@ -254,13 +260,15 @@ public struct RTTYPresetEditorView: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 110, alignment: .leading)
-                ForEach([5, 7, 8], id: \.self) { b in
-                    Button("\(b)b") { bits = b }
-                        .buttonStyle(ModeButtonStyle(isSelected: bits == b))
-                }
-                ForEach([1.0, 1.5, 2.0], id: \.self) { s in
-                    Button(s == 1.5 ? "1,5s" : "\(Int(s))s") { stopBits = s }
-                        .buttonStyle(ModeButtonStyle(isSelected: stopBits == s))
+                ButtonGrid(columns: .spread) {
+                    ForEach([5, 7, 8], id: \.self) { b in
+                        Button("\(b)b") { bits = b }
+                            .buttonStyle(ModeButtonStyle(isSelected: bits == b))
+                    }
+                    ForEach([1.0, 1.5, 2.0], id: \.self) { s in
+                        Button(s == 1.5 ? "1,5s" : "\(Int(s))s") { stopBits = s }
+                            .buttonStyle(ModeButtonStyle(isSelected: stopBits == s))
+                    }
                 }
             }
 
@@ -269,15 +277,17 @@ public struct RTTYPresetEditorView: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 110, alignment: .leading)
-                Button("REV") { reverse.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: reverse))
-                    .help("Kehrlage (Mark tief)")
-                Button("ITA2") { ita2.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: ita2))
-                    .help("Europäischer Ziffernsatz")
-                Button("UOS") { unshiftOnSpace.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: unshiftOnSpace))
-                    .help("Unshift on Space (zurück zu Buchstaben nach Leerzeichen)")
+                ButtonGrid(columns: .spread) {
+                    Button("REV") { reverse.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: reverse))
+                        .help("Kehrlage (Mark tief)")
+                    Button("ITA2") { ita2.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: ita2))
+                        .help("Europäischer Ziffernsatz")
+                    Button("UOS") { unshiftOnSpace.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: unshiftOnSpace))
+                        .help("Unshift on Space (zurück zu Buchstaben nach Leerzeichen)")
+                }
             }
 
             fieldRow("Notiz", text: $note, placeholder: "z. B. Seewetterbericht Paris")
@@ -325,9 +335,11 @@ public struct SSTVChannelEditorView: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 110, alignment: .leading)
-                ForEach(["USB", "LSB", "FM"], id: \.self) { m in
-                    Button(m) { modulation = m }
-                        .buttonStyle(ModeButtonStyle(isSelected: modulation == m))
+                ButtonGrid(columns: .spread) {
+                    ForEach(["USB", "LSB", "FM"], id: \.self) { m in
+                        Button(m) { modulation = m }
+                            .buttonStyle(ModeButtonStyle(isSelected: modulation == m))
+                    }
                 }
             }
 

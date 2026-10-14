@@ -16,27 +16,29 @@ struct WSPRActivityPanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Spots im Format von ALL_WSPR.TXT in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Spots im Format von ALL_WSPR.TXT in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             WSPRTable(entries: controller.entries)
                 .background(RadioTheme.bgDeep)
@@ -214,7 +216,7 @@ struct WSPRSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 4) {
+            ButtonGrid(columns: .fill(6)) {
                 ForEach(WSPRBand.allCases) { b in
                     Button { settings.band = b } label: { Text(b.rawValue).lineLimit(1).minimumScaleFactor(0.6) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.band == b))
@@ -242,7 +244,7 @@ struct WSPRSettingsPanel: View {
                     .onAppear { locText = settings.locator }
                     .help("Eigener Locator für die Entfernungen")
             }
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("±150 Hz") { settings.core.wide.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.core.wide))
                     .help("Suchbereich 1350 … 1650 Hz statt 1390 … 1610 Hz (wsprd „-w“)")

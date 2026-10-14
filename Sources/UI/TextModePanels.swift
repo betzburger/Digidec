@@ -19,38 +19,41 @@ struct TextModeReceivePanel<C: TextModeController>: View {
             HStack(spacing: 6) {
                 ActivityLED(lastChar: controller.lastCharacterDate)
                 Text("\(textModel.characterCount) Zeichen")
+                    .lineLimit(1).fixedSize()
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(controller.textModel.text, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Gesamten Empfangstext kopieren")
+                    Button {
+                        controller.clearText()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Anzeige leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(controller.textModel.text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Gesamten Empfangstext kopieren")
-                Button {
-                    controller.clearText()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Anzeige leeren (Log bleibt)")
             }
             ReceiveTextView(model: controller.textModel)
                 .background(RadioTheme.bgDeep)
@@ -120,7 +123,7 @@ struct OliviaSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("OLIVIA") { settings.options.contestia = false }
                     .buttonStyle(ModeButtonStyle(isSelected: !settings.options.contestia))
                     .help("Olivia: 64 Zeichen ASCII, sehr robust")
@@ -130,28 +133,34 @@ struct OliviaSettingsPanel: View {
             }
             HStack(spacing: 4) {
                 smallLabel("TÖNE").frame(width: 38, alignment: .leading)
-                ForEach(1...5, id: \.self) { e in
-                    Button("\(2 * (1 << e))") { settings.options.tonesExp = e }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.tonesExp == e))
+                ButtonGrid(columns: .spread) {
+                    ForEach(1...5, id: \.self) { e in
+                        Button("\(2 * (1 << e))") { settings.options.tonesExp = e }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.tonesExp == e))
+                    }
                 }
             }
             HStack(spacing: 4) {
                 smallLabel("BREITE").frame(width: 38, alignment: .leading)
-                ForEach(0...4, id: \.self) { e in
-                    Button { settings.options.bandwidthExp = e } label: { Text(verbatim: "\(125 * (1 << e))") }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.bandwidthExp == e))
+                ButtonGrid(columns: .spread) {
+                    ForEach(0...4, id: \.self) { e in
+                        Button { settings.options.bandwidthExp = e } label: { Text(verbatim: "\(125 * (1 << e))") }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.bandwidthExp == e))
+                    }
                 }
             }
             HStack(spacing: 6) {
-                Button("REV") { settings.options.reverse.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
-                    .help("Seitenband umkehren (bei LSB)")
-                Button("8 BIT") { settings.options.eightBit.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.eightBit))
-                    .help("Erweiterte 8-Bit-Zeichen (Umlaute) über Fluchtzeichen")
-                Button("SQL") { settings.options.squelchOn.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
-                    .help("Synchronisierer-Schwelle: S/N = Regler/5 + 3")
+                ButtonGrid {
+                    Button("REV") { settings.options.reverse.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
+                        .help("Seitenband umkehren (bei LSB)")
+                    Button("8 BIT") { settings.options.eightBit.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.eightBit))
+                        .help("Erweiterte 8-Bit-Zeichen (Umlaute) über Fluchtzeichen")
+                    Button("SQL") { settings.options.squelchOn.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
+                        .help("Synchronisierer-Schwelle: S/N = Regler/5 + 3")
+                }
                 Slider(value: $settings.options.squelch, in: 0...100)
                     .disabled(!settings.options.squelchOn)
             }
@@ -212,30 +221,36 @@ struct MT63SettingsPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
                 smallLabel("BREITE").frame(width: 42, alignment: .leading)
-                ForEach([500, 1000, 2000], id: \.self) { bw in
-                    Button { settings.options.bandwidthHz = bw } label: { Text(verbatim: "\(bw)") }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.bandwidthHz == bw))
+                ButtonGrid(columns: .spread) {
+                    ForEach([500, 1000, 2000], id: \.self) { bw in
+                        Button { settings.options.bandwidthHz = bw } label: { Text(verbatim: "\(bw)") }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.bandwidthHz == bw))
+                    }
                 }
             }
             HStack(spacing: 4) {
                 smallLabel("INTERL.").frame(width: 42, alignment: .leading)
-                Button("KURZ") { settings.options.longInterleave = false }
-                    .buttonStyle(ModeButtonStyle(isSelected: !settings.options.longInterleave))
-                    .help("Verschachtelung 32 (3,2 s): kürzere Verzögerung")
-                Button("LANG") { settings.options.longInterleave = true }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.longInterleave))
-                    .help("Verschachtelung 64 (6,4 s): robuster bei Fading und Störungen")
+                ButtonGrid(columns: .spread) {
+                    Button("KURZ") { settings.options.longInterleave = false }
+                        .buttonStyle(ModeButtonStyle(isSelected: !settings.options.longInterleave))
+                        .help("Verschachtelung 32 (3,2 s): kürzere Verzögerung")
+                    Button("LANG") { settings.options.longInterleave = true }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.longInterleave))
+                        .help("Verschachtelung 64 (6,4 s): robuster bei Fading und Störungen")
+                }
             }
             HStack(spacing: 6) {
-                Button("INTEGR.") { settings.options.longIntegration.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.longIntegration))
-                    .help("Lange Empfangsintegration (fldigi): stabiler bei schwachen Signalen, langsamer beim Einrasten")
-                Button("8 BIT") { settings.options.eightBit.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.eightBit))
-                    .help("Erweiterte 8-Bit-Zeichen (Umlaute) über Fluchtzeichen")
-                Button("SQL") { settings.options.squelchOn.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
-                    .help("Ausgabe nur, wenn das S/N am FEC über der Schwelle liegt")
+                ButtonGrid {
+                    Button("INTEGR.") { settings.options.longIntegration.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.longIntegration))
+                        .help("Lange Empfangsintegration (fldigi): stabiler bei schwachen Signalen, langsamer beim Einrasten")
+                    Button("8 BIT") { settings.options.eightBit.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.eightBit))
+                        .help("Erweiterte 8-Bit-Zeichen (Umlaute) über Fluchtzeichen")
+                    Button("SQL") { settings.options.squelchOn.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
+                        .help("Ausgabe nur, wenn das S/N am FEC über der Schwelle liegt")
+                }
                 Slider(value: $settings.options.squelch, in: 0...100)
                     .disabled(!settings.options.squelchOn)
             }
@@ -281,7 +296,7 @@ struct MFSKSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 3) {
+            ButtonGrid(columns: .spread) {
                 ForEach(MFSKMode.Family.allCases, id: \.self) { fam in
                     Button {
                         selectedFamily = fam
@@ -295,7 +310,7 @@ struct MFSKSettingsPanel: View {
                     .help(familyHelp(fam))
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 5), spacing: 3) {
+            ButtonGrid(columns: .fill(5)) {
                 ForEach(MFSKMode.mode(for: selectedFamily)) { m in
                     Button { settings.options.mode = m } label: { Text(verbatim: m.shortName).lineLimit(1).minimumScaleFactor(0.6) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.options.mode == m))
@@ -303,22 +318,24 @@ struct MFSKSettingsPanel: View {
                 }
             }
             HStack(spacing: 6) {
-                Button("REV") { settings.options.reverse.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
-                    .help("Seitenband umkehren (bei LSB)")
-                if selectedFamily == .mfsk {
-                    Button("AFC") { settings.options.afc.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
-                        .help("Frequenznachführung (fldigi): die Mitte folgt dem Signal")
+                ButtonGrid {
+                    Button("REV") { settings.options.reverse.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
+                        .help("Seitenband umkehren (bei LSB)")
+                    if selectedFamily == .mfsk {
+                        Button("AFC") { settings.options.afc.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
+                            .help("Frequenznachführung (fldigi): die Mitte folgt dem Signal")
+                    }
+                    if selectedFamily == .dominoex {
+                        Button("FEC") { settings.options.fec.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.options.fec))
+                            .help("MultiPsk-Vorwärtsfehlerkorrektur (nur, wenn der Sender sie benutzt)")
+                    }
+                    Button("SQL") { settings.options.squelchOn.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
+                        .help("Ausgabe nur, wenn die Signalqualität über der Schwelle liegt")
                 }
-                if selectedFamily == .dominoex {
-                    Button("FEC") { settings.options.fec.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.fec))
-                        .help("MultiPsk-Vorwärtsfehlerkorrektur (nur, wenn der Sender sie benutzt)")
-                }
-                Button("SQL") { settings.options.squelchOn.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
-                    .help("Ausgabe nur, wenn die Signalqualität über der Schwelle liegt")
                 Slider(value: $settings.options.squelch, in: 0...100)
                     .disabled(!settings.options.squelchOn)
             }

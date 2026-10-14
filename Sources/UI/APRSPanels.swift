@@ -30,27 +30,29 @@ struct APRSMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Pakete im TNC2-Format in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Listen leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Pakete im TNC2-Format in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Listen leeren (Log bleibt)")
             }
             Group {
                 switch tab {
@@ -285,7 +287,7 @@ struct APRSSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
+            ButtonGrid(columns: .fill(3)) {
                 ForEach(APRSChannel.allCases) { c in
                     Button { settings.channel = c } label: {
                         VStack(spacing: 1) {
@@ -298,7 +300,7 @@ struct APRSSettingsPanel: View {
                     .help(c.note + (c.frequencyHz == nil ? "" : " (nur mit QSY AUTO wird das Funkgerät in FM abgestimmt)"))
                 }
             }
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("KORREKTUR") { settings.repairBits.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.repairBits))
                     .help("Ein fehlerhaftes Bit umkehren, wenn die Prüfsumme sonst stimmt. Solche Pakete stehen im Protokoll (~), aber nie auf der Karte")
@@ -313,10 +315,12 @@ struct APRSSettingsPanel: View {
                 Text("KARTE")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach([1.0, 6.0, 24.0, 0.0], id: \.self) { h in
-                    Button(h == 0 ? "ALLE" : "\(Int(h)) h") { settings.mapHours = h }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.mapHours == h))
-                        .help(h == 0 ? "Alle Stationen auf der Karte" : "Nur Stationen, die in den letzten \(Int(h)) Stunden gehört wurden")
+                ButtonGrid(columns: .spread) {
+                    ForEach([1.0, 6.0, 24.0, 0.0], id: \.self) { h in
+                        Button(h == 0 ? "ALLE" : "\(Int(h)) h") { settings.mapHours = h }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.mapHours == h))
+                            .help(h == 0 ? "Alle Stationen auf der Karte" : "Nur Stationen, die in den letzten \(Int(h)) Stunden gehört wurden")
+                    }
                 }
             }
             Text(verbatim: "FM schmal (Diskriminator-Audio, ohne Rauschsperre). Klick in den Wasserfall setzt die Abweichung der Töne (\(Int(settings.offsetHz.rounded())) Hz).")

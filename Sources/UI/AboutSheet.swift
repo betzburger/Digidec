@@ -83,7 +83,7 @@ struct AboutSheet: View {
                     .foregroundColor(RadioTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 8) {
+                ButtonGrid(columns: .spread) {
                     Button {
                         NSWorkspace.shared.open(Self.sourceURL)
                     } label: {

@@ -19,27 +19,29 @@ struct NavMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.toggleRecording() } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button { controller.toggleRecording() } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche und Eichung. Ordner: ~/Documents/Digidec/Recordings")
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Kennungen und alle 30 s die Messwerte in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: { Image(systemName: "folder") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Verlauf leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche und Eichung. Ordner: ~/Documents/Digidec/Recordings")
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Kennungen und alle 30 s die Messwerte in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: { Image(systemName: "folder") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Verlauf leeren")
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -418,12 +420,14 @@ struct NavSettingsPanel: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 56, alignment: .leading)
-                ForEach(ILSKind.allCases) { k in
-                    Button(k.title) { settings.ilsKind = k }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.ilsKind == k))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .help(k == .localizer ? "Landekurssender (108,1 bis 111,95 MHz): 90 Hz überwiegt links der Mittellinie" : "Gleitwegsender (328,6 bis 335,4 MHz): 90 Hz überwiegt über dem Gleitpfad")
+                ButtonGrid(columns: .spread) {
+                    ForEach(ILSKind.allCases) { k in
+                        Button(k.title) { settings.ilsKind = k }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.ilsKind == k))
+                            .lineLimit(1)
+                            .fixedSize()
+                            .help(k == .localizer ? "Landekurssender (108,1 bis 111,95 MHz): 90 Hz überwiegt links der Mittellinie" : "Gleitwegsender (328,6 bis 335,4 MHz): 90 Hz überwiegt über dem Gleitpfad")
+                    }
                 }
             }
             HStack(spacing: 6) {
@@ -437,11 +441,13 @@ struct NavSettingsPanel: View {
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdCyan)
                     .frame(minWidth: 56)
-                Button("+") { settings.bearingOffset = ((settings.bearingOffset + 1).rounded() + 540).truncatingRemainder(dividingBy: 360) - 180 }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                Button("0") { settings.bearingOffset = 0 }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Eichung löschen")
+                ButtonGrid {
+                    Button("+") { settings.bearingOffset = ((settings.bearingOffset + 1).rounded() + 540).truncatingRemainder(dividingBy: 360) - 180 }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                    Button("0") { settings.bearingOffset = 0 }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Eichung löschen")
+                }
             }
             HStack(spacing: 6) {
                 Text("RADIAL")

@@ -56,7 +56,7 @@ struct RigSettingsSheet: View {
                     ForEach(store.list.profiles) { profile in
                         profileRow(profile)
                     }
-                    HStack(spacing: 6) {
+                    ButtonGrid(columns: .spread) {
                         Button {
                             let added = store.add(RigProfile(name: ""))
                             edit(added)
@@ -219,23 +219,25 @@ struct RigSettingsSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
-                Button {
-                    test()
-                } label: {
-                    Label(testing ? "TESTE …" : "TESTEN", systemImage: "bolt.horizontal")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .disabled(draft.endpoint == nil || testing)
-                .help("Verbindung herstellen und Frequenz und Mode abfragen")
-                Button("SPEICHERN") { save() }
+                ButtonGrid {
+                    Button {
+                        test()
+                    } label: {
+                        Label(testing ? "TESTE …" : "TESTEN", systemImage: "bolt.horizontal")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .disabled(draft.endpoint == nil || testing)
+                    .help("Verbindung herstellen und Frequenz und Mode abfragen")
+                    Button("SPEICHERN") { save() }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .disabled(draft.problem != nil)
+                    Button("SPEICHERN UND VERWENDEN") {
+                        save()
+                        state.activateRigProfile(id: draft.id)
+                    }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
                     .disabled(draft.problem != nil)
-                Button("SPEICHERN UND VERWENDEN") {
-                    save()
-                    state.activateRigProfile(id: draft.id)
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .disabled(draft.problem != nil)
                 Spacer()
                 Button {
                     delete()

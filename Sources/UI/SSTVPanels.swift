@@ -232,7 +232,7 @@ public struct SSTVTuningPanel: View {
 
     private var channelGrid: some View {
         let count = settings.channels.count + 1
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+        return ButtonGrid(columns: .fill(min(count, 5))) {
             ForEach(settings.channels) { ch in
                 Button {
                     settings.selectChannel(id: ch.id)
@@ -449,23 +449,25 @@ public struct SSTVGallery: View {
 
                             Spacer()
 
-                            if let url = img.fileURL {
+                            ButtonGrid {
+                                if let url = img.fileURL {
+                                    Button {
+                                        NSWorkspace.shared.open(url)
+                                    } label: {
+                                        Image(systemName: "arrow.up.forward.square")
+                                    }
+                                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                                    .help("In Bildanzeige öffnen: \(url.lastPathComponent)")
+                                }
+
                                 Button {
-                                    NSWorkspace.shared.open(url)
+                                    controller.removeFromGallery(img)
                                 } label: {
-                                    Image(systemName: "arrow.up.forward.square")
+                                    Image(systemName: "xmark")
                                 }
                                 .buttonStyle(ModeButtonStyle(isSelected: false))
-                                .help("In Bildanzeige öffnen: \(url.lastPathComponent)")
+                                .help("Aus Liste und Speicher entfernen")
                             }
-
-                            Button {
-                                controller.removeFromGallery(img)
-                            } label: {
-                                Image(systemName: "xmark")
-                            }
-                            .buttonStyle(ModeButtonStyle(isSelected: false))
-                            .help("Aus Liste und Speicher entfernen")
                         }
                         .padding(.vertical, 2)
                     }

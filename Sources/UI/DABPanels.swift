@@ -257,14 +257,14 @@ struct DABSettingsPanel: View {
     private var blockRow: some View {
         HStack(spacing: 4) {
             label("BLOCK")
-            Button("−") { step(-1) }.buttonStyle(ModeButtonStyle(isSelected: false))
+            Button("−") { step(-1) }.buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
             Menu(settings.block.title) {
                 ForEach(DABBlock.all) { b in Button(b.title) { controller.tune(block: b) } }
             }
             .menuStyle(.borderlessButton)
             .font(.system(size: 12, weight: .bold, design: .monospaced))
             .fixedSize()
-            Button("+") { step(1) }.buttonStyle(ModeButtonStyle(isSelected: false))
+            Button("+") { step(1) }.buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
             Spacer(minLength: 0)
         }
     }
@@ -304,7 +304,6 @@ struct DABSettingsPanel: View {
         HStack(spacing: 6) {
             Button(settings.muted ? "STUMM" : "TON") { settings.muted.toggle() }
                 .buttonStyle(ModeButtonStyle(isSelected: !settings.muted))
-                .scaleEffect(0.9, anchor: .leading)
             Slider(value: $settings.volume, in: 0...1)
             Text("\(controller.snapshot.audioLevel > 0.01 ? "▮" : "▯")")
                 .font(.system(size: 10, design: .monospaced))
@@ -315,23 +314,23 @@ struct DABSettingsPanel: View {
     private var deviceRow: some View {
         HStack(spacing: 4) {
             label("GERÄT")
-            ForEach([ADSBSourceKind.hackrf, .rtlsdr, .sdrplay]) { k in
-                Button(k.title) {
-                    if settings.source == k {
-                        controller.retry()
-                    } else {
-                        settings.source = k
+            ButtonGrid {
+                ForEach([ADSBSourceKind.hackrf, .rtlsdr, .sdrplay]) { k in
+                    Button(k.title) {
+                        if settings.source == k {
+                            controller.retry()
+                        } else {
+                            settings.source = k
+                        }
                     }
+                    .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
+                    .lineLimit(1)
+                    .help(k.detail)
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
-                .lineLimit(1)
-                .scaleEffect(0.9)
-                .help(k.detail)
             }
             Spacer(minLength: 0)
             Button(showGain ? "▾ GAIN" : "▸ GAIN") { showGain.toggle() }
                 .buttonStyle(ModeButtonStyle(isSelected: showGain))
-                .scaleEffect(0.9, anchor: .trailing)
         }
     }
 
@@ -340,9 +339,9 @@ struct DABSettingsPanel: View {
         switch settings.source {
         case .hackrf:
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Button("AMP 14 dB") { settings.hackrfAmp.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp)).scaleEffect(0.9, anchor: .leading)
-                    Button("BIAS-T") { settings.hackrfBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.hackrfBias)).scaleEffect(0.9, anchor: .leading)
+                ButtonGrid(columns: .spread) {
+                    Button("AMP 14 dB") { settings.hackrfAmp.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp))
+                    Button("BIAS-T") { settings.hackrfBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.hackrfBias))
                 }
                 stepper("LNA", "\(settings.hackrfLNA) dB", minus: { settings.hackrfLNA = max(0, settings.hackrfLNA - 8) }, plus: { settings.hackrfLNA = min(40, settings.hackrfLNA + 8) })
                 stepper("VGA", "\(settings.hackrfVGA) dB", minus: { settings.hackrfVGA = max(0, settings.hackrfVGA - 2) }, plus: { settings.hackrfVGA = min(62, settings.hackrfVGA + 2) })
@@ -352,7 +351,7 @@ struct DABSettingsPanel: View {
                 stepper("GAIN", settings.rtlGain > 0 ? String(format: "%.1f dB", settings.rtlGain) : "AGC",
                         minus: { settings.rtlGain = settings.rtlGain <= 0 ? 0 : max(0, settings.rtlGain - 4) }, plus: { settings.rtlGain = min(49.6, settings.rtlGain + 4) })
                 HStack(spacing: 4) {
-                    Button("BIAS-T") { settings.rtlBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.rtlBias)).scaleEffect(0.9, anchor: .leading)
+                    Button("BIAS-T") { settings.rtlBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.rtlBias))
                     stepper("PPM", "\(settings.rtlPPM)", minus: { settings.rtlPPM -= 1 }, plus: { settings.rtlPPM += 1 })
                 }
             }
@@ -360,11 +359,12 @@ struct DABSettingsPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     label("TUNER")
-                    Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
-                    Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
-                    Button("AGC") { settings.sdrplayAGC.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                    ButtonGrid(columns: .spread) {
+                        Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
+                        Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
+                        Button("AGC") { settings.sdrplayAGC.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                    }
                 }
-                .scaleEffect(0.9, anchor: .leading)
                 SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch, hint: "Im DAB-Modul schwächt sie das Nutzsignal selbst; sie hilft nur gegen Übersteuerung. Besser zuerst die LNA-Stufe erhöhen.")
                 stepper("LNA-DÄMPFUNG", "Stufe \(settings.sdrplayLNAState)", minus: { settings.sdrplayLNAState = max(0, settings.sdrplayLNAState - 1) }, plus: { settings.sdrplayLNAState = min(9, settings.sdrplayLNAState + 1) }, help: SDRplayHelp.lna)
                 stepper("ZF-DÄMPFUNG", "\(settings.sdrplayIFGain) dB", minus: { settings.sdrplayIFGain = max(20, settings.sdrplayIFGain - 2) }, plus: { settings.sdrplayIFGain = min(59, settings.sdrplayIFGain + 2) }, help: SDRplayHelp.ifGain)

@@ -23,37 +23,39 @@ struct AISMainPanel: View {
                 filterButton("SEEZEICHEN", on: $settings.showAids, help: "Tonnen, Leuchttürme und andere Seezeichen mit AIS (Nachricht 21)")
                 filterButton("STATIONEN", on: $settings.showBase, help: "Küstenstationen (AIS-Basisstationen, Nachricht 4)")
                 filterButton("GEBIETE", on: $settings.showAreas, help: "Gebietsmeldungen der Verkehrszentralen: Sperrgebiete, Warnungen, Seenot, Hinweise (Binärtelegramm 1/22 und 1/23); in der Karte als Fläche oder Linie")
-                Button {
-                    controller.toggleRecording()
-                } label: {
-                    Label(controller.isRecording ? SondeMainPanel.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button {
+                        controller.toggleRecording()
+                    } label: {
+                        Label(controller.isRecording ? SondeMainPanel.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche, nachdecodierbar mit Tools/AISBench/ais_bench.sh. Ordner: ~/Documents/Digidec/Recordings")
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Alle Meldungen als NMEA-Sätze (!AIVDM) in eine Tagesdatei schreiben, z. B. für OpenCPN: \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche, nachdecodierbar mit Tools/AISBench/ais_bench.sh. Ordner: ~/Documents/Digidec/Recordings")
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Alle Meldungen als NMEA-Sätze (!AIVDM) in eine Tagesdatei schreiben, z. B. für OpenCPN: \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             AISTable(controller: controller, settings: settings, home: home, open: open)
                 .background(RadioTheme.bgDeep)
@@ -250,22 +252,24 @@ struct AISDetail: View {
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundColor(RadioTheme.textMuted)
                     Spacer()
-                    Button {
-                        open(v.mmsi)
-                    } label: {
-                        Label("SCHIFFSDATEN", systemImage: "info.circle")
-                    }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Fenster mit Foto, Baujahr und technischen Daten aus dem Netz (Wikidata, Wikimedia Commons)")
-                    if let p = v.point {
+                    ButtonGrid {
                         Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(String(format: "%.5f, %.5f", p.lat, p.lon), forType: .string)
+                            open(v.mmsi)
                         } label: {
-                            Label("KOORDINATEN", systemImage: "doc.on.doc")
+                            Label("SCHIFFSDATEN", systemImage: "info.circle")
                         }
                         .buttonStyle(ModeButtonStyle(isSelected: false))
-                        .help("Position (Breite, Länge in Grad) in die Zwischenablage kopieren")
+                        .help("Fenster mit Foto, Baujahr und technischen Daten aus dem Netz (Wikidata, Wikimedia Commons)")
+                        if let p = v.point {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(String(format: "%.5f, %.5f", p.lat, p.lon), forType: .string)
+                            } label: {
+                                Label("KOORDINATEN", systemImage: "doc.on.doc")
+                            }
+                            .buttonStyle(ModeButtonStyle(isSelected: false))
+                            .help("Position (Breite, Länge in Grad) in die Zwischenablage kopieren")
+                        }
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
@@ -403,7 +407,7 @@ struct AISSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
+            ButtonGrid(columns: .spread) {
                 ForEach([AISChannel.a, .b, .both]) { c in
                     Button { settings.channel = c } label: {
                         VStack(spacing: 1) {
@@ -435,7 +439,7 @@ struct AISSettingsPanel: View {
                 }
                 .help("Wie lange ein Schiff nach seiner letzten Meldung in Liste und Karte bleibt (Seezeichen und Küstenstationen mindestens 6 Stunden)")
             }
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("INFO BEI KLICK") { settings.openInfoOnClick.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.openInfoOnClick))
                     .help("Ein Klick auf ein Schiff in der Karte öffnet das Fenster mit den Schiffsdaten")

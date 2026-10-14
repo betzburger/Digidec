@@ -35,27 +35,29 @@ struct ADSBMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Jedes Flugzeug nach dem Verschwinden mit Kennung, Land, Höhe und größter Entfernung in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Jedes Flugzeug nach dem Verschwinden mit Kennung, Land, Höhe und größter Entfernung in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren")
             }
             Group {
                 switch tab {
@@ -482,7 +484,7 @@ struct ADSBSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {
+            ButtonGrid(columns: .fill(5)) {
                 ForEach(ADSBSourceKind.allCases) { k in
                     Button {
                         if settings.source == k {
@@ -500,7 +502,7 @@ struct ADSBSettingsPanel: View {
                 .foregroundColor(RadioTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
             sourceControls
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button(controller.status == .idle ? "START" : "STOPP") {
                     if case .running = controller.status { controller.stopSource() } else { controller.startSource() }
                 }
@@ -513,7 +515,7 @@ struct ADSBSettingsPanel: View {
                     .buttonStyle(ModeButtonStyle(isSelected: settings.showTracks))
                     .help("Bisherigen Weg der Flugzeuge auf der Karte zeigen")
             }
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("NETZ-SUCHE") { settings.webLookup.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.webLookup))
                     .help("Flugzeugdaten (Typ, Betreiber, Strecke, Foto) im Netz suchen: bei adsbdb.com und planespotters.net, nur mit ICAO-Adresse und Rufzeichen des angeklickten Flugzeugs")
@@ -528,10 +530,12 @@ struct ADSBSettingsPanel: View {
                 Text("ENTFERNEN NACH (MIN)")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach([1, 5, 15, 60], id: \.self) { m in
-                    Button("\(m)") { settings.expireMinutes = m }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.expireMinutes == m))
-                        .help("Flugzeuge aus der Liste nehmen, die so lange nichts gesendet haben")
+                ButtonGrid(columns: .spread) {
+                    ForEach([1, 5, 15, 60], id: \.self) { m in
+                        Button("\(m)") { settings.expireMinutes = m }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.expireMinutes == m))
+                            .help("Flugzeuge aus der Liste nehmen, die so lange nichts gesendet haben")
+                    }
                 }
             }
         }
@@ -542,7 +546,7 @@ struct ADSBSettingsPanel: View {
         switch settings.source {
         case .hackrf:
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
+                ButtonGrid(columns: .spread) {
                     Button("AMP 14 dB") { settings.hackrfAmp.toggle() }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp))
                         .help("Eingebauter Vorverstärker (14 dB). Bei starken Signalen und Außenantenne mit Vorverstärker eher aus.")
@@ -574,18 +578,20 @@ struct ADSBSettingsPanel: View {
                     Text("TUNER")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                    Button("A") { settings.sdrplayTuner = 0 }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
-                        .help("RSPduo: Tuner A (50-Ω-Anschluss). Andere Modelle haben nur einen Tuner.")
-                    Button("B") { settings.sdrplayTuner = 1 }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
-                        .help("RSPduo: Tuner B (zweiter SMA-Anschluss)")
-                    Button("AGC") { settings.sdrplayAGC.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
-                        .help("Automatische Verstärkungsregelung (ZF). Aus = feste ZF-Verstärkung, meist besser für kurze Pulse.")
-                    Button("BIAS-T") { settings.sdrplayBias.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
-                        .help("Speisespannung am Antennenanschluss (RSPduo) für einen Antennenverstärker. Nur einschalten, wenn die Antenne sie braucht.")
+                    ButtonGrid(columns: .spread) {
+                        Button("A") { settings.sdrplayTuner = 0 }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
+                            .help("RSPduo: Tuner A (50-Ω-Anschluss). Andere Modelle haben nur einen Tuner.")
+                        Button("B") { settings.sdrplayTuner = 1 }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
+                            .help("RSPduo: Tuner B (zweiter SMA-Anschluss)")
+                        Button("AGC") { settings.sdrplayAGC.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                            .help("Automatische Verstärkungsregelung (ZF). Aus = feste ZF-Verstärkung, meist besser für kurze Pulse.")
+                        Button("BIAS-T") { settings.sdrplayBias.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                            .help("Speisespannung am Antennenanschluss (RSPduo) für einen Antennenverstärker. Nur einschalten, wenn die Antenne sie braucht.")
+                    }
                 }
                 SDRplayOverloadHint()
                 SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch)

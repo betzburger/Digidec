@@ -40,17 +40,19 @@ struct SensorsMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Jedes Telegramm mit Zeit, Gerät, Kennung und Messwerten in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Log-Datei im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Liste leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Jedes Telegramm mit Zeit, Gerät, Kennung und Messwerten in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button { NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Log-Datei im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Liste leeren")
             }
             Group {
                 switch tab {
@@ -494,15 +496,17 @@ struct SensorsSettingsPanel: View {
                 Text("BAND")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach(SensorBand.allCases) { b in
-                    Button(b.title) { settings.band = b }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.band == b))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .help(b == .mhz433 ? "Die meisten Thermometer, Hygrometer und Wetterstationen für den Hausgebrauch (OOK und FSK, Abtastrate 250 kS/s)" : "Bresser, Ecowitt, LaCrosse IT+, TFA Marbella und Verwandte (FSK, 1 MS/s)")
+                ButtonGrid(columns: .spread) {
+                    ForEach(SensorBand.allCases) { b in
+                        Button(b.title) { settings.band = b }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.band == b))
+                            .lineLimit(1)
+                            .fixedSize()
+                            .help(b == .mhz433 ? "Die meisten Thermometer, Hygrometer und Wetterstationen für den Hausgebrauch (OOK und FSK, Abtastrate 250 kS/s)" : "Bresser, Ecowitt, LaCrosse IT+, TFA Marbella und Verwandte (FSK, 1 MS/s)")
+                    }
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {
+            ButtonGrid(columns: .fill(5)) {
                 ForEach(ADSBSourceKind.allCases) { k in
                     Button { settings.source = k } label: { Text(LocalizedStringKey(k.title)).lineLimit(1).minimumScaleFactor(0.5) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
@@ -525,10 +529,12 @@ struct SensorsSettingsPanel: View {
                 Text("ENTFERNEN NACH (MIN)")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach([15, 60, 360, 0], id: \.self) { m in
-                    Button(m == 0 ? "nie" : "\(m)") { settings.expireMinutes = m }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.expireMinutes == m))
-                        .help("Sensoren aus der Liste nehmen, die so lange nichts gesendet haben")
+                ButtonGrid(columns: .spread) {
+                    ForEach([15, 60, 360, 0], id: \.self) { m in
+                        Button(m == 0 ? "nie" : "\(m)") { settings.expireMinutes = m }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.expireMinutes == m))
+                            .help("Sensoren aus der Liste nehmen, die so lange nichts gesendet haben")
+                    }
                 }
             }
         }
@@ -539,7 +545,7 @@ struct SensorsSettingsPanel: View {
         switch settings.source {
         case .hackrf:
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
+                ButtonGrid(columns: .spread) {
                     Button("AMP 14 dB") { settings.hackrfAmp.toggle() }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp))
                         .help("Eingebauter Vorverstärker (14 dB)")
@@ -571,12 +577,14 @@ struct SensorsSettingsPanel: View {
                     Text("TUNER")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                    Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
-                    Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
-                    Button("AGC") { settings.sdrplayAGC.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
-                        .help("Automatische Verstärkungsregelung (ZF)")
-                    Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                    ButtonGrid(columns: .spread) {
+                        Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
+                        Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
+                        Button("AGC") { settings.sdrplayAGC.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                            .help("Automatische Verstärkungsregelung (ZF)")
+                        Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                    }
                 }
                 SDRplayOverloadHint()
                 SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch)

@@ -21,7 +21,7 @@ struct EFRMainPanel: View {
                 Spacer()
 
                 // Filter
-                HStack(spacing: 3) {
+                ButtonGrid(columns: .spread) {
                     ForEach(EFRController.FilterMode.allCases) { mode in
                         Button(mode.rawValue) {
                             controller.filterMode = mode
@@ -30,37 +30,39 @@ struct EFRMainPanel: View {
                     }
                 }
 
-                Button {
-                    showRawHex.toggle()
-                } label: {
-                    Label("HEX", systemImage: showRawHex ? "chevron.down.square.fill" : "chevron.down.square")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: showRawHex))
-                .help("Rohdaten (Hex-Dump) ein-/ausblenden")
+                ButtonGrid {
+                    Button {
+                        showRawHex.toggle()
+                    } label: {
+                        Label("HEX", systemImage: showRawHex ? "chevron.down.square.fill" : "chevron.down.square")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: showRawHex))
+                    .help("Rohdaten (Hex-Dump) ein-/ausblenden")
 
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Telegramm-Protokoll in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Telegramm-Protokoll in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
 
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Ordner im Finder anzeigen")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Ordner im Finder anzeigen")
 
-                Button {
-                    controller.clearTelegrams()
-                } label: {
-                    Image(systemName: "trash")
+                    Button {
+                        controller.clearTelegrams()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren")
             }
 
             // Telegramm-Liste
@@ -290,7 +292,7 @@ struct EFRSettingsPanel: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
 
-                HStack(spacing: 3) {
+                ButtonGrid(columns: .spread) {
                     ForEach([EFRStation.dcf49, .dcf39, .hga22]) { st in
                         Button {
                             settings.station = st

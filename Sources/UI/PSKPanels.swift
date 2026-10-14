@@ -19,38 +19,41 @@ struct PSKReceivePanel: View {
             HStack(spacing: 6) {
                 ActivityLED(lastChar: controller.lastCharacterDate)
                 Text("\(textModel.characterCount) Zeichen")
+                    .lineLimit(1).fixedSize()
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(controller.textModel.text, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Gesamten Empfangstext kopieren")
+                    Button {
+                        controller.clearText()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Anzeige leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Empfangstext in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(controller.textModel.text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Gesamten Empfangstext kopieren")
-                Button {
-                    controller.clearText()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Anzeige leeren (Log bleibt)")
             }
             ReceiveTextView(model: controller.textModel)
                 .background(RadioTheme.bgDeep)
@@ -194,7 +197,7 @@ struct PSKSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
+            ButtonGrid(columns: .spread) {
                 ForEach(PSKMode.Family.allCases, id: \.self) { family in
                     Button {
                         selectedFamily = family
@@ -206,7 +209,7 @@ struct PSKSettingsPanel: View {
                     .help(Self.familyHelp(family))
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+            ButtonGrid(columns: .fill(4)) {
                 ForEach(PSKMode.allCases.filter { $0.family == selectedFamily }) { m in
                     Button { settings.options.mode = m } label: { Text(m.shortName).lineLimit(1).minimumScaleFactor(0.6) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.options.mode == m))
@@ -215,16 +218,18 @@ struct PSKSettingsPanel: View {
             }
             bandGrid
             HStack(spacing: 6) {
-                Button("AFC") { settings.options.afc.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
-                    .help("Frequenznachführung auf die Trägerphase (fldigi AFC)")
-                Button("REV") { settings.options.reverse.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
-                    .disabled(!settings.options.mode.isQPSK)
-                    .help("QPSK: Seitenband umkehren (bei LSB oder falsch eingestelltem Seitenband). Bei BPSK ohne Wirkung")
-                Button("SQL") { settings.options.squelchOn.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
-                    .help("Rauschsperre gegen die Signalqualität. Aus: es wird immer ausgegeben")
+                ButtonGrid {
+                    Button("AFC") { settings.options.afc.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.afc))
+                        .help("Frequenznachführung auf die Trägerphase (fldigi AFC)")
+                    Button("REV") { settings.options.reverse.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.reverse))
+                        .disabled(!settings.options.mode.isQPSK)
+                        .help("QPSK: Seitenband umkehren (bei LSB oder falsch eingestelltem Seitenband). Bei BPSK ohne Wirkung")
+                    Button("SQL") { settings.options.squelchOn.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.options.squelchOn))
+                        .help("Rauschsperre gegen die Signalqualität. Aus: es wird immer ausgegeben")
+                }
                 Slider(value: $settings.options.squelch, in: 0...100)
                     .disabled(!settings.options.squelchOn)
             }
@@ -253,7 +258,7 @@ struct PSKSettingsPanel: View {
 
     private var bandGrid: some View {
         let count = settings.bands.count + 1
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 6)), spacing: 4) {
+        return ButtonGrid(columns: .fill(min(count, 6))) {
             ForEach(settings.bands) { b in
                 Button {
                     settings.selectBand(id: b.id)

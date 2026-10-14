@@ -89,6 +89,7 @@ public struct RDSPanelView: View {
                         HStack(spacing: 4) {
                             Button("−") { controller.step(mhz: -0.1) }
                                 .buttonStyle(ModeButtonStyle(isSelected: false))
+                                .fixedKey()
                             TextField("MHz", text: $freqText)
                                 .textFieldStyle(.plain)
                                 .font(.system(size: 22, weight: .bold, design: .monospaced))
@@ -102,6 +103,7 @@ public struct RDSPanelView: View {
                                 .cornerRadius(5)
                             Button("+") { controller.step(mhz: 0.1) }
                                 .buttonStyle(ModeButtonStyle(isSelected: false))
+                                .fixedKey()
                             Text("MHz")
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(RadioTheme.textMuted)
@@ -332,14 +334,12 @@ public struct RDSPanelView: View {
                         .foregroundColor(RadioTheme.textDim)
                     Spacer(minLength: 0)
                 } else {
-                    // scaleEffect ändert die Layoutgröße nicht: kleiner Abstand, damit die verkleinerten Knöpfe nicht zu weit auseinander stehen
-                    FlowLayout(spacing: 0, lineSpacing: 0) {
+                    ButtonGrid(columns: .cell(64)) {
                         ForEach(info.alternativeFrequencies, id: \.self) { af in
                             Button(String(format: "%.1f", af).replacingOccurrences(of: ".", with: ",")) {
                                 controller.tune(frequencyHz: af * 1e6)
                             }
                             .buttonStyle(ModeButtonStyle(isSelected: (settings.frequencyHz / 1e6).rounded() == af.rounded()))
-                            .scaleEffect(0.85)
                             .help("Auf \(af) MHz abstimmen")
                         }
                     }
@@ -391,7 +391,6 @@ public struct RDSPanelView: View {
 
                 Button("LEEREN") { controller.clear() }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .scaleEffect(0.85)
                     .help("Alle empfangenen RDS-Daten zurücksetzen")
             }
             .padding(4)
@@ -494,12 +493,12 @@ public struct RDSSettingsPanel: View {
             // Frequenzeinstellung
             HStack(spacing: 4) {
                 Text("FREQUENZ").font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
-                Button("−") { controller.step(mhz: -0.1) }.buttonStyle(ModeButtonStyle(isSelected: false))
+                Button("−") { controller.step(mhz: -0.1) }.buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
                 Text(String(format: "%.1f MHz", settings.frequencyHz / 1e6).replacingOccurrences(of: ".", with: ","))
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.vfdAmber)
                     .frame(minWidth: 70, alignment: .center)
-                Button("+") { controller.step(mhz: 0.1) }.buttonStyle(ModeButtonStyle(isSelected: false))
+                Button("+") { controller.step(mhz: 0.1) }.buttonStyle(ModeButtonStyle(isSelected: false)).fixedKey()
             }
 
             // Die Schnellauswahl steht unten im Hauptbereich (presetsCard) und wird hier nicht doppelt gezeigt
@@ -538,7 +537,6 @@ struct RDSQuickPicks: View {
     private var starButton: some View {
         Button(isFavorite ? "★ ENTFERNEN" : "★ MERKEN") { controller.toggleFavorite() }
             .buttonStyle(ModeButtonStyle(isSelected: isFavorite))
-            .scaleEffect(0.85, anchor: .leading)
             .help(isFavorite ? "Diesen Sender aus der Schnellauswahl nehmen" : "Den eingestellten Sender mit seinem Programmnamen in der Schnellauswahl merken")
     }
 
@@ -548,14 +546,12 @@ struct RDSQuickPicks: View {
             ForEach(RDSSettingsStore.standardPresets, id: \.name) { preset in
                 Button(preset.name) { controller.tune(frequencyHz: preset.freqHz) }
                     .buttonStyle(ModeButtonStyle(isSelected: abs(settings.frequencyHz - preset.freqHz) < 50_000))
-                    .scaleEffect(0.85)
                     .lineLimit(1)
             }
         } else {
             ForEach(settings.favorites) { fav in
                 Button(fav.title) { controller.tune(frequencyHz: fav.frequencyHz) }
                     .buttonStyle(ModeButtonStyle(isSelected: abs(settings.frequencyHz - fav.frequencyHz) < 50_000))
-                    .scaleEffect(0.85)
                     .lineLimit(1)
                     .contextMenu { Button("Aus der Schnellauswahl entfernen") { settings.removeFavorite(frequencyHz: fav.frequencyHz) } }
             }

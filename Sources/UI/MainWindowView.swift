@@ -398,89 +398,89 @@ public struct MainWindowView: View {
     private var rightColumnPanels: some View {
         if state.activeModule == .navtex {
             NavtexTuningPanel(controller: state.navtexController, settings: state.navtex)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             NavtexSettingsPanel(settings: state.navtex)
                 .radioCard(title: "NAVTEX")
             NavtexMessageList(controller: state.navtexController)
                 .radioCard(title: "Nachrichten")
         } else if state.activeModule == .cw {
             CWTuningPanel(controller: state.cwController, settings: state.cw)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             CWSettingsPanel(settings: state.cw)
                 .radioCard(title: "CW")
         } else if state.activeModule == .olivia {
             OliviaTuningPanel(controller: state.oliviaController, settings: state.olivia)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             OliviaSettingsPanel(settings: state.olivia)
                 .radioCard(title: "OLIVIA · CONTESTIA")
         } else if state.activeModule == .ale {
             ALETuningPanel(controller: state.aleController, settings: state.ale)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             ALESettingsPanel(settings: state.ale)
                 .radioCard(title: "ALE")
         } else if state.activeModule == .aprs {
             APRSTuningPanel(controller: state.aprsController, settings: state.aprs)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             APRSSettingsPanel(settings: state.aprs)
                 .radioCard(title: "APRS")
         } else if state.activeModule == .adsb {
             ADSBTuningPanel(controller: state.adsbController, settings: state.adsb)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             ADSBSettingsPanel(controller: state.adsbController, settings: state.adsb)
                 .radioCard(title: "ADS-B")
         } else if state.activeModule == .packet {
             PacketTuningPanel(controller: state.packetController, settings: state.packet)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             PacketSettingsPanel(settings: state.packet)
                 .radioCard(title: "PACKET")
         } else if state.activeModule == .acars {
             ACARSTuningPanel(controller: state.acarsController, settings: state.acars)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             ACARSSettingsPanel(settings: state.acars)
                 .radioCard(title: "ACARS")
         } else if state.activeModule == .ais {
             AISTuningPanel(controller: state.aisController, settings: state.ais, home: state.home)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             AISSettingsPanel(settings: state.ais)
                 .radioCard(title: "AIS")
         } else if state.activeModule == .dstar {
             DStarTuningPanel(controller: state.dstarController, settings: state.dstar)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             DStarSettingsPanel(controller: state.dstarController, settings: state.dstar)
                 .radioCard(title: "D-STAR")
         } else if state.activeModule == .ysf {
             YSFTuningPanel(controller: state.ysfController, settings: state.ysf, output: state.dstarController.output)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             YSFSettingsPanel(output: state.dstarController.output)
                 .radioCard(title: "YSF")
         } else if state.activeModule == .dmr {
             DMRTuningPanel(controller: state.dmrController, settings: state.dmr, output: state.dstarController.output)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             DMRSettingsPanel(settings: state.dmr, output: state.dstarController.output)
                 .radioCard(title: "DMR")
         } else if state.activeModule == .dpmr {
             DPMRTuningPanel(controller: state.dpmrController, settings: state.dpmr, output: state.dstarController.output)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             DPMRSettingsPanel(settings: state.dpmr, output: state.dstarController.output)
                 .radioCard(title: "dPMR")
         } else if state.activeModule == .nxdn {
             NXDNTuningPanel(controller: state.nxdnController, settings: state.nxdn, output: state.dstarController.output)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             NXDNSettingsPanel(settings: state.nxdn, output: state.dstarController.output)
                 .radioCard(title: "NXDN")
         } else if state.activeModule == .p25 {
             P25TuningPanel(controller: state.p25Controller, settings: state.p25, output: state.dstarController.output)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             P25SettingsPanel(settings: state.p25, output: state.dstarController.output)
                 .radioCard(title: "P25")
         } else if state.activeModule == .sensors {
             SensorsTuningPanel(controller: state.sensorsController, settings: state.sensors)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             SensorsSettingsPanel(controller: state.sensorsController, settings: state.sensors)
                 .radioCard(title: "SENSOREN")
         } else if state.activeModule == .tetra {
             TETRATuningPanel(controller: state.tetraController, settings: state.tetra)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             TETRASettingsPanel(controller: state.tetraController, settings: state.tetra)
                 .radioCard(title: "TETRA")
         } else if state.activeModule == .channels {
@@ -488,92 +488,92 @@ public struct MainWindowView: View {
                 .radioCard(title: "MEHRKANAL")
         } else if state.activeModule == .dab {
             DABTuningPanel(controller: state.dabController)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             DABSettingsPanel(controller: state.dabController, settings: state.dab)
                 .radioCard(title: "DAB")
         } else if state.activeModule == .rds {
             RDSTuningPanel(controller: state.rdsController, settings: state.rds)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             RDSSettingsPanel(controller: state.rdsController, settings: state.rds, sdr: state.sdrController)
                 .radioCard(title: "RDS")
         } else if state.activeModule == .vdl2 {
             VDL2TuningPanel(controller: state.vdl2Controller, settings: state.vdl2)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             VDL2SettingsPanel(controller: state.vdl2Controller, settings: state.vdl2)
                 .radioCard(title: "VDL2")
         } else if state.activeModule == .vor {
             NavTuningPanel(controller: state.navController, settings: state.nav)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             NavSettingsPanel(controller: state.navController, settings: state.nav)
                 .radioCard(title: "VOR/ILS")
         } else if state.activeModule == .m17 {
             M17TuningPanel(controller: state.m17Controller, settings: state.m17)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             M17SettingsPanel(settings: state.m17)
                 .radioCard(title: "M17")
         } else if state.activeModule == .freedv {
             FreeDVTuningPanel(controller: state.freedvController, settings: state.freedv)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             FreeDVSettingsPanel(settings: state.freedv)
                 .radioCard(title: "FREEDV")
         } else if state.activeModule == .drm {
             DRMTuningPanel(controller: state.drmController, settings: state.drm)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             DRMSettingsPanel(settings: state.drm, controller: state.drmController)
                 .radioCard(title: "DRM")
         } else if state.activeModule == .hfdl {
             HFDLTuningPanel(controller: state.hfdlController, settings: state.hfdl)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             HFDLSettingsPanel(controller: state.hfdlController, settings: state.hfdl)
                 .radioCard(title: "HFDL")
         } else if state.activeModule == .sonde {
             SondeTuningPanel(controller: state.sondeController, settings: state.sonde)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             SondeSettingsPanel(controller: state.sondeController, settings: state.sonde, home: state.home, plan: state.sondePlan, scanner: state.sondeScanner)
                 .radioCard(title: "SONDE")
         } else if state.activeModule == .pager {
             PagerTuningPanel(controller: state.pagerController, settings: state.pager)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             PagerSettingsPanel(settings: state.pager)
                 .radioCard(title: "PAGER")
         } else if state.activeModule == .tones {
             TonesTuningPanel(controller: state.tonesController, settings: state.tones)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             TonesSettingsPanel(settings: state.tones)
                 .radioCard(title: "TÖNE")
         } else if state.activeModule == .dsc {
             DSCTuningPanel(controller: state.dscController, settings: state.dsc)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             DSCSettingsPanel(settings: state.dsc)
                 .radioCard(title: "DSC")
         } else if state.activeModule == .mt63 {
             MT63TuningPanel(controller: state.mt63Controller, settings: state.mt63)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             MT63SettingsPanel(settings: state.mt63)
                 .radioCard(title: "MT63")
         } else if state.activeModule == .mfsk {
             MFSKTuningPanel(controller: state.mfskController, settings: state.mfsk)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             MFSKSettingsPanel(settings: state.mfsk)
                 .radioCard(title: "MFSK · DOMINOEX · THOR · THROB · IFKP · FSQ")
         } else if state.activeModule == .hell {
             HellTuningPanel(controller: state.hellController, settings: state.hell)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             HellSettingsPanel(settings: state.hell)
                 .radioCard(title: "HELL")
         } else if state.activeModule == .psk {
             PSKTuningPanel(controller: state.pskController, settings: state.psk)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             PSKSettingsPanel(settings: state.psk)
                 .radioCard(title: "PSK")
         } else if state.activeModule == .skimmer {
             SkimmerTuningPanel(controller: state.skimmerController, settings: state.skimmer)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             SkimmerSettingsPanel(settings: state.skimmer)
                 .radioCard(title: "SKIMMER")
         } else if state.activeModule == .wefax {
             WefaxTuningPanel(controller: state.wefaxController, settings: state.wefax, schedule: state.wefaxSchedule, auto: state.autoRecorder)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             WefaxSettingsPanel(settings: state.wefax, controller: state.wefaxController)
                 .radioCard(title: "WEFAX")
         } else if state.activeModule == .ft8 {
@@ -620,14 +620,14 @@ public struct MainWindowView: View {
                 .radioCard(title: "EFR")
         } else if state.activeModule == .sstv {
             SSTVTuningPanel(controller: state.sstvController, settings: state.sstv)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
             SSTVSettingsPanel(settings: state.sstv, controller: state.sstvController)
                 .radioCard(title: "SSTV")
             SSTVGallery(controller: state.sstvController)
                 .radioCard(title: "Bilder")
         } else {
             TuningPanel(controller: state.rttyController, settings: state.rtty)
-                .radioCard(title: "Abstimmanzeige")
+                .tuningCard(state)
 
             VStack(spacing: 8) {
                 PresetPanel(rtty: state.rtty, schedule: state.rttySchedule)
@@ -769,9 +769,11 @@ private struct HeaderBar: View {
             Spacer()
 
             MapToggleButton(state: state)
-            ScheduleButton(state: state, auto: state.autoRecorder)
-            WebServerButton(server: state.webServer, onTap: { state.showWebSettings = true })
-            RigControlToggle(state: state, rig: state.rig)
+            ButtonGrid {
+                ScheduleButton(state: state, auto: state.autoRecorder)
+                WebServerButton(server: state.webServer, onTap: { state.showWebSettings = true })
+                RigControlToggle(state: state, rig: state.rig)
+            }
             RigBadge(rig: state.rig, audio: state.audio, onTap: { state.showRigSettings = true })
             AboutButton(onTap: { state.showAbout = true })
             UTCClock()
@@ -788,14 +790,11 @@ private struct MapToggleButton: View {
     var body: some View {
         let module = state.activeModule
         let current = state.mapLayout(module)
-        HStack(spacing: 2) {
+        ButtonGrid {
             segment(module.mainViewIcon, module.mainViewName, .list, current, module, help: module.mainViewHelp)
             segment("map", "KARTE", .map, current, module, help: String(localized: "Nur die Karte zeigen (Stationen, Sender, Positionen)"))
             segment("rectangle.split.1x2", "BEIDE", .split, current, module, help: String(format: String(localized: "%@ oben, Karte darunter"), NSLocalizedString(module.mainViewName, comment: "").capitalized))
         }
-        .padding(2)
-        .background(RadioTheme.bgDeep)
-        .cornerRadius(5)
         .opacity(module.hasMap ? 1 : 0.5)
         .help(module.hasMap ? String(localized: "Darstellung umschalten") : String(format: String(localized: "%@ hat keine Ortsdaten, daher keine Karte"), NSLocalizedString(module.displayName, comment: "")))
     }
@@ -806,15 +805,10 @@ private struct MapToggleButton: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 9, weight: .bold))
-                Text(LocalizedStringKey(text)).font(.system(size: 9, weight: .bold, design: .monospaced))
+                Text(LocalizedStringKey(text))
             }
-            .foregroundColor(current == layout ? RadioTheme.vfdCyan : RadioTheme.textMuted)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(current == layout ? RadioTheme.vfdCyan.opacity(0.18) : .clear)
-            .cornerRadius(4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ModeButtonStyle(isSelected: current == layout, compact: true))
         .disabled(!module.hasMap)
         .help(help)
     }
@@ -834,15 +828,10 @@ private struct ScheduleButton: View {
                 Image(systemName: auto.session != nil ? "record.circle.fill" : "calendar")
                     .font(.system(size: 9, weight: .bold))
                 Text("SENDEPLAN")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
             }
-            .foregroundColor(auto.session != nil ? RadioTheme.ledRed : RadioTheme.textBright)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(RadioTheme.bgDeep)
-            .cornerRadius(4)
+            .foregroundColor(auto.session != nil ? RadioTheme.ledRed : nil)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ModeButtonStyle(isSelected: false, compact: true))
         .help("Sendepläne von Wetterfax, RTTY, NAVTEX und Radiosonden ansehen und Sendungen zur automatischen Aufnahme wählen")
     }
 }
@@ -861,15 +850,10 @@ private struct RigControlToggle: View {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 9, weight: .bold))
                 Text(state.rigControlEnabled ? "QSY AUTO" : "QSY MANUELL")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
             }
-            .foregroundColor(state.rigControlEnabled ? RadioTheme.vfdAmber : RadioTheme.textDim)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(RadioTheme.bgDeep)
-            .cornerRadius(4)
+            .foregroundColor(state.rigControlEnabled ? RadioTheme.vfdAmber : nil)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ModeButtonStyle(isSelected: false, compact: true))
         .disabled(!rig.hasRig)
         .help(help)
     }
@@ -897,15 +881,9 @@ private struct WebServerButton: View {
                     .frame(width: 7, height: 7)
                     .shadow(color: server.isRunning ? RadioTheme.vfdGreen.opacity(0.8) : .clear, radius: 3)
                 Text(server.isRunning ? "WEB (\(server.clientCount))" : "WEB")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(server.isRunning ? RadioTheme.vfdCyan : RadioTheme.textBright)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(RadioTheme.bgDeep)
-            .cornerRadius(4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ModeButtonStyle(isSelected: server.isRunning, compact: true))
         .help(server.isRunning
               ? "Web-Server läuft auf Port \(server.port) · \(server.clientCount) verbundene Clients. Klicken für Einstellungen & URL."
               : "Web-Fernzugriff: Decoder und Live-Audio im Browser steuern und anhören. Klicken zum Starten.")
@@ -1008,14 +986,16 @@ private struct UTCClock: View {
 private struct ModuleBar: View {
     @ObservedObject var state: DigidecState
 
-    /// Breite des Mehrkanal-Knopfes: etwa zwei gewöhnliche Knöpfe
-    private static let multiWidth: CGFloat = 132
+    /// Zellbreite aller Modul-Tasten (breitestes Kürzel: SENSOREN); beide Rubriken teilen dasselbe Raster
+    private static let cellWidth: CGFloat = 74
+    /// Breite des Mehrkanal-Knopfes: genau zwei Rasterspalten
+    private static let multiWidth: CGFloat = cellWidth * 2 + RadioMetrics.keySpacing
     private static let labelWidth: CGFloat = 52
 
     var body: some View {
         // Die Rubriken reservieren links Platz für den Mehrkanal-Knopf; er liegt als Überlagerung darüber und hat damit genau die Höhe der Zeilen:
         // vom oberen Rand des ersten bis zum unteren Rand des letzten Knopfes
-        VStack(spacing: 6) {
+        VStack(spacing: RadioMetrics.keySpacing) {
             ForEach(DecoderModuleInfo.Band.allCases) { band in
                 bandRow(band)
             }
@@ -1039,18 +1019,10 @@ private struct ModuleBar: View {
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .opacity(0.75)
             }
-            .frame(width: Self.multiWidth)
-            .frame(maxHeight: .infinity)
-            .foregroundColor(selected ? RadioTheme.vfdCyan : RadioTheme.textMuted)
-            .background(selected ? RadioTheme.vfdCyan.opacity(0.2) : RadioTheme.bgPanel)
-            .cornerRadius(5)
-            .overlay(
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(selected ? RadioTheme.vfdCyan : RadioTheme.borderSubtle, lineWidth: selected ? 1.5 : 1)
-            )
-            .shadow(color: selected ? RadioTheme.vfdCyan.opacity(0.3) : .clear, radius: 4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ModeButtonStyle(isSelected: selected))
+        .environment(\.buttonFillsCell, true)
+        .frame(width: Self.multiWidth)
         .help("MEHRKANAL · mehrere Decoder zugleich aus einem Fenster des SDR, auf Kurzwelle wie auf UKW")
     }
 
@@ -1062,12 +1034,11 @@ private struct ModuleBar: View {
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundColor(color)
                 .tracking(0.8)
-                .frame(width: Self.labelWidth, alignment: .leading)
-                .padding(.top, 8)
+                .frame(width: Self.labelWidth, height: RadioMetrics.keyHeight, alignment: .leading)
                 .help(band.detail)
             // Platz für den Mehrkanal-Knopf
             Color.clear.frame(width: Self.multiWidth, height: 1)
-            FlowLayout(spacing: 6, lineSpacing: 6) {
+            ButtonGrid(columns: .cell(Self.cellWidth)) {
                 ForEach(band.modules) { module in
                     Button {
                         state.select(module: module)
@@ -1076,7 +1047,6 @@ private struct ModuleBar: View {
                     }
                     .buttonStyle(ModeButtonStyle(isSelected: state.activeModule == module))
                     .disabled(!module.isAvailable)
-                    .opacity(module.isAvailable ? 1.0 : 0.45)
                     .help(module.isAvailable ? "\(NSLocalizedString(module.displayName, comment: "")) · \(band.title)" : String(format: String(localized: "%@ – geplant"), NSLocalizedString(module.displayName, comment: "")))
                 }
             }
@@ -1236,8 +1206,7 @@ struct PresetPanel: View {
     private var frequencyRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             let freqs = displayFrequencies
-            let count = freqs.count + 1 // +1 für den „+“-Knopf
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 4)), spacing: 4) {
+            ButtonGrid(columns: .fill(4)) {
                 ForEach(freqs) { f in
                     Button {
                         if rtty.presetID == "dwd-kw" || rtty.presetID == "dwd-lw" {
@@ -1251,7 +1220,7 @@ struct PresetPanel: View {
                             if !f.callsign.isEmpty {
                                 Text(f.callsign)
                                     .font(.system(size: 7.5, weight: .medium, design: .monospaced))
-                                    .foregroundColor(RadioTheme.textDim)
+                                    .opacity(0.7)
                                     .lineLimit(1)
                             }
                         }
@@ -1290,7 +1259,7 @@ struct PresetPanel: View {
     }
 
     private var presetGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+        ButtonGrid(columns: .fill(2)) {
             ForEach(rtty.presets) { preset in
                 Button {
                     rtty.select(presetID: preset.id)
@@ -1299,13 +1268,10 @@ struct PresetPanel: View {
                         Text(LocalizedStringKey(preset.name))
                         Text(detail(for: preset))
                             .font(.system(size: 8, weight: .medium, design: .monospaced))
-                            .foregroundColor(RadioTheme.textDim)
+                            .opacity(0.7)
                     }
-                    .frame(maxWidth: .infinity)
-                    .modifier(ModeLabelLook(isSelected: preset.id == rtty.presetID))
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ModeButtonStyle(isSelected: preset.id == rtty.presetID))
                 .help(preset.note)
                 .presetContextMenu(
                     onEdit: { startEditPreset(preset) },
@@ -1317,19 +1283,12 @@ struct PresetPanel: View {
             Button {
                 startAddPreset()
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus.circle.fill")
-                    Text("+ PRESET")
+                VStack(spacing: 2) {
+                    Image(systemName: "plus").font(.system(size: 9, weight: .bold))
+                    Text("PRESET").font(.system(size: 8, weight: .bold, design: .monospaced))
                 }
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(RadioTheme.textDim)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(RadioTheme.bgPanel.opacity(0.6))
-                .cornerRadius(5)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(RadioTheme.borderSubtle, lineWidth: 1))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ModeButtonStyle(isSelected: false))
             .help("Neues RTTY-Preset anlegen")
         }
     }
@@ -1436,25 +1395,6 @@ struct PresetPanel: View {
             rtty.updateFrequency(item, inPreset: rtty.presetID)
         }
         showFreqEditor = false
-    }
-}
-
-/// Optik von `ModeButtonStyle` für reine Anzeigen ohne Button.
-private struct ModeLabelLook: ViewModifier {
-    let isSelected: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
-            .background(isSelected ? RadioTheme.vfdCyan.opacity(0.2) : RadioTheme.bgPanel)
-            .foregroundColor(isSelected ? RadioTheme.vfdCyan : RadioTheme.textMuted)
-            .cornerRadius(5)
-            .overlay(
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(isSelected ? RadioTheme.vfdCyan : RadioTheme.borderSubtle, lineWidth: isSelected ? 1.5 : 1)
-            )
     }
 }
 

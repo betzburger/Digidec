@@ -15,27 +15,29 @@ struct DSCMessagePanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             DSCTable(messages: controller.messages)
                 .background(RadioTheme.bgDeep)
@@ -210,7 +212,7 @@ struct DSCSettingsPanel: View {
             channelGrid
 
             if !settings.activeChannelItem.isVHF {
-                HStack(spacing: 6) {
+                ButtonGrid(columns: .spread) {
                     Button("AUTO") { settings.autoCenter.toggle() }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.autoCenter))
                         .help("Mitte aus dem Tonpaar (Abstand 170 Hz) nachführen")
@@ -260,10 +262,12 @@ struct DSCSettingsPanel: View {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(RadioTheme.textDim)
                             .frame(width: 110, alignment: .leading)
-                        Button("MF/HF (USB)") { editIsVHF = false }
-                            .buttonStyle(ModeButtonStyle(isSelected: !editIsVHF))
-                        Button("UKW (FM)") { editIsVHF = true }
-                            .buttonStyle(ModeButtonStyle(isSelected: editIsVHF))
+                        ButtonGrid(columns: .spread) {
+                            Button("MF/HF (USB)") { editIsVHF = false }
+                                .buttonStyle(ModeButtonStyle(isSelected: !editIsVHF))
+                            Button("UKW (FM)") { editIsVHF = true }
+                                .buttonStyle(ModeButtonStyle(isSelected: editIsVHF))
+                        }
                     }
                     HStack(spacing: 8) {
                         Text(LocalizedStringKey("Notiz"))
@@ -281,7 +285,7 @@ struct DSCSettingsPanel: View {
 
     private var channelGrid: some View {
         let count = settings.channels.count + 1
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+        return ButtonGrid(columns: .fill(min(count, 5))) {
             ForEach(settings.channels) { c in
                 Button {
                     settings.selectChannel(id: c.id)
