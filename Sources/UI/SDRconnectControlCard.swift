@@ -44,14 +44,14 @@ struct SDRconnectControlCard: View {
                     Text("MHz").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(RadioTheme.textDim)
                     Button("SETZEN") { apply() }.buttonStyle(ModeButtonStyle(isSelected: false)).help("Frequenz einstellen (in MHz, z. B. 7,074 oder 145,5)")
                 }
-                HStack(spacing: 4) {
+                ButtonGrid(columns: .spread) {
                     ForEach([("−1M", -1_000_000.0), ("−100k", -100_000), ("−10k", -10_000), ("−1k", -1000), ("+1k", 1000), ("+10k", 10_000), ("+100k", 100_000), ("+1M", 1_000_000)], id: \.0) { step in
                         Button(step.0) { nudge(step.1) }
                             .buttonStyle(ModeButtonStyle(isSelected: false))
                             .font(.system(size: 9, design: .monospaced))
                     }
                 }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+                ButtonGrid(columns: .fill(4)) {
                     ForEach(SDRconnectModes.all, id: \.self) { m in
                         Button(m) { rig.sdrconnectSet("demodulator", m) }
                             .buttonStyle(ModeButtonStyle(isSelected: s.demodulator == m))

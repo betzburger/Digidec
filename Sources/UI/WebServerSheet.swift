@@ -113,23 +113,25 @@ public struct WebServerSheet: View {
                                 .cornerRadius(4)
                                 .textSelection(.enabled)
 
-                            if server.isRunning, let url = URL(string: server.localURL) {
-                                Button("IM BROWSER ÖFFNEN") {
-                                    NSWorkspace.shared.open(url)
+                            ButtonGrid(columns: .spread) {
+                                if server.isRunning, let url = URL(string: server.localURL) {
+                                    Button("IM BROWSER ÖFFNEN") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                    .buttonStyle(ModeButtonStyle(isSelected: true))
                                 }
-                                .buttonStyle(ModeButtonStyle(isSelected: true))
-                            }
 
-                            Button(copiedLocal ? "KOPIERT!" : "KOPIEREN") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(server.localURL, forType: .string)
-                                copiedLocal = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    copiedLocal = false
+                                Button(copiedLocal ? "KOPIERT!" : "KOPIEREN") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(server.localURL, forType: .string)
+                                    copiedLocal = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                        copiedLocal = false
+                                    }
                                 }
+                                .buttonStyle(ModeButtonStyle(isSelected: false))
+                                .disabled(!server.isRunning)
                             }
-                            .buttonStyle(ModeButtonStyle(isSelected: false))
-                            .disabled(!server.isRunning)
                         }
                     }
 

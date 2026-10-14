@@ -26,14 +26,16 @@ struct VoiceStickSettings: View {
                 .labelsHidden()
                 .frame(maxWidth: 220)
                 .help("Serieller Anschluss des Sprachsticks (DVSI AMBE-3000R, 460800 Baud). Es wird nur der gewählte Anschluss angesprochen: andere serielle Geräte (z. B. das CAT-Kabel des Funkgeräts) bekommen nichts.")
-                Button("VERBINDEN") { output.connect() }
-                    .buttonStyle(ModeButtonStyle(isSelected: output.decoderName != nil))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Stick am gewählten Anschluss öffnen und prüfen")
-                Button { ports = AMBE3000Stick.candidatePaths() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Liste der seriellen Anschlüsse neu lesen")
+                ButtonGrid {
+                    Button("VERBINDEN") { output.connect() }
+                        .buttonStyle(ModeButtonStyle(isSelected: output.decoderName != nil))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Stick am gewählten Anschluss öffnen und prüfen")
+                    Button { ports = AMBE3000Stick.candidatePaths() } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Liste der seriellen Anschlüsse neu lesen")
+                }
             }
             HStack(spacing: 6) {
                 Text("TON")

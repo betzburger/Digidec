@@ -277,7 +277,6 @@ struct ChannelsSettingsPanel: View {
                 Button("ALLE ENTFERNEN") { bank.removeAll() }
                     .buttonStyle(ModeButtonStyle(isSelected: false))
                     .disabled(bank.slots.isEmpty)
-                    .scaleEffect(0.9, anchor: .trailing)
             }
             Text("Jeder Kanal hat einen eigenen Decoder mit den Einstellungen des gleichnamigen Moduls. Die Sprachausgabe der digitalen Verfahren (DMR, D-STAR, YSF, dPMR, NXDN, P25, M17) ist in den Kanälen aus. Die Gerätemitte stellt Digidec so ein, dass möglichst viele Kanäle ins Fenster passen. Der Eingang SDR wird mit dem Modul gewählt; Verstärkung und Gerät stehen im SDR-Feld.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))

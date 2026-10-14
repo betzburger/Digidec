@@ -40,17 +40,19 @@ struct VDL2MainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Jeden Rahmen mit Zeit, Kanal, Adressen und Inhalt in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Log-Datei im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Listen leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Jeden Rahmen mit Zeit, Kanal, Adressen und Inhalt in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button { NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Log-Datei im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Listen leeren")
             }
             Group {
                 switch tab {
@@ -411,24 +413,26 @@ struct VDL2SettingsPanel: View {
                 Text("KANÄLE")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                Button("EUROPA") { settings.channels = VDL2Channels.europe }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.channels.sorted() == VDL2Channels.europe))
-                    .help("136,725 · 136,775 · 136,825 · 136,875 · 136,925 · 136,975 MHz")
-                Button("ALLE") { settings.channels = VDL2Channels.all }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.channels.count == VDL2Channels.all.count))
-                    .help("Alle üblichen Kanäle (mehr Rechenlast)")
-                Button("CSC") { settings.channels = [VDL2.commonSignallingChannel / 1e6] }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.channels == [136.975]))
-                    .help("Nur der gemeinsame Signalisierungskanal 136,975 MHz")
+                ButtonGrid(columns: .spread) {
+                    Button("EUROPA") { settings.channels = VDL2Channels.europe }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.channels.sorted() == VDL2Channels.europe))
+                        .help("136,725 · 136,775 · 136,825 · 136,875 · 136,925 · 136,975 MHz")
+                    Button("ALLE") { settings.channels = VDL2Channels.all }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.channels.count == VDL2Channels.all.count))
+                        .help("Alle üblichen Kanäle (mehr Rechenlast)")
+                    Button("CSC") { settings.channels = [VDL2.commonSignallingChannel / 1e6] }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.channels == [136.975]))
+                        .help("Nur der gemeinsame Signalisierungskanal 136,975 MHz")
+                }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {
+            ButtonGrid(columns: .fill(5)) {
                 ForEach(VDL2Channels.all, id: \.self) { f in
                     Button { settings.toggle(f) } label: { Text(VDL2Channels.title(f * 1e6)).lineLimit(1).minimumScaleFactor(0.6) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.channels.contains(f)))
                         .help("Kanal \(VDL2Channels.title(f * 1e6)) MHz überwachen")
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 4) {
+            ButtonGrid(columns: .fill(5)) {
                 ForEach(ADSBSourceKind.allCases) { k in
                     Button { settings.source = k } label: { Text(LocalizedStringKey(k.title)).lineLimit(1).minimumScaleFactor(0.5) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.source == k))
@@ -451,10 +455,12 @@ struct VDL2SettingsPanel: View {
                 Text("ENTFERNEN NACH (MIN)")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach([10, 30, 120, 0], id: \.self) { m in
-                    Button(m == 0 ? "nie" : "\(m)") { settings.expireMinutes = m }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.expireMinutes == m))
-                        .help("Flugzeuge aus der Liste nehmen, die so lange nichts gesendet haben")
+                ButtonGrid(columns: .spread) {
+                    ForEach([10, 30, 120, 0], id: \.self) { m in
+                        Button(m == 0 ? "nie" : "\(m)") { settings.expireMinutes = m }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.expireMinutes == m))
+                            .help("Flugzeuge aus der Liste nehmen, die so lange nichts gesendet haben")
+                    }
                 }
             }
         }
@@ -465,7 +471,7 @@ struct VDL2SettingsPanel: View {
         switch settings.source {
         case .hackrf:
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
+                ButtonGrid(columns: .spread) {
                     Button("AMP 14 dB") { settings.hackrfAmp.toggle() }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.hackrfAmp))
                         .help("Eingebauter Vorverstärker (14 dB)")
@@ -497,12 +503,14 @@ struct VDL2SettingsPanel: View {
                     Text("TUNER")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                    Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
-                    Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
-                    Button("AGC") { settings.sdrplayAGC.toggle() }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
-                        .help("Automatische Verstärkungsregelung (ZF)")
-                    Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                    ButtonGrid(columns: .spread) {
+                        Button("A") { settings.sdrplayTuner = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 0))
+                        Button("B") { settings.sdrplayTuner = 1 }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayTuner == 1))
+                        Button("AGC") { settings.sdrplayAGC.toggle() }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayAGC))
+                            .help("Automatische Verstärkungsregelung (ZF)")
+                        Button("BIAS-T") { settings.sdrplayBias.toggle() }.buttonStyle(ModeButtonStyle(isSelected: settings.sdrplayBias))
+                    }
                 }
                 SDRplayOverloadHint()
                 SDRplayNotchButtons(rf: $settings.sdrplayRfNotch, dab: $settings.sdrplayDabNotch)

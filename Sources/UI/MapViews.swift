@@ -459,19 +459,21 @@ private struct RTTYMapView: View {
             .frame(width: 140)
             .disabled(layer == .sea)
             .help("Linien gleichen Luftdrucks auf Meereshöhe, aus den Stationen berechnet (mindestens 5 Stationen). Dazu H und T an den Zentren.")
-            Button("T-FLÄCHE") { tempField.toggle() }
-                .buttonStyle(ModeButtonStyle(isSelected: tempField))
-                .disabled(layer == .sea)
-                .help("Temperaturverteilung als Farbfläche, aus den Stationen berechnet (mindestens 5 Stationen)")
-            Button {
-                showExtremes.toggle()
-            } label: {
-                Label("EXTREME", systemImage: "arrow.up.arrow.down")
+            ButtonGrid {
+                Button("T-FLÄCHE") { tempField.toggle() }
+                    .buttonStyle(ModeButtonStyle(isSelected: tempField))
+                    .disabled(layer == .sea)
+                    .help("Temperaturverteilung als Farbfläche, aus den Stationen berechnet (mindestens 5 Stationen)")
+                Button {
+                    showExtremes.toggle()
+                } label: {
+                    Label("EXTREME", systemImage: "arrow.up.arrow.down")
+                }
+                .buttonStyle(ModeButtonStyle(isSelected: showExtremes))
+                .disabled(!SynopLog.Layer.measured.contains(layer))
+                .help("Höchste und niedrigste Werte der gewählten Ebene")
+                .popover(isPresented: $showExtremes) { extremesView }
             }
-            .buttonStyle(ModeButtonStyle(isSelected: showExtremes))
-            .disabled(!SynopLog.Layer.measured.contains(layer))
-            .help("Höchste und niedrigste Werte der gewählten Ebene")
-            .popover(isPresented: $showExtremes) { extremesView }
             if let rawNote {
                 Text(LocalizedStringKey(rawNote))
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))

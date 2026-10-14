@@ -10,7 +10,7 @@ struct InputPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .fill(3)) {
                 ForEach(AudioSourceKind.allCases) { kind in
                     Button {
                         switch kind {
@@ -24,7 +24,6 @@ struct InputPanelView: View {
                     .buttonStyle(ModeButtonStyle(isSelected: audio.sourceKind == kind))
                     .help(kind == .audio ? "Audio-Eingang vom Funkgerät-Codec oder einer virtuellen Soundkarte" : kind == .file ? "Audiodatei (WAV, AIFF, CAF) abspielen und decodieren" : "Eingebauter SDR-Empfänger (HackRF, RTL-SDR, SDRplay): FM, AM, SSB ohne zweites Programm")
                 }
-                Spacer()
                 if audio.sourceKind != .sdr {
                     ForEach(ChannelMode.allCases) { mode in
                         Button {

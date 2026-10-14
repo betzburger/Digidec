@@ -157,21 +157,23 @@ struct QRZWindow: View {
                     .buttonStyle(ModeButtonStyle(isSelected: false))
                     .disabled(QRZ.baseCall(lookup.input) == nil)
                 Divider().frame(height: 18)
-                Button("◀") { lookup.goBack() }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .disabled(!lookup.canGoBack)
-                    .help("Zurück")
-                Button("▶") { lookup.goForward() }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .disabled(!lookup.canGoForward)
-                    .help("Vor")
-                Button(lookup.loading ? "LÄDT …" : "NEU LADEN") { lookup.reload() }
-                    .buttonStyle(ModeButtonStyle(isSelected: lookup.loading))
-                    .disabled(lookup.current == nil)
-                Button("IM BROWSER") { lookup.openInBrowser() }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .disabled(lookup.current == nil)
-                    .help("Die Seite im Standardbrowser öffnen")
+                ButtonGrid {
+                    Button("◀") { lookup.goBack() }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .disabled(!lookup.canGoBack)
+                        .help("Zurück")
+                    Button("▶") { lookup.goForward() }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .disabled(!lookup.canGoForward)
+                        .help("Vor")
+                    Button(lookup.loading ? "LÄDT …" : "NEU LADEN") { lookup.reload() }
+                        .buttonStyle(ModeButtonStyle(isSelected: lookup.loading))
+                        .disabled(lookup.current == nil)
+                    Button("IM BROWSER") { lookup.openInBrowser() }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .disabled(lookup.current == nil)
+                        .help("Die Seite im Standardbrowser öffnen")
+                }
                 Spacer()
             }
             if !lookup.history.isEmpty {
@@ -179,10 +181,11 @@ struct QRZWindow: View {
                     Text("ZULETZT")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                    ForEach(lookup.history, id: \.self) { call in
-                        Button(call) { lookup.show(call) }
-                            .buttonStyle(ModeButtonStyle(isSelected: call == lookup.current))
-                            .scaleEffect(0.85)
+                    ButtonGrid(columns: .spread) {
+                        ForEach(lookup.history, id: \.self) { call in
+                            Button(call) { lookup.show(call) }
+                                .buttonStyle(ModeButtonStyle(isSelected: call == lookup.current))
+                        }
                     }
                     Spacer(minLength: 0)
                 }

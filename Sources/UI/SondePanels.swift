@@ -18,37 +18,39 @@ struct SondeMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.toggleRecording()
-                } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button {
+                        controller.toggleRecording()
+                    } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche, später mit decode_file.sh --sonde nachdecodierbar. Ordner: ~/Documents/Digidec/Recordings")
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Flugdaten in Tagesdatei schreiben (CSV: Zeit, Seriennummer, Rahmen, Position, Höhe, Geschwindigkeit, Messwerte): \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche, später mit decode_file.sh --sonde nachdecodierbar. Ordner: ~/Documents/Digidec/Recordings")
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Flugdaten in Tagesdatei schreiben (CSV: Zeit, Seriennummer, Rahmen, Position, Höhe, Geschwindigkeit, Messwerte): \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             SondeTable(controller: controller, home: home)
                 .background(RadioTheme.bgDeep)
@@ -381,18 +383,22 @@ struct SondeSettingsPanel: View {
                     Text("GEHÖRT")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundColor(RadioTheme.textDim)
-                    ForEach(controller.heardFrequencies.prefix(4), id: \.self) { f in
-                        Button(String(format: "%.3f", Double(f) / 1000).replacingOccurrences(of: ".", with: ",")) { settings.frequencyKHz = f }
-                            .buttonStyle(ModeButtonStyle(isSelected: settings.frequencyKHz == f))
+                    ButtonGrid(columns: .spread) {
+                        ForEach(controller.heardFrequencies.prefix(4), id: \.self) { f in
+                            Button(String(format: "%.3f", Double(f) / 1000).replacingOccurrences(of: ".", with: ",")) { settings.frequencyKHz = f }
+                                .buttonStyle(ModeButtonStyle(isSelected: settings.frequencyKHz == f))
+                        }
                     }
                 }
             }
             HStack(spacing: 6) {
                 label("FILTER")
-                ForEach([15, 50], id: \.self) { w in
-                    Button("\(w) kHz") { settings.filterKHz = w }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.filterKHz == w))
-                        .help(w == 15 ? "Schmaler ZF-Filter: weniger Rauschen, geeignet für RS41 und DFM; M10 und M20 (breiteres Signal) verlieren damit einige Rahmen" : "Breiter Filter: empfohlen für M10 und M20, verträgt außerdem eine Sonde, die um mehrere kHz neben der Frequenz liegt")
+                ButtonGrid(columns: .spread) {
+                    ForEach([15, 50], id: \.self) { w in
+                        Button("\(w) kHz") { settings.filterKHz = w }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.filterKHz == w))
+                            .help(w == 15 ? "Schmaler ZF-Filter: weniger Rauschen, geeignet für RS41 und DFM; M10 und M20 (breiteres Signal) verlieren damit einige Rahmen" : "Breiter Filter: empfohlen für M10 und M20, verträgt außerdem eine Sonde, die um mehrere kHz neben der Frequenz liegt")
+                    }
                 }
             }
             HStack(spacing: 6) {
@@ -425,7 +431,7 @@ struct SondeSettingsPanel: View {
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
         } else {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 2), spacing: 4) {
+            ButtonGrid(columns: .fill(2)) {
                 ForEach(list) { s in
                     Button { settings.frequencyKHz = s.kHz } label: {
                         VStack(spacing: 1) {

@@ -17,27 +17,29 @@ struct ACARSMessagePanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             ACARSTable(messages: controller.visible)
                 .background(RadioTheme.bgDeep)
@@ -205,7 +207,7 @@ struct ACARSSettingsPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             channelGrid
 
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("UPLINK") { settings.showUplink.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.showUplink))
                     .help("Meldungen vom Boden zum Flugzeug zeigen")
@@ -231,7 +233,7 @@ struct ACARSSettingsPanel: View {
 
     private var channelGrid: some View {
         let count = settings.channels.count + 1
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 4)), spacing: 4) {
+        return ButtonGrid(columns: .fill(min(count, 4))) {
             ForEach(settings.channels) { c in
                 Button {
                     settings.selectChannel(id: c.id)

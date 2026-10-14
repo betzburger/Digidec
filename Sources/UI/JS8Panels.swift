@@ -36,10 +36,12 @@ struct JS8ActivityPanel: View {
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
-                ForEach(JS8View.allCases, id: \.self) { v in
-                    Button(v.title) { viewRaw = v.rawValue }
-                        .buttonStyle(ModeButtonStyle(isSelected: view == v))
-                        .help(v.help)
+                ButtonGrid {
+                    ForEach(JS8View.allCases, id: \.self) { v in
+                        Button(v.title) { viewRaw = v.rawValue }
+                            .buttonStyle(ModeButtonStyle(isSelected: view == v))
+                            .help(v.help)
+                    }
                 }
                 Text(summary)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -47,33 +49,35 @@ struct JS8ActivityPanel: View {
                     .lineLimit(1)
                     .padding(.leading, 4)
                 Spacer()
-                Button("HB") { settings.showHeartbeats.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.showHeartbeats))
-                    .help("Heartbeats und CQ-Rufe zeigen (ausgeschaltet bleiben nur Nachrichten)")
-                Button("[ ]") { settings.showUncertain.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.showUncertain))
-                    .help("Rahmen mit geringer Güte zeigen (in JS8Call in eckigen Klammern; hier mit „?“)")
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button("HB") { settings.showHeartbeats.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.showHeartbeats))
+                        .help("Heartbeats und CQ-Rufe zeigen (ausgeschaltet bleiben nur Nachrichten)")
+                    Button("[ ]") { settings.showUncertain.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.showUncertain))
+                        .help("Rahmen mit geringer Güte zeigen (in JS8Call in eckigen Klammern; hier mit „?“)")
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Rahmen im Format von ALL.TXT in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Listen leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Rahmen im Format von ALL.TXT in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Listen leeren (Log bleibt)")
             }
             Group {
                 switch view {
@@ -346,7 +350,7 @@ struct JS8SettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 4) {
+            ButtonGrid(columns: .fill(6)) {
                 ForEach(JS8Band.allCases) { b in
                     Button { settings.band = b } label: { Text(b.rawValue).lineLimit(1).minimumScaleFactor(0.6) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.band == b))
@@ -357,10 +361,12 @@ struct JS8SettingsPanel: View {
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
             HStack(spacing: 4) {
-                ForEach(JS8Submode.allCases) { m in
-                    Button { settings.toggle(m) } label: { Text(m.letter) }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.modes.contains(m)))
-                        .help("\(m.title): \(Int(m.periodSeconds)) s Zyklus, \(String(format: "%.2f", m.baud)) Baud, \(Int(m.bandwidth)) Hz breit, etwa \(m.wordsPerMinute) Wörter je Minute. Mehrere Betriebsarten lassen sich zugleich decodieren.")
+                ButtonGrid {
+                    ForEach(JS8Submode.allCases) { m in
+                        Button { settings.toggle(m) } label: { Text(m.letter) }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.modes.contains(m)))
+                            .help("\(m.title): \(Int(m.periodSeconds)) s Zyklus, \(String(format: "%.2f", m.baud)) Baud, \(Int(m.bandwidth)) Hz breit, etwa \(m.wordsPerMinute) Wörter je Minute. Mehrere Betriebsarten lassen sich zugleich decodieren.")
+                    }
                 }
                 Text(modeHint)
                     .font(.system(size: 9, weight: .medium, design: .monospaced))

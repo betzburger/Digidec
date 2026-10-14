@@ -22,35 +22,37 @@ struct NavtexReceivePanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Vollständige Nachrichten in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(controller.textModel.text, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Gesamten Empfangstext kopieren")
+                    Button {
+                        controller.clearText()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Anzeige leeren (Log und Nachrichtenliste bleiben)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Vollständige Nachrichten in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(controller.textModel.text, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Gesamten Empfangstext kopieren")
-                Button {
-                    controller.clearText()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Anzeige leeren (Log und Nachrichtenliste bleiben)")
             }
             ReceiveTextView(model: controller.textModel)
                 .background(RadioTheme.bgDeep)
@@ -125,18 +127,20 @@ struct NavtexSettingsPanel: View {
                 .foregroundColor(RadioTheme.textMuted)
                 .help("Empfänger in USB auf diese Dial-Frequenz stellen; dann liegt die NAVTEX-Mitte bei der eingestellten NF-Mitte")
             HStack(spacing: 6) {
-                Button("REV") { settings.reverse.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.reverse))
-                    .help("Mark auf der tieferen HF (bezogen auf USB). fldigi-Standard: aus")
-                Button("AFC") { settings.afcOn.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.afcOn))
-                    .help("Automatische Frequenznachführung (fldigi). Zieht wegen 4:3 Mark/Space-Bits einige Hz Richtung Mark")
-                Button(sidebandLabel) { settings.cycleSidebandMode() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.sidebandMode != .auto))
-                    .help("Seitenband: AUTO (vom Funkgerät per rigctld) → USB → LSB. Bei LSB dreht Digidec Mark/Space um")
-                Button("ITA2") { settings.ita2.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.ita2))
-                    .help("ITA2-Ziffernsatz (+ =) statt US-TTY (fldigi-Standard)")
+                ButtonGrid(columns: .spread) {
+                    Button("REV") { settings.reverse.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.reverse))
+                        .help("Mark auf der tieferen HF (bezogen auf USB). fldigi-Standard: aus")
+                    Button("AFC") { settings.afcOn.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.afcOn))
+                        .help("Automatische Frequenznachführung (fldigi). Zieht wegen 4:3 Mark/Space-Bits einige Hz Richtung Mark")
+                    Button(sidebandLabel) { settings.cycleSidebandMode() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.sidebandMode != .auto))
+                        .help("Seitenband: AUTO (vom Funkgerät per rigctld) → USB → LSB. Bei LSB dreht Digidec Mark/Space um")
+                    Button("ITA2") { settings.ita2.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.ita2))
+                        .help("ITA2-Ziffernsatz (+ =) statt US-TTY (fldigi-Standard)")
+                }
                 Spacer()
             }
             HStack(spacing: 6) {
@@ -173,7 +177,7 @@ struct NavtexSettingsPanel: View {
 
     private var freqGrid: some View {
         let count = settings.frequencies.count + 1
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+        return ButtonGrid(columns: .fill(min(count, 5))) {
             ForEach(settings.frequencies) { f in
                 Button {
                     settings.selectFrequency(id: f.id)

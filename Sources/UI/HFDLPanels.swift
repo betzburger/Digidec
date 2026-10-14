@@ -17,27 +17,29 @@ struct HFDLMessagePanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             HFDLTable(controller: controller, events: controller.visible)
                 .background(RadioTheme.bgDeep)
@@ -222,7 +224,7 @@ struct HFDLSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("KANÄLE") { showStations = false }
                     .buttonStyle(ModeButtonStyle(isSelected: !showStations))
                     .help("Kanal nach Band wählen")
@@ -233,7 +235,7 @@ struct HFDLSettingsPanel: View {
             if showStations {
                 HFDLStationsPanel(controller: controller, settings: settings)
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 4) {
+                ButtonGrid(columns: .fill(6)) {
                     ForEach(HFDLChannels.usedBands) { b in
                         Button { band = b } label: {
                             Text(verbatim: b.title.replacingOccurrences(of: " MHz", with: "")).lineLimit(1).minimumScaleFactor(0.7)
@@ -245,7 +247,7 @@ struct HFDLSettingsPanel: View {
                 Text("Kanäle im \(shownBand.title)-Band (kHz)")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+                ButtonGrid(columns: .fill(4)) {
                     ForEach(HFDLChannels.channels(in: shownBand), id: \.kHz) { c in
                         Button { settings.frequencyKHz = c.kHz } label: {
                             Text(verbatim: HFDLChannels.label(c.kHz)).lineLimit(1).minimumScaleFactor(0.7)
@@ -255,7 +257,7 @@ struct HFDLSettingsPanel: View {
                     }
                 }
             }
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("UPLINK") { settings.showUplink.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.showUplink))
                     .help("Meldungen vom Boden zum Flugzeug zeigen")

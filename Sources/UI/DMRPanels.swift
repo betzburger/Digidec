@@ -18,27 +18,29 @@ struct DMRMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.toggleRecording() } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button { controller.toggleRecording() } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Gespräche in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: { Image(systemName: "folder") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Verlauf und Zähler leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Gespräche in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: { Image(systemName: "folder") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Verlauf und Zähler leeren (Log bleibt)")
             }
             HStack(alignment: .top, spacing: 6) {
                 ForEach(0..<2, id: \.self) { slot in slotCard(slot) }
@@ -182,12 +184,14 @@ struct DMRSettingsPanel: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 56, alignment: .leading)
-                ForEach(DMRAudioSlot.allCases) { slot in
-                    Button(slot.title) { settings.audioSlot = slot }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.audioSlot == slot))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .help(slot == .auto ? "Ton des Zeitschlitzes, der zuerst ein Gespräch hat (bis es endet)" : "Nur den Ton dieses Zeitschlitzes abspielen (der Sprachchip hat nur einen Kanal)")
+                ButtonGrid(columns: .spread) {
+                    ForEach(DMRAudioSlot.allCases) { slot in
+                        Button(slot.title) { settings.audioSlot = slot }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.audioSlot == slot))
+                            .lineLimit(1)
+                            .fixedSize()
+                            .help(slot == .auto ? "Ton des Zeitschlitzes, der zuerst ein Gespräch hat (bis es endet)" : "Nur den Ton dieses Zeitschlitzes abspielen (der Sprachchip hat nur einen Kanal)")
+                    }
                 }
             }
             HStack(spacing: 6) {

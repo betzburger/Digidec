@@ -15,27 +15,29 @@ struct ALEMessagePanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Aussendungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Aussendungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             ALETable(messages: controller.messages)
                 .background(RadioTheme.bgDeep)
@@ -158,7 +160,7 @@ struct ALESettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("AUTO") { settings.auto.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.auto))
                     .help("Verstimmung aus bekannten Wörtern nachführen (Energievergleich 15 Hz über und unter jedem Ton)")
@@ -175,10 +177,12 @@ struct ALESettingsPanel: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 44, alignment: .leading)
-                ForEach(ALESensitivity.allCases) { s in
-                    Button(s.rawValue.uppercased()) { settings.sensitivity = s }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.sensitivity == s))
-                        .help("Mindestens \(s.firstMinimum) einstimmige Bit (von 48) für das erste, \(s.lockedMinimum) für folgende Wörter")
+                ButtonGrid(columns: .spread) {
+                    ForEach(ALESensitivity.allCases) { s in
+                        Button(s.rawValue.uppercased()) { settings.sensitivity = s }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.sensitivity == s))
+                            .help("Mindestens \(s.firstMinimum) einstimmige Bit (von 48) für das erste, \(s.lockedMinimum) für folgende Wörter")
+                    }
                 }
             }
             Text(verbatim: "USB, Tonblock 750 … 2500 Hz (Mitte \(Int(settings.centerHz.rounded())) Hz). Klick in den Wasserfall setzt die Mitte (schaltet AUTO aus).")

@@ -17,27 +17,29 @@ struct M17MainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.toggleRecording() } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button { controller.toggleRecording() } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Gespräche in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: { Image(systemName: "folder") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Verlauf und Zähler leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Gespräche in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: { Image(systemName: "folder") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Verlauf und Zähler leeren (Log bleibt)")
             }
             VoiceCallNowCard(call: controller.currentCall ?? controller.calls.last, locked: controller.locked, waiting: "kein Gespräch")
             VoiceCallTable(calls: controller.calls, timeFormatter: M17Controller.utc, hasDecoder: false, replay: { _ in },

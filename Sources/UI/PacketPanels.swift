@@ -51,27 +51,29 @@ struct PacketMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Rahmen und entpackte Nachrichten in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Listen leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Rahmen und entpackte Nachrichten in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Listen leeren (Log bleibt)")
             }
             Group {
                 switch tab {
@@ -698,13 +700,15 @@ struct PacketSettingsPanel: View {
                 Text("BITRATE")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach(PacketBaud.allCases, id: \.self) { b in
-                    Button(b.label) { settings.baud = b }
-                        .buttonStyle(ModeButtonStyle(isSelected: settings.baud == b))
-                        .help(b == .baud1200 ? "AFSK 1200 Bd (Bell 202): 2 m und 70 cm, Winlink-Zugangsserver und Digipeater" : "G3RUH 9600 Bd (Basisband, verwürfelt): 70 cm und Satelliten, braucht Diskriminator-Audio ohne starken Hochpass (Datenanschluss, 9k6-Buchse oder SDR) und einen breiten FM-Filter")
+                ButtonGrid(columns: .spread) {
+                    ForEach(PacketBaud.allCases, id: \.self) { b in
+                        Button(b.label) { settings.baud = b }
+                            .buttonStyle(ModeButtonStyle(isSelected: settings.baud == b))
+                            .help(b == .baud1200 ? "AFSK 1200 Bd (Bell 202): 2 m und 70 cm, Winlink-Zugangsserver und Digipeater" : "G3RUH 9600 Bd (Basisband, verwürfelt): 70 cm und Satelliten, braucht Diskriminator-Audio ohne starken Hochpass (Datenanschluss, 9k6-Buchse oder SDR) und einen breiten FM-Filter")
+                    }
                 }
             }
-            HStack(spacing: 6) {
+            ButtonGrid(columns: .spread) {
                 Button("KORREKTUR") { settings.repairBits.toggle() }
                     .buttonStyle(ModeButtonStyle(isSelected: settings.repairBits))
                     .help("Ein fehlerhaftes Bit umkehren, wenn die Prüfsumme sonst stimmt (nur ungesicherte Rahmen). Solche Rahmen stehen im Monitor (~), nie in Stationen oder Verbindungen")
@@ -737,7 +741,7 @@ struct PacketSettingsPanel: View {
     }
 
     private func channelGrid(_ channels: [PacketChannelItem], showPlus: Bool) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+        ButtonGrid(columns: .fill(4)) {
             ForEach(channels) { c in
                 Button {
                     settings.selectChannel(id: c.id)

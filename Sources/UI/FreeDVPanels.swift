@@ -17,27 +17,29 @@ struct FreeDVMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.toggleRecording() } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button { controller.toggleRecording() } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Übertragungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: { Image(systemName: "folder") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Verlauf leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Übertragungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: { Image(systemName: "folder") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Verlauf leeren (Log bleibt)")
             }
             FreeDVNowCard(controller: controller, mode: settings.mode)
             table
@@ -227,7 +229,7 @@ struct FreeDVSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
+            ButtonGrid(columns: .spread) {
                 ForEach(FreeDVMode.allCases) { m in
                     Button(m.title) { settings.mode = m }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.mode == m))
@@ -245,16 +247,18 @@ struct FreeDVSettingsPanel: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 56, alignment: .leading)
-                Button("AUSGABE") { settings.playAudio.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.playAudio))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Decodierte Sprache über den Standard-Ausgang abspielen")
-                Button("SPERRE") { settings.squelch.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.squelch))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Ton nur bei Synchronisation (sonst bleibt es still); aus: alles, was das Modem liefert")
+                ButtonGrid(columns: .spread) {
+                    Button("AUSGABE") { settings.playAudio.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.playAudio))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Decodierte Sprache über den Standard-Ausgang abspielen")
+                    Button("SPERRE") { settings.squelch.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.squelch))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Ton nur bei Synchronisation (sonst bleibt es still); aus: alles, was das Modem liefert")
+                }
             }
             Text("Empfangs-Audio des Funkgeräts im USB-Seitenband (Filter 300 bis 2500 Hz, AGC an, nicht übersteuern). Sprache und Text kommen aus Codec2 von David Rowe VK5DGR (LGPL); der Sprachcodec ist frei, es braucht keinen Stick. Üblich: 14,236 MHz USB.")
                 .font(.system(size: 9, weight: .medium, design: .monospaced))

@@ -28,29 +28,31 @@ struct DCF77MainPanel: View {
 
                 Spacer()
 
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Atomzeit-Protokoll in Datei schreiben: \(controller.logger.fileURL().path)")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Atomzeit-Protokoll in Datei schreiben: \(controller.logger.fileURL().path)")
 
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Ordner im Finder anzeigen")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Ordner im Finder anzeigen")
 
-                Button {
-                    controller.clearHistory()
-                } label: {
-                    Image(systemName: "trash")
+                    Button {
+                        controller.clearHistory()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Historie leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Historie leeren")
             }
 
             // VFD-Atomuhr-Anzeige

@@ -59,10 +59,12 @@ struct WaterfallView<Tuning: TuningTarget>: View {
 
     private var controls: some View {
         HStack(spacing: 6) {
-            ForEach(WaterfallModel.Span.allCases) { s in
-                Button(s.label) { model.span = s }
-                    .buttonStyle(ModeButtonStyle(isSelected: model.span == s))
-                    .help("Angezeigter Bereich: \(s.label)" + (s == .full ? "" : " um die Mittenfrequenz"))
+            ButtonGrid {
+                ForEach(WaterfallModel.Span.allCases) { s in
+                    Button(s.label) { model.span = s }
+                        .buttonStyle(ModeButtonStyle(isSelected: model.span == s))
+                        .help("Angezeigter Bereich: \(s.label)" + (s == .full ? "" : " um die Mittenfrequenz"))
+                }
             }
             Spacer(minLength: 8)
             Text(readout)
@@ -75,6 +77,7 @@ struct WaterfallView<Tuning: TuningTarget>: View {
                 .foregroundColor(RadioTheme.textDim)
             Button { model.rangeDB = min(90, model.rangeDB + 5) } label: { Image(systemName: "minus") }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
+                .fixedKey()
                 .help("Kontrast verringern (größerer Dynamikbereich)")
             Text("\(Int(model.rangeDB)) dB")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -82,6 +85,7 @@ struct WaterfallView<Tuning: TuningTarget>: View {
                 .frame(width: 44)
             Button { model.rangeDB = max(20, model.rangeDB - 5) } label: { Image(systemName: "plus") }
                 .buttonStyle(ModeButtonStyle(isSelected: false))
+                .fixedKey()
                 .help("Kontrast erhöhen (kleinerer Dynamikbereich)")
         }
     }

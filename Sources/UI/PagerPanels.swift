@@ -17,38 +17,40 @@ struct PagerMessagePanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    controller.toggleRecording()
-                } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button {
+                        controller.toggleRecording()
+                    } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche, später mit decode_file.sh --pager nachdecodierbar. "
+                          + "Ordner: ~/Documents/Digidec/Recordings")
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste und Zähler der Diagnose leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen (Quell-Abtastrate): zur Fehlersuche, später mit decode_file.sh --pager nachdecodierbar. "
-                      + "Ordner: ~/Documents/Digidec/Recordings")
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Meldungen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    let target = controller.lastRecording.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? controller.logger.fileURL()
-                    NSWorkspace.shared.activateFileViewerSelecting([target])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste und Zähler der Diagnose leeren (Log bleibt)")
             }
             PagerTable(messages: controller.messages, watched: settings.watched, umlauts: settings.umlauts, skyper: settings.skyper)
                 .background(RadioTheme.bgDeep)
@@ -267,36 +269,40 @@ struct PagerSettingsPanel: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 56, alignment: .leading)
-                ForEach(POCSAG.rates, id: \.self) { r in
-                    Button("\(r)") {
-                        if settings.rates.contains(r) { if settings.rates.count > 1 { settings.rates.remove(r) } } else { settings.rates.insert(r) }
+                ButtonGrid(columns: .spread) {
+                    ForEach(POCSAG.rates, id: \.self) { r in
+                        Button("\(r)") {
+                            if settings.rates.contains(r) { if settings.rates.count > 1 { settings.rates.remove(r) } } else { settings.rates.insert(r) }
+                        }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.rates.contains(r)))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("POCSAG mit \(r) Baud lesen")
                     }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.rates.contains(r)))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("POCSAG mit \(r) Baud lesen")
+                    Button("FLEX") { settings.flex.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.flex))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("FLEX (1600/3200 Baud) lesen")
                 }
-                Button("FLEX") { settings.flex.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.flex))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("FLEX (1600/3200 Baud) lesen")
             }
             HStack(spacing: 6) {
                 Text("ANZEIGE")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                     .frame(width: 56, alignment: .leading)
-                Button("SKYPER") { settings.skyper.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.skyper))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Skyper-Meldungen lesbar machen: Das Skyper-Netz sendet jedes Zeichen um 1 nach oben verschoben (Leerzeichen als !) und vor dem Text Rubrik und Nummer. Das ist keine Verschlüsselung. Aus: der Text wird so gezeigt, wie er gesendet wurde (im Tooltip steht immer die Rohfassung).")
-                Button("ÄÖÜ") { settings.umlauts.toggle() }
-                    .buttonStyle(ModeButtonStyle(isSelected: settings.umlauts))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Deutsche Umlaute anzeigen: Funkrufempfänger belegen { | } ~ mit ä ö ü ß und [ \\ ] mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003). Aus: der Text wird so gezeigt, wie er gesendet wurde.")
+                ButtonGrid(columns: .spread) {
+                    Button("SKYPER") { settings.skyper.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.skyper))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Skyper-Meldungen lesbar machen: Das Skyper-Netz sendet jedes Zeichen um 1 nach oben verschoben (Leerzeichen als !) und vor dem Text Rubrik und Nummer. Das ist keine Verschlüsselung. Aus: der Text wird so gezeigt, wie er gesendet wurde (im Tooltip steht immer die Rohfassung).")
+                    Button("ÄÖÜ") { settings.umlauts.toggle() }
+                        .buttonStyle(ModeButtonStyle(isSelected: settings.umlauts))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Deutsche Umlaute anzeigen: Funkrufempfänger belegen { | } ~ mit ä ö ü ß und [ \\ ] mit Ä Ö Ü (7-Bit-Zeichensatz DIN 66003). Aus: der Text wird so gezeigt, wie er gesendet wurde.")
+                }
             }
             HStack(spacing: 6) {
                 Text("RUFNUMMERN")
@@ -325,7 +331,7 @@ struct PagerSettingsPanel: View {
 
     private var channelGrid: some View {
         let count = settings.channels.count + 1
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: min(count, 5)), spacing: 4) {
+        return ButtonGrid(columns: .fill(min(count, 5))) {
             ForEach(settings.channels) { c in
                 Button {
                     settings.selectChannel(id: c.id)
@@ -403,27 +409,29 @@ struct TonesListPanel: View {
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
                 Spacer()
-                Button {
-                    controller.logEnabled.toggle()
-                } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                ButtonGrid {
+                    Button {
+                        controller.logEnabled.toggle()
+                    } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Tonfolgen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Log-Datei im Finder zeigen")
+                    Button {
+                        controller.clear()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: false))
+                    .help("Liste leeren (Log bleibt)")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Tonfolgen in Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.logger.fileURL()])
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Log-Datei im Finder zeigen")
-                Button {
-                    controller.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: false))
-                .help("Liste leeren (Log bleibt)")
             }
             ScrollViewReader { proxy in
                 ScrollView {
@@ -489,7 +497,7 @@ struct TonesSettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
+            ButtonGrid(columns: .fill(3)) {
                 ForEach(ToneStandard.allCases) { s in
                     Button(s.name) { settings.toggle(s) }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.standards.contains(s)))

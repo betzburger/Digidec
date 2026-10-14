@@ -40,24 +40,26 @@ struct NDBMainPanel: View {
                     .foregroundColor(RadioTheme.textDim)
                     .lineLimit(1)
                 Spacer()
-                Button { controller.toggleRecording() } label: {
-                    Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
-                          systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                ButtonGrid {
+                    Button { controller.toggleRecording() } label: {
+                        Label(controller.isRecording ? Self.duration(controller.recordingDuration) : "REC",
+                              systemImage: controller.isRecording ? "stop.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
+                    .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
+                    .help("Eingangssignal als WAV aufnehmen: zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
+                    Button { controller.logEnabled.toggle() } label: {
+                        Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
+                    }
+                    .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
+                    .help("Gelesene Kennungen in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([controller.lastRecording ?? controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
+                    Button { controller.clear() } label: { Image(systemName: "trash") }
+                        .buttonStyle(ModeButtonStyle(isSelected: false))
+                        .help("Listen leeren")
                 }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.isRecording))
-                .foregroundColor(controller.isRecording ? RadioTheme.ledRed : nil)
-                .help("Eingangssignal als WAV aufnehmen: zur Fehlersuche. Ordner: ~/Documents/Digidec/Recordings")
-                Button { controller.logEnabled.toggle() } label: {
-                    Label("LOG", systemImage: controller.logEnabled ? "record.circle.fill" : "record.circle")
-                }
-                .buttonStyle(ModeButtonStyle(isSelected: controller.logEnabled))
-                .help("Gelesene Kennungen in die Tagesdatei schreiben: \(controller.logger.fileURL().path)")
-                Button { NSWorkspace.shared.activateFileViewerSelecting([controller.lastRecording ?? controller.logger.fileURL()]) } label: { Image(systemName: "folder") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Letzte Aufnahme (sonst die Log-Datei) im Finder zeigen")
-                Button { controller.clear() } label: { Image(systemName: "trash") }
-                    .buttonStyle(ModeButtonStyle(isSelected: false))
-                    .help("Listen leeren")
             }
             Group {
                 switch tab {
@@ -382,10 +384,12 @@ struct NDBSettingsPanel: View {
                 Text("TON")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                Button("AUTO") { settings.fixedToneHz = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.fixedToneHz == 0))
-                    .help("Den Kennungston selbst suchen (250 bis 2400 Hz)")
-                Button("400") { settings.fixedToneHz = 400 }.buttonStyle(ModeButtonStyle(isSelected: settings.fixedToneHz == 400))
-                Button("1020") { settings.fixedToneHz = 1020 }.buttonStyle(ModeButtonStyle(isSelected: settings.fixedToneHz == 1020))
+                ButtonGrid {
+                    Button("AUTO") { settings.fixedToneHz = 0 }.buttonStyle(ModeButtonStyle(isSelected: settings.fixedToneHz == 0))
+                        .help("Den Kennungston selbst suchen (250 bis 2400 Hz)")
+                    Button("400") { settings.fixedToneHz = 400 }.buttonStyle(ModeButtonStyle(isSelected: settings.fixedToneHz == 400))
+                    Button("1020") { settings.fixedToneHz = 1020 }.buttonStyle(ModeButtonStyle(isSelected: settings.fixedToneHz == 1020))
+                }
                 Text(settings.fixedToneHz > 0 ? "\(Int(settings.fixedToneHz)) Hz fest" : "")
                     .font(.system(size: 8, weight: .medium, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -394,8 +398,10 @@ struct NDBSettingsPanel: View {
                 Text("UMKREIS")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach([150.0, 400.0, 800.0, 1500.0], id: \.self) { km in
-                    Button("\(Int(km)) km") { settings.radiusKm = km }.buttonStyle(ModeButtonStyle(isSelected: settings.radiusKm == km))
+                ButtonGrid(columns: .spread) {
+                    ForEach([150.0, 400.0, 800.0, 1500.0], id: \.self) { km in
+                        Button("\(Int(km)) km") { settings.radiusKm = km }.buttonStyle(ModeButtonStyle(isSelected: settings.radiusKm == km))
+                    }
                 }
             }
             .help("Funkfeuer innerhalb dieser Entfernung vom Standort in Liste, Karte und Suchlauf")
@@ -403,8 +409,10 @@ struct NDBSettingsPanel: View {
                 Text("VERWEILEN")
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundColor(RadioTheme.textDim)
-                ForEach([20.0, 45.0, 70.0], id: \.self) { s in
-                    Button("\(Int(s)) s") { settings.dwellSeconds = s }.buttonStyle(ModeButtonStyle(isSelected: settings.dwellSeconds == s))
+                ButtonGrid(columns: .spread) {
+                    ForEach([20.0, 45.0, 70.0], id: \.self) { s in
+                        Button("\(Int(s)) s") { settings.dwellSeconds = s }.buttonStyle(ModeButtonStyle(isSelected: settings.dwellSeconds == s))
+                    }
                 }
             }
             .help("Wartezeit je Frequenz im Suchlauf")
