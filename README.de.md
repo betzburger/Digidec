@@ -28,6 +28,12 @@ Alle Module teilen sich Wasserfall, Eingangswahl, Karte, Log und Bedienung. Es d
 |---|---|
 | **MEHRKANAL** | Mehrere Decoder zugleich auf verschiedenen Frequenzen aus einem Fenster des SDR (HackRF bis 20 MS/s, bis zu 16 Kanäle), auf Kurzwelle wie auf UKW; steht in der Modulleiste als doppelt hoher Knopf vor beiden Rubriken. Je Kanal ein eigener Decoder: UKW/UHF (APRS, PACKET, AIS A und B, ACARS, PAGER, SONDE, VOR/ILS, TÖNE, DMR, D-STAR, YSF, dPMR, NXDN, P25, M17) und Kurzwelle (RTTY mit DWD-Voreinstellungen, DSC, NAVTEX, WEFAX, HFDL, SSTV mit Voreinstellungen in der richtigen Seitenband-Lage); im HF-Wasserfall markiert, Klick trägt die Frequenz ein; ACARS und VDL2 zeigen das Flugzeug aus ADS-B, DSC den Schiffsnamen aus AIS und die AIS-Liste markiert Schiffe mit Seenotruf |
 
+### 🤖 KI-Assistent (optional)
+
+| Funktion | Beschreibung |
+|---|---|
+| **KI fragen** | Rechtsklick auf ein Signal im HF-Wasserfall oder markierter Text im Empfangsfenster: ein Sprachmodell sagt, was das sein könnte. Digidec vermisst das Signal selbst (Mitte, Bandbreite, Linien, FSK-Shift, Tastung, Drift) und ergänzt Anhaltspunkte aus eigenen Tabellen; der Kontext steht vor dem Senden im Fenster. Funktioniert mit jedem OpenAI-kompatiblen Server: **llama-server**, Ollama, LM Studio, **OpenRouter**. API-Schlüssel liegen im Schlüsselbund, der Standort wird nur mit Freigabe mitgesendet. |
+
 **UKW und darüber (VHF/UHF)**
 
 | Modul | Inhalt |

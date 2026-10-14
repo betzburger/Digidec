@@ -12251,6 +12251,21 @@ if want("hfbank") {
     check(sstv.contains { $0.frequencyHz == 7_171_000 && $0.mode == .lsb } && sstv.contains { $0.frequencyHz == 14_230_000 && $0.mode == .usb } && sstv.contains { $0.frequencyHz == 145_800_000 && $0.mode == .nfm }, "Kanäle SSTV: 40 m in LSB, 20 m in USB, ISS in FM")
     check(ChannelCatalog.modules.contains(.rtty) && ChannelCatalog.modules.contains(.hfdl) && ChannelCatalog.defaults(for: .rtty).mode == .usb && ChannelCatalog.defaults(for: .rtty).bandwidthHz == 3_000, "Kanäle: HF-Decoder in der Auswahl, Standard USB 3 kHz")
     check(ChannelCatalog.title(module: .rtty, frequencyHz: 10_099_800).contains("DDK9") && ChannelCatalog.title(module: .rtty, frequencyHz: 5_000_000).hasPrefix("RTTY"), "Kanäle: Anzeigename aus der Voreinstellung")
+    // Gemeinsame Karte der Kanäle: gleiche Kennungen aus zwei Kanälen bleiben getrennt, der Kanalname steht in der Auswahl
+    do {
+        let a = MapContent(markers: [MapMarker(id: "ac-D-ABCD", coordinate: GeoPoint(lat: 50, lon: 10), title: "D-ABCD", subtitle: "FL350")],
+                           lines: [MapLine(id: "route-1", points: [GeoPoint(lat: 50, lon: 10), GeoPoint(lat: 51, lon: 11)])], note: "Hinweis A")
+        let b = MapContent(markers: [MapMarker(id: "ac-D-ABCD", coordinate: GeoPoint(lat: 48, lon: 9), title: "D-ABCD")], note: "Hinweis B")
+        let home = GeoPoint(lat: 49.5, lon: 10.5)
+        let m = ChannelMapBuilder.merge([ChannelMapPart(slotID: 1, title: "ACARS 131,550 MHz", content: a), ChannelMapPart(slotID: 4, title: "ACARS 131,725 MHz", content: b)], home: home)
+        check(m.markers.count == 2 && Set(m.markers.map(\.id)).count == 2 && m.markers[0].id == "ch1/ac-D-ABCD" && m.markers[1].id == "ch4/ac-D-ABCD", "Kanalkarte: gleiche Kennungen aus zwei Kanälen bleiben getrennt")
+        check(m.markers[0].subtitle == "ACARS 131,550 MHz · FL350" && m.markers[1].subtitle == "ACARS 131,725 MHz", "Kanalkarte: Kanalname vor der zweiten Zeile")
+        check(m.lines.count == 1 && m.lines[0].id == "ch1/route-1" && m.home == home && m.note == "Hinweis A · Hinweis B", "Kanalkarte: Linien, Standort und Hinweise")
+        check(ChannelMapBuilder.split("ch12/adsb-4840D6")?.slotID == 12 && ChannelMapBuilder.split("ch12/adsb-4840D6")?.original == "adsb-4840D6" && ChannelMapBuilder.split("xyz") == nil && ChannelMapBuilder.split("chx/a") == nil, "Kanalkarte: Kennung zurück in Kanal und Original")
+        let empty = ChannelMapBuilder.merge([], home: home)
+        check(empty.markers.isEmpty && empty.lines.isEmpty && !empty.emptyHint.isEmpty, "Kanalkarte: ohne Kanäle leer mit Hinweis")
+        check(DecoderModuleInfo.channels.hasMap, "Mehrkanal: Modul hat jetzt eine Karte")
+    }
     // Alte gespeicherte Kanäle (ohne Voreinstellung) lassen sich weiter lesen
     let old = #"[{"id":3,"moduleID":"aprs","frequencyHz":144800000,"mode":"nfm","bandwidthHz":12500,"enabled":true,"label":""}]"#
     let decoded = try? JSONDecoder().decode([SDRBankSlot].self, from: Data(old.utf8))
@@ -13632,6 +13647,200 @@ if want("drm") {
                 }
             }
         } else { skip("xHE-AAC echt: TestData/DRM/xhe_sintel24.xhe liegt nicht lokal vor") }
+    }
+}
+
+// MARK: - KI-Assistent: Signalmessung, OpenAI-Protokoll, Client, Kontext
+if want("assistant") {
+    func approx(_ a: Double, _ b: Double, _ tol: Double) -> Bool { abs(a - b) <= tol }
+
+    // Adressen
+    check(LLMProtocol.chatURL(base: "http://127.0.0.1:8080")?.absoluteString == "http://127.0.0.1:8080/v1/chat/completions", "LLM: Basisadresse ohne /v1 bekommt /v1")
+    check(LLMProtocol.chatURL(base: " http://h:8080/v1/ ")?.absoluteString == "http://h:8080/v1/chat/completions" && LLMProtocol.chatURL(base: "https://openrouter.ai/api/v1")?.absoluteString == "https://openrouter.ai/api/v1/chat/completions", "LLM: Adresse mit /v1 und abschließendem Schrägstrich, OpenRouter")
+    check(LLMProtocol.chatURL(base: "localhost:11434")?.absoluteString == "http://localhost:11434/v1/chat/completions" && LLMProtocol.chatURL(base: "http://h/v1/chat/completions")?.absoluteString == "http://h/v1/chat/completions", "LLM: ohne Schema wird http angenommen, volle Adresse bleibt")
+    check(LLMProtocol.chatURL(base: "") == nil && LLMProtocol.chatURL(base: "ftp://x") == nil && LLMProtocol.modelsURL(base: "http://h:1/v1")?.absoluteString == "http://h:1/v1/models", "LLM: ungültige Adressen, Modellliste")
+
+    // Anfrage
+    do {
+        let cfg = LLMConfig(baseURL: "x", model: "", maxTokens: 700, temperature: 0.2)
+        let body = LLMProtocol.requestBody(config: cfg, messages: [LLMMessage(.system, "S"), LLMMessage(.user, "Frage", images: [Data([1, 2, 3])])], stream: true)
+        let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        let msgs = obj["messages"] as? [[String: Any]] ?? []
+        let parts = msgs.last?["content"] as? [[String: Any]] ?? []
+        let url = (parts.last?["image_url"] as? [String: Any])?["url"] as? String
+        check(obj["model"] == nil && obj["stream"] as? Bool == true && obj["max_tokens"] as? Int == 700 && msgs.first?["content"] as? String == "S", "LLM: Anfrage ohne Modell, mit Strom und Grenze")
+        check(parts.count == 2 && parts.first?["type"] as? String == "text" && url == "data:image/png;base64,AQID", "LLM: Bild als image_url mit Datenadresse")
+        let withModel = LLMProtocol.requestBody(config: LLMConfig(baseURL: "x", model: " a/b "), messages: [LLMMessage(.user, "x")], stream: false)
+        check(((try? JSONSerialization.jsonObject(with: withModel)) as? [String: Any])?["model"] as? String == "a/b", "LLM: Modellname wird gekürzt übernommen")
+    }
+
+    // Antwortzeilen
+    check(LLMProtocol.parseStreamLine(#"data: {"choices":[{"delta":{"content":"Hall"}}]}"#) == .text("Hall"), "LLM Strom: Textteil")
+    check(LLMProtocol.parseStreamLine(#"data: {"choices":[{"delta":{"content":null,"reasoning_content":"denke"}}]}"#) == .reasoning("denke") && LLMProtocol.parseStreamLine(#"data: {"choices":[{"delta":{"reasoning":"x"}}]}"#) == .reasoning("x"), "LLM Strom: Gedankengang (llama-server und OpenRouter)")
+    check(LLMProtocol.parseStreamEvents(#"data: {"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}"#) == [.text("x"), .finish("length")] && LLMProtocol.parseStreamEvents(#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#) == [.finish("stop")], "LLM Strom: Text und Ende-Grund in einer Zeile, Längengrenze")
+    check(LLMProtocol.parseStreamLine("data: [DONE]") == .done && LLMProtocol.parseStreamLine(": OPENROUTER PROCESSING") == nil && LLMProtocol.parseStreamLine("") == nil && LLMProtocol.parseStreamLine(#"data: {"choices":[]}"#) == nil, "LLM Strom: Ende, Kommentarzeile, leere Zeile, leere Auswahl")
+    check(LLMProtocol.parseStreamLine(#"data: {"error":{"message":"kaputt","code":500}}"#) == .error("kaputt"), "LLM Strom: Fehler im Strom")
+    check(LLMProtocol.parseResponse(Data(#"{"choices":[{"message":{"content":"ok"}}]}"#.utf8)) == .text("ok") && LLMProtocol.parseResponse(Data("x".utf8)) == .error("Antwort nicht lesbar"), "LLM: Antwort ohne Strom")
+    do {
+        let models = LLMProtocol.parseModels(Data(#"{"data":[{"id":"a","name":"A","architecture":{"input_modalities":["text","image"]}},{"id":"b","architecture":{"input_modalities":["text"]}},{"id":"c"}]}"#.utf8))
+        check(models.map(\.id) == ["a", "b", "c"] && models.map(\.vision) == [true, false, nil] && models[0].name == "A", "LLM: Modellliste mit Bildfähigkeit")
+        check(LLMProtocol.parseModels(Data(#"{"models":[{"model":"m1"}]}"#.utf8)).map(\.id) == ["m1"], "LLM: Modellliste im Format von llama-server")
+    }
+    check(LLMProtocol.errorText(status: 401, body: Data(#"{"error":{"message":"No auth"}}"#.utf8)) == "Zugriff abgelehnt (API-Schlüssel fehlt oder ist ungültig): No auth" && LLMProtocol.errorText(status: 402, body: Data()).hasPrefix("Kein Guthaben") && LLMProtocol.errorText(status: 502, body: Data("Bad".utf8)).hasPrefix("Fehler im Server"), "LLM: Fehlertexte")
+
+    // Einstellungen je Server
+    do {
+        let suite = "digidec.test.llm.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        let st = LLMSettingsStore(defaults: d)
+        check(st.provider == .llamaServer && st.baseURL(for: .openRouter) == "https://openrouter.ai/api/v1" && !st.sendImage && !st.sendLocation && st.maxTokens == 4000, "LLM Einstellungen: Vorgaben (Standort und Bild aus)")
+        st.setModel("anthropic/x", for: .openRouter)
+        st.setBaseURL("http://192.168.1.5:8080/v1", for: .llamaServer)
+        st.provider = .openRouter
+        check(st.config(apiKey: "k").model == "anthropic/x" && st.config(apiKey: "k").apiKey == "k", "LLM Einstellungen: Modell je Server")
+        st.provider = .llamaServer
+        check(st.config(apiKey: "").baseURL == "http://192.168.1.5:8080/v1" && st.config(apiKey: "").model == "", "LLM Einstellungen: Adresse je Server gemerkt")
+        d.removePersistentDomain(forName: suite)
+    }
+
+    // Kontext
+    do {
+        let t = AssistantTuning(moduleName: "RTTY", frequencyHz: 10_100_800, mode: "USB", source: "SDR", utc: Date(timeIntervalSince1970: 1_791_000_000), locator: nil)
+        let c = AssistantContextBuilder.text(selection: "  ZCZC AB12\nWX  ", before: String(repeating: "a", count: 5000), after: "NNNN", tuning: t)
+        check(c.kind == .text && c.text.contains("ZCZC AB12") && c.text.contains("NNNN") && c.text.contains("10.100,800 kHz".replacingOccurrences(of: "10.100,800", with: "10100,800")) && !c.text.contains("Standort"), "Kontext Text: Auswahl, Umgebung, Frequenz, kein Standort ohne Freigabe")
+        check(c.text.count < AssistantContextBuilder.maxTextCharacters + 800 && c.title.hasPrefix("Markierter Text: ZCZC AB12 WX"), "Kontext Text: Länge begrenzt, Titel")
+        var t2 = t
+        t2.locator = "JN49WS"
+        check(AssistantContextBuilder.general(tuning: t2).text.contains("JN49WS") && AssistantContextBuilder.general(tuning: t).text.contains("2026-"), "Kontext: Standort nur wenn gesetzt, Zeit in UTC")
+        let sys = AssistantPrompt.system(moduleNames: ["RTTY", "AIS"], language: "de")
+        check(sys.contains("RTTY, AIS") && sys.contains("Antworte auf Deutsch") && AssistantPrompt.system(moduleNames: [], language: "en").contains("Answer in English"), "Systemanweisung: Module und Sprache")
+    }
+
+    // Signalmessung an synthetischen Spektren
+    do {
+        let n = 4096, binHz = 100.0, start = 10_000_000.0
+        var seed: UInt64 = 12345
+        func rnd() -> Float { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Float(Double(seed >> 33) / Double(1 << 31)) - 0.5 }
+        func row(_ tones: [(bin: Int, db: Float)] = [], block: (lo: Int, hi: Int, db: Float)? = nil) -> [Float] {
+            var r = (0..<n).map { _ in -90 + 4 * rnd() }
+            for t in tones {
+                r[t.bin] = max(r[t.bin], t.db)
+                for k in 1...3 { let v = t.db - 12 * Float(k); if t.bin - k >= 0 { r[t.bin - k] = max(r[t.bin - k], v) }; if t.bin + k < n { r[t.bin + k] = max(r[t.bin + k], v) } }
+            }
+            if let b = block { for i in b.lo...b.hi { r[i] = b.db + 2 * rnd() } }
+            return r
+        }
+        func hz(_ bin: Int) -> Double { start + (Double(bin) + 0.5) * binHz }
+
+        // stetiger Träger
+        let carrier = (0..<100).map { _ in row([(2000, -50)]) }
+        let m1 = SignalMeasure.analyze(rows: carrier, startHz: start, binHz: binHz, targetHz: hz(2003))!
+        check(approx(m1.centerHz, hz(2000), binHz) && approx(Double(m1.snrDB), 40, 4) && m1.bw3Hz <= 3 * binHz && m1.duty == nil && m1.lines.count <= 1, "Signalmessung: stetiger Träger (Mitte \(m1.centerHz), SNR \(m1.snrDB), B3 \(m1.bw3Hz))")
+        check(m1.describe().contains("stetiges Signal") && m1.describe().contains("Messgrenzen"), "Signalmessung: Text nennt stetig und die Messgrenzen")
+
+        // getasteter Träger: 12 Zeilen an, 12 aus
+        let keyed = (0..<120).map { i in (i / 12) % 2 == 0 ? row([(2000, -50)]) : row() }
+        let m2 = SignalMeasure.analyze(rows: keyed, startHz: start, binHz: binHz, targetHz: hz(2000))!
+        check(approx(m2.duty ?? 0, 0.5, 0.08) && approx(m2.medianOnSeconds ?? 0, 0.48, 0.1) && approx(m2.medianOffSeconds ?? 0, 0.48, 0.1) && approx(m2.periodSeconds ?? 0, 0.96, 0.12),
+              "Signalmessung: getastet (an \(m2.medianOnSeconds ?? -1) s, aus \(m2.medianOffSeconds ?? -1) s, Periode \(m2.periodSeconds ?? -1) s, Anteil \(m2.duty ?? -1))")
+
+        // Zwei Tonlagen (FSK): 200 Hz Abstand, wechselt alle 7 Zeilen
+        let fsk = (0..<100).map { i in row([((i / 7) % 2 == 0 ? 2000 : 2002, -50)]) }
+        let m3 = SignalMeasure.analyze(rows: fsk, startHz: start, binHz: binHz, targetHz: hz(2001))!
+        check(m3.tones.count == 2 && approx(abs(m3.tones[1] - m3.tones[0]), 200, 110) && m3.describe().contains("FSK"), "Signalmessung: zwei feste Tonlagen (\(m3.tones))")
+        check(approx(m3.centerHz, hz(2000) + 100, 60) && approx(m3.tones[0], -m3.tones[1], 1), "Signalmessung: Mitte zwischen den Tonlagen (\(m3.centerHz))")
+
+        // Breites flaches Band, 3 kHz
+        let block = (0..<100).map { _ in row(block: (1985, 2014, -60)) }
+        let m4 = SignalMeasure.analyze(rows: block, startHz: start, binHz: binHz, targetHz: hz(2000))!
+        check(approx(m4.occupiedHz, 3000, 500) && m4.flatnessDB < 2.5 && m4.describe().contains("flach"), "Signalmessung: flaches Band (Breite \(m4.occupiedHz), Streuung \(m4.flatnessDB))")
+
+        // Wandernder Träger: 1 Bin je 10 Zeilen = 250 Hz/s
+        // neueste Zeile zuerst: Zeile 0 ist die späteste
+        let drifting = (0..<100).map { i in row([(2000 + (99 - i) / 10, -50)]) }
+        let m5 = SignalMeasure.analyze(rows: drifting, startHz: start, binHz: binHz, targetHz: hz(2004))!
+        check(m5.tones.isEmpty && approx(m5.driftHzPerSecond ?? 0, 250, 90), "Signalmessung: Drift (\(m5.driftHzPerSecond ?? -1) Hz/s)")
+
+        // Nur Rauschen
+        let noise = (0..<100).map { _ in row() }
+        let m6 = SignalMeasure.analyze(rows: noise, startHz: start, binHz: binHz, targetHz: hz(1500))!
+        check(Double(m6.snrDB) < 12, "Signalmessung: nur Rauschen (SNR \(m6.snrDB))")
+        check(SignalMeasure.analyze(rows: [], startHz: start, binHz: binHz, targetHz: start) == nil && SignalMeasure.analyze(rows: Array(carrier.prefix(2)), startHz: start, binHz: binHz, targetHz: start) == nil, "Signalmessung: zu wenig Daten ergibt nil")
+        // Anhaltspunkte aus den Tabellen
+        let fsk170 = (0..<100).map { i in row([((i / 3) % 2 == 0 ? 2000 : 2008, -50)]) }
+        let h1 = SignalHints.candidates(SignalMeasure.analyze(rows: fsk170, startHz: start, binHz: 20, targetHz: start + 2004 * 20)!)
+        check(h1.contains { $0.contains("170 Hz Shift") && $0.contains("RTTY") && $0.contains("NAVTEX") }, "Hinweise: 170 Hz Shift ergibt RTTY und NAVTEX (\(h1))")
+        let h2 = SignalHints.candidates(m3)
+        check(h2.contains { $0.contains("200 Hz Shift") && $0.contains("PACKET") }, "Hinweise: 200 Hz Shift ergibt Packet")
+        let ndbStart = 300_000.0 - 2000.5 * binHz
+        let h3 = SignalHints.candidates(SignalMeasure.analyze(rows: keyed, startHz: ndbStart, binHz: binHz, targetHz: ndbStart + 2000.5 * binHz)!)
+        check(h3.contains { $0.contains("Morse") && $0.contains("NDB") }, "Hinweise: getastetes Signal auf 300 kHz ergibt Morse und NDB (\(h3))")
+        let aisStart = 161_975_000.0 - 2000.5 * binHz
+        let h4 = SignalHints.candidates(SignalMeasure.analyze(rows: carrier, startHz: aisStart, binHz: binHz, targetHz: aisStart + 2000.5 * binHz)!)
+        check(h4.contains { $0.contains("AIS A") && $0.contains("Modul AIS") }, "Hinweise: bekannte Frequenz 161,975 MHz ergibt AIS (\(h4))")
+        let h5 = SignalHints.candidates(m6)
+        check(h5.count == 1 && h5[0].contains("kaum über dem Rauschen"), "Hinweise: zu schwaches Signal wird nicht zugeordnet")
+        let h6 = SignalHints.candidates(m4)
+        check(h6.contains { $0.contains("Datensignal mit mehreren Trägern") }, "Hinweise: flaches 3-kHz-Band ergibt Mehrträger-Datensignal (\(h6))")
+        let ctx = AssistantContextBuilder.signal(SignalMeasure.analyze(rows: fsk170, startHz: start, binHz: 20, targetHz: start + 2004 * 20)!, tuning: AssistantTuning(moduleName: "RTTY", utc: Date()), image: Data([1]))
+        check(ctx.kind == .signal && ctx.image != nil && ctx.text.contains("Wasserfall-Ausschnitt") && ctx.text.contains("Anhaltspunkte aus Digidecs") && ctx.title.hasPrefix("Signal bei 10"), "Kontext Signal: Messwerte, Bildhinweis, Titel")
+    }
+
+    // Darstellung der Antwort
+    do {
+        let r = String(AssistantMarkdown.render("## Titel\n- **fett** und Text\n  - tief\n---\nNormal").characters)
+        check(r == "Titel\n• fett und Text\n  • tief\n────────────────────────\nNormal", "KI-Antwort: Überschrift, Aufzählung, Trennlinie (\(r.debugDescription))")
+    }
+
+    // Client gegen den nachgebauten Server
+    do {
+        final class Box<V>: @unchecked Sendable { var value: V?; init() {} }
+        func blocking<T: Sendable>(_ op: @escaping @Sendable () async -> T) -> T {
+            let box = Box<T>()
+            let sem = DispatchSemaphore(value: 0)
+            Task.detached { box.value = await op(); sem.signal() }
+            sem.wait()
+            return box.value!
+        }
+        struct Outcome: Sendable { var text = ""; var reasoning = ""; var finish = ""; var done = false; var error = "" }
+        func run(_ cfg: LLMConfig, _ msgs: [LLMMessage]) -> Outcome {
+            blocking {
+                var o = Outcome()
+                do {
+                    for try await e in LLMClient(timeout: 10).stream(config: cfg, messages: msgs) {
+                        switch e {
+                        case .text(let t): o.text += t
+                        case .reasoning(let r): o.reasoning += r
+                        case .finish(let r): o.finish = r
+                        case .done: o.done = true
+                        case .error(let m): o.error = m
+                        }
+                    }
+                } catch { o.error = error.localizedDescription }
+                return o
+            }
+        }
+        let events = [": OPENROUTER PROCESSING", #"data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}"#, #"data: {"choices":[{"delta":{"content":"Hallo"}}]}"#,
+                      #"data: {"choices":[{"delta":{"content":" Welt"}}]}"#, #"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#, "data: [DONE]"]
+        if let server = FakeLLMServer(.stream(events)) {
+            let cfg = LLMConfig(baseURL: "http://127.0.0.1:\(server.port)/v1", apiKey: "sk-test", model: "gpt-fake")
+            let o = run(cfg, [LLMMessage(.system, "S"), LLMMessage(.user, "Frage")])
+            check(o.text == "Hallo Welt" && o.reasoning == "denke" && o.finish == "stop" && o.done && o.error.isEmpty, "LLM Client: Strom (Text „\(o.text)“, Gedanke „\(o.reasoning)“)")
+            let body = (try? JSONSerialization.jsonObject(with: server.lastBody)) as? [String: Any]
+            check(server.lastPath == "/v1/chat/completions" && server.header("authorization") == "Bearer sk-test" && server.header("x-title") == "Digidec" && body?["model"] as? String == "gpt-fake" && body?["stream"] as? Bool == true,
+                  "LLM Client: Pfad, Schlüssel, Kopfzeile und Körper der Anfrage")
+            let models: [LLMModelInfo] = blocking { (try? await LLMClient(timeout: 10).models(config: cfg)) ?? [] }
+            check(models.map(\.id) == ["gpt-fake", "nur-text"] && models.map(\.vision) == [true, false] && server.lastPath == "/v1/models", "LLM Client: Modellliste")
+        } else { check(false, "LLM Client: Testserver startet nicht") }
+        if let server = FakeLLMServer(.status(401, #"{"error":{"message":"No auth"}}"#)) {
+            let o = run(LLMConfig(baseURL: "http://127.0.0.1:\(server.port)"), [LLMMessage(.user, "x")])
+            check(o.error.contains("API-Schlüssel") && o.error.contains("No auth") && o.text.isEmpty, "LLM Client: HTTP 401 mit Meldung des Servers (\(o.error))")
+        }
+        // Nichts hört auf dem Port
+        let o2 = run(LLMConfig(baseURL: "http://127.0.0.1:1"), [LLMMessage(.user, "x")])
+        check(o2.error.contains("Keine Verbindung") && !o2.done, "LLM Client: Server nicht erreichbar (\(o2.error))")
+        let o3 = run(LLMConfig(baseURL: ""), [LLMMessage(.user, "x")])
+        check(o3.error.contains("ungültig"), "LLM Client: leere Adresse")
     }
 }
 

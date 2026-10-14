@@ -24,6 +24,7 @@ struct ReceiveTextView: NSViewRepresentable {
         tv.string = model.text
 
         let coordinator = context.coordinator
+        tv.delegate = coordinator
         coordinator.textView = tv
         coordinator.scrollView = scroll
         model.onAppend = { [weak coordinator] s, decoded in coordinator?.append(s, decoded: decoded) }
@@ -43,7 +44,7 @@ struct ReceiveTextView: NSViewRepresentable {
     static let decodedColor = NSColor(red: 1.00, green: 0.72, blue: 0.10, alpha: 1)   // RadioTheme.vfdAmber
 
     @MainActor
-    final class Coordinator {
+    final class Coordinator: NSObject, NSTextViewDelegate {
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
 
@@ -61,6 +62,31 @@ struct ReceiveTextView: NSViewRepresentable {
 
         func clear() {
             textView?.string = ""
+        }
+
+        /// Kontextmenü: markierten Text (oder ohne Markierung den letzten Teil) dem KI-Assistenten vorlegen
+        func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+            let hasSelection = view.selectedRange().length > 0
+            let item = NSMenuItem(title: String(localized: hasSelection ? "KI fragen: markierter Text …" : "KI fragen: letzter Text …"), action: #selector(askAssistant(_:)), keyEquivalent: "")
+            item.target = self
+            item.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
+            menu.insertItem(item, at: 0)
+            menu.insertItem(.separator(), at: 1)
+            return menu
+        }
+
+        @objc private func askAssistant(_ sender: Any?) {
+            guard let tv = textView else { return }
+            let all = tv.string as NSString
+            var range = tv.selectedRange()
+            if range.length == 0 {
+                let len = min(all.length, 1500)
+                range = NSRange(location: all.length - len, length: len)
+            }
+            let before = all.substring(with: NSRange(location: max(0, range.location - 1500), length: range.location - max(0, range.location - 1500)))
+            let afterStart = range.location + range.length
+            let after = all.substring(with: NSRange(location: afterStart, length: min(1500, all.length - afterStart)))
+            DigidecState.shared.assistant.askAboutText(selection: all.substring(with: range), before: before, after: after)
         }
 
         /// Die Rohmeldung der Station im angezeigten Text markieren und ins Bild holen

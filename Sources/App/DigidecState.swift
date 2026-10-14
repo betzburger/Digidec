@@ -42,6 +42,8 @@ public final class DigidecState: ObservableObject {
     @Published public var showAbout = false
     /// Eigener Standort für alle Karten und Entfernungen
     public let home = HomeLocation()
+    /// KI-Assistent (Fragen zu Signalen und Texten an llama-server, OpenRouter und Ähnliche)
+    public let assistant = AssistantModel()
     /// Kurzwellen-Ausbreitung für das Lineal am rechten Fensterrand
     public let propagation = PropagationService()
     public let navtex = NavtexSettingsStore()
@@ -233,6 +235,7 @@ public final class DigidecState: ObservableObject {
         sstvController = SSTVController(pipeline: audio.pipeline, settings: sstv)
 
         channelHub = ChannelHub(bank: sdrController.bank, state: self)
+        assistant.tuningProvider = { [unowned self] in self.assistantTuning() }
         sdrController.slotAudio = { [unowned self] id in self.channelHub.audioHandler(for: id) }
 
         autoRecorder = ScheduleAutoRecorder(state: self, wefax: wefaxSchedule, rtty: rttySchedule, navtex: navtexPlan, sonde: sondePlan)
@@ -844,6 +847,21 @@ public final class DigidecState: ObservableObject {
         case .failure(let error):
             lastRequestError = error.description
         }
+    }
+
+    /// Zustand des Empfängers für Fragen an den KI-Assistenten (Modul, Frequenz, Betriebsart, Zeit, Standort nur mit Freigabe)
+    func assistantTuning() -> AssistantTuning {
+        var frequency: Double?
+        var mode: String?
+        switch audio.sourceKind {
+        case .sdr:
+            frequency = sdr.frequencyHz
+            mode = sdr.mode.title
+        case .audio, .file:
+            if rig.state.connected, let f = rig.state.frequencyHz { frequency = Double(f); mode = rig.state.mode }
+        }
+        return AssistantTuning(moduleName: activeModule.displayName, frequencyHz: frequency, mode: mode, source: audio.sourceKind.label,
+                               utc: Date(), locator: home.locator)
     }
 
     /// Wie zeigt das Modul seine Daten? Ohne Ortsdaten immer als Liste.

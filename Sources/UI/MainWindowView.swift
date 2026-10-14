@@ -702,6 +702,11 @@ public struct MainWindowView: View {
                 state.aisController.showInfo(for: mmsi)
                 openWindow(id: "ship-info")
             }
+            // Entwicklungshilfe: DIGIDEC_ASSISTANT_DEMO=<Basisadresse> [DIGIDEC_ASSISTANT_DUMP=<Datei>] stellt dem KI-Assistenten nach 3 s eine künstliche Signalfrage
+            if let base = ProcessInfo.processInfo.environment["DIGIDEC_ASSISTANT_DEMO"] {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                state.assistant.runDemo(baseURL: base, dumpPath: ProcessInfo.processInfo.environment["DIGIDEC_ASSISTANT_DUMP"])
+            }
             // Entwicklungshilfe: DIGIDEC_QRZ=<Rufzeichen> öffnet das Fenster „QRZ.com“ nach 4 s (für Schnappschüsse)
             if let v = ProcessInfo.processInfo.environment["DIGIDEC_QRZ"] {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
@@ -714,6 +719,7 @@ public struct MainWindowView: View {
                 openWindow(id: "aircraft-info")
             }
         }
+        .background(AssistantOpener(model: state.assistant))
         .sheet(isPresented: $showRTTYSettings) {
             RTTYSettingsSheet(settings: state.rtty)
         }
@@ -768,8 +774,10 @@ private struct HeaderBar: View {
 
             Spacer()
 
+            ChannelsKey(state: state)
             MapToggleButton(state: state)
             ButtonGrid {
+                AssistantButton(model: state.assistant)
                 ScheduleButton(state: state, auto: state.autoRecorder)
                 WebServerButton(server: state.webServer, onTap: { state.showWebSettings = true })
                 RigControlToggle(state: state, rig: state.rig)
@@ -780,6 +788,52 @@ private struct HeaderBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
+    }
+}
+
+/// Öffnet das Fenster des KI-Assistenten, wenn eine Frage vorbereitet wurde (beobachtet den Assistenten selbst, nicht den Zustand der App)
+private struct AssistantOpener: View {
+    @ObservedObject var model: AssistantModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .onChange(of: model.showRequest) { _, _ in openWindow(id: "assistant") }
+    }
+}
+
+/// KI: öffnet das Fenster des Assistenten mit einer allgemeinen Frage zum aktuellen Empfang
+private struct AssistantButton: View {
+    @ObservedObject var model: AssistantModel
+
+    var body: some View {
+        Button { model.stageGeneral() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "sparkles").font(.system(size: 9, weight: .bold))
+                Text("KI")
+            }
+        }
+        .buttonStyle(ModeButtonStyle(isSelected: model.isBusy, compact: true))
+        .help("KI-Assistent: Fragen zu Signalen im Wasserfall und zu decodierten Texten (Rechtsklick in den HF-Wasserfall bzw. auf markierten Text)")
+    }
+}
+
+/// MEHRKANAL: mehrere Decoder zugleich aus einem Fenster des SDR (HF und VHF/UHF), steht neben den Darstellungstasten
+private struct ChannelsKey: View {
+    @ObservedObject var state: DigidecState
+
+    var body: some View {
+        let module = DecoderModuleInfo.channels
+        ButtonGrid {
+            Button { state.select(module: module) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "square.grid.3x1.below.line.grid.1x2").font(.system(size: 9, weight: .bold))
+                    Text(LocalizedStringKey(module.displayName))
+                }
+            }
+            .buttonStyle(ModeButtonStyle(isSelected: state.activeModule == module, compact: true))
+            .help("MEHRKANAL · mehrere Decoder zugleich aus einem Fenster des SDR, auf Kurzwelle wie auf UKW")
+        }
     }
 }
 
@@ -988,42 +1042,15 @@ private struct ModuleBar: View {
 
     /// Zellbreite aller Modul-Tasten (breitestes Kürzel: SENSOREN); beide Rubriken teilen dasselbe Raster
     private static let cellWidth: CGFloat = 74
-    /// Breite des Mehrkanal-Knopfes: genau zwei Rasterspalten
-    private static let multiWidth: CGFloat = cellWidth * 2 + RadioMetrics.keySpacing
     private static let labelWidth: CGFloat = 52
 
     var body: some View {
-        // Die Rubriken reservieren links Platz für den Mehrkanal-Knopf; er liegt als Überlagerung darüber und hat damit genau die Höhe der Zeilen:
-        // vom oberen Rand des ersten bis zum unteren Rand des letzten Knopfes
         VStack(spacing: RadioMetrics.keySpacing) {
             ForEach(DecoderModuleInfo.Band.allCases) { band in
                 bandRow(band)
             }
         }
-        .overlay(alignment: .topLeading) {
-            multiButton
-                .padding(.leading, 11 + Self.labelWidth + 8)
-        }
         .padding(.horizontal, 14)
-    }
-
-    /// Ein Knopf für beide Rubriken: Rand wie alle anderen Modul-Buttons (RadioTheme.borderSubtle / vfdCyan)
-    private var multiButton: some View {
-        let module = DecoderModuleInfo.channels
-        let selected = state.activeModule == module
-        return Button { state.select(module: module) } label: {
-            VStack(spacing: 3) {
-                Text(LocalizedStringKey(module.displayName))
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                Text("HF + VHF/UHF")
-                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                    .opacity(0.75)
-            }
-        }
-        .buttonStyle(ModeButtonStyle(isSelected: selected))
-        .environment(\.buttonFillsCell, true)
-        .frame(width: Self.multiWidth)
-        .help("MEHRKANAL · mehrere Decoder zugleich aus einem Fenster des SDR, auf Kurzwelle wie auf UKW")
     }
 
     /// Eine Rubrik: farbige Leiste links, Kürzel des Bereichs, dann die Module A–Z
@@ -1036,8 +1063,6 @@ private struct ModuleBar: View {
                 .tracking(0.8)
                 .frame(width: Self.labelWidth, height: RadioMetrics.keyHeight, alignment: .leading)
                 .help(band.detail)
-            // Platz für den Mehrkanal-Knopf
-            Color.clear.frame(width: Self.multiWidth, height: 1)
             ButtonGrid(columns: .cell(Self.cellWidth)) {
                 ForEach(band.modules) { module in
                     Button {

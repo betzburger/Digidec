@@ -121,6 +121,12 @@ All modules share a unified waterfall display, flexible audio/SDR input selectio
 |---|---|
 | **MEHRKANAL (Multi-Channel)** | Run up to **16 decoders simultaneously** across different frequencies from a single SDR wideband slice (up to 20 MS/s with HackRF). Monitor APRS, AIS, ACARS, Pagers, DMR, and HF RTTY/DSC in parallel. Cross-references aircraft callsigns between ADS-B/ACARS and vessel names between AIS/DSC! |
 
+### 🤖 AI Assistant (optional)
+
+| Feature | Description |
+|---|---|
+| **Ask the AI** | Right-click a signal in the RF waterfall, or select decoded text, and ask a language model what it is. Digidec measures the signal itself (centre, bandwidth, lines, FSK shift, keying, drift) and adds hints from its own tables; the context is shown before anything is sent. Works with any OpenAI-compatible server: **llama-server**, Ollama, LM Studio, **OpenRouter**. API keys are stored in the keychain, the location is only sent if you allow it. |
+
 ### 📡 VHF, UHF & SDR Modes
 
 | Module | Description & Capabilities |

@@ -96,6 +96,13 @@ struct DigidecApp: App {
         }
         .defaultSize(width: 560, height: 820)
         .windowResizability(.contentMinSize)
+        // Fragen zu Signalen und Texten an einen KI-Server (llama-server, OpenRouter, …)
+        Window("KI-Assistent", id: "assistant") {
+            AssistantWindow(model: state.assistant)
+                .environment(\.locale, activeLocale)
+        }
+        .defaultSize(width: 560, height: 760)
+        .windowResizability(.contentMinSize)
         // Rufzeichen bei QRZ.com nachschlagen: die Seite wird erst auf Knopfdruck von qrz.com geladen
         Window("QRZ.com", id: "qrz") {
             QRZWindow(lookup: QRZLookup.shared)

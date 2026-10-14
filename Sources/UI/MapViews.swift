@@ -37,7 +37,8 @@ struct ModuleMapView: View {
             case .ndb:    NDBMapView(controller: state.ndbController, home: state.home)
             case .dstar:  DStarMapView(controller: state.dstarController, home: state.home)
             case .m17:    M17MapView(controller: state.m17Controller, home: state.home)
-            case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .sensors, .vdl2, .dab, .vor, .freedv, .channels, .rds:
+            case .channels: ChannelsMapView(hub: state.channelHub, home: state.home)
+            case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .sensors, .vdl2, .dab, .vor, .freedv, .rds:
                 Text("Dieses Modul hat keine Ortsdaten")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundColor(RadioTheme.textMuted)
@@ -99,6 +100,21 @@ extension DecoderModuleInfo {
         case .dstar: return "Die gehörte Aussendung mit Rufzeichen, Repeater, Text und Position, dazu der Verlauf mit Wiedergabe"
         case .channels: return "Die Kanäle der Kanalbank mit ihren Decodern, alle zugleich aus einem Fenster des SDR"
         case .aprs, .acars, .hfdl, .ft8, .ft4, .ft2, .wspr, .js8, .dsc, .ale, .pager, .tones: return "Die Liste der empfangenen Stationen und Meldungen"
+        }
+    }
+}
+
+// MARK: - Mehrkanal: alle Kanäle auf einer Karte
+
+private struct ChannelsMapView: View {
+    @ObservedObject var hub: ChannelHub
+    @ObservedObject var home: HomeLocation
+    @State private var selection: String?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 3)) { ctx in
+            MapPanel(content: hub.mapContent(home: home.point, now: ctx.date), home: home, selection: $selection,
+                     legend: "Alle Kanäle auf einer Karte · der Kanal steht in den Einzelheiten", keepZoomOnSelect: true)
         }
     }
 }

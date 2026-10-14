@@ -21,6 +21,8 @@ final class SDRSpectrumModel: ObservableObject {
     }
 
     private let rowSource: @MainActor () -> [[Float]]
+    /// Letzte Zeilen in dB, neueste zuerst (für die Vermessung eines Signals durch den KI-Assistenten)
+    var recentRows: [[Float]] { dbRows }
     private var pixels: [UInt32]
     private(set) var columns: Int
     private var dbRows: [[Float]] = []
@@ -143,7 +145,10 @@ struct SDRSpectrumView: View {
 
     @State private var zoom: SDRZoomFactor
     @State private var hoverHz: Double?
+    /// Letzte Mausposition im Wasserfall (bleibt beim Öffnen des Kontextmenüs erhalten)
+    @State private var lastHoverHz: Double?
     @State private var scrollMonitor: Any?
+    @ObservedObject private var assistant = DigidecState.shared.assistant
 
     init(controller: SDRController, settings: SDRSettingsStore, audio: AudioInputManager) {
         self.controller = controller
@@ -225,13 +230,14 @@ struct SDRSpectrumView: View {
                         }
                     }
                     .contentShape(Rectangle())
+                    .contextMenu { signalMenu }
                     .gesture(DragGesture(minimumDistance: 0).onChanged { value in
                         let f = snap(frequency(atX: value.location.x, width: width, range: r))
                         if bank.isActive { bank.pendingFrequencyHz = f } else { controller.tune(frequencyHz: f) }
                     })
                     .onContinuousHover { phase in
                         switch phase {
-                        case .active(let p): hoverHz = frequency(atX: p.x, width: width, range: r); SDRHoverState.shared.hovering = true
+                        case .active(let p): hoverHz = frequency(atX: p.x, width: width, range: r); lastHoverHz = hoverHz; SDRHoverState.shared.hovering = true
                         case .ended: hoverHz = nil; SDRHoverState.shared.hovering = false
                         }
                     }
@@ -289,6 +295,29 @@ struct SDRSpectrumView: View {
         } else {
             Rectangle().fill(RadioTheme.bgDeep)
         }
+    }
+
+    /// Rechtsklick: das Signal an der Mausposition vermessen und dem KI-Assistenten vorlegen
+    @ViewBuilder
+    private var signalMenu: some View {
+        if let hz = lastHoverHz {
+            Button("KI fragen: Signal bei \(AssistantFormat.frequency(hz))") { askAssistant(about: hz) }
+        }
+    }
+
+    private func askAssistant(about hz: Double) {
+        let rows = model.value.recentRows
+        let columns = model.value.columns
+        let startHz = fullRange.lowerBound
+        let binHz = fullSpan / Double(max(1, columns))
+        let tuning = assistant.tuning() ?? AssistantTuning(moduleName: "?")
+        guard let m = SignalMeasure.analyze(rows: rows, startHz: startHz, binHz: binHz, targetHz: hz) else {
+            assistant.notice = "Für eine Messung fehlen Zeilen im Wasserfall (der Empfänger läuft noch nicht lange genug)."
+            assistant.stage(AssistantContextBuilder.general(tuning: tuning))
+            return
+        }
+        let image = model.value.image.flatMap { AssistantWaterfallImage.png(from: $0, startHz: startHz, binHz: binHz, measurement: m) }
+        assistant.stage(AssistantContextBuilder.signal(m, tuning: tuning, image: image))
     }
 
     private var controls: some View {

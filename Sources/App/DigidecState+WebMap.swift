@@ -59,12 +59,13 @@ extension DigidecState {
         case .wefax:  return TransmitterMap.content(Transmitters.dwd("wefax", frequency: "\(wefax.station.label) kHz"), home: home)
         case .dcf77:  return TransmitterMap.content(Transmitters.dcf77(), home: home)
         case .efr:    return TransmitterMap.content(Transmitters.efr(efr.station), home: home)
+        case .channels: return channelHub.mapContent(home: home, now: now)
         case .ndb:    return ndbController.mapContent(now: now)
         case .dstar:  return dstarController.positions.mapContent(home: home, now: now, selection: nil,
                                                                   hint: "Noch keine DPRS-Position empfangen (Langsamdaten der Aussendungen)")
         case .m17:    return m17Controller.positions.mapContent(home: home, now: now, selection: nil,
                                                                 hint: "Noch keine Position empfangen (M17-Zusatzdaten)")
-        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .sensors, .vdl2, .dab, .vor, .freedv, .channels, .rds:
+        case .sstv, .ale, .pager, .tones, .hell, .packet, .ysf, .dmr, .dpmr, .nxdn, .p25, .drm, .tetra, .sensors, .vdl2, .dab, .vor, .freedv, .rds:
             return nil
         }
     }

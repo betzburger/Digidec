@@ -20,13 +20,15 @@ public final class ChannelInstance: ObservableObject, Identifiable {
     private let activate: (Bool) -> Void
     private let summaryText: () -> String
     private let makeView: () -> AnyView
+    private let makeMap: ((GeoPoint?, Date) -> MapContent)?
     private var running = false
     private var forward: AnyCancellable?
 
     public nonisolated var id: Int { slotID }
 
     init(slotID: Int, module: DecoderModuleInfo, pipeline: AudioPipeline, controller: AnyObject, objectWillChange publisher: AnyPublisher<Void, Never>,
-         activate: @escaping (Bool) -> Void, summary: @escaping () -> String, view: @escaping () -> AnyView) {
+         activate: @escaping (Bool) -> Void, summary: @escaping () -> String, view: @escaping () -> AnyView,
+         map: ((GeoPoint?, Date) -> MapContent)? = nil) {
         self.slotID = slotID
         self.module = module
         self.pipeline = pipeline
@@ -34,6 +36,7 @@ public final class ChannelInstance: ObservableObject, Identifiable {
         self.activate = activate
         summaryText = summary
         makeView = view
+        makeMap = map
         forward = publisher.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
@@ -41,6 +44,9 @@ public final class ChannelInstance: ObservableObject, Identifiable {
     public var summary: String { summaryText() }
 
     public var view: AnyView { makeView() }
+
+    /// Positionen dieses Kanals für die gemeinsame Karte; nil, wenn der Decoder keine Ortsdaten liefert
+    public func mapContent(home: GeoPoint?, now: Date) -> MapContent? { makeMap?(home, now) }
 
     public var isRunning: Bool { running }
 
@@ -82,6 +88,16 @@ public final class ChannelHub: ObservableObject {
     /// Die Controller eines Typs in allen Kanälen (für die Verbindung der Dienste: AIS, ACARS, DSC …)
     func controllers<T>(of type: T.Type) -> [T] {
         instances.values.compactMap { $0.controller as? T }
+    }
+
+    /// Die Positionen aller Kanäle mit Ortsdaten auf einer Karte (APRS, AIS, ACARS, HFDL, Sonden, DSC, NAVTEX, D-Star, M17, RTTY-Rufzeichen)
+    func mapContent(home: GeoPoint?, now: Date) -> MapContent {
+        let parts: [ChannelMapPart] = bank.slots.compactMap { slot in
+            guard let content = instances[slot.id]?.mapContent(home: home, now: now) else { return nil }
+            let title = slot.label.isEmpty ? ChannelCatalog.title(module: DecoderModuleInfo(rawValue: slot.moduleID) ?? .aprs, frequencyHz: slot.frequencyHz) : slot.label
+            return ChannelMapPart(slotID: slot.id, title: title, content: content)
+        }
+        return ChannelMapBuilder.merge(parts, home: home)
     }
 
     /// Audio-Ziel eines Kanals für die Engine des SDR-Empfängers
@@ -127,15 +143,17 @@ public final class ChannelHub: ObservableObject {
         let pipeline = AudioPipeline()
         let home = state.home
         let voiceOutput = state.dstarController.output
-        func build<C: ObservableObject & AnyObject>(_ controller: C, activate: @escaping (Bool) -> Void, summary: @escaping () -> String, view: @escaping () -> AnyView) -> ChannelInstance {
+        func build<C: ObservableObject & AnyObject>(_ controller: C, activate: @escaping (Bool) -> Void, summary: @escaping () -> String, view: @escaping () -> AnyView,
+                                                                  map: ((GeoPoint?, Date) -> MapContent)? = nil) -> ChannelInstance {
             ChannelInstance(slotID: slot.id, module: module, pipeline: pipeline, controller: controller, objectWillChange: controller.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                            activate: activate, summary: summary, view: view)
+                            activate: activate, summary: summary, view: view, map: map)
         }
         switch module {
         case .aprs:
             let settings = APRSSettingsStore()
             let c = APRSController(pipeline: pipeline, settings: settings)
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.stations.count) Stationen" }, view: { AnyView(APRSMainPanel(controller: c, settings: settings, home: home)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.stations.count) Stationen" }, view: { AnyView(APRSMainPanel(controller: c, settings: settings, home: home)) },
+                         map: { home, now in c.mapContent(home: home, now: now) })
         case .packet:
             let settings = PacketSettingsStore()
             let c = PacketController(pipeline: pipeline, settings: settings)
@@ -145,11 +163,13 @@ public final class ChannelHub: ObservableObject {
             let c = AISController(pipeline: pipeline, settings: settings)
             c.homePoint = home.point
             c.forcedChannel = abs(slot.frequencyHz - AISChannel.frequencyB) < abs(slot.frequencyHz - AISChannel.frequencyA) ? .b : .a
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.ships.count) Schiffe" }, view: { AnyView(AISMainPanel(controller: c, settings: settings, home: home)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.ships.count) Schiffe" }, view: { AnyView(AISMainPanel(controller: c, settings: settings, home: home)) },
+                         map: { home, now in c.mapContent(home: home, now: now) })
         case .acars:
             let settings = ACARSSettingsStore()
             let c = ACARSController(pipeline: pipeline, settings: settings)
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.messages.count) Nachrichten" }, view: { AnyView(ACARSMessagePanel(controller: c, settings: settings)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.messages.count) Nachrichten" }, view: { AnyView(ACARSMessagePanel(controller: c, settings: settings)) },
+                         map: { home, now in c.mapContent(home: home, now: now) })
         case .pager:
             let settings = PagerSettingsStore()
             let c = PagerController(pipeline: pipeline, settings: settings)
@@ -157,13 +177,15 @@ public final class ChannelHub: ObservableObject {
         case .sonde:
             let settings = SondeSettingsStore()
             let c = SondeController(pipeline: pipeline, settings: settings)
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.flights.count) Sonden" }, view: { AnyView(SondeMainPanel(controller: c, settings: settings, home: home)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.flights.count) Sonden" }, view: { AnyView(SondeMainPanel(controller: c, settings: settings, home: home)) },
+                         map: { home, now in c.mapContent(home: home, now: now) })
         case .dsc:
             let settings = DSCSettingsStore(defaults: isolatedDefaults(slot))
             if let o = slot.preset, let ch = DSCChannel(rawValue: o) { settings.channel = ch }
             settings.setCenter(ChannelCatalog.audioCenter(for: .dsc))
             let c = DSCController(pipeline: pipeline, settings: settings)
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.messages.count) Meldungen" }, view: { AnyView(DSCMessagePanel(controller: c)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.messages.count) Meldungen" }, view: { AnyView(DSCMessagePanel(controller: c)) },
+                         map: { home, now in DSCMapBuilder.content(c.messages, home: home, now: now) })
         case .rtty:
             let settings = RTTYSettingsStore(defaults: isolatedDefaults(slot))
             settings.select(presetID: slot.preset ?? "ham")
@@ -173,13 +195,15 @@ public final class ChannelHub: ObservableObject {
             options.synopDecoding = false
             settings.options = options
             let c = RTTYController(pipeline: pipeline, settings: settings)
-            return build(c, activate: { c.decoder.setEnabled($0) }, summary: { "\(c.textModel.characterCount) Zeichen" }, view: { AnyView(ReceivePanel(controller: c, settings: settings)) })
+            return build(c, activate: { c.decoder.setEnabled($0) }, summary: { "\(c.textModel.characterCount) Zeichen" }, view: { AnyView(ReceivePanel(controller: c, settings: settings)) },
+                         map: { home, now in HeardMapBuilder.content(c.textModel.calls.heard, home: home, now: now, mode: "RTTY", emptyHint: "") })
         case .navtex:
             let settings = NavtexSettingsStore(defaults: isolatedDefaults(slot))
             if let o = slot.preset, let f = NavtexFrequency(rawValue: o) { settings.frequency = f }
             settings.setCenter(ChannelCatalog.audioCenter(for: .navtex))
             let c = NavtexController(pipeline: pipeline, settings: settings)
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.entries.count) Meldungen" }, view: { AnyView(NavtexReceivePanel(controller: c)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.entries.count) Meldungen" }, view: { AnyView(NavtexReceivePanel(controller: c)) },
+                         map: { home, now in NavtexMapBuilder.content(c.entries, home: home, now: now) })
         case .wefax:
             let settings = WefaxSettingsStore(defaults: isolatedDefaults(slot))
             if let o = slot.preset, let st = WefaxStation(rawValue: o) { settings.station = st }
@@ -191,7 +215,8 @@ public final class ChannelHub: ObservableObject {
             let settings = HFDLSettingsStore(defaults: isolatedDefaults(slot))
             if let o = slot.preset, let k = HFDLChannels.kHz(presetID: o) { settings.frequencyKHz = k }
             let c = HFDLController(pipeline: pipeline, settings: settings)
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.aircraft.count) Flugzeuge" }, view: { AnyView(HFDLMessagePanel(controller: c, settings: settings)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.aircraft.count) Flugzeuge" }, view: { AnyView(HFDLMessagePanel(controller: c, settings: settings)) },
+                         map: { home, now in c.mapContent(home: home, now: now) })
         case .sstv:
             let settings = SSTVSettingsStore(defaults: isolatedDefaults(slot))
             if let o = slot.preset, let ch = SSTVChannel(rawValue: o) { settings.channel = ch }
@@ -214,7 +239,8 @@ public final class ChannelHub: ObservableObject {
             let settings = DStarSettingsStore()
             let c = DStarController(pipeline: pipeline, settings: settings)
             c.silent = true
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.transmissions.count) Aussendungen" }, view: { AnyView(DStarMainPanel(controller: c, settings: settings)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.transmissions.count) Aussendungen" }, view: { AnyView(DStarMainPanel(controller: c, settings: settings)) },
+                         map: { home, now in c.positions.mapContent(home: home, now: now, selection: nil, hint: "") })
         case .ysf:
             let settings = YSFSettingsStore()
             let c = YSFController(pipeline: pipeline, settings: settings)
@@ -239,7 +265,8 @@ public final class ChannelHub: ObservableObject {
             let settings = M17SettingsStore()
             let c = M17Controller(pipeline: pipeline, settings: settings)
             c.silence()
-            return build(c, activate: { c.setActive($0) }, summary: { "\(c.calls.count) Gespräche" }, view: { AnyView(M17MainPanel(controller: c, settings: settings)) })
+            return build(c, activate: { c.setActive($0) }, summary: { "\(c.calls.count) Gespräche" }, view: { AnyView(M17MainPanel(controller: c, settings: settings)) },
+                         map: { home, now in c.positions.mapContent(home: home, now: now, selection: nil, hint: "") })
         default:
             return nil
         }
