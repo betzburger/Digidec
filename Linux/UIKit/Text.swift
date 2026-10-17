@@ -183,6 +183,14 @@ enum TextEngine {
     private static let measureSurface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1)!
     private static let measureCr = cairo_create(measureSurface)!
 
+    private static let fontOptions: OpaquePointer = {
+        let o = cairo_font_options_create()!
+        cairo_font_options_set_hint_metrics(o, CAIRO_HINT_METRICS_OFF)
+        cairo_font_options_set_hint_style(o, CAIRO_HINT_STYLE_NONE)
+        cairo_font_options_set_antialias(o, CAIRO_ANTIALIAS_GRAY)
+        return o
+    }()
+
     struct Key: Hashable { var spec: TextSpec; var width: Int }
     struct Metrics { var size: CGSize; var baseline: CGFloat }
     private static var cache: [Key: Metrics] = [:]
@@ -192,6 +200,8 @@ enum TextEngine {
 
     private static func makeLayout(_ cr: OpaquePointer, _ spec: TextSpec, scale: CGFloat, width: CGFloat?) -> OpaquePointer {
         let layout = pango_cairo_create_layout(cr)!
+        // Messung und Zeichnung müssen dieselben Schriftmaße verwenden (sonst wird Text beim Zeichnen abgeschnitten)
+        pango_cairo_context_set_font_options(pango_layout_get_context(layout), fontOptions)
         let description = pango_font_description_new()!
         pango_font_description_set_family(description, spec.font.family)
         pango_font_description_set_weight(description, PangoWeight(rawValue: UInt32(spec.font.weight.rawValue)))
@@ -249,7 +259,10 @@ enum TextEngine {
         guard !spec.text.isEmpty else { return }
         cairo_save(cr)
         defer { cairo_restore(cr) }
-        let layout = makeLayout(cr, spec, scale: 1, width: rect.width)
+        var fitting = spec
+        // Passt der Text, wird nie gekürzt (Pango kürzt sonst bei Zeichenabstand schon bei exakt passender Breite)
+        if spec.lineLimit != nil, measure(spec, width: nil).size.width <= rect.width + 0.5 { fitting.lineLimit = nil }
+        let layout = makeLayout(cr, fitting, scale: 1, width: fitting.lineLimit == nil ? rect.width + 1 : rect.width)
         defer { g_object_unref(UnsafeMutableRawPointer(layout)) }
         cairo_set_source_rgba(cr, spec.color.red, spec.color.green, spec.color.blue, spec.color.alpha)
         cairo_move_to(cr, rect.minX, rect.minY)
