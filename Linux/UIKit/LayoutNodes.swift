@@ -43,8 +43,11 @@ final class StackNode: Node {
             group.sort { (hi[$0] - lo[$0]) < (hi[$1] - lo[$1]) }
             let reserved = (0..<n).filter { children[$0].layoutPriority < priority && !done.contains($0) }.reduce(0) { $0 + lo[$1] }
             var left = group.count
-            for i in group {
-                let share = max(0, (remaining - reserved) / CGFloat(left))
+            for (position, i) in group.enumerated() {
+                // Ein Kind mit endlicher Wunschgröße bekommt sie, wenn die übrigen noch mit ihrer Mindestgröße Platz haben
+                let laterMinimum = group[(position + 1)...].reduce(0) { $0 + lo[$1] }
+                var share = max(0, (remaining - reserved) / CGFloat(left))
+                if hi[i].isFinite { share = max(share, min(hi[i], remaining - reserved - laterMinimum)) }
                 let s = children[i].size(for: p.with(axis, share))
                 sizes[i] = s
                 remaining -= s.along(axis)
