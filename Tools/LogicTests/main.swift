@@ -20,6 +20,7 @@ import VoiceCore
 
 // Linux: Unterschiede zu Apples Bibliotheken, die nur die Tests brauchen
 let sockStream = Int32(SOCK_STREAM.rawValue)
+let _: Void = { setenv("DIGIDEC_LANG", "de", 1) }()   // Die Prüfungen erwarten die deutschen Ausgangstexte
 extension CGImage { var size: CGSize { CGSize(width: width, height: height) } }
 #endif
 #if canImport(Darwin)

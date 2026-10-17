@@ -107,13 +107,16 @@ public enum RadioCodecLocator {
 
     /// "AppleUSBAudioEngine:Burr-Brown from TI:USB Audio CODEC:3114310:2" → 0x03114310; andere UIDs → nil
     public static func locationFromCodecUID(_ uid: String) -> UInt32? {
+        if uid.hasPrefix("AppleUSBAudioEngine:") {
+            let parts = uid.split(separator: ":")
+            guard parts.count >= 2 else { return nil }
+            return UInt32(parts[parts.count - 2], radix: 16)
+        }
         #if !canImport(IOKit)
+        // Linux: Position der PulseAudio-Quelle aus sysfs (siehe AudioDeviceCatalog)
         return AudioDeviceCatalog.usbLocations.withLock { $0[uid] }
         #else
-        guard uid.hasPrefix("AppleUSBAudioEngine:") else { return nil }
-        let parts = uid.split(separator: ":")
-        guard parts.count >= 2 else { return nil }
-        return UInt32(parts[parts.count - 2], radix: 16)
+        return nil
         #endif
     }
 

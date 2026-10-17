@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
-// xHE-AAC (USAC) über libavcodec (FFmpeg), Gegenstück zum Format 'usac' von AudioToolbox unter macOS.
+// xHE-AAC (USAC) über libfdk-aac (zur Laufzeit geladen), Gegenstück zum Format 'usac' von AudioToolbox unter macOS.
 #ifndef CXHEDECODE_H
 #define CXHEDECODE_H
 #include <stdint.h>

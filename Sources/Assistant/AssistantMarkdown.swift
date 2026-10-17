@@ -25,12 +25,23 @@ public enum AssistantMarkdown {
             var part = (try? AttributedString(markdown: line, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(line)
             if heading { part.inlinePresentationIntent = .stronglyEmphasized }
             #else
-            // Linux: Foundation liest hier kein Markdown; der Text kommt ohne Auszeichnung (Überschriften bleiben erkennbar am fehlenden „#“)
-            let part = AttributedString(line)
+            // Linux: Foundation liest hier kein Markdown; die Zeichen für fett, kursiv und Code werden entfernt, die Auszeichnung fehlt
+            let part = AttributedString(Self.plainInline(line))
             #endif
             out.append(part)
             if i < lines.count - 1 { out.append(AttributedString("\n")) }
         }
         return out
     }
+
+    #if !canImport(Darwin)
+    /// Entfernt die Markdown-Zeichen für fett (** und __), kursiv (*) und Code (`) aus einer Zeile
+    static func plainInline(_ line: String) -> String {
+        var out = line
+        for marker in ["**", "__", "`"] { out = out.replacingOccurrences(of: marker, with: "") }
+        // einzelne *…* um Wörter entfernen, Aufzählungszeichen am Zeilenanfang sind schon ersetzt
+        out = out.replacingOccurrences(of: #"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"#, with: "$1", options: .regularExpression)
+        return out
+    }
+    #endif
 }

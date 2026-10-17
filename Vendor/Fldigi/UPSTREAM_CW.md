@@ -41,3 +41,5 @@ Das Skript bricht ab, wenn eine Funktion oder Ersetzungsstelle nicht genau einma
 - **Einschwingen:** Die Pegelnachführung startet mit `agc_peak = 0` und `noise_floor = 1`. Nach völliger Stille wird das erste Element oft falsch gelesen. Das ist fldigi-Verhalten und in Digidec unverändert.
 - **Geschwindigkeit:** Die Nachführung arbeitet nur im Bereich Start ±`CWrange` (10 WpM). Außerhalb davon zerfällt der Text.
 - **Grenze (synthetisch, S/N in 3 kHz, 18 WpM, 150 Hz):** fehlerfrei bis +3 dB, bei 0 dB einzelne Fehler. Mit Matched Filter (36 Hz) bei −3 dB fehlerfrei.
+
+- **Linux (libstdc++):** `cw_rx.cpp` rief `abs()` mit einem `double` auf. Mit libc++ (macOS) wählt das die Gleitkomma-Überladung, mit libstdc++ (Linux) die für `int`: das Filterergebnis wurde auf ganze Zahlen abgeschnitten und es kam kein Text. Geändert zu `fabs()`.

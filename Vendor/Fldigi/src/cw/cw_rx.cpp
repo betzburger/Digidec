@@ -676,7 +676,7 @@ void cw::rx_FFTprocess(const double *buf, int len)
 		n = cw_filter->Irun(fil_in, fil_out);
 		smpl_ctr++;
 		if (n) {
-			bit_value = bitfilter->run(abs(fil_out));
+			bit_value = bitfilter->run(fabs(fil_out));
 			decode_stream(bit_value);
 		}
 	}

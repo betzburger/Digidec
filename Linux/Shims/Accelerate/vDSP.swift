@@ -185,7 +185,25 @@ public func vDSP_zvmags(_ a: UnsafePointer<DSPSplitComplex>, _ ia: vDSP_Stride, 
     for i in 0..<Int(n) { let r = re[i * ia], q = im[i * ia]; c[i * ic] = r * r + q * q }
 }
 
+/// Skalarprodukt zweier Reihen mit Schrittweite 1 über acht Spuren (SIMD): ohne diesen Weg ist der Abtastratenwandler bei 96 kHz zu langsam
+@inline(__always)
+private func dotContiguous(_ a: UnsafePointer<Float>, _ b: UnsafePointer<Float>, _ n: Int) -> Float {
+    var acc = SIMD8<Float>(repeating: 0)
+    var i = 0
+    let raw_a = UnsafeRawPointer(a), raw_b = UnsafeRawPointer(b)
+    while i + 8 <= n {
+        let x = raw_a.loadUnaligned(fromByteOffset: i * 4, as: SIMD8<Float>.self)
+        let y = raw_b.loadUnaligned(fromByteOffset: i * 4, as: SIMD8<Float>.self)
+        acc += x * y
+        i += 8
+    }
+    var s = acc.sum()
+    while i < n { s += a[i] * b[i]; i += 1 }
+    return s
+}
+
 public func vDSP_dotpr(_ a: UnsafePointer<Float>, _ ia: vDSP_Stride, _ b: UnsafePointer<Float>, _ ib: vDSP_Stride, _ result: UnsafeMutablePointer<Float>, _ n: vDSP_Length) {
+    if ia == 1 && ib == 1 { result.pointee = dotContiguous(a, b, Int(n)); return }
     var s: Float = 0
     for i in 0..<Int(n) { s += a[i * ia] * b[i * ib] }
     result.pointee = s
@@ -198,6 +216,7 @@ public func vDSP_sve(_ a: UnsafePointer<Float>, _ ia: vDSP_Stride, _ result: Uns
 }
 
 public func vDSP_svesq(_ a: UnsafePointer<Float>, _ ia: vDSP_Stride, _ result: UnsafeMutablePointer<Float>, _ n: vDSP_Length) {
+    if ia == 1 { result.pointee = dotContiguous(a, a, Int(n)); return }
     var s: Float = 0
     for i in 0..<Int(n) { let v = a[i * ia]; s += v * v }
     result.pointee = s
@@ -220,20 +239,16 @@ public func vDSP_maxmgv(_ a: UnsafePointer<Float>, _ ia: vDSP_Stride, _ result: 
     result.pointee = m
 }
 
-/// Hann-Fenster w[n] = 0,5·(1 − cos(2πn/N)). Die Skalierung von `vDSP_HANN_NORM` ist hier nicht nachgebildet: Digidec teilt die Pegel durch die Fenstersumme,
-/// der Faktor kürzt sich also heraus. TODO: gegen einen Lauf am Mac prüfen, falls Fensterwerte anderswo direkt verwendet werden.
+/// Hann-Fenster: `vDSP_HANN_DENORM` w[n] = 0,5·(1 − cos(2πn/N)); `vDSP_HANN_NORM` zusätzlich mit √(8/3) skaliert (Effektivwert 1, w[n] = √(2/3)·(1 − cos(2πn/N))).
+/// Der Faktor folgt Apples Beschreibung; der SDR-Spektrumtest (−26 dB ± 2,5 dB) bestätigt die Größenordnung.
 public func vDSP_hann_window(_ window: UnsafeMutablePointer<Float>, _ n: vDSP_Length, _ flags: Int32) {
     let count = Int(n)
-    for i in 0..<count { window[i] = Float(0.5 * (1 - cos(2 * Double.pi * Double(i) / Double(count)))) }
+    let scale = (Int(flags) & vDSP_HANN_NORM) != 0 ? (8.0 / 3.0).squareRoot() : 1.0
+    for i in 0..<count { window[i] = Float(scale * 0.5 * (1 - cos(2 * Double.pi * Double(i) / Double(count)))) }
 }
 
 /// Dezimierende Korrelation: C[n] = Σ A[n·DF + p] · F[p] (p < P)
 public func vDSP_desamp(_ a: UnsafePointer<Float>, _ df: vDSP_Stride, _ f: UnsafePointer<Float>, _ c: UnsafeMutablePointer<Float>, _ n: vDSP_Length, _ p: vDSP_Length) {
     let taps = Int(p)
-    for i in 0..<Int(n) {
-        var s: Float = 0
-        let base = a + i * df
-        for k in 0..<taps { s += base[k] * f[k] }
-        c[i] = s
-    }
+    for i in 0..<Int(n) { c[i] = dotContiguous(a + i * df, f, taps) }
 }

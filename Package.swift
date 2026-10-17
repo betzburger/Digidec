@@ -219,8 +219,7 @@ package.targets += [
         .product(name: "OpenCombineFoundation", package: "OpenCombine")
     ], path: "Linux/Shims/Combine"),
     .systemLibrary(name: "CSndfile", path: "Linux/Shims/CSndfile", pkgConfig: "sndfile", providers: [.apt(["libsndfile1-dev"])]),
-    .target(name: "CXHEDecode", path: "Linux/Shims/CXHEDecode", publicHeadersPath: "include",
-            linkerSettings: [.linkedLibrary("avcodec"), .linkedLibrary("avutil")]),
+    .target(name: "CXHEDecode", path: "Linux/Shims/CXHEDecode", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("dl")]),
     .target(name: "SwiftUI", dependencies: ["Combine"], path: "Linux/Shims/SwiftUI"),
     .target(name: "Network", path: "Linux/Shims/Network"),
     .target(name: "AVTestShim", dependencies: ["CSndfile"], path: "Linux/Shims/AVTestShim"),

@@ -1,67 +1,105 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
+// xHE-AAC über libfdk-aac (Fraunhofer FDK AAC), zur Laufzeit mit dlopen geladen: Digidec bindet die Bibliothek nicht fest ein
+// (ihre Lizenz ist mit der GPL nicht verträglich); wer sie installiert hat (Paket „fdk-aac“/„libfdk-aac“), bekommt xHE-AAC.
 #include "cxhedecode.h"
+#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libavcodec/avcodec.h>
-#include <libavutil/channel_layout.h>
-#include <libavutil/mem.h>
+
+// Minimale Deklarationen nach fdk-aac/aacdecoder_lib.h (Version 2.x, ABI stabil), damit zum Bauen keine Entwicklungsdateien nötig sind
+typedef void *HANDLE_AACDECODER;
+typedef unsigned char UCHAR;
+typedef unsigned int UINT;
+typedef int INT;
+typedef short INT_PCM;
+typedef int TRANSPORT_TYPE;
+typedef int AAC_DECODER_ERROR;
+enum { TT_MP4_RAW = 0 };
+enum { AAC_DEC_OK = 0 };
+enum { AACDEC_INTR = 4, AACDEC_CLRHIST = 8 };
+/// Die ersten Felder von CStreamInfo
+typedef struct { INT sampleRate; INT frameSize; INT numChannels; } CStreamInfo;
+
+typedef HANDLE_AACDECODER (*open_fn)(TRANSPORT_TYPE, UINT);
+typedef AAC_DECODER_ERROR (*config_raw_fn)(HANDLE_AACDECODER, UCHAR *[], const UINT[]);
+typedef AAC_DECODER_ERROR (*fill_fn)(HANDLE_AACDECODER, UCHAR *[], const UINT[], UINT *);
+typedef AAC_DECODER_ERROR (*decode_fn)(HANDLE_AACDECODER, INT_PCM *, const INT, const UINT);
+typedef CStreamInfo *(*info_fn)(HANDLE_AACDECODER);
+typedef void (*close_fn)(HANDLE_AACDECODER);
+
+struct api {
+    open_fn open; config_raw_fn config; fill_fn fill; decode_fn decode; info_fn info; close_fn close;
+};
+
+static int load_api(struct api *a) {
+    static void *lib = NULL;
+    static struct api cached;
+    static int ok = -1;
+    if (ok >= 0) { if (ok) *a = cached; return ok; }
+    const char *names[] = {"libfdk-aac.so.2", "libfdk-aac.so", NULL};
+    for (int i = 0; names[i] && !lib; i++) lib = dlopen(names[i], RTLD_NOW | RTLD_LOCAL);
+    ok = 0;
+    if (lib) {
+        cached.open = (open_fn)dlsym(lib, "aacDecoder_Open");
+        cached.config = (config_raw_fn)dlsym(lib, "aacDecoder_ConfigRaw");
+        cached.fill = (fill_fn)dlsym(lib, "aacDecoder_Fill");
+        cached.decode = (decode_fn)dlsym(lib, "aacDecoder_DecodeFrame");
+        cached.info = (info_fn)dlsym(lib, "aacDecoder_GetStreamInfo");
+        cached.close = (close_fn)dlsym(lib, "aacDecoder_Close");
+        ok = cached.open && cached.config && cached.fill && cached.decode && cached.info && cached.close;
+    }
+    if (ok) *a = cached;
+    return ok;
+}
 
 struct xhe_decoder {
-    AVCodecContext *ctx;
-    AVPacket *packet;
-    AVFrame *frame;
+    struct api api;
+    HANDLE_AACDECODER handle;
     int channels;
+    UINT pendingFlags;
 };
 
 xhe_decoder *xhe_open(const uint8_t *asc, int ascLength, int sampleRate, int channels) {
-    const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
-    if (!codec || ascLength <= 0 || channels < 1 || channels > 2) return NULL;
+    (void)sampleRate;
+    if (ascLength <= 0 || channels < 1 || channels > 2) return NULL;
     xhe_decoder *d = calloc(1, sizeof *d);
     if (!d) return NULL;
+    if (!load_api(&d->api)) { free(d); return NULL; }
     d->channels = channels;
-    d->ctx = avcodec_alloc_context3(codec);
-    d->packet = av_packet_alloc();
-    d->frame = av_frame_alloc();
-    if (!d->ctx || !d->packet || !d->frame) { xhe_close(d); return NULL; }
-    d->ctx->extradata = av_mallocz((size_t)ascLength + AV_INPUT_BUFFER_PADDING_SIZE);
-    if (!d->ctx->extradata) { xhe_close(d); return NULL; }
-    memcpy(d->ctx->extradata, asc, (size_t)ascLength);
-    d->ctx->extradata_size = ascLength;
-    d->ctx->sample_rate = sampleRate;
-    av_channel_layout_default(&d->ctx->ch_layout, channels);
-    if (avcodec_open2(d->ctx, codec, NULL) < 0) { xhe_close(d); return NULL; }
+    d->handle = d->api.open(TT_MP4_RAW, 1);
+    UCHAR *conf[1] = {(UCHAR *)asc};
+    UINT length[1] = {(UINT)ascLength};
+    if (!d->handle || d->api.config(d->handle, conf, length) != AAC_DEC_OK) { xhe_close(d); return NULL; }
+    d->pendingFlags = AACDEC_INTR;
     return d;
 }
 
 int xhe_decode(xhe_decoder *d, const uint8_t *au, int length, float *out, int maxFrames) {
     if (!d || length <= 0) return -1;
-    if (av_new_packet(d->packet, length) < 0) return -1;
-    memcpy(d->packet->data, au, (size_t)length);
-    int status = avcodec_send_packet(d->ctx, d->packet);
-    av_packet_unref(d->packet);
-    if (status < 0) return -1;
-    status = avcodec_receive_frame(d->ctx, d->frame);
-    if (status == AVERROR(EAGAIN)) return 0;
-    if (status < 0) return -1;
-    int frames = d->frame->nb_samples < maxFrames ? d->frame->nb_samples : maxFrames;
-    int channels = d->frame->ch_layout.nb_channels < d->channels ? d->frame->ch_layout.nb_channels : d->channels;
-    for (int c = 0; c < channels; c++) {
-        const float *plane = (const float *)d->frame->extended_data[c];
-        for (int i = 0; i < frames; i++) out[i * d->channels + c] = plane[i];
-    }
-    for (int c = channels; c < d->channels; c++)
-        for (int i = 0; i < frames; i++) out[i * d->channels + c] = out[i * d->channels];
-    av_frame_unref(d->frame);
+    UCHAR *buffer[1] = {(UCHAR *)au};
+    UINT size[1] = {(UINT)length};
+    UINT valid = (UINT)length;
+    if (d->api.fill(d->handle, buffer, size, &valid) != AAC_DEC_OK) return -1;
+    INT_PCM pcm[8 * 2048];
+    UINT flags = d->pendingFlags;
+    d->pendingFlags = 0;
+    AAC_DECODER_ERROR status = d->api.decode(d->handle, pcm, (INT)(sizeof pcm / sizeof pcm[0]), flags);
+    if (status != AAC_DEC_OK) return -1;
+    CStreamInfo *info = d->api.info(d->handle);
+    if (!info || info->frameSize <= 0 || info->numChannels < 1) return -1;
+    int frames = info->frameSize < maxFrames ? info->frameSize : maxFrames;
+    int channels = info->numChannels;
+    for (int i = 0; i < frames; i++)
+        for (int c = 0; c < d->channels; c++)
+            out[i * d->channels + c] = (float)pcm[i * channels + (c < channels ? c : 0)] / 32768.0f;
     return frames;
 }
 
-void xhe_flush(xhe_decoder *d) { if (d && d->ctx) avcodec_flush_buffers(d->ctx); }
+void xhe_flush(xhe_decoder *d) { if (d) d->pendingFlags = AACDEC_INTR | AACDEC_CLRHIST; }
 
 void xhe_close(xhe_decoder *d) {
     if (!d) return;
-    av_frame_free(&d->frame);
-    av_packet_free(&d->packet);
-    avcodec_free_context(&d->ctx);
+    if (d->handle) d->api.close(d->handle);
     free(d);
 }
