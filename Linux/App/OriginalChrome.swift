@@ -100,17 +100,19 @@ func drawWaterfallCard(_ cr: OpaquePointer, _ w: Double, _ h: Double, image: CGI
 }
 
 @MainActor
-func drawHeaderCanvas(_ cr: OpaquePointer, _ w: Double, _ h: Double, model: LiveModel) {
+func drawHeaderCanvas(_ cr: OpaquePointer, _ w: Double, _ h: Double, palette: ThemePalette) {
     var ctx = GraphicsContext(cairo: cr, size: CGSize(width: w, height: h))
     let f = DateFormatter()
     f.dateFormat = "HH:mm:ss"
     f.timeZone = TimeZone(identifier: "UTC")
-    drawHeader(&ctx, size: CGSize(width: w, height: h), palette: model.theme, utc: f.string(from: Date()))
+    drawHeader(&ctx, size: CGSize(width: w, height: h), palette: palette, utc: f.string(from: Date()))
 }
 
+/// Zeichnet die Modulleiste; liefert die Tastenflächen mit der Kennung des Moduls
 @MainActor
-func drawModuleBarCanvas(_ cr: OpaquePointer, _ w: Double, _ h: Double, model: LiveModel) {
+func drawModuleBarCanvas(_ cr: OpaquePointer, _ w: Double, _ h: Double, selected: DecoderModuleInfo, hover: String?, pressed: String?, palette: ThemePalette) -> [(id: String, rect: CGRect)] {
     var ctx = GraphicsContext(cairo: cr, size: CGSize(width: w, height: h))
-    model.moduleRects = drawModuleBar(&ctx, size: CGSize(width: w, height: h), palette: model.theme, selected: model.selectedModule,
-                                      hover: model.hoverModule, pressed: model.pressedModule).rects
+    return drawModuleBar(&ctx, size: CGSize(width: w, height: h), palette: palette, selected: selected,
+                         hover: hover.flatMap(DecoderModuleInfo.init(rawValue:)), pressed: pressed.flatMap(DecoderModuleInfo.init(rawValue:)))
+        .rects.map { ($0.module.rawValue, $0.rect) }
 }

@@ -204,7 +204,7 @@ func drawWaterfall(_ cr: OpaquePointer, _ w: Double, _ h: Double, image: CGImage
         let x = left + f / maxHz * areaW
         cairo_set_line_width(cr, 1)
         cairo_move_to(cr, x, top + areaH); cairo_line_to(cr, x, top + areaH + 4); cairo_stroke(cr)
-        text(cr, String(Int(f)), x: x, y: top + areaH + 15, size: 10)
+        text(cr, String(Int(f)), x: min(x, left + areaW - 14), y: top + areaH + 15, size: 10)
         f += step
     }
     // Marke an der stärksten Linie

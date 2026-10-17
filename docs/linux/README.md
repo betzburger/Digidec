@@ -1,11 +1,12 @@
 # Digidec unter Linux
 
-Stand: Kern und Logiktests laufen unter Linux; die Oberfläche ist als Entwurf vorhanden (GTK 4 über SwiftCrossUI, Instrumente mit Cairo: S-Meter, Abstimmanzeige, Wasserfall mit Live-Ton). Branch `linux-port`.
+Stand: Kern und Logiktests laufen unter Linux. Das Frontend (GTK 4 über SwiftCrossUI, Instrumente und Tasten mit Cairo) zeigt als erstes Modul FT8 mit dem echten `DigidecState`: Kopfzeile, Modulleiste, Wasserfall, Bandaktivität, S-Meter, Zyklus, Einstellungen (`docs/linux/images/linux-ft8-amber.png`). Branch `linux-port`.
 
 ## Bauen und testen
 
 ```bash
-swift build --product digidec-linux            # Kern + Frontend-Entwurf (GTK-Fenster)
+swift build --product digidec-linux            # Kern + Frontend (GTK-Fenster)
+DIGIDEC_MODULE=ft8 DIGIDEC_PLAY_FILE=aufnahme.wav .build/debug/digidec-linux   # Modul wählen, Datei statt Live-Eingang
 DIGIDEC_THEME=amber .build/debug/digidec-linux  # Theme: night, amber, redNight, marine
 swift build -c release --product logic-tests   # die Logiktests von macOS (7107 Prüfungen)
 LT_ONLY=ft8,dab .build/release/logic-tests     # einzelne Gruppen; ohne LT_ONLY alle
@@ -24,7 +25,7 @@ Bauabhängigkeiten (Arch/Fedora/Debian-Namen sinngemäß): `libpulse`, `libsndfi
 |---|---|
 | `Linux/Shims/…` | Ersatzmodule für Apple-Frameworks, damit `import Combine`, `import Accelerate` usw. im Quelltext unverändert bleiben |
 | `Linux/ui-files.txt` | Dateien der macOS-Oberfläche, die unter Linux nicht übersetzt werden |
-| `Linux/App/` | Linux-Frontend (Entwurf): `CairoCanvas` (Zeichenfläche als GTK-Widget), `Instruments` (Cairo-Zeichnungen), `LiveModel`, App |
+| `Linux/App/` | Linux-Frontend: `AppModel` (Brücke zu `DigidecState`), `Screens` (SwiftCrossUI-Ansichten, bisher FT8), `Canvases`/`OriginalChrome` (Zeichnen), `CairoCanvas` (Zeichenfläche als GTK-Widget), `Kit` (RadioCard …), `Style` (GTK-CSS aus dem Theme) |
 | `Sources/**/*+Linux.swift`, `#if canImport(…)` | Linux-Fassungen von Audio, Aufnahme, Wiedergabe, Geräteliste, Tastenbund, PDF |
 
 Ersatzmodule: `os` (Sperren), `Accelerate` (vDSP: FFT, Skalarprodukte, Fenster …, an einer naiven DFT geprüft), `Combine` (OpenCombine plus
