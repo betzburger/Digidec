@@ -166,7 +166,7 @@ let package = Package(
         // PulseAudio (läuft auch mit PipeWire) für Ton unter Linux; unter macOS wird das Ziel nicht gebaut
         .systemLibrary(
             name: "CPulseSimple",
-            path: "Sources/Linux/CPulseSimple",
+            path: "Linux/Shims/CPulseSimple",
             pkgConfig: "libpulse-simple",
             providers: [.apt(["libpulse-dev"]), .brew(["pulseaudio"])]
         ),
@@ -230,5 +230,18 @@ package.targets += [
     .target(name: "CryptoKit", dependencies: [.product(name: "Crypto", package: "swift-crypto")], path: "Linux/Shims/CryptoKit")
 ]
 let linuxShims: [Target.Dependency] = ["os", "Accelerate", "Combine", "CryptoKit", "CoreGraphics", "ImageIO", "UniformTypeIdentifiers", "CPulseSimple", "CSndfile", "CXHEDecode", "Network", "SwiftUI"]
-for target in package.targets where target.name == "Digidec" { target.dependencies += linuxShims }
+
+// Linux-Programm: Zustands- und Rechenteile aus Sources/ ohne die macOS-Oberfläche (Linux/ui-files.txt) plus das Linux-Frontend unter Linux/App.
+// Alles in einem Modul, damit die Frontend-Dateien auch auf die internen Typen zugreifen können.
+let uiOnly: [String] = ((try? String(contentsOfFile: packageRoot + "/Linux/ui-files.txt", encoding: .utf8)) ?? "")
+    .split(whereSeparator: \.isNewline).map(String.init).filter { !$0.hasPrefix("#") && !$0.isEmpty }.map { "Sources/" + $0 }
+package.targets.removeAll { $0.name == "Digidec" }
+package.products = [.executable(name: "digidec-linux", targets: ["DigidecLinux"])]
+package.targets.append(.executableTarget(
+    name: "DigidecLinux",
+    dependencies: ["Fldigi", "FT8", "JS8", "Wspr", "Codec2", "Faad2", "Faad2DRM", "VoiceCore"] + linuxShims,
+    path: ".",
+    exclude: uiOnly,
+    sources: ["Sources", "Linux/App"]
+))
 #endif
