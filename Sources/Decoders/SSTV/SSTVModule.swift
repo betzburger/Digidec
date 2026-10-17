@@ -524,7 +524,7 @@ public final class SSTVController: ObservableObject {
     }
 
     public func openFolderInFinder() {
-        NSWorkspace.shared.open(directory)
+        PlatformOpener.open(directory)
     }
 
     private func poll() {

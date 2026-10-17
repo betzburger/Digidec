@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(IOKit)
 import IOKit
 import IOKit.serial
+#endif
 
 /// Funkgeräte, deren eingebauten USB-Audio-Codec Digidec direkt liest.
 public enum RadioSource: String, CaseIterable, Identifiable, Sendable {
@@ -105,10 +107,14 @@ public enum RadioCodecLocator {
 
     /// "AppleUSBAudioEngine:Burr-Brown from TI:USB Audio CODEC:3114310:2" → 0x03114310; andere UIDs → nil
     public static func locationFromCodecUID(_ uid: String) -> UInt32? {
+        #if !canImport(IOKit)
+        return AudioDeviceCatalog.usbLocations.withLock { $0[uid] }
+        #else
         guard uid.hasPrefix("AppleUSBAudioEngine:") else { return nil }
         let parts = uid.split(separator: ":")
         guard parts.count >= 2 else { return nil }
         return UInt32(parts[parts.count - 2], radix: 16)
+        #endif
     }
 
     /// Apples CP210x-Treiber benennt Ports nach der USB-Position, z. B. "/dev/cu.usbserial-3114320"
@@ -119,6 +125,7 @@ public enum RadioCodecLocator {
 
     // MARK: - IORegistry (nur lesen)
 
+    #if canImport(IOKit)
     public static func serialPorts() -> [USBSerialPortInfo] {
         guard let matching = IOServiceMatching(kIOSerialBSDServiceValue) else { return [] }
         var iterator: io_iterator_t = 0
@@ -145,4 +152,33 @@ public enum RadioCodecLocator {
         }
         return ports
     }
+    #else
+    /// Serielle USB-Ports aus sysfs (nur lesen): /sys/class/tty/ttyUSB* und ttyACM*
+    public static func serialPorts() -> [USBSerialPortInfo] {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: "/sys/class/tty") else { return [] }
+        func read(_ path: String) -> String? {
+            (try? String(contentsOfFile: path, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return names.filter { $0.hasPrefix("ttyUSB") || $0.hasPrefix("ttyACM") }.sorted().compactMap { name in
+            // Vom Schnittstellenordner nach oben bis zum USB-Gerät (hat idVendor)
+            var directory = URL(fileURLWithPath: "/sys/class/tty/\(name)/device").resolvingSymlinksInPath()
+            for _ in 0..<6 where !fm.fileExists(atPath: directory.appendingPathComponent("idVendor").path) {
+                directory.deleteLastPathComponent()
+            }
+            guard fm.fileExists(atPath: directory.appendingPathComponent("idVendor").path) else { return nil }
+            let devpath = read(directory.appendingPathComponent("devpath").path) ?? ""
+            let location = UInt32(read(directory.appendingPathComponent("busnum").path) ?? "").flatMap { bus in
+                AudioDeviceCatalog.usbLocation(bus: bus, ports: devpath.split(separator: ".").compactMap { UInt32($0) })
+            }
+            return USBSerialPortInfo(
+                path: "/dev/" + name,
+                usbSerialNumber: read(directory.appendingPathComponent("serial").path),
+                usbProductName: read(directory.appendingPathComponent("product").path),
+                idProduct: read(directory.appendingPathComponent("idProduct").path).flatMap { Int($0, radix: 16) },
+                usbLocationID: location
+            )
+        }
+    }
+    #endif
 }

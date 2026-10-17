@@ -49,6 +49,9 @@ public enum DRMEvent: Sendable {
 
 public final class DRMReceiver {
     nonisolated(unsafe) public static var debug = ProcessInfo.processInfo.environment["DRM_DEBUG"] != nil
+
+    /// Entwicklungsausgabe auf stderr (nur bei DRM_DEBUG)
+    static func debugLog(_ text: String) { FileHandle.standardError.write(Data(text.utf8)) }
     public var onEvent: ((DRMEvent) -> Void)?
     /// Für Prüfungen: die decodierten Bytes jedes MSC-Rahmens (Teil A, dann Teil B), unabhängig vom Inhalt
     public var onMSCFrame: (([UInt8]) -> Void)?
@@ -262,7 +265,7 @@ public final class DRMReceiver {
             let score = peak / max(norm, 1e-12)
             scores.append(score)
             let contrast = peak / max(mean, 1e-12)
-            if DRMReceiver.debug { fputs("DRM acquire mode \(m.letter) score \(score) contrast \(contrast) at \(at)\n", stderr) }
+            if DRMReceiver.debug { DRMReceiver.debugLog("DRM acquire mode \(m.letter) score \(score) contrast \(contrast) at \(at)\n") }
             if score > 0.3, contrast > 1.4, score > (best?.score ?? 0) {
                 let df = -Double(atan2(foldIm[at], foldRe[at])) * sampleRate / (2 * Double.pi * Double(tu))
                 best = Candidate(mode: m, offset: start + at, df: df, score: score)
@@ -314,10 +317,10 @@ public final class DRMReceiver {
                 if minCoherence < 0.2 { break }
             }
             let sc = minCoherence
-            if DRMReceiver.debug && sc > 0.4 { fputs("  d \(d) sc \(sc)\n", stderr) }
+            if DRMReceiver.debug && sc > 0.4 { DRMReceiver.debugLog("  d \(d) sc \(sc)\n") }
             if sc > bestScore { second = bestScore; bestScore = sc; bestD = d } else if sc > second { second = sc }
         }
-        if DRMReceiver.debug { fputs("DRM carrier search: best d \(bestD) score \(bestScore) second \(second)\n", stderr) }
+        if DRMReceiver.debug { DRMReceiver.debugLog("DRM carrier search: best d \(bestD) score \(bestScore) second \(second)\n") }
         guard bestD >= 0, bestScore > 0.5, bestScore > 1.6 * second else { return }
         // Träger 0 mit der gesamten Frequenz (ganzzahliger Anteil dΔf plus Bruchteil) auf Gleichanteil mischen: dann drehen sich die Zellen nicht von Symbol zu Symbol
         let dfTotal = cand.df + Double(bestD) * m.carrierSpacing
@@ -332,7 +335,7 @@ public final class DRMReceiver {
         // Belegung aus dem mittleren Leistungsspektrum
         let occupancy = guessOccupancy(spectra: spectra, d: 0, mode: m)
         let cellMap = DRMCellMap(mode: m, occupancy: occupancy)
-        if DRMReceiver.debug { fputs("DRM occupancy guess \(occupancy.title)\n", stderr) }
+        if DRMReceiver.debug { DRMReceiver.debugLog("DRM occupancy guess \(occupancy.title)\n") }
         // Rahmenbeginn: jeden möglichen Beginn über den FAC prüfen
         let uLo = DRMOccupancy.allCases.map { DRMTables.kmin(m, $0) }.min()!
         let uHi = DRMOccupancy.allCases.map { DRMTables.kmax(m, $0) }.max()!
@@ -616,7 +619,7 @@ public final class DRMReceiver {
             delayFilter -= Double(adjust)
         }
         guard let (facResult, snr) = decodeFAC(first: rel, rowsRe: rowsRe, rowsIm: rowsIm, est: est, kLo: kLo, map: map) else { return }
-        if DRMReceiver.debug { fputs("DRM frame \(first) fac \(facResult != nil) snr \(snr) slope \(lastSlope) delayFilter \(delayFilter) df \(freqOffset)\n", stderr) }
+        if DRMReceiver.debug { DRMReceiver.debugLog("DRM frame \(first) fac \(facResult != nil) snr \(snr) slope \(lastSlope) delayFilter \(delayFilter) df \(freqOffset)\n") }
         guard let f = facResult else {
             status.facBad += 1
             facFailures += 1

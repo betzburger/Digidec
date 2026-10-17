@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+import Combine
 
 /// Was die gemeinsame Textansicht (`TextModeReceivePanel`) von einem Controller braucht (PSK, Olivia, Contestia, MT63)
 @MainActor

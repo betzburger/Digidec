@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Combine
 
 // Kurzwellen-Ausbreitung für die Lineal-Anzeige am rechten Fensterrand (0 bis 30 MHz, rot = schlecht, weiß = mittel, grün = gut).

@@ -21,8 +21,13 @@ public enum AssistantMarkdown {
                 let indent = line[r].prefix { $0 == " " }
                 line = indent + "• " + line[r.upperBound...]
             }
+            #if canImport(Darwin)
             var part = (try? AttributedString(markdown: line, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(line)
             if heading { part.inlinePresentationIntent = .stronglyEmphasized }
+            #else
+            // Linux: Foundation liest hier kein Markdown; der Text kommt ohne Auszeichnung (Überschriften bleiben erkennbar am fehlenden „#“)
+            let part = AttributedString(line)
+            #endif
             out.append(part)
             if i < lines.count - 1 { out.append(AttributedString("\n")) }
         }

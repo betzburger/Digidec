@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // SDRconnect (SDRplay) als steuerbares Funkgerät: Digidec liest Frequenz, Mode und Zustand über die WebSocket-Schnittstelle von SDRconnect
 // (Beschreibung 1.0.3, https://sdrplay.com/websocket-api/) und stellt auf Wunsch Frequenz, Mode, Bandbreite, Verstärkungsstufe und den

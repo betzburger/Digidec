@@ -3,8 +3,21 @@
 import Foundation
 import Combine
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#else
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
+#endif
 import os
+
+#if canImport(AppKit)
+/// Anzeigebild des Hell-Rasters (unter macOS ein NSImage, unter Linux das CGImage selbst)
+public typealias HellRasterImage = NSImage
+#else
+public typealias HellRasterImage = CGImage
+#endif
 
 // MARK: - Raster
 
@@ -16,7 +29,7 @@ public final class HellRasterModel: ObservableObject {
     public static let lineWidth = 720
     public static let maxLines = 24
 
-    @Published public private(set) var image: NSImage?
+    @Published public private(set) var image: HellRasterImage?
     @Published public private(set) var columnCount = 0
 
     private var lines: [[UInt8]] = []          // je Zeile: Breite · Höhe Bytes, zeilenweise von oben
@@ -79,13 +92,26 @@ public final class HellRasterModel: ObservableObject {
               let cg = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: w, space: cs,
                                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: provider,
                                decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { return }
+        #if canImport(AppKit)
         image = NSImage(cgImage: cg, size: NSSize(width: w, height: h))
+        #else
+        image = cg
+        #endif
     }
 
     /// Das Bild als PNG (für „Speichern“)
     public func pngData() -> Data? {
+        #if canImport(AppKit)
         guard let tiff = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
+        #else
+        guard let image else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hell-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest) ? try? Data(contentsOf: url) : nil
+        #endif
     }
 }
 

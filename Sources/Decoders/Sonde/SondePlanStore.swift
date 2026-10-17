@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Combine
 
 /// Holt die Startortliste von SondeHub – nur auf Knopfdruck, mit Zeitlimit und Größenbegrenzung

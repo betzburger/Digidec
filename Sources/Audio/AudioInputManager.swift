@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
+#if canImport(CoreAudio)
 import CoreAudio
+#endif
 import SwiftUI
 
 /// Pegelanzeige in eigenem Objekt: nur das Messinstrument zeichnet mit 20 Hz neu, nicht das ganze Fenster
@@ -84,7 +88,12 @@ public final class AudioInputManager: ObservableObject {
     private let capture: LiveAudioCapture
     private var fileSource: WAVFileSource?
     private var levelTimer: Timer?
+    #if canImport(CoreAudio)
     private var deviceListener: AudioObjectPropertyListenerBlock?
+    #else
+    private var deviceMonitor: Process?
+    private var deviceDebounce: DispatchWorkItem?
+    #endif
     private var ports: [USBSerialPortInfo] = []
     /// UID aus dem letzten Auftrag (vom Commander frisch ermittelt), gilt nur zusammen mit dessen Quelle
     private var uidHint: String?
@@ -212,6 +221,7 @@ public final class AudioInputManager: ObservableObject {
             return
         }
 
+        #if canImport(AVFoundation)
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .denied, .restricted:
             isRunning = false
@@ -220,6 +230,7 @@ public final class AudioInputManager: ObservableObject {
         default:
             break
         }
+        #endif
 
         let uid = input.device.id
         captureUID = uid
@@ -359,6 +370,7 @@ public final class AudioInputManager: ObservableObject {
 
     /// Geräte kommen und gehen (USB, Treiber-Neustart): Liste aktualisieren, bei Verlust melden.
     private func installDeviceListener() {
+        #if canImport(CoreAudio)
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -369,7 +381,31 @@ public final class AudioInputManager: ObservableObject {
         }
         deviceListener = block
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block)
+        #else
+        // PulseAudio/PipeWire melden Änderungen der Quellen über `pactl subscribe`; mehrere Ereignisse in Folge zählen als eines
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["pactl", "subscribe"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let text = String(decoding: handle.availableData, as: UTF8.self)
+            guard text.contains("source") || text.contains("card") else { return }
+            Task { @MainActor in self?.scheduleDevicesChanged() }
+        }
+        do { try process.run(); deviceMonitor = process } catch { deviceMonitor = nil }
+        #endif
     }
+
+    #if !canImport(CoreAudio)
+    private func scheduleDevicesChanged() {
+        deviceDebounce?.cancel()
+        let item = DispatchWorkItem { [weak self] in Task { @MainActor in self?.devicesChanged() } }
+        deviceDebounce = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
+    }
+    #endif
 
     private func devicesChanged() {
         guard sourceKind == .audio else {

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// SDRplay-Geräte (RSP1B, RSPdx, RSPduo …) über die WebSocket-Schnittstelle von SDRconnect (Version 1.0.3 der Beschreibung,
 /// https://sdrplay.com/websocket-api/): Textnachrichten sind JSON mit `event_type`, `property` und `value`; Binärnachrichten beginnen

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // Funkfeuer-Datenbank: eingebaute Liste (Europa) und die aktuelle Liste von OurAirports (gemeinfrei), die auf Knopfdruck geladen
 // und unter ~/Library/Application Support/Digidec/NDB/navaids.csv abgelegt wird.

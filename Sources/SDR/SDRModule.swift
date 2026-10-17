@@ -3,7 +3,9 @@
 import Foundation
 import Combine
 import SwiftUI
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 import os
 
 // Eingebauter SDR-Empfänger: Digidec liest die I/Q-Daten selbst vom Gerät (HackRF, RTL-SDR, SDRplay) und liefert das demodulierte Audio an die
@@ -192,8 +194,12 @@ public final class SDRSettingsStore: ObservableObject {
 
 /// Das demodulierte Audio über den Standard-Ausgang hörbar machen (Stereo; Mono läuft auf beiden Kanälen)
 public final class SDRSpeaker: @unchecked Sendable {
+    #if canImport(AVFoundation)
     private let engine = AVAudioEngine()
     private var node: AVAudioSourceNode?
+    #else
+    private var output: PullAudioOutput?
+    #endif
     /// Verschachtelt L, R: 0,5 s
     private let ring = FloatRingBuffer(capacity: 96_000)
     private let gain = OSAllocatedUnfairLock(initialState: Float(0.6))
@@ -221,6 +227,7 @@ public final class SDRSpeaker: @unchecked Sendable {
         let gain = self.gain
         let scratch = self.scratch
         let chunk = chunkFrames
+        #if canImport(AVFoundation)
         let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
         let n = AVAudioSourceNode(format: format) { _, _, frames, list in
             let buffers = UnsafeMutableAudioBufferListPointer(list)
@@ -260,14 +267,42 @@ public final class SDRSpeaker: @unchecked Sendable {
             engine.detach(n)
             node = nil
         }
+        #else
+        nonisolated(unsafe) let scratchBuffer = scratch
+        let out = PullAudioOutput(sampleRate: 48_000, channels: 2) { buffer, frames in
+            // Staut sich zu viel an (Takte von Gerät und Ausgang laufen auseinander): auf eine kurze Verzögerung zurück
+            if ring.available > 28_800 {
+                var skip = [Float](repeating: 0, count: ring.available - 9_600)
+                _ = skip.withUnsafeMutableBufferPointer { ring.read(into: $0.baseAddress!, maxCount: $0.count) }
+            }
+            let g = gain.withLock { $0 }
+            var done = 0
+            while done < frames {
+                let nFrames = min(chunk, frames - done)
+                let got = ring.read(into: scratchBuffer, maxCount: 2 * nFrames) / 2
+                for k in 0..<got {
+                    buffer[2 * (done + k)] = scratchBuffer[2 * k] * g
+                    buffer[2 * (done + k) + 1] = scratchBuffer[2 * k + 1] * g
+                }
+                if got < nFrames { (buffer + 2 * (done + got)).update(repeating: 0, count: 2 * (nFrames - got)) }
+                done += nFrames
+            }
+        }
+        if out.start() { output = out; running = true }
+        #endif
     }
 
     public func stop() {
         guard running else { return }
         running = false
+        #if canImport(AVFoundation)
         engine.stop()
         if let n = node { engine.detach(n) }
         node = nil
+        #else
+        output?.stop()
+        output = nil
+        #endif
         ring.clear()
     }
 

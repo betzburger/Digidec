@@ -3,7 +3,9 @@
 import Foundation
 import Combine
 import SwiftUI
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 
 // DAB und DAB+ (Eureka 147, Band III, 174 bis 240 MHz): Modul. Digidec liest die I/Q-Daten (2,048 MS/s) selbst vom Gerät (HackRF, RTL-SDR, SDRplay),
 // decodiert das Ensemble (FIC) und spielt einen gewählten DAB+-Dienst (HE-AAC) über den Standard-Ausgang.
@@ -107,8 +109,12 @@ public final class DABSettingsStore: ObservableObject {
 
 /// Spielt die decodierten Abtastwerte (Mono oder Stereo, beliebige Rate) über den Standard-Ausgang
 public final class DABPlayer: @unchecked Sendable {
+    #if canImport(AVFoundation)
     private let engine = AVAudioEngine()
     private var node: AVAudioSourceNode?
+    #else
+    private var output: PullAudioOutput?
+    #endif
     private var ring = FloatRingBuffer(capacity: 48_000 * 2 * 2)
     private let lock = NSLock()
     private var channels = 0
@@ -142,12 +148,13 @@ public final class DABPlayer: @unchecked Sendable {
         stop()
         channels = c
         rate = r
-        let format = AVAudioFormat(standardFormatWithSampleRate: Double(r), channels: AVAudioChannelCount(c))!
         let capacity = r * c * 2
         ring = FloatRingBuffer(capacity: capacity)
         let ring = self.ring
         let channelsCopy = c
         let me = self
+        #if canImport(AVFoundation)
+        let format = AVAudioFormat(standardFormatWithSampleRate: Double(r), channels: AVAudioChannelCount(c))!
         var scratch = [Float](repeating: 0, count: 8192 * c)
         let n = AVAudioSourceNode(format: format) { _, _, frames, list in
             let buffers = UnsafeMutableAudioBufferListPointer(list)
@@ -175,14 +182,30 @@ public final class DABPlayer: @unchecked Sendable {
             engine.detach(n)
             node = nil
         }
+        #else
+        let out = PullAudioOutput(sampleRate: r, channels: c) { buffer, frames in
+            let want = frames * channelsCopy
+            let got = ring.read(into: buffer, maxCount: want)
+            if got < want { (buffer + got).update(repeating: 0, count: want - got) }
+            let (volume, muted) = me.gain.withLock { (me.volumeValue, me.mutedValue) }
+            let g: Float = muted ? 0 : volume
+            for k in 0..<want { buffer[k] *= g }
+        }
+        if out.start() { output = out; running = true }
+        #endif
     }
 
     public func stop() {
         guard running else { return }
         running = false
+        #if canImport(AVFoundation)
         engine.stop()
         if let n = node { engine.detach(n) }
         node = nil
+        #else
+        output?.stop()
+        output = nil
+        #endif
         primed = false
     }
 

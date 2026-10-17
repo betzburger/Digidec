@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 import Combine
-import PDFKit
 
 /// Welche der drei DWD-Frequenzen für geplante Aufnahmen benutzt wird
 public enum WefaxFrequencyChoice: String, CaseIterable, Identifiable, Sendable {

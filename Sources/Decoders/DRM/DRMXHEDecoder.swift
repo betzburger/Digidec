@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
+#if canImport(AudioToolbox)
 import Foundation
 import AudioToolbox
 
@@ -105,3 +106,67 @@ final class DRMXHEDecoder {
         return Array(pcm.prefix(Int(frames) * channels)) + (frames < UInt32(granule) ? [Float](repeating: 0, count: (granule - Int(frames)) * channels) : [])
     }
 }
+#else
+import Foundation
+import CXHEDecode
+
+/// xHE-AAC-Zugriffseinheiten (USAC) mit libavcodec (FFmpeg) in Töne verwandeln. Gleiche Schnittstelle wie die Fassung für macOS (AudioToolbox).
+/// Die Konfiguration kommt als AudioSpecificConfig (siehe `DRMXHEConfig.audioSpecificConfig`).
+final class DRMXHEDecoder {
+    private var decoder: OpaquePointer?
+    let channels: Int
+    let outputRate: Int
+    let granule: Int
+    /// Nach Start oder Verlust erst ab dem nächsten Rahmen mit gesetztem usacIndependencyFlag wieder decodieren
+    private var needIndependent = true
+    private(set) var decoded = 0
+    private(set) var skipped = 0
+    private(set) var failed = 0
+    /// Letzter Rückgabewert des Decoders (für die Fehlersuche)
+    private(set) var lastStatus: Int32 = 0
+
+    convenience init?(param: DRMAudioParam) {
+        guard param.coding == .xheaac, param.mode == 0 || param.mode == 2,
+              let config = DRMXHEConfig(drm: param.codecConfig, stereo: param.mode == 2) else { return nil }
+        self.init(audioSpecificConfig: config.audioSpecificConfig(sampleRate: param.sampleRate), sampleRate: param.sampleRate, channels: param.mode == 2 ? 2 : 1, granule: config.granule)
+    }
+
+    init?(audioSpecificConfig asc: [UInt8], sampleRate: Int, channels: Int, granule: Int) {
+        guard (1...2).contains(channels), granule > 0, !asc.isEmpty else { return nil }
+        self.channels = channels
+        self.outputRate = sampleRate
+        self.granule = granule
+        guard let opened = asc.withUnsafeBufferPointer({ xhe_open($0.baseAddress, Int32(asc.count), Int32(sampleRate), Int32(channels)) }) else { return nil }
+        decoder = opened
+    }
+
+    deinit { if let decoder { xhe_close(decoder) } }
+
+    /// Verlust (fehlender oder fehlerhafter Rahmen): Zustand zurücksetzen und auf den nächsten unabhängigen Rahmen warten
+    func loss() {
+        if !needIndependent, let decoder { xhe_flush(decoder) }
+        needIndependent = true
+    }
+
+    /// Eine Zugriffseinheit; die Rückgabe ist verschachtelt (bei Stereo L R L R …). Fehlt der Rahmen (leer) oder ist er nicht zu gebrauchen, kommt Stille in Rahmenlänge.
+    func decode(_ au: [UInt8]) -> [Float] {
+        let silence = [Float](repeating: 0, count: granule * channels)
+        guard let decoder else { return silence }
+        guard !au.isEmpty else { loss(); skipped += 1; return silence }
+        if needIndependent {
+            guard au[0] & 0x80 != 0 else { skipped += 1; return silence }
+            needIndependent = false
+        }
+        var pcm = [Float](repeating: 0, count: granule * channels)
+        let frames = au.withUnsafeBufferPointer { input in
+            pcm.withUnsafeMutableBufferPointer { out in
+                xhe_decode(decoder, input.baseAddress, Int32(au.count), out.baseAddress, Int32(granule))
+            }
+        }
+        lastStatus = frames
+        if frames <= 0 { failed += 1; loss(); return silence }
+        decoded += 1
+        return Array(pcm.prefix(Int(frames) * channels)) + (Int(frames) < granule ? [Float](repeating: 0, count: (granule - Int(frames)) * channels) : [])
+    }
+}
+#endif

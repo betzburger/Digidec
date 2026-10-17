@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // Flugzeugdaten aus dem Netz für das Fenster „Flugzeugdaten“ und die Liste der ADS-B-Flugzeuge.
 //

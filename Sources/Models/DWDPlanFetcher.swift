@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
-import PDFKit
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Fehler beim Abruf eines Sendeplans (Meldungen für die Anzeige)
 public enum PlanFetchError: Error, LocalizedError, Equatable {
@@ -29,8 +31,8 @@ public enum DWDPlanFetcher {
     /// Lädt ein PDF und gibt seinen Text zurück (alle Seiten)
     public static func pdfText(from url: URL) async throws -> String {
         let data = try await download(url)
-        guard data.starts(with: Array("%PDF".utf8)), let doc = PDFDocument(data: data) else { throw PlanFetchError.notPDF }
-        return (0..<doc.pageCount).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n")
+        guard data.starts(with: Array("%PDF".utf8)), let text = PDFTextExtractor.text(from: data) else { throw PlanFetchError.notPDF }
+        return text
     }
 
     private static func download(_ url: URL) async throws -> Data {

@@ -5,7 +5,9 @@ import Network
 import CryptoKit
 import Combine
 import os
+#if canImport(SystemConfiguration)
 import SystemConfiguration
+#endif
 
 /// Schnittstelle zum Host-Zustand (DigidecState oder Test-Host), um lose Kopplung zu garantieren
 @MainActor
@@ -110,11 +112,17 @@ public final class DigidecWebServer: ObservableObject {
             let interface = ptr.pointee
             guard interface.ifa_addr != nil else { continue }
             let addrFamily = interface.ifa_addr.pointee.sa_family
-            if addrFamily == UInt8(AF_INET) {
+            if addrFamily == sa_family_t(AF_INET) {
                 let name = String(cString: interface.ifa_name)
-                if name.hasPrefix("en") || name.hasPrefix("bridge") || name.hasPrefix("wlan") || name.hasPrefix("ap") {
+                // macOS: en0, bridge0 …; Linux: eth0, enp3s0, wlan0, wlp2s0 …
+                if name.hasPrefix("en") || name.hasPrefix("bridge") || name.hasPrefix("wlan") || name.hasPrefix("ap") || name.hasPrefix("eth") || name.hasPrefix("wl") {
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    if getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+                    #if canImport(Darwin)
+                    let addressLength = socklen_t(interface.ifa_addr.pointee.sa_len)
+                    #else
+                    let addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+                    #endif
+                    if getnameinfo(interface.ifa_addr, addressLength,
                                    &hostname, socklen_t(hostname.count),
                                    nil, 0, NI_NUMERICHOST) == 0 {
                         let ip = hostname.withUnsafeBufferPointer { ptr in
@@ -140,10 +148,16 @@ public final class DigidecWebServer: ObservableObject {
 
     /// Bonjour/mDNS-Hostadresse (z. B. "http://Mac-mini-von-Peter.local:8080"), sauber ermittelt ohne ISP-Reverse-DNS-Hashes
     public var bonjourURL: String? {
+        #if canImport(SystemConfiguration)
         if let name = SCDynamicStoreCopyLocalHostName(nil) as String?, !name.isEmpty {
             return "http://\(name).local:\(port)"
         }
         return nil
+        #else
+        // Unter Linux antwortet avahi/systemd-resolved auf „<Rechnername>.local“, sofern mDNS eingeschaltet ist
+        let name = ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? ""
+        return name.isEmpty ? nil : "http://\(name).local:\(port)"
+        #endif
     }
 
     public func start() {

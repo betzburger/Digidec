@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 import SwiftUI
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 import Combine
 
 /// Darstellung im unteren Hauptbereich: Liste (bzw. Bild/Text), Karte oder beides übereinander
@@ -712,6 +714,7 @@ public final class DigidecState: ObservableObject {
                 state.audio.startLive()
             }
         }
+        #if canImport(AVFoundation)
         if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
             AVCaptureDevice.requestAccess(for: .audio) { _ in
                 Task { @MainActor in start() }
@@ -719,6 +722,9 @@ public final class DigidecState: ObservableObject {
         } else {
             start()
         }
+        #else
+        start()   // Linux: kein Mikrofon-Dialog
+        #endif
     }
 
     public func handle(url: URL) {

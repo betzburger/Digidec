@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
+#if canImport(AVFoundation)
 import Foundation
 import AVFoundation
 import os
@@ -87,3 +88,4 @@ public final class InputRecorder: @unchecked Sendable {
         return name.replacingOccurrences(of: " ", with: "-") + ".wav"
     }
 }
+#endif

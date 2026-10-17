@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+import Combine
 
 /// Wie der Wasserfall das Signal des Moduls markiert
 public enum WaterfallMarkerStyle: Equatable, Sendable {

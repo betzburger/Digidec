@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
-#if canImport(Darwin)
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // Netzseite der KI-Anbindung: Anfrage an einen OpenAI-kompatiblen Server, Antwort als Strom.
 
@@ -107,6 +109,108 @@ public struct LLMClient: Sendable {
             throw e
         } catch {
             throw LLMClientError.network(describe(error))
+        }
+    }
+}
+
+#if !canImport(Darwin)
+// Linux: `URLSession.bytes(for:)` fehlt in swift-corelibs-foundation. Gleiche Schnittstelle, aufgebaut auf einem Datenempfänger.
+
+/// Antwort als Strom von Bytes (wie `URLSession.AsyncBytes`)
+struct LinuxAsyncBytes: AsyncSequence {
+    typealias Element = UInt8
+    let chunks: AsyncThrowingStream<Data, Error>
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        var chunks: AsyncThrowingStream<Data, Error>.AsyncIterator
+        var current = Data()
+        var index = 0
+
+        mutating func next() async throws -> UInt8? {
+            while index >= current.count {
+                guard let next = try await chunks.next() else { return nil }
+                current = next
+                index = 0
+            }
+            defer { index += 1 }
+            return current[current.startIndex + index]
+        }
+    }
+
+    func makeAsyncIterator() -> AsyncIterator { AsyncIterator(chunks: chunks.makeAsyncIterator()) }
+
+    /// Zeilen (getrennt durch \n, ein \r davor wird entfernt)
+    var lines: AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var pending = Data()
+                do {
+                    for try await chunk in chunks {
+                        pending.append(chunk)
+                        while let newline = pending.firstIndex(of: 0x0A) {
+                            var line = pending[pending.startIndex..<newline]
+                            if line.last == 0x0D { line = line.dropLast() }
+                            continuation.yield(String(decoding: line, as: UTF8.self))
+                            pending = Data(pending[(newline + 1)...])
+                        }
+                    }
+                    if !pending.isEmpty { continuation.yield(String(decoding: pending, as: UTF8.self)) }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+private final class LinuxByteDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var response: CheckedContinuation<URLResponse, Error>?
+    let chunks: AsyncThrowingStream<Data, Error>
+    private let continuation: AsyncThrowingStream<Data, Error>.Continuation
+
+    override init() {
+        (chunks, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
+        super.init()
+    }
+
+    func waitForResponse() async throws -> URLResponse {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<URLResponse, Error>) in
+            lock.lock(); response = c; lock.unlock()
+        }
+    }
+
+    private func resolve(_ result: Result<URLResponse, Error>) {
+        lock.lock(); let c = response; response = nil; lock.unlock()
+        c?.resume(with: result)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        resolve(.success(response))
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) { continuation.yield(data) }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        resolve(.failure(error ?? URLError(.badServerResponse)))
+        if let error { continuation.finish(throwing: error) } else { continuation.finish() }
+    }
+}
+
+extension URLSession {
+    func bytes(for request: URLRequest) async throws -> (LinuxAsyncBytes, URLResponse) {
+        let delegate = LinuxByteDelegate()
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        return try await withTaskCancellationHandler {
+            task.resume()
+            let response = try await delegate.waitForResponse()
+            return (LinuxAsyncBytes(chunks: delegate.chunks), response)
+        } onCancel: {
+            task.cancel()
+            session.finishTasksAndInvalidate()
         }
     }
 }
