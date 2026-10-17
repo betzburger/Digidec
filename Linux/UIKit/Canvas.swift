@@ -48,8 +48,9 @@ public struct TimelineView<Content: View> {
         self.schedule = schedule; self.content = content
     }
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
-        r.host?.registerTimeline(interval: schedule.interval)
-        return r.resolve(content(TimelineViewDefaultContext(date: Date())), key: 0)
+        r.host?.registerTimeline(identity: r.identity, interval: schedule.interval)
+        let content = self.content
+        return r.refreshable { [unowned r] in r.resolve(content(TimelineViewDefaultContext(date: Date())), key: 0) }
     }
 }
 

@@ -133,6 +133,19 @@ extension UIHost {
         drawingArea = w.area
         fixed = w.fixed
         dg_window_present(w.window)
+        // Entwicklungshilfe: DIGIDEC_SNAPSHOT=<Datei.png> schreibt nach DIGIDEC_SNAPSHOT_AFTER Sekunden (Standard 8) ein Bild der Oberfläche und beendet das Programm
+        if let path = ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT"], windowManager?.open.count ?? 0 <= 1 {
+            let delay = Double(ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_AFTER"] ?? "") ?? 8
+            let width = Double(ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_WIDTH"] ?? "") ?? Double(size.width)
+            let height = Double(ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_HEIGHT"] ?? "") ?? Double(size.height)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+                MainActor.assumeIsolated {
+                    let ok = snapshot(to: path, size: CGSize(width: width, height: height))
+                    FileHandle.standardError.write(Data((ok ? "Schnappschuss: \(path)\n" : "Schnappschuss fehlgeschlagen\n").utf8))
+                    exit(ok ? 0 : 1)
+                }
+            }
+        }
     }
 }
 
@@ -145,6 +158,15 @@ public enum LinuxApplication {
     /// Startet GTK mit dem Hauptfenster und läuft, bis alle Fenster geschlossen sind
     public static func run(id: String, manager: WindowManager, onStart: @escaping () -> Void = {}) -> Int32 {
         context = (manager, id, onStart)
+        clipboardHook = { [weak manager] text in
+            if let window = manager?.open.values.first?.window { dg_clipboard_set(window, text) }
+        }
+        fileDialogHook = { [weak manager] title, save, folder, name in
+            guard let window = manager?.open["main"]?.window ?? manager?.open.values.first?.window,
+                  let c = dg_file_dialog(window, title, save ? 1 : 0, folder ? 1 : 0, name) else { return nil }
+            defer { dg_free(c) }
+            return String(cString: c)
+        }
         let app = dg_app_new("de.betz.digidec", { _ in
             MainActor.assumeIsolated {
                 guard let (manager, id, onStart) = LinuxApplication.context else { return }

@@ -144,6 +144,12 @@ class Node {
 
     func computeSize(_ proposal: Proposal) -> CGSize { .zero }
 
+    /// Verwirft die gemerkten Größen dieses Knotens und aller Nachfahren (nach einer Änderung von Inhalten)
+    final func clearSizeCaches() {
+        sizeCache.removeAll(keepingCapacity: true)
+        for c in children { c.clearSizeCaches() }
+    }
+
     /// Ort des ersten Textgrundlinie ab Oberkante (für `firstTextBaseline`), nil = Unterkante
     var firstBaseline: CGFloat? { children.first?.firstBaseline }
 
@@ -196,6 +202,45 @@ class WrapperNode: Node {
     override func computeSize(_ proposal: Proposal) -> CGSize { child?.size(for: proposal) ?? .zero }
 }
 
+/// Knoten einer zusammengesetzten Ansicht (mit Körper). Er kann seinen Inhalt allein neu auflösen, wenn sich Zustand oder
+/// beobachtete Objekte ändern, ohne dass der ganze Baum neu aufgebaut wird.
+@MainActor
+final class CompositeNode: Node {
+    var rebuild: (() -> [Node])?
+    var lastProposal = Proposal.unspecified
+
+    override func computeSize(_ p: Proposal) -> CGSize {
+        lastProposal = p
+        if children.count == 1 { return children[0].size(for: p) }
+        var w: CGFloat = 0, h: CGFloat = 0
+        for c in children { let s = c.size(for: p); w = max(w, s.width); h += s.height }
+        return CGSize(width: w, height: h)
+    }
+
+    override var firstBaseline: CGFloat? { children.first?.firstBaseline }
+
+    override func placeChildren() {
+        if children.count == 1 { children[0].place(origin: frame.origin, size: children[0].size(for: .fixed(frame.size))); return }
+        var y = frame.minY
+        for c in children {
+            let s = c.size(for: .fixed(frame.size))
+            c.place(origin: CGPoint(x: frame.minX + (frame.width - s.width) / 2, y: y), size: s)
+            y += s.height
+        }
+    }
+
+    /// Löst den Inhalt neu auf; `true`, wenn die Größe gleich blieb (dann genügt Neuplatzieren und Zeichnen)
+    func refresh() -> Bool {
+        guard let rebuild else { return true }
+        let old = frame.size
+        children = rebuild()
+        clearSizeCaches()
+        let new = size(for: lastProposal)
+        if new == old { placeChildren(); return true }
+        return false
+    }
+}
+
 /// Mehrere Wurzeln einer Ansicht zusammen, wenn eine Ansicht mehrere Knoten liefert (z. B. TupleView als Körper)
 @MainActor
 final class GroupNode: Node {}
@@ -232,13 +277,40 @@ final class Resolver {
     }
 
     private func resolveHere<V: View>(_ view: V) -> [Node] {
-        attachDynamicProperties(view)
-        if let p = view as? any PrimitiveView { return p.makeNodes(self) }
-        return resolve(view.body, key: 0)
+        if let p = view as? any PrimitiveView {
+            attachDynamicProperties(view)
+            return p.makeNodes(self)
+        }
+        let node = CompositeNode(identity: identity)
+        let savedIdentity = identity, savedEnv = env
+        node.rebuild = { [self] in
+            let outerIdentity = identity, outerEnv = env
+            identity = savedIdentity; env = savedEnv
+            defer { identity = outerIdentity; env = outerEnv }
+            attachDynamicProperties(view)
+            return resolve(view.body, key: 0)
+        }
+        node.children = node.rebuild!()
+        return [node]
+    }
+
+    /// Ein Knoten, der sich allein neu auflösen kann (für Grundansichten mit eigenem Zustand wie Button und TimelineView)
+    func refreshable(_ make: @escaping () -> [Node]) -> [Node] {
+        let node = CompositeNode(identity: identity)
+        let savedIdentity = identity, savedEnv = env
+        node.rebuild = { [self] in
+            let outerIdentity = identity, outerEnv = env
+            identity = savedIdentity; env = savedEnv
+            defer { identity = outerIdentity; env = outerEnv }
+            return make()
+        }
+        node.children = node.rebuild!()
+        return [node]
     }
 
     private func attachDynamicProperties<V: View>(_ view: V) {
-        let context = AttachContext(store: store, identity: identity, environment: env, invalidate: { [weak self] in self?.host?.setNeedsResolve() })
+        let id = identity
+        let context = AttachContext(store: store, identity: id, environment: env, invalidate: { [weak self] in self?.host?.invalidate(id) })
         var index = 0
         for child in Mirror(reflecting: view).children {
             if let p = child.value as? any DynamicProperty {

@@ -80,19 +80,23 @@ public struct Button<Label: View> {
     public init(_ title: LocalizedStringKey, role: ButtonRole?, action: @escaping () -> Void) where Label == Text { self.action = action; label = Text(title) }
 
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
-        let pressed = r.store.interaction[r.identity]?["pressed"] as? Bool ?? false
-        r.store.touchInteraction(r.identity)
-        let style: AnyButtonStyle
-        if let s = r.env.buttonStyle { style = s } else { style = AnyButtonStyle(DefaultButtonStyle()) }
-        let body = style.make(ButtonStyleConfiguration(label: .init(view: label), isPressed: pressed && r.env.isEnabled))
-        let node = ButtonNode(identity: r.identity, child: r.content(AnyView(body)))
-        node.enabled = r.env.isEnabled
-        let identity = r.identity, store = r.store, host = r.host, action = self.action
-        node.handlers = Handlers(tap: { if node.enabled { action() } }, press: { down in
-            store.interaction[identity, default: [:]]["pressed"] = down
-            host?.setNeedsResolve()
-        })
-        return [node]
+        let identity = r.identity, store = r.store, host = r.host, action = self.action, label = self.label
+        let enabled = r.env.isEnabled
+        let buttonStyle = r.env.buttonStyle
+        return r.refreshable { [unowned r] in
+            let pressed = store.interaction[identity]?["pressed"] as? Bool ?? false
+            store.touchInteraction(identity)
+            let style: AnyButtonStyle
+            if let s = buttonStyle { style = s } else { style = AnyButtonStyle(DefaultButtonStyle()) }
+            let body = style.make(ButtonStyleConfiguration(label: .init(view: label), isPressed: pressed && enabled))
+            let node = ButtonNode(identity: identity, child: r.content(AnyView(body)))
+            node.enabled = enabled
+            node.handlers = Handlers(tap: { if node.enabled { action() } }, press: { down in
+                store.interaction[identity, default: [:]]["pressed"] = down
+                host?.invalidate(identity)
+            })
+            return [node]
+        }
     }
 }
 

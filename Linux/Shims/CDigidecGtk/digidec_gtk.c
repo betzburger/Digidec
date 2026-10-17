@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 #include <string.h>
 #include <stdlib.h>
+#include <execinfo.h>
 
 typedef struct { DGCallbacks cb; void *user; } Ctx;
 
@@ -191,3 +192,5 @@ char *dg_file_dialog(void *window, const char *title, int save, int folder, cons
 void dg_clipboard_set(void *widget, const char *text) {
     gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(widget)), text);
 }
+
+void dg_dump_stack(void) { void *frames[64]; int n = backtrace(frames, 64); backtrace_symbols_fd(frames, n, 2); }

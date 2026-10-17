@@ -218,7 +218,6 @@ let aliasFlags: [SwiftSetting] = [.unsafeFlags(shimAliases.flatMap { ["-module-a
 func real(_ apple: String) -> String { shimAliases.first { $0.apple == apple }!.real }
 
 package.dependencies += [
-    .package(url: "https://github.com/stackotter/swift-cross-ui.git", revision: "0f3ec3958b79cdc39a1a3e604516b71ab33a9043"),
     .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0"),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
 ]
@@ -261,10 +260,7 @@ package.targets.append(.target(
 ))
 package.targets.append(.executableTarget(
     name: "DigidecLinux",
-    dependencies: ["DigidecCore", "CGtkCairo",
-                   .product(name: "SwiftCrossUI", package: "swift-cross-ui"),
-                   .product(name: "GtkBackend", package: "swift-cross-ui"),
-                   .product(name: "Gtk", package: "swift-cross-ui")] + vendorTargets + linuxShims,
+    dependencies: ["DigidecCore", "CDigidecGtk"] + vendorTargets + linuxShims,
     path: "Linux/App",
     swiftSettings: aliasFlags
 ))

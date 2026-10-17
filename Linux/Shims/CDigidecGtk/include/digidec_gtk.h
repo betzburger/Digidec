@@ -45,4 +45,7 @@ void dg_free(void *pointer);
 char *dg_file_dialog(void *window, const char *title, int save, int folder, const char *suggested_name);
 void dg_clipboard_set(void *widget, const char *text);
 
+/// Schreibt den Aufrufstapel des aufrufenden Fadens nach stderr (Entwicklungshilfe)
+void dg_dump_stack(void);
+
 #endif

@@ -38,9 +38,11 @@ public final class UIHost {
     var fieldHolders: [FieldHolder] = []
     var needsResolve = true
     var needsDraw = true
-    var timelineIntervals: [TimeInterval] = []
+    var timelineIntervals: [Identity: TimeInterval] = [:]
+    var timelineDue: [Identity: Date] = [:]
+    var dirty = Set<Identity>()
+    var compositeIndex: [Identity: CompositeNode] = [:]
     private var lastResolve = Date.distantPast
-    private var nextTimelineDue = Date.distantFuture
 
     // Eingabe
     var pointer = CGPoint.zero
@@ -59,6 +61,7 @@ public final class UIHost {
     var fields: [Identity: NativeField] = [:]
 
     var windowManager: WindowManager?
+    var tickCount = 0
     var closeHandler: (() -> Void)?
 
     public init(title: String, background: Color, root: @escaping () -> any View) {
@@ -72,13 +75,22 @@ public final class UIHost {
     func setNeedsResolve() { needsResolve = true; needsDraw = true }
     func setNeedsDraw() { needsDraw = true }
 
-    func registerTimeline(interval: TimeInterval) { timelineIntervals.append(interval) }
+    func registerTimeline(identity: Identity, interval: TimeInterval) {
+        timelineIntervals[identity] = interval
+        if timelineDue[identity] == nil { timelineDue[identity] = Date().addingTimeInterval(interval) }
+    }
+
+    /// Die Ansicht mit dieser Identität neu auflösen (nur ihren Teilbaum)
+    func invalidate(_ id: Identity) { dirty.insert(id); needsDraw = true }
 
     func registerShortcut(key: Character, command: Bool, enabled: Bool, action: @escaping () -> Void) { shortcuts.append((Character(String(key).lowercased()), command, enabled, action)) }
 
     func resolveAndLayout() {
+        let trace = ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil
+        let t0 = Date()
         timelineIntervals.removeAll()
         shortcuts.removeAll()
+        dirty.removeAll()
         fieldSpecs.removeAll()
         store.epoch += 1
         let resolver = Resolver(store: store, host: self)
@@ -94,12 +106,17 @@ public final class UIHost {
             layer.node = r.resolveSingle(layer.makeView(), key: 0)
         }
         store.sweep()
+        let t1 = Date()
         node.place(origin: .zero, size: size)
         for layer in overlays { layout(layer) }
         rootNode = node
+        if trace { var count = 0; node.walk { _ in count += 1 }; FileHandle.standardError.write(Data(String(format: "resolve %.0f ms, layout %.0f ms, %d Knoten\n", t1.timeIntervalSince(t0) * 1000, Date().timeIntervalSince(t1) * 1000, count).utf8)) }
         needsResolve = false
         lastResolve = Date()
-        if let shortest = timelineIntervals.min() { nextTimelineDue = Date().addingTimeInterval(shortest) } else { nextTimelineDue = .distantFuture }
+        timelineDue = timelineDue.filter { timelineIntervals[$0.key] != nil }
+        compositeIndex.removeAll(keepingCapacity: true)
+        node.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } }
+        for layer in overlays { layer.node?.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } } }
         syncFields()
     }
 
@@ -123,14 +140,41 @@ public final class UIHost {
 
     /// Zeitgeber (16 ms): Hauptschlange bedienen, aufgelöste Änderungen und Zeitleisten verarbeiten
     func tick() {
-        RunLoop.main.run(mode: .default, before: Date())
+        tickCount += 1
+        if tickCount % 120 == 0, ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil { FileHandle.standardError.write(Data("tick \(tickCount)\n".utf8)) }
+        let t = Date()
+        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+        if ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil, Date().timeIntervalSince(t) > 0.05 { FileHandle.standardError.write(Data(String(format: "RunLoop %.0f ms\n", Date().timeIntervalSince(t) * 1000).utf8)) }
         let now = Date()
-        if needsResolve || now >= nextTimelineDue { resolveAndLayout(); needsDraw = true }
+        if needsResolve { resolveAndLayout(); needsDraw = true }
+        else {
+            for (id, due) in timelineDue where now >= due { dirty.insert(id); timelineDue[id] = now.addingTimeInterval(timelineIntervals[id] ?? 1) }
+            if !dirty.isEmpty { refreshDirty() }
+        }
         if let due = tooltipDue, now >= due, let hit = tooltip { _ = hit; tooltipDue = nil; needsDraw = true }
         if needsDraw, let area = drawingArea {
             needsDraw = false
             dg_queue_draw(area)
         }
+    }
+
+    /// Löst nur die als geändert gemeldeten Ansichten neu auf; ändert sich dabei eine Größe, wird neu platziert (ohne neu aufzulösen)
+    private func refreshDirty() {
+        let ids = dirty
+        dirty.removeAll()
+        var relayout = false
+        for id in ids {
+            guard let node = compositeIndex[id] else { continue }
+            if !node.refresh() { relayout = true }
+            node.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } }
+        }
+        if relayout, let root = rootNode {
+            root.clearSizeCaches()
+            root.place(origin: .zero, size: size)
+            for layer in overlays { layout(layer) }
+        }
+        syncFields()
+        needsDraw = true
     }
 
     // MARK: Zeichnen
@@ -279,5 +323,21 @@ public final class UIHost {
     func dismiss(_ id: UUID) {
         overlays.removeAll { $0.id == id }
         setNeedsResolve()
+    }
+}
+
+extension UIHost {
+    /// Zeichnet die Oberfläche in eine PNG-Datei (ohne sichtbares Fenster): für Prüfungen und Schnappschüsse
+    @discardableResult
+    public func snapshot(to path: String, size: CGSize? = nil) -> Bool {
+        let target = size ?? self.size
+        self.size = target
+        guard let surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, Int32(target.width), Int32(target.height)) else { return false }
+        defer { cairo_surface_destroy(surface) }
+        let cr = cairo_create(surface)!
+        defer { cairo_destroy(cr) }
+        resolveAndLayout()
+        draw(cr: cr, width: Int(target.width), height: Int(target.height))
+        return cairo_surface_write_to_png(surface, path) == CAIRO_STATUS_SUCCESS
     }
 }
