@@ -25,6 +25,16 @@ public struct Color: Sendable, Hashable {
     public static let blue = Color(red: 0, green: 0.48, blue: 1)
     public static let yellow = Color(red: 1, green: 0.8, blue: 0)
     public static let orange = Color(red: 1, green: 0.58, blue: 0)
+    public static let primary = Color(white: 1)
+    public static let secondary = Color(white: 1, opacity: 0.55)
+    public static let accentColor = Color(red: 0.04, green: 0.52, blue: 1)
+    public static let cyan = Color(red: 0.2, green: 0.8, blue: 0.95)
+    public static let purple = Color(red: 0.69, green: 0.32, blue: 0.87)
+    public static let pink = Color(red: 1, green: 0.18, blue: 0.33)
+    public static let brown = Color(red: 0.64, green: 0.52, blue: 0.37)
+    public static let mint = Color(red: 0, green: 0.78, blue: 0.75)
+    public static let teal = Color(red: 0.19, green: 0.69, blue: 0.78)
+    public static let indigo = Color(red: 0.35, green: 0.34, blue: 0.84)
 }
 
 public struct Gradient: Sendable {
@@ -116,28 +126,3 @@ public struct Path: Sendable {
     }
     public mutating func closeSubpath() { elements.append(.close) }
 }
-
-// MARK: - Text
-
-public struct Font: Sendable {
-    public enum Weight: Int, Sendable { case ultraLight = 200, thin = 250, light = 300, regular = 400, medium = 500, semibold = 600, bold = 700, heavy = 800, black = 900 }
-    public enum Design: Sendable { case `default`, monospaced, rounded, serif }
-    public var size: CGFloat
-    public var weight: Weight
-    public var design: Design
-
-    public static func system(size: CGFloat, weight: Weight = .regular, design: Design = .default) -> Font { Font(size: size, weight: weight, design: design) }
-}
-
-public struct Text: Sendable {
-    public var content: String
-    public var font = Font.system(size: 13)
-    public var color = Color.white
-    public var trackingValue: CGFloat = 0
-
-    public init(_ content: String) { self.content = content }
-    public func font(_ f: Font) -> Text { var t = self; t.font = f; return t }
-    public func foregroundColor(_ c: Color) -> Text { var t = self; t.color = c; return t }
-    public func tracking(_ v: CGFloat) -> Text { var t = self; t.trackingValue = v; return t }
-}
-

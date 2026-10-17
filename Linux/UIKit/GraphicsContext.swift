@@ -169,39 +169,6 @@ public struct GraphicsContext {
             cairo_paint(cr)
         }
     }
-
-    // MARK: Text
-
-    public func draw(_ text: Text, at point: CGPoint, anchor: UnitPoint = .center) {
-        guard !text.content.isEmpty, let layout = pango_cairo_create_layout(cr) else { return }
-        defer { g_object_unref(UnsafeMutableRawPointer(layout)) }
-        let family: String
-        switch text.font.design {
-        case .monospaced: family = "Noto Sans Mono"
-        case .rounded: family = "Noto Sans"
-        case .serif: family = "Noto Serif"
-        case .default: family = "Noto Sans"
-        }
-        let description = pango_font_description_new()!
-        defer { pango_font_description_free(description) }
-        pango_font_description_set_family(description, family)
-        pango_font_description_set_weight(description, PangoWeight(rawValue: UInt32(text.font.weight.rawValue)))
-        pango_font_description_set_absolute_size(description, Double(text.font.size) * Double(PANGO_SCALE))
-        pango_layout_set_font_description(layout, description)
-        pango_layout_set_text(layout, text.content, -1)
-        if text.trackingValue != 0, let attributes = pango_attr_list_new() {
-            pango_attr_list_insert(attributes, pango_attr_letter_spacing_new(Int32(Double(text.trackingValue) * Double(PANGO_SCALE))))
-            pango_layout_set_attributes(layout, attributes)
-            pango_attr_list_unref(attributes)
-        }
-        var w: Int32 = 0, h: Int32 = 0
-        pango_layout_get_pixel_size(layout, &w, &h)
-        cairo_save(cr)
-        cairo_set_source_rgba(cr, text.color.red, text.color.green, text.color.blue, text.color.alpha)
-        cairo_move_to(cr, point.x - Double(w) * anchor.x, point.y - Double(h) * anchor.y)
-        pango_cairo_show_layout(cr, layout)
-        cairo_restore(cr)
-    }
 }
 
 // MARK: - Weichzeichner
@@ -248,4 +215,46 @@ func blurImage(_ surface: OpaquePointer, radius: Double) {
         pass(r, horizontal: false)
     }
     cairo_surface_mark_dirty(surface)
+}
+
+extension GraphicsContext {
+    /// Schatten für beliebigen Inhalt: Silhouette des Inhalts in `color`, weichgezeichnet (σ = radius / 2) und um (x, y) versetzt
+    public func drawShadow(color: Color, radius: CGFloat, x: CGFloat, y: CGFloat, content: (inout GraphicsContext) -> Void) {
+        guard color.alpha > 0 else { return }
+        var scaleX = 1.0, scaleY = 1.0
+        cairo_surface_get_device_scale(cairo_get_target(cr), &scaleX, &scaleY)
+        var user = cairo_matrix_t()
+        cairo_get_matrix(cr, &user)
+        var factor = cairo_matrix_t()
+        cairo_matrix_init_scale(&factor, scaleX, scaleY)
+        var layerMatrix = cairo_matrix_t()
+        cairo_matrix_multiply(&layerMatrix, &user, &factor)
+        guard let recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nil) else { return }
+        defer { cairo_surface_destroy(recording) }
+        let layerCr = cairo_create(recording)!
+        cairo_set_matrix(layerCr, &layerMatrix)
+        var inner = GraphicsContext(cairo: layerCr, size: canvasSize)
+        content(&inner)
+        cairo_destroy(layerCr)
+        var inkX = 0.0, inkY = 0.0, inkW = 0.0, inkH = 0.0
+        cairo_recording_surface_ink_extents(recording, &inkX, &inkY, &inkW, &inkH)
+        guard inkW > 0, inkH > 0 else { return }
+        let sigma = max(0.1, Double(radius) / 2 * max(scaleX, scaleY))
+        let pad = (sigma * 3).rounded(.up) + 2
+        let x0 = (inkX - pad).rounded(.down), y0 = (inkY - pad).rounded(.down)
+        let w = Int32((inkW + 2 * pad).rounded(.up)), h = Int32((inkH + 2 * pad).rounded(.up))
+        guard let image = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h) else { return }
+        defer { cairo_surface_destroy(image) }
+        let imageCr = cairo_create(image)!
+        cairo_set_source_rgba(imageCr, color.red, color.green, color.blue, color.alpha)
+        cairo_mask_surface(imageCr, recording, -x0, -y0)
+        cairo_destroy(imageCr)
+        if sigma > 0.3 { blurImage(image, radius: sigma) }
+        cairo_save(cr)
+        cairo_identity_matrix(cr)
+        cairo_scale(cr, 1 / scaleX, 1 / scaleY)
+        cairo_set_source_surface(cr, image, x0 + Double(x) * scaleX, y0 + Double(y) * scaleY)
+        cairo_paint(cr)
+        cairo_restore(cr)
+    }
 }
