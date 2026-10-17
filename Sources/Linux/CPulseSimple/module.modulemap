@@ -1,0 +1,6 @@
+module CPulseSimple [system] {
+    header "shim.h"
+    link "pulse-simple"
+    link "pulse"
+    export *
+}

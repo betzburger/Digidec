@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(AVFoundation)
 import AVFoundation
+#else
+import CPulseSimple
+#endif
 
+#if canImport(AVFoundation)
 /// Spielt dekodierte Sprache (8 kHz, 16 Bit, mono) über den Standard-Ausgang.
 public final class VoicePlayer: @unchecked Sendable {
     private let engine = AVAudioEngine()
@@ -36,6 +41,47 @@ public final class VoicePlayer: @unchecked Sendable {
         node.scheduleBuffer(buffer, completionHandler: nil)
     }
 }
+#else
+/// Spielt dekodierte Sprache (8 kHz, 16 Bit, mono) über den Standard-Ausgang (PulseAudio/PipeWire).
+public final class VoicePlayer: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "VoicePlayer")
+    private var stream: OpaquePointer?
+
+    public init() {}
+
+    public func start() throws {
+        try queue.sync {
+            guard stream == nil else { return }
+            var spec = pa_sample_spec(format: PA_SAMPLE_S16LE, rate: UInt32(VoiceFrame.sampleRate), channels: 1)
+            var error: Int32 = 0
+            guard let opened = pa_simple_new(nil, "Digidec", PA_STREAM_PLAYBACK, nil, "Sprache", &spec, nil, nil, &error) else {
+                throw VoiceError.io("Tonausgabe: " + String(cString: pa_strerror(error)))
+            }
+            stream = opened
+        }
+    }
+
+    public func stop() {
+        queue.sync {
+            guard let stream else { return }
+            var error: Int32 = 0
+            pa_simple_flush(stream, &error)
+            pa_simple_free(stream)
+            self.stream = nil
+        }
+    }
+
+    /// Hängt Abtastwerte an die Wiedergabe an.
+    public func enqueue(_ samples: [Int16]) {
+        guard !samples.isEmpty else { return }
+        queue.async { [self] in
+            guard let stream else { return }
+            var error: Int32 = 0
+            samples.withUnsafeBytes { _ = pa_simple_write(stream, $0.baseAddress, $0.count, &error) }
+        }
+    }
+}
+#endif
 
 /// Einfaches WAV (16 Bit, mono) für Prüfstände und Aufnahmen.
 public enum VoiceWAV {

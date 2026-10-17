@@ -163,8 +163,16 @@ let package = Package(
             ] + faadDRMSymbols.map { .define($0, to: "faaddrm_" + $0) }
         ),
         // Gemeinsame Schnittstelle für digitale Sprache (Decoder eintragen, Ton ausgeben)
+        // PulseAudio (läuft auch mit PipeWire) für Ton unter Linux; unter macOS wird das Ziel nicht gebaut
+        .systemLibrary(
+            name: "CPulseSimple",
+            path: "Sources/Linux/CPulseSimple",
+            pkgConfig: "libpulse-simple",
+            providers: [.apt(["libpulse-dev"]), .brew(["pulseaudio"])]
+        ),
         .target(
             name: "VoiceCore",
+            dependencies: [.target(name: "CPulseSimple", condition: .when(platforms: [.linux]))],
             path: "Modules/VoiceCore/Sources/VoiceCore"
         ),
         // Prüfstand für Sprachdecoder (Stick): Sprache codieren, zurückwandeln, als WAV ausgeben
@@ -196,3 +204,22 @@ if hasLocalVocoder {
         package.targets.append(.executableTarget(name: name, dependencies: ["VoiceCore", "LocalVocoder"], path: "Local/Tools/Exec/" + name))
     }
 }
+
+#if os(Linux)
+// Linux: Ersatzmodule für Apple-Frameworks (Linux/Shims), damit `import Combine`, `import Accelerate` usw. im Quelltext unverändert bleiben.
+package.dependencies += [
+    .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0"),
+    .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
+]
+package.targets += [
+    .target(name: "os", path: "Linux/Shims/os"),
+    .target(name: "Accelerate", path: "Linux/Shims/Accelerate"),
+    .target(name: "Combine", dependencies: [
+        .product(name: "OpenCombine", package: "OpenCombine"),
+        .product(name: "OpenCombineFoundation", package: "OpenCombine")
+    ], path: "Linux/Shims/Combine"),
+    .target(name: "CryptoKit", dependencies: [.product(name: "Crypto", package: "swift-crypto")], path: "Linux/Shims/CryptoKit")
+]
+let linuxShims: [Target.Dependency] = ["os", "Accelerate", "Combine", "CryptoKit"]
+for target in package.targets where target.name == "Digidec" { target.dependencies += linuxShims }
+#endif

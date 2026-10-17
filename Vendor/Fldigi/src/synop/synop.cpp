@@ -25,6 +25,7 @@
 #include <assert.h>
 #include <memory.h>
 #include <time.h>
+#include <math.h>
 
 #include "re.h"
 
