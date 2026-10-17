@@ -140,8 +140,10 @@ public final class UIHost {
 
     /// Zeitgeber (16 ms): Hauptschlange bedienen, aufgelöste Änderungen und Zeitleisten verarbeiten
     func tick() {
+        for hook in tickHooks { hook() }
+        if tickCount == 5, ProcessInfo.processInfo.environment["DIGIDEC_TRACE_MAP"] != nil { FileHandle.standardError.write(Data("hooks \(tickHooks.count)\n".utf8)) }
         tickCount += 1
-        if tickCount % 120 == 0, ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil { FileHandle.standardError.write(Data("tick \(tickCount)\n".utf8)) }
+        if tickCount % 120 == 0, ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil { FileHandle.standardError.write(Data("tick \(tickCount) hooks \(tickHooks.count)\n".utf8)) }
         let t = Date()
         RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         if ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil, Date().timeIntervalSince(t) > 0.05 { FileHandle.standardError.write(Data(String(format: "RunLoop %.0f ms\n", Date().timeIntervalSince(t) * 1000).utf8)) }
@@ -328,6 +330,15 @@ public final class UIHost {
 
 extension UIHost {
     /// Zeichnet die Oberfläche in eine PNG-Datei (ohne sichtbares Fenster): für Prüfungen und Schnappschüsse
+    /// Zeichnet einmal ohne Ausgabe (hält Kartenkacheln und Ähnliches in Gang, wenn kein Fenster gemalt wird)
+    public func drawOffscreen(size: CGSize) {
+        guard let surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, Int32(size.width), Int32(size.height)) else { return }
+        defer { cairo_surface_destroy(surface) }
+        let cr = cairo_create(surface)!
+        defer { cairo_destroy(cr) }
+        draw(cr: cr, width: Int(size.width), height: Int(size.height))
+    }
+
     @discardableResult
     public func snapshot(to path: String, size: CGSize? = nil) -> Bool {
         let target = size ?? self.size
@@ -341,3 +352,6 @@ extension UIHost {
         return cairo_surface_write_to_png(surface, path) == CAIRO_STATUS_SUCCESS
     }
 }
+
+/// Wird bei jedem Takt der Oberfläche auf dem Hauptfaden aufgerufen (für Arbeit, die Hintergrundfäden übergeben haben)
+nonisolated(unsafe) public var tickHooks: [() -> Void] = []

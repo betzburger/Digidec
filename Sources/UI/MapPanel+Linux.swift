@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
-// Linux: Platzhalter der Karte, bis die OpenStreetMap-Karte steht (siehe OSMMap).
+// Linux: gemeinsame Typen der Karte (die Ansicht selbst steht in OSMMap.swift).
 #if !canImport(MapKit)
 import SwiftUI
 
@@ -23,31 +23,6 @@ struct MapDetailAction {
     var systemImage: String
     var applies: (MapMarker) -> Bool
     var perform: (MapMarker) -> Void
-}
-
-struct MapPanel: View {
-    let content: MapContent
-    @ObservedObject var home: HomeLocation
-    @Binding var selection: String?
-    var legend: String? = nil
-    var accessory: AnyView? = nil
-    var detailAction: MapDetailAction? = nil
-    var snapshotName: String = "Karte"
-    var keepZoomOnSelect = false
-
-    init(content: MapContent, home: HomeLocation, selection: Binding<String?> = .constant(nil), legend: String? = nil, accessory: AnyView? = nil,
-         detailAction: MapDetailAction? = nil, snapshotName: String = "Karte", keepZoomOnSelect: Bool = false) {
-        self.content = content; self.home = home; self._selection = selection; self.legend = legend; self.accessory = accessory
-        self.detailAction = detailAction; self.snapshotName = snapshotName; self.keepZoomOnSelect = keepZoomOnSelect
-    }
-
-    var body: some View {
-        Text("Karte")
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundColor(RadioTheme.textDim)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RadioTheme.bgDeep)
-    }
 }
 
 enum MapAppearance: String, CaseIterable, Identifiable {

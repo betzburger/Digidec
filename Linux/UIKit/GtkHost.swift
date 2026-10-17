@@ -138,6 +138,8 @@ extension UIHost {
             let delay = Double(ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_AFTER"] ?? "") ?? 8
             let width = Double(ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_WIDTH"] ?? "") ?? Double(size.width)
             let height = Double(ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_HEIGHT"] ?? "") ?? Double(size.height)
+            let offscreen = CGSize(width: width, height: height)
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [self] _ in MainActor.assumeIsolated { drawOffscreen(size: offscreen) } }
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
                 MainActor.assumeIsolated {
                     let ok = snapshot(to: path, size: CGSize(width: width, height: height))

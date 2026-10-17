@@ -670,6 +670,8 @@ public final class DigidecState: ObservableObject {
             // spielt eine Datei statt des Live-Eingangs ab
             if let id = ProcessInfo.processInfo.environment["DIGIDEC_MODULE"], let module = DecoderModuleInfo(rawValue: id) {
                 state.activeModule = module
+                // DIGIDEC_MAPLAYOUT=list|map|split wählt die Darstellung des unteren Bereichs
+                if let raw = ProcessInfo.processInfo.environment["DIGIDEC_MAPLAYOUT"], let layout = MapLayout(rawValue: raw) { state.setMapLayout(layout, for: module) }
             }
             // Entwicklungshilfe: DIGIDEC_AIS_NMEA=/Pfad/sätze.nmea nimmt AIS-Sätze (!AIVDM) wie empfangen auf (Schnappschüsse ohne Funksignal)
             if let path = ProcessInfo.processInfo.environment["DIGIDEC_AIS_NMEA"], let text = try? String(contentsOfFile: path, encoding: .utf8) {

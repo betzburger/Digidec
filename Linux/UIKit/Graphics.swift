@@ -14,6 +14,21 @@ public struct Color: Sendable, Hashable {
 
     public init(white: Double, opacity: Double = 1) { self.init(red: white, green: white, blue: white, opacity: opacity) }
 
+    public init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1) {
+        let h = (hue - floor(hue)) * 6, f = h - floor(h)
+        let p = brightness * (1 - saturation), q = brightness * (1 - saturation * f), t = brightness * (1 - saturation * (1 - f))
+        let (r, g, b): (Double, Double, Double)
+        switch Int(h) {
+        case 0: (r, g, b) = (brightness, t, p)
+        case 1: (r, g, b) = (q, brightness, p)
+        case 2: (r, g, b) = (p, brightness, t)
+        case 3: (r, g, b) = (p, q, brightness)
+        case 4: (r, g, b) = (t, p, brightness)
+        default: (r, g, b) = (brightness, p, q)
+        }
+        self.init(red: r, green: g, blue: b, opacity: opacity)
+    }
+
     public func opacity(_ value: Double) -> Color { Color(red: red, green: green, blue: blue, opacity: alpha * value) }
 
     public static let black = Color(red: 0, green: 0, blue: 0)
