@@ -207,32 +207,43 @@ if hasLocalVocoder {
 
 #if os(Linux)
 // Linux: Ersatzmodule für Apple-Frameworks (Linux/Shims), damit `import Combine`, `import Accelerate` usw. im Quelltext unverändert bleiben.
+// Die Module heißen in Wirklichkeit Digidec…; `-module-alias` bildet die Apple-Namen darauf ab. So sieht fremder Code (SwiftCrossUI und seine
+// Abhängigkeiten) keine Module namens `os`, `Combine`, `SwiftUI` … und hält `canImport(os)` nicht fälschlich für wahr.
+let shimAliases: [(apple: String, real: String)] = [
+    ("os", "DigidecOS"), ("Accelerate", "DigidecAccelerate"), ("Combine", "DigidecCombine"), ("CryptoKit", "DigidecCryptoKit"),
+    ("CoreGraphics", "DigidecCoreGraphics"), ("ImageIO", "DigidecImageIO"), ("UniformTypeIdentifiers", "DigidecUTType"),
+    ("Network", "DigidecNetwork"), ("SwiftUI", "DigidecSwiftUI")
+]
+let aliasFlags: [SwiftSetting] = [.unsafeFlags(shimAliases.flatMap { ["-module-alias", "\($0.apple)=\($0.real)"] })]
+func real(_ apple: String) -> String { shimAliases.first { $0.apple == apple }!.real }
+
 package.dependencies += [
+    .package(url: "https://github.com/stackotter/swift-cross-ui.git", revision: "0f3ec3958b79cdc39a1a3e604516b71ab33a9043"),
     .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0"),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
 ]
 package.targets += [
-    .target(name: "os", path: "Linux/Shims/os"),
-    .target(name: "Accelerate", path: "Linux/Shims/Accelerate"),
-    .target(name: "Combine", dependencies: [
+    .target(name: real("os"), path: "Linux/Shims/os", swiftSettings: aliasFlags),
+    .target(name: real("Accelerate"), path: "Linux/Shims/Accelerate", swiftSettings: aliasFlags),
+    .target(name: real("Combine"), dependencies: [
         .product(name: "OpenCombine", package: "OpenCombine"),
         .product(name: "OpenCombineFoundation", package: "OpenCombine")
-    ], path: "Linux/Shims/Combine"),
+    ], path: "Linux/Shims/Combine", swiftSettings: aliasFlags),
     .systemLibrary(name: "CSndfile", path: "Linux/Shims/CSndfile", pkgConfig: "sndfile", providers: [.apt(["libsndfile1-dev"])]),
     .target(name: "CXHEDecode", path: "Linux/Shims/CXHEDecode", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("dl")]),
-    .target(name: "SwiftUI", dependencies: ["Combine"], path: "Linux/Shims/SwiftUI"),
-    .target(name: "Network", path: "Linux/Shims/Network"),
+    .target(name: real("SwiftUI"), dependencies: [.target(name: real("Combine"))], path: "Linux/Shims/SwiftUI", swiftSettings: aliasFlags),
+    .target(name: real("Network"), path: "Linux/Shims/Network", swiftSettings: aliasFlags),
+    .systemLibrary(name: "CGtkCairo", path: "Linux/Shims/CGtkCairo", pkgConfig: "gtk4", providers: [.apt(["libgtk-4-dev"])]),
     .target(name: "AVTestShim", dependencies: ["CSndfile"], path: "Linux/Shims/AVTestShim"),
     .target(name: "CImageCodec", path: "Linux/Shims/CImageCodec", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("png"), .linkedLibrary("jpeg")]),
-    .target(name: "CoreGraphics", path: "Linux/Shims/CoreGraphics"),
-    .target(name: "ImageIO", dependencies: ["CoreGraphics", "CImageCodec"], path: "Linux/Shims/ImageIO"),
-    .target(name: "UniformTypeIdentifiers", path: "Linux/Shims/UniformTypeIdentifiers"),
-    .target(name: "CryptoKit", dependencies: [.product(name: "Crypto", package: "swift-crypto")], path: "Linux/Shims/CryptoKit")
+    .target(name: real("CoreGraphics"), path: "Linux/Shims/CoreGraphics", swiftSettings: aliasFlags),
+    .target(name: real("ImageIO"), dependencies: [.target(name: real("CoreGraphics")), "CImageCodec"], path: "Linux/Shims/ImageIO", swiftSettings: aliasFlags),
+    .target(name: real("UniformTypeIdentifiers"), path: "Linux/Shims/UniformTypeIdentifiers", swiftSettings: aliasFlags),
+    .target(name: real("CryptoKit"), dependencies: [.product(name: "Crypto", package: "swift-crypto")], path: "Linux/Shims/CryptoKit", swiftSettings: aliasFlags)
 ]
-let linuxShims: [Target.Dependency] = ["os", "Accelerate", "Combine", "CryptoKit", "CoreGraphics", "ImageIO", "UniformTypeIdentifiers", "CPulseSimple", "CSndfile", "CXHEDecode", "Network", "SwiftUI"]
+let linuxShims: [Target.Dependency] = shimAliases.map { .target(name: $0.real) } + ["CPulseSimple", "CSndfile", "CXHEDecode"]
 
 // Linux-Programm: Zustands- und Rechenteile aus Sources/ ohne die macOS-Oberfläche (Linux/ui-files.txt) plus das Linux-Frontend unter Linux/App.
-// Alles in einem Modul, damit die Frontend-Dateien auch auf die internen Typen zugreifen können.
 let uiOnly: [String] = ((try? String(contentsOfFile: packageRoot + "/Linux/ui-files.txt", encoding: .utf8)) ?? "")
     .split(whereSeparator: \.isNewline).map(String.init).filter { !$0.hasPrefix("#") && !$0.isEmpty }.map { "Sources/" + $0 }
 package.targets.removeAll { $0.name == "Digidec" }
@@ -245,15 +256,24 @@ package.targets.append(.target(
     path: ".",
     exclude: uiOnly,
     sources: ["Sources"],
-    swiftSettings: [.unsafeFlags(["-enable-testing"])]
+    swiftSettings: aliasFlags + [.unsafeFlags(["-enable-testing"])]
 ))
-package.targets.append(.executableTarget(name: "DigidecLinux", dependencies: ["DigidecCore"] + vendorTargets + linuxShims, path: "Linux/App"))
+package.targets.append(.executableTarget(
+    name: "DigidecLinux",
+    dependencies: ["DigidecCore", "CGtkCairo",
+                   .product(name: "SwiftCrossUI", package: "swift-cross-ui"),
+                   .product(name: "GtkBackend", package: "swift-cross-ui"),
+                   .product(name: "Gtk", package: "swift-cross-ui")] + vendorTargets + linuxShims,
+    path: "Linux/App",
+    swiftSettings: aliasFlags
+))
 // Logiktests (Tools/LogicTests): gleiche Prüfungen wie am Mac. FakeSDRconnect braucht WebSocket aus Network.framework und fehlt hier.
 package.targets.append(.executableTarget(
     name: "LogicTests",
     dependencies: ["DigidecCore", "AVTestShim"] + vendorTargets + linuxShims,
     path: "Tools/LogicTests",
     exclude: ["run_logic_tests.sh", "FakeSDRconnect.swift"],
-    sources: ["main.swift", "DABSelfTest.swift", "FakeLLMServer.swift", "FakeRigctld.swift"]
+    sources: ["main.swift", "DABSelfTest.swift", "FakeLLMServer.swift", "FakeRigctld.swift"],
+    swiftSettings: aliasFlags
 ))
 #endif

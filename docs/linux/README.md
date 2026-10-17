@@ -1,11 +1,12 @@
 # Digidec unter Linux
 
-Stand: Kern und Logiktests laufen unter Linux; die Oberfläche (SwiftUI) gibt es noch nicht. Branch `linux-port`.
+Stand: Kern und Logiktests laufen unter Linux; die Oberfläche ist als Entwurf vorhanden (GTK 4 über SwiftCrossUI, Instrumente mit Cairo: S-Meter, Abstimmanzeige, Wasserfall mit Live-Ton). Branch `linux-port`.
 
 ## Bauen und testen
 
 ```bash
-swift build --product digidec-linux            # Kern + Startprogramm (Entwurf)
+swift build --product digidec-linux            # Kern + Frontend-Entwurf (GTK-Fenster)
+DIGIDEC_THEME=amber .build/debug/digidec-linux  # Theme: night, amber, redNight, marine
 swift build -c release --product logic-tests   # die Logiktests von macOS (7107 Prüfungen)
 LT_ONLY=ft8,dab .build/release/logic-tests     # einzelne Gruppen; ohne LT_ONLY alle
 ```
@@ -23,7 +24,7 @@ Bauabhängigkeiten (Arch/Fedora/Debian-Namen sinngemäß): `libpulse`, `libsndfi
 |---|---|
 | `Linux/Shims/…` | Ersatzmodule für Apple-Frameworks, damit `import Combine`, `import Accelerate` usw. im Quelltext unverändert bleiben |
 | `Linux/ui-files.txt` | Dateien der macOS-Oberfläche, die unter Linux nicht übersetzt werden |
-| `Linux/App/` | Linux-Frontend (bisher nur ein Startprogramm) |
+| `Linux/App/` | Linux-Frontend (Entwurf): `CairoCanvas` (Zeichenfläche als GTK-Widget), `Instruments` (Cairo-Zeichnungen), `LiveModel`, App |
 | `Sources/**/*+Linux.swift`, `#if canImport(…)` | Linux-Fassungen von Audio, Aufnahme, Wiedergabe, Geräteliste, Tastenbund, PDF |
 
 Ersatzmodule: `os` (Sperren), `Accelerate` (vDSP: FFT, Skalarprodukte, Fenster …, an einer naiven DFT geprüft), `Combine` (OpenCombine plus

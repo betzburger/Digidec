@@ -1,0 +1,4 @@
+module CGtkCairo [system] {
+    header "shim.h"
+    export *
+}
