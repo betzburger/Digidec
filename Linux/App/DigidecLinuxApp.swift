@@ -16,22 +16,34 @@ struct DigidecLinuxApp: App {
 
     var body: some Scene {
         WindowGroup("Digidec \(AppVersion.short)") {
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    CairoCanvas(minimumSize: (260, 150)) { cr, w, h in
-                        drawSMeter(cr, w, h, db: model.levelDB, theme: model.theme)
+            VStack(spacing: 8) {
+                CairoCanvas(minimumSize: (400, 56)) { cr, w, h in drawHeaderCanvas(cr, w, h, model: model) }
+                .frame(height: 56)
+                CairoCanvas(minimumSize: (400, 90),
+                            draw: { cr, w, h in drawModuleBarCanvas(cr, w, h, model: model) },
+                            onPress: { x, y in model.pressedModule = model.module(at: x, y) },
+                            onRelease: { x, y in
+                                if let m = model.module(at: x, y), m == model.pressedModule { model.selectedModule = m }
+                                model.pressedModule = nil
+                            },
+                            onHover: { point in model.hoverModule = point.flatMap { model.module(at: $0.0, $0.1) } })
+                    .frame(height: 100)
+                HStack(spacing: 12) {
+                    CairoCanvas(minimumSize: (300, 190)) { cr, w, h in
+                        drawTuningCard(cr, w, h, db: model.levelDB, ballistics: model.ballistics, palette: model.theme)
                     }
-                    CairoCanvas(minimumSize: (260, 150)) { cr, w, h in
+                    CairoCanvas(minimumSize: (260, 190)) { cr, w, h in
                         drawVFD(cr, w, h, lines: [
+                            ("Modul", model.selectedModule.displayName),
                             ("Pegel", String(format: "%.1f dBFS", model.levelDB)),
                             ("Linie", model.peakHz > 0 ? String(format: "%.0f Hz", model.peakHz) : "—"),
                         ], theme: model.theme)
                     }
                 }
-                .frame(height: 160)
+                .frame(height: 190)
                 CairoCanvas(minimumSize: (400, 200)) { cr, w, h in
-                    drawWaterfall(cr, w, h, image: model.waterfall.image, binWidth: model.waterfall.binWidth,
-                                  spectrum: model.waterfall.spectrum, peakHz: model.peakHz, theme: model.theme)
+                    drawWaterfallCard(cr, w, h, image: model.waterfall.image, binWidth: model.waterfall.binWidth,
+                                      spectrum: model.waterfall.spectrum, peakHz: model.peakHz, palette: model.theme)
                 }
                 HStack(spacing: 10) {
                     Text("Eingang").foregroundColor(color(model.theme.textBright))
@@ -43,6 +55,6 @@ struct DigidecLinuxApp: App {
             .padding(12)
             .background(color(model.theme.bgDeep))
         }
-        .defaultSize(width: 920, height: 720)
+        .defaultSize(width: 1000, height: 820)
     }
 }

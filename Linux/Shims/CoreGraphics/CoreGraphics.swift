@@ -20,6 +20,9 @@ public struct CGBitmapInfo: OptionSet, Sendable {
     public var alpha: CGImageAlphaInfo { CGImageAlphaInfo(rawValue: rawValue & 0x1F) ?? .none }
 }
 
+public enum CGLineCap: Int32, Sendable { case butt = 0, round, square }
+public enum CGLineJoin: Int32, Sendable { case miter = 0, round, bevel }
+
 public enum CGColorRenderingIntent: Int32, Sendable { case defaultIntent = 0 }
 
 public final class CGColorSpace: @unchecked Sendable {

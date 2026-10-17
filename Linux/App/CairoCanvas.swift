@@ -20,6 +20,10 @@ struct CairoCanvas: @MainActor GtkWidgetRepresentable {
     var framesPerSecond: Double = 30
     var minimumSize: (width: Int, height: Int) = (80, 60)
     var draw: @MainActor (_ cr: OpaquePointer, _ width: Double, _ height: Double) -> Void
+    /// Zeigerereignisse (Koordinaten in Punkten): Druck, Loslassen, Bewegung (nil = Zeiger hat die Fläche verlassen)
+    var onPress: (@MainActor (Double, Double) -> Void)?
+    var onRelease: (@MainActor (Double, Double) -> Void)?
+    var onHover: (@MainActor ((Double, Double)?) -> Void)?
 
     @MainActor
     final class Coordinator {
@@ -40,6 +44,20 @@ struct CairoCanvas: @MainActor GtkWidgetRepresentable {
         let draw = self.draw
         area.setDrawFunc { cr, width, height in
             MainActor.assumeIsolated { draw(cr, Double(width), Double(height)) }
+        }
+        if onPress != nil || onRelease != nil {
+            let click = GestureClick()
+            let press = onPress, release = onRelease
+            click.pressed = { _, _, x, y in MainActor.assumeIsolated { press?(x, y) } }
+            click.released = { _, _, x, y in MainActor.assumeIsolated { release?(x, y) } }
+            area.addEventController(click)
+        }
+        if let hover = onHover {
+            let motion = EventControllerMotion()
+            motion.motion = { _, x, y in MainActor.assumeIsolated { hover((x, y)) } }
+            motion.enter = { _, x, y in MainActor.assumeIsolated { hover((x, y)) } }
+            motion.leave = { _ in MainActor.assumeIsolated { hover(nil) } }
+            area.addEventController(motion)
         }
         let weakArea = WeakWidget(widget: area)
         context.coordinator.timer = Timer.scheduledTimer(withTimeInterval: 1 / framesPerSecond, repeats: true) { _ in

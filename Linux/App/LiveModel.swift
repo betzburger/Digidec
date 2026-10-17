@@ -17,8 +17,13 @@ final class LiveModel {
     /// Frequenz der stärksten Spektrallinie in Hz
     var peakHz = 0.0
     var theme: ThemePalette = ThemeModel.shared.palette
+    var selectedModule: DecoderModuleInfo = .ft8
+    @ObservationIgnored var hoverModule: DecoderModuleInfo?
+    @ObservationIgnored var pressedModule: DecoderModuleInfo?
+    @ObservationIgnored var moduleRects: [(module: DecoderModuleInfo, rect: CGRect)] = []
 
     let pipeline = AudioPipeline()
+    let ballistics = NeedleBallistics()
     let waterfall: WaterfallModel
     private let capture: LiveAudioCapture
     @ObservationIgnored private var timer: Timer?
@@ -32,6 +37,10 @@ final class LiveModel {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+    }
+
+    func module(at x: Double, _ y: Double) -> DecoderModuleInfo? {
+        moduleRects.first { $0.rect.contains(CGPoint(x: x, y: y)) }?.module
     }
 
     func select(name: String?) {

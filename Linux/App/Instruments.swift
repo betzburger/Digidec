@@ -166,10 +166,10 @@ func drawVFD(_ cr: OpaquePointer, _ w: Double, _ h: Double, lines: [(label: Stri
 // MARK: - Wasserfall
 
 @MainActor
-func drawWaterfall(_ cr: OpaquePointer, _ w: Double, _ h: Double, image: CGImage?, binWidth: Double, spectrum: [Float], peakHz: Double, theme: ThemePalette) {
-    drawCard(cr, w, h, title: "Wasserfall", theme: theme)
-    let left = 10.0, top = 28.0, right = 10.0, axis = 20.0
-    let areaW = w - left - right, areaH = h - top - axis - 8
+func drawWaterfall(_ cr: OpaquePointer, _ w: Double, _ h: Double, image: CGImage?, binWidth: Double, spectrum: [Float], peakHz: Double, theme: ThemePalette, card: Bool = true) {
+    if card { drawCard(cr, w, h, title: "Wasserfall", theme: theme) }
+    let left = card ? 10.0 : 0.0, top = card ? 28.0 : 0.0, right = card ? 10.0 : 0.0, axis = 20.0
+    let areaW = w - left - right, areaH = h - top - axis - (card ? 8 : 0)
     guard areaW > 10, areaH > 10, let image, let data = image.dataProvider?.data else { return }
     let imageW = image.width, imageH = image.height
 
