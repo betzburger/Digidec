@@ -118,7 +118,7 @@ public struct Label<Title: View, Icon: View> {
 
 extension Label where Title == Text, Icon == Image {
     public init(_ title: LocalizedStringKey, systemImage: String) { self.title = Text(title); icon = Image(systemName: systemImage) }
-    public init<S: StringProtocol>(_ title: S, systemImage: String) { self.title = Text(title); icon = Image(systemName: systemImage) }
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, systemImage: String) { self.title = Text(title); icon = Image(systemName: systemImage) }
 }
 
 extension Label where Title == Text, Icon == EmptyView {

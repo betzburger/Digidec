@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Digidec
+GenericName=Digital Mode Decoder
+Comment=Decoder für Digital- und Datenfunk (FT8, RTTY, DRM, ADS-B, AIS, APRS und viele mehr)
+Comment[en]=Decoder for digital and data radio modes (FT8, RTTY, DRM, ADS-B, AIS, APRS and many more)
+Exec=digidec
+Icon=de.betz.digidec
+Terminal=false
+Categories=HamRadio;AudioVideo;Audio;Network;
+Keywords=radio;sdr;ft8;rtty;decoder;ham;amateur;
+StartupWMClass=de.betz.digidec

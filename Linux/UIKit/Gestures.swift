@@ -49,7 +49,7 @@ nonisolated extension View {
 
     public func help(_ text: LocalizedStringKey) -> some View { help(text.resolved) }
 
-    public func help<S: StringProtocol>(_ text: S) -> some View {
+    @_disfavoredOverload public func help<S: StringProtocol>(_ text: S) -> some View {
         let string = String(text)
         return modify { r, child in
             let n = IDNode(identity: r.identity, child: child)

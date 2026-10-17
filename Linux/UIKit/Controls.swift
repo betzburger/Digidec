@@ -75,7 +75,7 @@ public struct Button<Label: View> {
 
     public init(action: @escaping () -> Void, @ViewBuilder label: () -> Label) { self.action = action; self.label = label() }
     public init(_ title: LocalizedStringKey, action: @escaping () -> Void) where Label == Text { self.action = action; label = Text(title) }
-    public init<S: StringProtocol>(_ title: S, action: @escaping () -> Void) where Label == Text { self.action = action; label = Text(title) }
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, action: @escaping () -> Void) where Label == Text { self.action = action; label = Text(title) }
     public init(role: ButtonRole?, action: @escaping () -> Void, @ViewBuilder label: () -> Label) { self.action = action; self.label = label() }
     public init(_ title: LocalizedStringKey, role: ButtonRole?, action: @escaping () -> Void) where Label == Text { self.action = action; label = Text(title) }
 
@@ -130,7 +130,7 @@ public struct Toggle<Label: View> {
     let label: Label
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> Label) { self.isOn = isOn; self.label = label() }
     public init(_ title: LocalizedStringKey, isOn: Binding<Bool>) where Label == Text { self.isOn = isOn; label = Text(title) }
-    public init<S: StringProtocol>(_ title: S, isOn: Binding<Bool>) where Label == Text { self.isOn = isOn; label = Text(title) }
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, isOn: Binding<Bool>) where Label == Text { self.isOn = isOn; label = Text(title) }
 
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let kind = r.env.toggleStyleKind

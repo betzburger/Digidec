@@ -121,7 +121,7 @@ public struct Text {
     var monospacedDigitOverride = false
 
     public init(_ key: LocalizedStringKey) { content = key.resolved }
-    public init<S: StringProtocol>(_ string: S) { content = String(string) }
+    @_disfavoredOverload public init<S: StringProtocol>(_ string: S) { content = String(string) }
     public init(verbatim: String) { content = verbatim }
 
     // Textspezifische Modifikatoren geben wieder `Text` zurück (wie in SwiftUI)

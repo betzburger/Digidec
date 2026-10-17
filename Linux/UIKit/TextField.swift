@@ -31,10 +31,10 @@ public struct TextField {
     var secure = false
 
     public init(_ title: LocalizedStringKey, text: Binding<String>) { placeholder = title.resolved; self.text = text }
-    public init<S: StringProtocol>(_ title: S, text: Binding<String>) { placeholder = String(title); self.text = text }
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, text: Binding<String>) { placeholder = String(title); self.text = text }
     public init(_ title: LocalizedStringKey, text: Binding<String>, axis: Axis) { placeholder = title.resolved; self.text = text }
     public init(_ title: LocalizedStringKey, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void) { placeholder = title.resolved; self.text = text }
-    public init<S: StringProtocol>(_ title: S, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void) { placeholder = String(title); self.text = text }
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void) { placeholder = String(title); self.text = text }
 
     public init<V: LosslessStringConvertible>(_ title: LocalizedStringKey, value: Binding<V>, format: NumberFormatStyle) {
         placeholder = title.resolved

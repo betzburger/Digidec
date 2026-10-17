@@ -12,7 +12,7 @@ import FoundationNetworking
 // MARK: - Text aus AttributedString
 
 extension Text {
-    public init(_ attributed: AttributedString) { self.init(verbatim: String(attributed.characters)) }
+    @_disfavoredOverload public init(_ attributed: AttributedString) { self.init(verbatim: String(attributed.characters)) }
 }
 
 // MARK: - KeyboardShortcut
@@ -134,7 +134,7 @@ public struct DisclosureGroup<Label: View, Content: View>: View {
     @State private var expanded = false
     public init(@ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) { self.content = content(); self.label = label() }
     public init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text(title) }
-    public init(@ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text("Einzelheiten") }
+    public init(@ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text(LocalizedStringKey("Einzelheiten")) }
     public var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button(action: { expanded.toggle() }) {

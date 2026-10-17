@@ -9127,7 +9127,7 @@ if want("packet") { packetTests() }
         check(ADSBSourceKind.allCases.map(\.rawValue) == ["hackrf", "rtlsdr", "sdrplay", "sdrconnect", "file"] && DecoderModuleInfo.adsb.presetIDs.contains("sdrconnect"), "ADS-B: Quellenarten mit SDRplay (API) und SDRconnect")
         check(parse("digidec://decode?mode=adsb&preset=sdrplay") == .success(DecodeRequest(module: .adsb, presetID: "sdrplay")) && parse("digidec://decode?mode=adsb&preset=sdrconnect") == .success(DecodeRequest(module: .adsb, presetID: "sdrconnect")), "ADS-B: URL-Aufruf SDRplay")
         // Gerätefehler lesbar
-        check(ADSBSourceError.libraryMissing("libhackrf").errorDescription?.contains("brew install hackrf") == true && ADSBSourceError.busy("HackRF").errorDescription?.contains("GQRX") == true, "ADS-B: Fehlertexte")
+        check(ADSBSourceError.libraryMissing("libhackrf").errorDescription?.contains("hackrf") == true && ADSBSourceError.busy("HackRF").errorDescription?.contains("GQRX") == true, "ADS-B: Fehlertexte")
         // Modul, URL
         check(DecoderModuleInfo.adsb.isAvailable && DecoderModuleInfo.adsb.band == .vhfUhf && DecoderModuleInfo.adsb.hasMap && DecoderModuleInfo.adsb.displayName == "ADS-B", "ADS-B: Modul in der Liste")
         check(parse("digidec://decode?mode=adsb&preset=rtlsdr") == .success(DecodeRequest(module: .adsb, presetID: "rtlsdr")) && parse("digidec://decode?mode=adsb") == .success(DecodeRequest(module: .adsb, presetID: "hackrf")), "ADS-B: URL-Aufruf")

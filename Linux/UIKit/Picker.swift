@@ -115,7 +115,7 @@ public struct Menu<Label: View, Content: View> {
     let content: Content
     public init(@ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) { self.content = content(); self.label = label() }
     public init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text(title) }
-    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text(title) }
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text(title) }
 
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let plain = r.env.plainMenu
@@ -166,7 +166,7 @@ public struct Picker<Label: View, SelectionValue: Hashable, Content: View> {
     public init(_ title: LocalizedStringKey, selection: Binding<SelectionValue>, @ViewBuilder content: () -> Content) where Label == Text {
         self.selection = selection; self.content = content(); label = Text(title)
     }
-    public init<S: StringProtocol>(_ title: S, selection: Binding<SelectionValue>, @ViewBuilder content: () -> Content) where Label == Text {
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, selection: Binding<SelectionValue>, @ViewBuilder content: () -> Content) where Label == Text {
         self.selection = selection; self.content = content(); label = Text(title)
     }
 
