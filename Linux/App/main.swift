@@ -35,5 +35,5 @@ MainActor.assumeIsolated {
     manager.register(id: "assistant", title: "KI-Assistent", size: CGSize(width: 560, height: 760)) {
         AssistantWindow(model: state.assistant)
     }
-    exit(LinuxApplication.run(id: "main", manager: manager) { GtkStyle.install() })
+    exit(LinuxApplication.run(id: ProcessInfo.processInfo.environment["DIGIDEC_START_WINDOW"] ?? "main", manager: manager) { GtkStyle.install() })
 }
