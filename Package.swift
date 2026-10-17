@@ -207,7 +207,7 @@ if hasLocalVocoder {
 
 #if os(Linux)
 // Linux: Ersatzmodule für Apple-Frameworks (Linux/Shims), damit `import Combine`, `import Accelerate` usw. im Quelltext unverändert bleiben.
-// Die Module heißen in Wirklichkeit Digidec…; `-module-alias` bildet die Apple-Namen darauf ab. So sieht fremder Code (SwiftCrossUI und seine
+// Die Module heißen in Wirklichkeit Digidec…; `-module-alias` bildet die Apple-Namen darauf ab. So sieht fremder Code (OpenCombine und die
 // Abhängigkeiten) keine Module namens `os`, `Combine`, `SwiftUI` … und hält `canImport(os)` nicht fälschlich für wahr.
 let shimAliases: [(apple: String, real: String)] = [
     ("os", "DigidecOS"), ("Accelerate", "DigidecAccelerate"), ("Combine", "DigidecCombine"), ("CryptoKit", "DigidecCryptoKit"),

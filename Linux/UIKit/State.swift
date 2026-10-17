@@ -171,6 +171,7 @@ public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
         if (slot.value as? ObjectType) == nil {
             let o = make()
             slot.value = o
+            if ProcessInfo.processInfo.environment["DIGIDEC_TRACE_STATE"] != nil { FileHandle.standardError.write(Data("StateObject new \(ObjectType.self) id \(context.identity.value) idx \(index) epoch \(context.store.epoch)\n".utf8)) }
         }
         if slot.cancellable == nil, let o = slot.value as? ObjectType {
             let invalidate = context.invalidate

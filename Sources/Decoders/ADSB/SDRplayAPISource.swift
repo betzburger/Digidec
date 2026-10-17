@@ -259,7 +259,7 @@ public final class SDRplayAPISource: SDRTunableSource, @unchecked Sendable {
 
     /// Bibliothek suchen: Standardpfad des Installers, sonst das Verzeichnis der aktuellen Version
     static func candidates() -> [String] {
-        var names = ["/usr/local/lib/libsdrplay_api.so", "/usr/local/lib/libsdrplay_api.dylib", "libsdrplay_api.so"]
+        var names = ["/usr/local/lib/libsdrplay_api.so.3", "/usr/lib/libsdrplay_api.so.3", "/usr/local/lib/libsdrplay_api.so", "/usr/local/lib/libsdrplay_api.dylib", "libsdrplay_api.so"]
         let base = "/Library/SDRplayAPI"
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: base) {
             for v in versions.sorted(by: >) {

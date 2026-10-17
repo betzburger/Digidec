@@ -133,6 +133,7 @@ extension UIHost {
         drawingArea = w.area
         fixed = w.fixed
         dg_window_present(w.window)
+        if let script = ProcessInfo.processInfo.environment["DIGIDEC_SCRIPT"] { runScript(script) }
         // Entwicklungshilfe: DIGIDEC_SNAPSHOT=<Datei.png> schreibt nach DIGIDEC_SNAPSHOT_AFTER Sekunden (Standard 8) ein Bild der Oberfläche und beendet das Programm
         if let path = ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT"], windowManager?.open.count ?? 0 <= 1 {
             let delay = Double(ProcessInfo.processInfo.environment["DIGIDEC_SNAPSHOT_AFTER"] ?? "") ?? 8
@@ -181,4 +182,55 @@ public enum LinuxApplication {
     }
 
     public static func installStyle(_ css: String) { dg_install_css(css) }
+}
+
+
+extension UIHost {
+    /// Entwicklungshilfe: `DIGIDEC_SCRIPT=<Datei>` spielt Zeilen ab (ein Befehl je Zeile, `#` beginnt einen Kommentar):
+    /// `wait <s>`, `move x y`, `click x y`, `rclick x y`, `drag x1 y1 x2 y2`, `scroll x y dy`, `key <Zeichen>`, `shot <Datei.png> [Breite Höhe]`, `quit`.
+    /// Die Oberfläche wird dabei ohne sichtbares Fenster gezeichnet; so lassen sich Bedienabläufe prüfen.
+    func runScript(_ path: String) {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
+            FileHandle.standardError.write(Data("Skript nicht lesbar: \(path)\n".utf8)); return
+        }
+        var commands = text.split(whereSeparator: \.isNewline).map { String($0) }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.hasPrefix("#") }
+        var waitUntil = Date()
+        let env = ProcessInfo.processInfo.environment
+        let size = CGSize(width: Double(env["DIGIDEC_SNAPSHOT_WIDTH"] ?? "") ?? 1500, height: Double(env["DIGIDEC_SNAPSHOT_HEIGHT"] ?? "") ?? 960)
+        self.size = size
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [self] timer in
+            MainActor.assumeIsolated {
+                drawOffscreen(size: size)
+                guard Date() >= waitUntil, !commands.isEmpty else { return }
+                let parts = commands.removeFirst().split(separator: " ").map(String.init)
+                func number(_ i: Int) -> CGFloat { i < parts.count ? CGFloat(Double(parts[i]) ?? 0) : 0 }
+                switch parts.first ?? "" {
+                case "wait": waitUntil = Date().addingTimeInterval(Double(number(1)))
+                case "move": pointerMoved(CGPoint(x: number(1), y: number(2)))
+                case "click":
+                    let p = CGPoint(x: number(1), y: number(2))
+                    pointerMoved(p); pressed(p, button: 1); released(p, button: 1)
+                case "rclick":
+                    let p = CGPoint(x: number(1), y: number(2))
+                    pointerMoved(p); pressed(p, button: 3); released(p, button: 3)
+                case "drag":
+                    let a = CGPoint(x: number(1), y: number(2)), b = CGPoint(x: number(3), y: number(4))
+                    pointerMoved(a); pressed(a, button: 1)
+                    for i in 1...8 { pointerMoved(CGPoint(x: a.x + (b.x - a.x) * CGFloat(i) / 8, y: a.y + (b.y - a.y) * CGFloat(i) / 8)) }
+                    released(b, button: 1)
+                case "scroll":
+                    let p = CGPoint(x: number(1), y: number(2))
+                    pointerMoved(p); _ = scrolled(p, dx: 0, dy: number(3))
+                case "key": if let c = parts.dropFirst().first?.first { _ = keyPressed(c, command: false) }
+                case "shot":
+                    let out = parts.count > 1 ? parts[1] : "shot.png"
+                    let ok = snapshot(to: out, size: parts.count > 3 ? CGSize(width: number(2), height: number(3)) : size)
+                    FileHandle.standardError.write(Data((ok ? "Schnappschuss: \(out)\n" : "Schnappschuss fehlgeschlagen\n").utf8))
+                case "quit": exit(0)
+                default: FileHandle.standardError.write(Data("Unbekannter Befehl: \(parts.joined(separator: " "))\n".utf8))
+                }
+                if commands.isEmpty && (parts.first != "wait") { timer.invalidate(); exit(0) }
+            }
+        }
+    }
 }

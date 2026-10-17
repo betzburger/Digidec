@@ -47,7 +47,12 @@ public enum ADSBSourceError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .libraryMissing("libsdrplay_api"): return "SDRplay-API nicht gefunden: bitte „Hardware API MacOS“ von https://www.sdrplay.com/api/ installieren"
-        case .libraryMissing(let n): return "\(n) nicht gefunden: bitte installieren (brew install \(n == "libhackrf" ? "hackrf" : "librtlsdr"))"
+        case .libraryMissing(let n):
+            #if os(Linux)
+            return "\(n) nicht gefunden: bitte installieren (Paket \(n == "libhackrf" ? "hackrf" : "rtl-sdr"), z. B. pacman -S \(n == "libhackrf" ? "hackrf" : "rtl-sdr") oder apt install \(n == "libhackrf" ? "libhackrf0" : "librtlsdr0"))"
+            #else
+            return "\(n) nicht gefunden: bitte installieren (brew install \(n == "libhackrf" ? "hackrf" : "librtlsdr"))"
+            #endif
         case .deviceNotFound(let n): return "\(n): kein Gerät gefunden"
         case .busy(let n): return "\(n): Gerät belegt oder Zugriff verweigert (läuft ein anderes Programm, z. B. GQRX?)"
         case .failed(let m): return m
@@ -134,6 +139,17 @@ final class DynamicLibrary: @unchecked Sendable {
         return unsafeBitCast(p, to: T.self)
     }
 
+    #if os(Linux)
+    static let searchDirectories = ["/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/local/lib", "/usr/local/lib64"]
+    static func candidates(_ base: String) -> [String] {
+        var out: [String] = []
+        // Gemeinsame Bibliotheken tragen unter Linux eine Versionsnummer (libhackrf.so.0, librtlsdr.so.2)
+        let suffixes = [".so", ".so.0", ".so.2", ".so.1"]
+        for d in searchDirectories { for suffix in suffixes { out.append("\(d)/\(base)\(suffix)") } }
+        for suffix in suffixes { out.append(base + suffix) }
+        return out
+    }
+    #else
     static let searchDirectories = ["/opt/homebrew/lib", "/usr/local/lib", "/opt/local/lib"]
     static func candidates(_ base: String) -> [String] {
         var out: [String] = []
@@ -142,6 +158,7 @@ final class DynamicLibrary: @unchecked Sendable {
         out.append(base + ".dylib")
         return out
     }
+    #endif
 }
 
 /// Zeiger auf ein Objekt, das ein C-Rückruf wiederfindet

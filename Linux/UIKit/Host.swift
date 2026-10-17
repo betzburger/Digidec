@@ -105,10 +105,11 @@ public final class UIHost {
             r.identity = Identity.root.child("overlay").child(layer.id)
             layer.node = r.resolveSingle(layer.makeView(), key: 0)
         }
-        store.sweep()
         let t1 = Date()
         node.place(origin: .zero, size: size)
         for layer in overlays { layout(layer) }
+        // Erst nach dem Platzieren aufräumen: Inhalte in GeometryReader werden erst beim Platzieren aufgelöst
+        store.sweep()
         rootNode = node
         if trace { var count = 0; node.walk { _ in count += 1 }; FileHandle.standardError.write(Data(String(format: "resolve %.0f ms, layout %.0f ms, %d Knoten\n", t1.timeIntervalSince(t0) * 1000, Date().timeIntervalSince(t1) * 1000, count).utf8)) }
         needsResolve = false

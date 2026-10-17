@@ -60,6 +60,7 @@ struct MapProjection {
 
 @MainActor
 final class OSMController: ObservableObject {
+    init() { if ProcessInfo.processInfo.environment["DIGIDEC_TRACE_MAP"] != nil { FileHandle.standardError.write(Data("OSMController init \(ObjectIdentifier(self).hashValue % 10000)\n".utf8)) } }
     var cx = MapProjection.worldX(10), cy = MapProjection.worldY(50), zoom = 4.0
     var size = CGSize.zero
     var hover: CGPoint?
@@ -100,6 +101,7 @@ final class OSMController: ObservableObject {
     }
 
     func zoomBy(_ delta: Double, at point: CGPoint?) {
+        if ProcessInfo.processInfo.environment["DIGIDEC_TRACE_MAP"] != nil { FileHandle.standardError.write(Data("zoomBy obj \(ObjectIdentifier(self).hashValue % 10000) \(delta) at \(String(describing: point)) zoom \(zoom)\n".utf8)) }
         let old = projection
         let anchor = point ?? CGPoint(x: size.width / 2, y: size.height / 2)
         let before = old.geo(at: anchor)
@@ -113,7 +115,9 @@ final class OSMController: ObservableObject {
         changed()
     }
 
-    func beginDrag() { if dragOrigin == nil { dragOrigin = (cx, cy) } }
+    func beginDrag() {
+        if ProcessInfo.processInfo.environment["DIGIDEC_TRACE_MAP"] != nil { FileHandle.standardError.write(Data("beginDrag\n".utf8)) }
+ if dragOrigin == nil { dragOrigin = (cx, cy) } }
     func drag(_ t: CGSize) {
         guard let o = dragOrigin else { return }
         let s = projection.scale
@@ -372,14 +376,17 @@ struct MapPanel: View {
                                at: CGPoint(x: size.width / 2, y: size.height - 20), anchor: .center)
                     }
                 } }
-                .gesture(DragGesture(minimumDistance: 2)
+                .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { value in camera.beginDrag(); camera.drag(value.translation) }
-                    .onEnded { _ in camera.endDrag() })
+                    .onEnded { value in
+                        camera.endDrag()
+                        // Ein Klick ohne Ziehen auf freie Fläche hebt die Auswahl auf
+                        if hypot(value.translation.width, value.translation.height) < 3 { selection = nil }
+                    })
                 .onContinuousHover { phase in
                     if case .active(let pt) = phase { camera.hover = pt } else { camera.hover = nil }
                 }
                 .onScrollWheel { delta, _ in camera.zoomBy(Double(delta) * 0.012, at: camera.hover) }
-                .onTapGesture { selection = nil }
 
                 ForEach(selectedTrackDots.indices, id: \.self) { i in
                     let d = selectedTrackDots[i]
