@@ -218,8 +218,12 @@ package.targets += [
         .product(name: "OpenCombine", package: "OpenCombine"),
         .product(name: "OpenCombineFoundation", package: "OpenCombine")
     ], path: "Linux/Shims/Combine"),
+    .target(name: "CImageCodec", path: "Linux/Shims/CImageCodec", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("png"), .linkedLibrary("jpeg")]),
+    .target(name: "CoreGraphics", path: "Linux/Shims/CoreGraphics"),
+    .target(name: "ImageIO", dependencies: ["CoreGraphics", "CImageCodec"], path: "Linux/Shims/ImageIO"),
+    .target(name: "UniformTypeIdentifiers", path: "Linux/Shims/UniformTypeIdentifiers"),
     .target(name: "CryptoKit", dependencies: [.product(name: "Crypto", package: "swift-crypto")], path: "Linux/Shims/CryptoKit")
 ]
-let linuxShims: [Target.Dependency] = ["os", "Accelerate", "Combine", "CryptoKit"]
+let linuxShims: [Target.Dependency] = ["os", "Accelerate", "Combine", "CryptoKit", "CoreGraphics", "ImageIO", "UniformTypeIdentifiers"]
 for target in package.targets where target.name == "Digidec" { target.dependencies += linuxShims }
 #endif
