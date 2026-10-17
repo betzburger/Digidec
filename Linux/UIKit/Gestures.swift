@@ -15,7 +15,7 @@ public struct DragGesture {
 
 public struct TapGestureValue { public var location: CGPoint }
 
-extension View {
+nonisolated extension View {
     public func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> some View {
         modify { r, child in
             let n = IDNode(identity: r.identity, child: child)
@@ -60,7 +60,7 @@ extension View {
 
     public func keyboardShortcut(_ key: KeyEquivalent, modifiers: EventModifiers = .command) -> some View {
         modify { r, child in
-            r.host?.registerShortcut(key: key.character, command: modifiers.contains(.command), enabled: r.env.isEnabled, node: child)
+            r.host?.registerShortcut(key: key.character, command: modifiers.contains(.command), enabled: r.env.isEnabled, action: { [weak child] in child?.handlers?.tap?() })
             return child
         }
     }
@@ -102,7 +102,7 @@ extension View {
         onChange(of: value) { _, new in action(new) }
     }
 
-    public func task(priority: TaskPriority = .userInitiated, _ action: @escaping @Sendable () async -> Void) -> some View {
+    public func task(priority: TaskPriority = .userInitiated, _ action: @escaping @MainActor @Sendable () async -> Void) -> some View {
         modify { r, child in
             if r.store.interaction[r.identity]?["task"] == nil {
                 r.store.interaction[r.identity, default: [:]]["task"] = true

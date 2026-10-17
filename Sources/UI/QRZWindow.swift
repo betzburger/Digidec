@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
+#if canImport(WebKit)
 import SwiftUI
 import WebKit
+#if canImport(AppKit)
 import AppKit
+#endif
 
 // MARK: - Abfrage
 
@@ -264,3 +267,4 @@ struct QRZCommands: Commands {
         }
     }
 }
+#endif

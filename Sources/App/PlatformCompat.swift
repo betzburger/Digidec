@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
 #if canImport(AppKit)
+#if canImport(AppKit)
 import AppKit
+#endif
 #endif
 
 #if !canImport(Darwin)

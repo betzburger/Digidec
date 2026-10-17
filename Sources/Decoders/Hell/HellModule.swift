@@ -4,7 +4,9 @@ import Foundation
 import Combine
 import SwiftUI
 #if canImport(AppKit)
+#if canImport(AppKit)
 import AppKit
+#endif
 #else
 import CoreGraphics
 import ImageIO
@@ -16,7 +18,7 @@ import os
 /// Anzeigebild des Hell-Rasters (unter macOS ein NSImage, unter Linux das CGImage selbst)
 public typealias HellRasterImage = NSImage
 #else
-public typealias HellRasterImage = CGImage
+public typealias HellRasterImage = NSImage
 #endif
 
 // MARK: - Raster
@@ -95,7 +97,7 @@ public final class HellRasterModel: ObservableObject {
         #if canImport(AppKit)
         image = NSImage(cgImage: cg, size: NSSize(width: w, height: h))
         #else
-        image = cg
+        image = NSImage(cgImage: cg, size: CGSize(width: w, height: h))
         #endif
     }
 
@@ -105,7 +107,7 @@ public final class HellRasterModel: ObservableObject {
         guard let tiff = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
         #else
-        guard let image else { return nil }
+        guard let image = image?.cgImage else { return nil }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hell-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: url) }
         guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }

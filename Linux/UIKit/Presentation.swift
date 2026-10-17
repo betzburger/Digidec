@@ -5,7 +5,7 @@ import Foundation
 
 private struct SheetRegistryKey: EnvironmentKey { static let defaultValue = 0 }
 
-extension View {
+nonisolated extension View {
     public func sheet<Content: View>(isPresented: Binding<Bool>, onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping () -> Content) -> some View {
         presentation(isPresented: isPresented, modal: true, placement: .centered, onDismiss: onDismiss, content: content)
     }
@@ -53,7 +53,7 @@ extension View {
 public struct PopoverAttachmentAnchor: Sendable { public static let rect = PopoverAttachmentAnchor() }
 
 /// Rahmen eines Blattes bzw. Popovers: Fläche mit Rand
-struct Sheet<Content: View>: View {
+struct Sheet<Content: View> {
     let modal: Bool
     let content: () -> Content
     var body: some View {
@@ -64,3 +64,6 @@ struct Sheet<Content: View>: View {
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(white: 1, opacity: 0.16), lineWidth: 1))
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension Sheet: View {}

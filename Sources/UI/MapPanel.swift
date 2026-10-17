@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
+#if canImport(MapKit)
 import SwiftUI
 import MapKit
+#if canImport(AppKit)
 import AppKit
+#endif
 
 /// Farben der Kartenpunkte im RadioTheme
 extension MapTone {
@@ -561,3 +564,4 @@ struct MarkerBadge: View {
         Color(hue: 0.66 * (1 - min(max(level, 0), 1)), saturation: 0.75, brightness: 0.98)
     }
 }
+#endif

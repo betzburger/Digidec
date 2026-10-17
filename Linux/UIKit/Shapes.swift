@@ -13,7 +13,7 @@ extension Color: ShapeStyle {
     public func shading(in rect: CGRect) -> GraphicsContext.Shading { .color(self) }
 }
 
-public struct LinearGradient: ShapeStyle, PrimitiveView {
+public struct LinearGradient {
     public var gradient: Gradient
     public var startPoint: UnitPoint, endPoint: UnitPoint
     public init(gradient: Gradient, startPoint: UnitPoint, endPoint: UnitPoint) { self.gradient = gradient; self.startPoint = startPoint; self.endPoint = endPoint }
@@ -23,10 +23,10 @@ public struct LinearGradient: ShapeStyle, PrimitiveView {
         .linearGradient(gradient, startPoint: CGPoint(x: rect.minX + rect.width * startPoint.x, y: rect.minY + rect.height * startPoint.y),
                         endPoint: CGPoint(x: rect.minX + rect.width * endPoint.x, y: rect.minY + rect.height * endPoint.y))
     }
-    func makeNodes(_ r: Resolver) -> [Node] { [ShapeNode(identity: r.identity, shape: Rectangle(), fill: self, stroke: nil, lineWidth: 0)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [ShapeNode(identity: r.identity, shape: Rectangle(), fill: self, stroke: nil, lineWidth: 0)] }
 }
 
-public struct RadialGradient: ShapeStyle, PrimitiveView {
+public struct RadialGradient {
     public var gradient: Gradient
     public var center: UnitPoint
     public var startRadius: CGFloat, endRadius: CGFloat
@@ -37,13 +37,13 @@ public struct RadialGradient: ShapeStyle, PrimitiveView {
     public func shading(in rect: CGRect) -> GraphicsContext.Shading {
         .radialGradient(gradient, center: CGPoint(x: rect.minX + rect.width * center.x, y: rect.minY + rect.height * center.y), startRadius: startRadius, endRadius: endRadius)
     }
-    func makeNodes(_ r: Resolver) -> [Node] { [ShapeNode(identity: r.identity, shape: Rectangle(), fill: self, stroke: nil, lineWidth: 0)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [ShapeNode(identity: r.identity, shape: Rectangle(), fill: self, stroke: nil, lineWidth: 0)] }
 }
 
 // MARK: - Color als Ansicht
 
 extension Color: PrimitiveView {
-    func makeNodes(_ r: Resolver) -> [Node] { [ShapeNode(identity: r.identity, shape: Rectangle(), fill: self, stroke: nil, lineWidth: 0)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [ShapeNode(identity: r.identity, shape: Rectangle(), fill: self, stroke: nil, lineWidth: 0)] }
 }
 
 // MARK: - Shape
@@ -52,7 +52,7 @@ public protocol Shape: View {
     func path(in rect: CGRect) -> Path
 }
 
-extension Shape {
+nonisolated extension Shape {
     public func fill<S: ShapeStyle>(_ style: S) -> some View { ShapeView(shape: self, fill: style, stroke: nil as Color?, lineWidth: 0) }
     public func fill() -> some View { ShapeView(shape: self, fill: Color?.none, stroke: nil as Color?, lineWidth: 0, useForeground: true) }
     public func stroke<S: ShapeStyle>(_ style: S, lineWidth: CGFloat = 1) -> some View { ShapeView(shape: self, fill: nil as Color?, stroke: style, lineWidth: lineWidth) }
@@ -64,61 +64,61 @@ extension Shape {
     public func trim(from: CGFloat = 0, to: CGFloat = 1) -> some Shape { self }
 }
 
-struct InsetShape<Base: Shape>: Shape {
+struct InsetShape<Base: Shape> {
     let base: Base
     let amount: CGFloat
     func path(in rect: CGRect) -> Path { base.path(in: rect.insetBy(dx: amount, dy: amount)) }
     var body: Never { fatalError() }
 }
 
-extension Shape {
+nonisolated extension Shape {
     /// Formen sind als Ansicht mit der Vordergrundfarbe gefüllt
     @MainActor func makeShapeNodes(_ r: Resolver) -> [Node] { [ShapeNode(identity: r.identity, shape: self, fill: r.env.foregroundColor ?? Color.primary, stroke: nil, lineWidth: 0)] }
 }
 
-public struct Rectangle: Shape, PrimitiveView {
+public struct Rectangle {
     public init() {}
     public func path(in rect: CGRect) -> Path { Path(rect) }
-    func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
 }
 
-public struct RoundedRectangle: Shape, PrimitiveView {
+public struct RoundedRectangle {
     public enum Style: Sendable { case circular, continuous }
     public var cornerRadius: CGFloat
     public init(cornerRadius: CGFloat, style: Style = .circular) { self.cornerRadius = cornerRadius }
     public func path(in rect: CGRect) -> Path { Path(roundedRect: rect, cornerRadius: cornerRadius) }
-    func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
 }
 
-public struct Circle: Shape, PrimitiveView {
+public struct Circle {
     public init() {}
     public func path(in rect: CGRect) -> Path {
         let d = min(rect.width, rect.height)
         return Path(ellipseIn: CGRect(x: rect.midX - d / 2, y: rect.midY - d / 2, width: d, height: d))
     }
-    func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
 }
 
-public struct Ellipse: Shape, PrimitiveView {
+public struct Ellipse {
     public init() {}
     public func path(in rect: CGRect) -> Path { Path(ellipseIn: rect) }
-    func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
 }
 
-public struct Capsule: Shape, PrimitiveView {
+public struct Capsule {
     public init() {}
     public func path(in rect: CGRect) -> Path { Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) / 2) }
-    func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
 }
 
 extension Path: Shape, PrimitiveView {
     public func path(in rect: CGRect) -> Path { self }
-    func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { makeShapeNodes(r) }
     public init(_ build: (inout Path) -> Void) { self.init(); build(&self) }
 }
 
 /// Eine Form mit Füllung und/oder Strich als Ansicht
-struct ShapeView<S: Shape, F: ShapeStyle, T: ShapeStyle>: PrimitiveView {
+struct ShapeView<S: Shape, F: ShapeStyle, T: ShapeStyle> {
     let shape: S
     let fill: F?
     let stroke: T?
@@ -127,7 +127,7 @@ struct ShapeView<S: Shape, F: ShapeStyle, T: ShapeStyle>: PrimitiveView {
     var inset = false
     var useForeground = false
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let foreground = r.env.foregroundColor ?? Color.primary
         let n = ShapeNode(identity: r.identity, shape: shape, fill: useForeground ? nil : fill, stroke: stroke, lineWidth: lineWidth)
         if useForeground { if fill == nil && stroke == nil { n.stroke = foreground } else { n.fill = foreground } }
@@ -172,3 +172,14 @@ extension Optional: ShapeStyle where Wrapped: ShapeStyle {
 }
 
 public struct StrokeBorderPlaceholder {}
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension LinearGradient: ShapeStyle, PrimitiveView {}
+extension RadialGradient: ShapeStyle, PrimitiveView {}
+extension InsetShape: Shape {}
+extension Rectangle: Shape, PrimitiveView {}
+extension RoundedRectangle: Shape, PrimitiveView {}
+extension Circle: Shape, PrimitiveView {}
+extension Ellipse: Shape, PrimitiveView {}
+extension Capsule: Shape, PrimitiveView {}
+extension ShapeView: PrimitiveView {}

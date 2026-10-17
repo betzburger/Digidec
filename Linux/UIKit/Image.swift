@@ -4,7 +4,7 @@
 import Foundation
 import CGtkCairo
 
-public struct Image: PrimitiveView {
+public struct Image {
     enum Source { case symbol(String), bitmap(CGImage) }
     let source: Source
     var isResizable = false
@@ -27,7 +27,7 @@ public struct Image: PrimitiveView {
     public func symbolRenderingMode(_ mode: SymbolRenderingMode?) -> Image { self }
     public struct SymbolRenderingMode: Sendable { public static let monochrome = SymbolRenderingMode(), hierarchical = SymbolRenderingMode(), multicolor = SymbolRenderingMode(), palette = SymbolRenderingMode() }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         [ImageNode(identity: r.identity, source: source, resizable: isResizable, nearest: interpolationNone, color: r.env.foregroundColor ?? .primary, fontSize: r.env.font.size)]
     }
 }
@@ -110,7 +110,7 @@ extension GraphicsContext {
 
 // MARK: - Label
 
-public struct Label<Title: View, Icon: View>: View {
+public struct Label<Title: View, Icon: View> {
     let title: Title, icon: Icon
     public init(@ViewBuilder title: () -> Title, @ViewBuilder icon: () -> Icon) { self.title = title(); self.icon = icon() }
     public var body: some View { HStack(spacing: 4) { icon; title } }
@@ -124,3 +124,7 @@ extension Label where Title == Text, Icon == Image {
 extension Label where Title == Text, Icon == EmptyView {
     public init(_ title: LocalizedStringKey) { self.title = Text(title); icon = EmptyView() }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension Image: PrimitiveView {}
+extension Label: View {}

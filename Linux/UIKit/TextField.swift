@@ -10,7 +10,7 @@ public struct TextFieldStyleKind: Sendable, Equatable {
 }
 private struct TextFieldStyleKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = TextFieldStyleKind.roundedBorder }
 extension EnvironmentValues { var textFieldStyleKind: TextFieldStyleKind { get { self[TextFieldStyleKey.self] } set { self[TextFieldStyleKey.self] = newValue } } }
-extension View { public func textFieldStyle(_ style: TextFieldStyleKind) -> some View { transformEnvironment { $0.textFieldStyleKind = style } } }
+nonisolated extension View { public func textFieldStyle(_ style: TextFieldStyleKind) -> some View { transformEnvironment { $0.textFieldStyleKind = style } } }
 
 struct NativeFieldSpec {
     var text: Binding<String>
@@ -25,7 +25,7 @@ struct NativeFieldSpec {
     var alignment: TextAlignment = .leading
 }
 
-public struct TextField: PrimitiveView {
+public struct TextField {
     let placeholder: String
     let text: Binding<String>
     var secure = false
@@ -33,13 +33,15 @@ public struct TextField: PrimitiveView {
     public init(_ title: LocalizedStringKey, text: Binding<String>) { placeholder = title.resolved; self.text = text }
     public init<S: StringProtocol>(_ title: S, text: Binding<String>) { placeholder = String(title); self.text = text }
     public init(_ title: LocalizedStringKey, text: Binding<String>, axis: Axis) { placeholder = title.resolved; self.text = text }
+    public init(_ title: LocalizedStringKey, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void) { placeholder = title.resolved; self.text = text }
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>, onEditingChanged: @escaping (Bool) -> Void) { placeholder = String(title); self.text = text }
 
     public init<V: LosslessStringConvertible>(_ title: LocalizedStringKey, value: Binding<V>, format: NumberFormatStyle) {
         placeholder = title.resolved
         text = Binding(get: { String(value.wrappedValue) }, set: { if let v = V($0.trimmingCharacters(in: .whitespaces)) { value.wrappedValue = v } })
     }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = TextFieldNode(identity: r.identity, host: r.host)
         node.spec = NativeFieldSpec(text: text, placeholder: placeholder, secure: secure, font: r.env.font, style: r.env.textFieldStyleKind, enabled: r.env.isEnabled,
                                     submit: r.env.submitAction, alignment: r.env.multilineTextAlignment)
@@ -47,21 +49,21 @@ public struct TextField: PrimitiveView {
     }
 }
 
-public struct SecureField: PrimitiveView {
+public struct SecureField {
     let placeholder: String
     let text: Binding<String>
     public init(_ title: LocalizedStringKey, text: Binding<String>) { placeholder = title.resolved; self.text = text }
-    func makeNodes(_ r: Resolver) -> [Node] { TextField(verbatimTitle: placeholder, text: text, secure: true).makeNodes(r) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { TextField(verbatimTitle: placeholder, text: text, secure: true).makeNodes(r) }
 }
 
 extension TextField {
     init(verbatimTitle: String, text: Binding<String>, secure: Bool) { placeholder = verbatimTitle; self.text = text; self.secure = secure }
 }
 
-public struct TextEditor: PrimitiveView {
+public struct TextEditor {
     let text: Binding<String>
     public init(text: Binding<String>) { self.text = text }
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = TextFieldNode(identity: r.identity, host: r.host)
         node.spec = NativeFieldSpec(text: text, placeholder: "", multiline: true, font: r.env.font, style: .roundedBorder, enabled: r.env.isEnabled, submit: nil)
         node.multiline = true
@@ -100,3 +102,8 @@ final class TextFieldNode: Node {
         host?.fieldSpecs[identity] = spec
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension TextField: PrimitiveView {}
+extension SecureField: PrimitiveView {}
+extension TextEditor: PrimitiveView {}

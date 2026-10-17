@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 import CoreGraphics
 
 // MARK: - HF-Wasserfall

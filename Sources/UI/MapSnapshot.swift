@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
 import MapKit
+#if canImport(AppKit)
 import AppKit
+#endif
 
 /// Karte als PNG ablegen: Die Grundkarte kommt vom `MKMapSnapshotter` (die SwiftUI-Karte selbst lässt sich nicht abbilden),
 /// Flächen, Isobaren, Linien, Wege und Punkte werden darauf gezeichnet. Gespeichert wird der gerade sichtbare Ausschnitt.

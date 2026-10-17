@@ -231,7 +231,7 @@ package.targets += [
     ], path: "Linux/Shims/Combine", swiftSettings: aliasFlags),
     .systemLibrary(name: "CSndfile", path: "Linux/Shims/CSndfile", pkgConfig: "sndfile", providers: [.apt(["libsndfile1-dev"])]),
     .target(name: "CXHEDecode", path: "Linux/Shims/CXHEDecode", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("dl")]),
-    .target(name: real("SwiftUI"), dependencies: [.target(name: real("Combine")), .target(name: real("CoreGraphics")), "CGtkCairo", "CDigidecGtk"], path: "Linux/UIKit", swiftSettings: aliasFlags + [.swiftLanguageMode(.v5)]),
+    .target(name: real("SwiftUI"), dependencies: [.target(name: real("Combine")), .target(name: real("CoreGraphics")), .target(name: real("ImageIO")), .target(name: real("UniformTypeIdentifiers")), "CGtkCairo", "CDigidecGtk"], path: "Linux/UIKit", swiftSettings: aliasFlags + [.swiftLanguageMode(.v5)]),
     .target(name: real("Network"), path: "Linux/Shims/Network", swiftSettings: aliasFlags),
     .target(name: "CDigidecGtk", dependencies: ["CGtkCairo"], path: "Linux/Shims/CDigidecGtk", publicHeadersPath: "include"),
     .systemLibrary(name: "CGtkCairo", path: "Linux/Shims/CGtkCairo", pkgConfig: "gtk4", providers: [.apt(["libgtk-4-dev"])]),
@@ -244,8 +244,8 @@ package.targets += [
 ]
 let linuxShims: [Target.Dependency] = shimAliases.map { .target(name: $0.real) } + ["CPulseSimple", "CSndfile", "CXHEDecode"]
 
-// Linux-Programm: Zustands- und Rechenteile aus Sources/ ohne die macOS-Oberfläche (Linux/ui-files.txt) plus das Linux-Frontend unter Linux/App.
-let uiOnly: [String] = ((try? String(contentsOfFile: packageRoot + "/Linux/ui-files.txt", encoding: .utf8)) ?? "")
+// Linux-Programm: Zustands- und Rechenteile aus Sources/ ohne die macOS-Oberfläche (Linux/excluded-files.txt) plus das Linux-Frontend unter Linux/App.
+let uiOnly: [String] = ((try? String(contentsOfFile: packageRoot + "/Linux/excluded-files.txt", encoding: .utf8)) ?? "")
     .split(whereSeparator: \.isNewline).map(String.init).filter { !$0.hasPrefix("#") && !$0.isEmpty }.map { "Sources/" + $0 }
 package.targets.removeAll { $0.name == "Digidec" }
 package.products = [.executable(name: "digidec-linux", targets: ["DigidecLinux"]), .executable(name: "logic-tests", targets: ["LogicTests"])]

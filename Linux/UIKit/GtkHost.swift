@@ -116,8 +116,8 @@ extension UIHost {
         callbacks.released = { u, button, x, y in MainActor.assumeIsolated { host(from: u).released(CGPoint(x: x, y: y), button: Int(button)) } }
         callbacks.motion = { u, x, y in MainActor.assumeIsolated { host(from: u).pointerMoved(CGPoint(x: x, y: y)) } }
         callbacks.leave = { u in MainActor.assumeIsolated { host(from: u).pointerLeft() } }
-        callbacks.scroll = { u, dx, dy in
-            MainActor.assumeIsolated { let h = host(from: u); return h.scrolled(h.pointer, dx: CGFloat(dx) * 40, dy: CGFloat(dy) * 40) ? 1 : 0 }
+        callbacks.scroll = { u, dx, dy, state in
+            MainActor.assumeIsolated { let h = host(from: u); return h.scrolled(h.pointer, dx: CGFloat(dx) * 40, dy: CGFloat(dy) * 40, state: Int(state)) ? 1 : 0 }
         }
         callbacks.key = { u, keyval, state, codepoint in
             MainActor.assumeIsolated {

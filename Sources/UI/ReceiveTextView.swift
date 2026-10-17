@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 
+#if canImport(AppKit)
 /// Empfangstext als NSTextView: hängt neuen Text an, ohne den ganzen Inhalt neu aufzubauen,
 /// scrollt mit, solange man am Ende steht, und lässt Markieren und Kopieren zu.
 struct ReceiveTextView: NSViewRepresentable {
@@ -127,3 +130,4 @@ struct ReceiveTextView: NSViewRepresentable {
         }
     }
 }
+#endif

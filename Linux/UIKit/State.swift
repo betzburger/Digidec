@@ -20,13 +20,11 @@ public struct Identity: Hashable, Sendable {
     }
 }
 
-@MainActor
 protocol DynamicProperty {
     /// Bindet die Eigenschaft an den gespeicherten Platz `slot` dieser Ansicht und an die aktuelle Umgebung
-    func attach(_ context: AttachContext, index: Int)
+    @MainActor func attach(_ context: AttachContext, index: Int)
 }
 
-@MainActor
 struct AttachContext {
     let store: StateStore
     let identity: Identity
@@ -35,7 +33,6 @@ struct AttachContext {
 }
 
 /// Ein gespeicherter Wert samt Beobachtern
-@MainActor
 final class StateSlot {
     var value: Any
     var cancellable: AnyCancellable?
@@ -43,7 +40,6 @@ final class StateSlot {
     init(_ value: Any) { self.value = value }
 }
 
-@MainActor
 final class StateStore {
     private var slots: [Identity: [Int: StateSlot]] = [:]
     var epoch = 0
@@ -73,7 +69,6 @@ final class StateStore {
 
 // MARK: - @State
 
-@MainActor
 public final class StateBox<Value> {
     var initial: Value
     var slot: StateSlot?
@@ -102,7 +97,7 @@ public struct State<Value>: DynamicProperty {
         return Binding(get: { box.value }, set: { box.value = $0 })
     }
 
-    func attach(_ context: AttachContext, index: Int) {
+    @MainActor func attach(_ context: AttachContext, index: Int) {
         let slot = context.store.slot(context.identity, index, initial: box.initial)
         box.slot = slot
         box.invalidate = context.invalidate
@@ -117,12 +112,8 @@ public struct Binding<Value> {
     let getter: () -> Value
     let setter: (Value) -> Void
     public init(get: @escaping () -> Value, set: @escaping (Value) -> Void) { getter = get; setter = set }
+    public init(projectedValue: Binding<Value>) { getter = projectedValue.getter; setter = projectedValue.setter }
     public static func constant(_ value: Value) -> Binding<Value> { Binding(get: { value }, set: { _ in }) }
-    public init(wrappedValue: Value) {
-        var v = wrappedValue
-        getter = { v }
-        setter = { v = $0 }
-    }
     public var wrappedValue: Value {
         get { getter() }
         nonmutating set { setter(newValue) }
@@ -136,12 +127,11 @@ public struct Binding<Value> {
 
 // MARK: - @ObservedObject / @StateObject
 
-@MainActor
 @propertyWrapper
 public struct ObservedObject<ObjectType: ObservableObject>: DynamicProperty {
-    let object: ObjectType
+    var object: ObjectType
     public init(wrappedValue: ObjectType) { object = wrappedValue }
-    public var wrappedValue: ObjectType { object }
+    public var wrappedValue: ObjectType { get { object } set { object = newValue } }
     @dynamicMemberLookup
     public struct Wrapper {
         let object: ObjectType
@@ -151,7 +141,7 @@ public struct ObservedObject<ObjectType: ObservableObject>: DynamicProperty {
     }
     public var projectedValue: Wrapper { Wrapper(object: object) }
 
-    func attach(_ context: AttachContext, index: Int) {
+    @MainActor func attach(_ context: AttachContext, index: Int) {
         let slot = context.store.slot(context.identity, index, initial: ObjectIdentifier(object))
         // Neu abonnieren, wenn sich das Objekt geändert hat
         if slot.cancellable == nil || (slot.value as? ObjectIdentifier) != ObjectIdentifier(object) {
@@ -162,7 +152,6 @@ public struct ObservedObject<ObjectType: ObservableObject>: DynamicProperty {
     }
 }
 
-@MainActor
 @propertyWrapper
 public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
     let make: () -> ObjectType
@@ -176,7 +165,7 @@ public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
     }
     public var projectedValue: ObservedObject<ObjectType>.Wrapper { ObservedObject<ObjectType>.Wrapper(object: wrappedValue) }
 
-    func attach(_ context: AttachContext, index: Int) {
+    @MainActor func attach(_ context: AttachContext, index: Int) {
         let slot = context.store.slot(context.identity, index, initial: Optional<ObjectType>.none as Any)
         holder.slot = slot
         if (slot.value as? ObjectType) == nil {
@@ -194,7 +183,6 @@ extension StateBox where Value == Optional<AnyObject> {}
 
 // MARK: - @FocusState
 
-@MainActor
 @propertyWrapper
 public struct FocusState<Value: Hashable>: DynamicProperty {
     let box: StateBox<Value>
@@ -209,7 +197,7 @@ public struct FocusState<Value: Hashable>: DynamicProperty {
         let box = self.box
         return Binding(get: { box.value }, set: { box.value = $0 })
     }
-    func attach(_ context: AttachContext, index: Int) {
+    @MainActor func attach(_ context: AttachContext, index: Int) {
         box.slot = context.store.slot(context.identity, index, initial: box.initial)
         box.invalidate = context.invalidate
     }
@@ -217,7 +205,6 @@ public struct FocusState<Value: Hashable>: DynamicProperty {
 
 // MARK: - @AppStorage
 
-@MainActor
 @propertyWrapper
 public struct AppStorage<Value>: DynamicProperty {
     let key: String
@@ -238,7 +225,7 @@ public struct AppStorage<Value>: DynamicProperty {
         let s = self
         return Binding(get: { s.wrappedValue }, set: { s.wrappedValue = $0 })
     }
-    func attach(_ context: AttachContext, index: Int) {
+    @MainActor func attach(_ context: AttachContext, index: Int) {
         invalidateBox.slot = context.store.slot(context.identity, index, initial: 0)
         invalidateBox.invalidate = context.invalidate
     }
@@ -256,3 +243,4 @@ public struct AppStorage<Value>: DynamicProperty {
         self.init(key: key, defaultValue: wrappedValue, read: { $0.string(forKey: $1) ?? $2 }, write: { $0.set($2, forKey: $1) })
     }
 }
+

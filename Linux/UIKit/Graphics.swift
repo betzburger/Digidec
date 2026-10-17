@@ -125,4 +125,24 @@ public struct Path: Sendable {
         elements.append(.arc(center: center, radius: radius, start: startAngle.radians, end: endAngle.radians, clockwise: clockwise))
     }
     public mutating func closeSubpath() { elements.append(.close) }
+    public var isEmpty: Bool { elements.isEmpty }
+    public mutating func addRoundedRect(in rect: CGRect, cornerSize: CGSize) { elements += Path(roundedRect: rect, cornerRadius: min(cornerSize.width, cornerSize.height)).elements }
+    public mutating func addPath(_ path: Path) { elements += path.elements }
+    public func applying(_ t: CGAffineTransform) -> Path {
+        var p = Path()
+        func map(_ pt: CGPoint) -> CGPoint { pt.applying(t) }
+        for e in elements {
+            switch e {
+            case .move(let a): p.elements.append(.move(map(a)))
+            case .line(let a): p.elements.append(.line(map(a)))
+            case .quad(let a, let c): p.elements.append(.quad(to: map(a), control: map(c)))
+            case .curve(let a, let c1, let c2): p.elements.append(.curve(to: map(a), c1: map(c1), c2: map(c2)))
+            case .close: p.elements.append(.close)
+            case .rect(let r): p.elements.append(.rect(r.applying(t)))
+            case .ellipse(let r): p.elements.append(.ellipse(r.applying(t)))
+            case .arc(let c, let r, let s, let e2, let cw): p.elements.append(.arc(center: map(c), radius: r * CGFloat(t.a), start: s, end: e2, clockwise: cw))
+            }
+        }
+        return p
+    }
 }

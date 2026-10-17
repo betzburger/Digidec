@@ -12,20 +12,20 @@ public protocol ViewModifier {
     @ViewBuilder func body(content: Content) -> Body
 }
 
-public struct _ViewModifier_Content<M>: PrimitiveView {
+public struct _ViewModifier_Content<M> {
     let view: any View
-    func makeNodes(_ r: Resolver) -> [Node] { r.resolve(view, key: 0) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { r.resolve(view, key: 0) }
 }
 
-struct ModifiedContent<Content: View, M: ViewModifier>: PrimitiveView {
+struct ModifiedContent<Content: View, M: ViewModifier> {
     let content: Content
     let modifier: M
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         r.resolve(modifier.body(content: _ViewModifier_Content<M>(view: content)), key: 0)
     }
 }
 
-extension View {
+nonisolated extension View {
     public func modifier<M: ViewModifier>(_ modifier: M) -> some View { ModifiedContent(content: self, modifier: modifier) }
 }
 
@@ -89,10 +89,10 @@ extension Layout {
     public func callAsFunction<Content: View>(@ViewBuilder _ content: () -> Content) -> some View { LayoutView(layout: self, content: content()) }
 }
 
-struct LayoutView<L: Layout, Content: View>: PrimitiveView {
+struct LayoutView<L: Layout, Content: View> {
     let layout: L
     let content: Content
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = CustomLayoutNode(identity: r.identity, layout: layout)
         node.children = r.resolve(content, key: 0)
         return [node]
@@ -113,3 +113,8 @@ final class CustomLayoutNode<L: Layout>: Node {
         layout.placeSubviews(in: frame, proposal: ProposedViewSize(frame.size), subviews: subviews, cache: &cache)
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension _ViewModifier_Content: PrimitiveView {}
+extension ModifiedContent: PrimitiveView {}
+extension LayoutView: PrimitiveView {}

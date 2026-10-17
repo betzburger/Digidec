@@ -6,9 +6,10 @@
 @_exported import CoreGraphics
 @_exported import Combine
 
+@MainActor
 public protocol View {
     associatedtype Body: View
-    @MainActor @ViewBuilder var body: Body { get }
+    @ViewBuilder var body: Body { get }
 }
 
 extension Never: View {
@@ -41,16 +42,16 @@ public struct ViewBuilder {
     public static func buildExpression<Content: View>(_ content: Content) -> Content { content }
 }
 
-public struct EmptyView: PrimitiveView {
+public struct EmptyView {
     public init() {}
-    func makeNodes(_ r: Resolver) -> [Node] { [] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [] }
 }
 
-public struct TupleView<T>: PrimitiveView {
+public struct TupleView<T> {
     public var value: T
     public init(_ value: T) { self.value = value }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         var nodes: [Node] = []
         var index = 0
         for child in Mirror(reflecting: value).children {
@@ -69,17 +70,17 @@ extension Optional: View where Wrapped: View {
 }
 
 extension Optional: PrimitiveView where Wrapped: View {
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         guard let wrapped = self else { return [] }
         return r.resolve(wrapped, key: 0)
     }
 }
 
-public struct _ConditionalContent<T: View, F: View>: PrimitiveView {
+public struct _ConditionalContent<T: View, F: View> {
     enum Storage { case first(T), second(F) }
     let storage: Storage
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         switch storage {
         case .first(let v): return r.resolve(v, key: 0)
         case .second(let v): return r.resolve(v, key: 1)
@@ -87,21 +88,21 @@ public struct _ConditionalContent<T: View, F: View>: PrimitiveView {
     }
 }
 
-public struct Group<Content: View>: PrimitiveView {
+public struct Group<Content: View> {
     let content: Content
     public init(@ViewBuilder content: () -> Content) { self.content = content() }
-    func makeNodes(_ r: Resolver) -> [Node] { r.resolve(content, key: 0) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { r.resolve(content, key: 0) }
 }
 
-public struct AnyView: PrimitiveView {
+public struct AnyView {
     let view: any View
     public init<V: View>(_ view: V) { self.view = view }
-    func makeNodes(_ r: Resolver) -> [Node] { r.resolve(view, key: 0) }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { r.resolve(view, key: 0) }
 }
 
 // MARK: - ForEach
 
-public struct ForEach<Data: RandomAccessCollection, ID: Hashable, Content: View>: PrimitiveView {
+public struct ForEach<Data: RandomAccessCollection, ID: Hashable, Content: View> {
     let data: Data
     let idOf: (Data.Element) -> ID
     let content: (Data.Element) -> Content
@@ -112,7 +113,7 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable, Content: View>
         self.content = content
     }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         var nodes: [Node] = []
         for element in data { nodes += r.resolve(content(element), key: idOf(element)) }
         return nodes
@@ -134,3 +135,11 @@ extension ForEach where Data == Range<Int>, ID == Int {
         self.content = content
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension EmptyView: PrimitiveView {}
+extension TupleView: PrimitiveView {}
+extension _ConditionalContent: PrimitiveView {}
+extension Group: PrimitiveView {}
+extension AnyView: PrimitiveView {}
+extension ForEach: PrimitiveView {}

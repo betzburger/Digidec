@@ -7,9 +7,9 @@ import CGtkCairo
 // MARK: - ButtonStyle
 
 public struct ButtonStyleConfiguration {
-    public struct Label: PrimitiveView {
+    public struct Label {
         let view: any View
-        func makeNodes(_ r: Resolver) -> [Node] { r.resolve(view, key: 0) }
+        @MainActor func makeNodes(_ r: Resolver) -> [Node] { r.resolve(view, key: 0) }
     }
     public let label: Label
     public let isPressed: Bool
@@ -32,18 +32,18 @@ extension EnvironmentValues {
     var buttonStyle: AnyButtonStyle? { get { self[ButtonStyleKey.self] } set { self[ButtonStyleKey.self] = newValue } }
 }
 
-public struct PlainButtonStyle: ButtonStyle {
+public struct PlainButtonStyle {
     public init() {}
     public func makeBody(configuration: Configuration) -> some View { configuration.label.opacity(configuration.isPressed ? 0.6 : 1) }
 }
 
-public struct BorderlessButtonStyle: ButtonStyle {
+public struct BorderlessButtonStyle {
     public init() {}
     public func makeBody(configuration: Configuration) -> some View { configuration.label.opacity(configuration.isPressed ? 0.6 : 1) }
 }
 
 /// Standard-Tastenstil: abgerundete Fläche mit leichtem Verlauf
-public struct DefaultButtonStyle: ButtonStyle {
+public struct DefaultButtonStyle {
     public init() {}
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -53,15 +53,15 @@ public struct DefaultButtonStyle: ButtonStyle {
     }
 }
 
-extension ButtonStyle where Self == PlainButtonStyle { public static var plain: PlainButtonStyle { PlainButtonStyle() } }
-extension ButtonStyle where Self == BorderlessButtonStyle { public static var borderless: BorderlessButtonStyle { BorderlessButtonStyle() } }
+extension ButtonStyle where Self == PlainButtonStyle { nonisolated public static var plain: PlainButtonStyle { PlainButtonStyle() } }
+extension ButtonStyle where Self == BorderlessButtonStyle { nonisolated public static var borderless: BorderlessButtonStyle { BorderlessButtonStyle() } }
 extension ButtonStyle where Self == DefaultButtonStyle {
-    public static var bordered: DefaultButtonStyle { DefaultButtonStyle() }
-    public static var borderedProminent: DefaultButtonStyle { DefaultButtonStyle() }
-    public static var automatic: DefaultButtonStyle { DefaultButtonStyle() }
+    nonisolated public static var bordered: DefaultButtonStyle { DefaultButtonStyle() }
+    nonisolated public static var borderedProminent: DefaultButtonStyle { DefaultButtonStyle() }
+    nonisolated public static var automatic: DefaultButtonStyle { DefaultButtonStyle() }
 }
 
-extension View {
+nonisolated extension View {
     public func buttonStyle<S: ButtonStyle>(_ style: S) -> some View {
         transformEnvironment { $0.buttonStyle = AnyButtonStyle(style) }
     }
@@ -69,7 +69,7 @@ extension View {
 
 // MARK: - Button
 
-public struct Button<Label: View>: PrimitiveView {
+public struct Button<Label: View> {
     let action: () -> Void
     let label: Label
 
@@ -79,7 +79,7 @@ public struct Button<Label: View>: PrimitiveView {
     public init(role: ButtonRole?, action: @escaping () -> Void, @ViewBuilder label: () -> Label) { self.action = action; self.label = label() }
     public init(_ title: LocalizedStringKey, role: ButtonRole?, action: @escaping () -> Void) where Label == Text { self.action = action; label = Text(title) }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let pressed = r.store.interaction[r.identity]?["pressed"] as? Bool ?? false
         r.store.touchInteraction(r.identity)
         let style: AnyButtonStyle
@@ -117,18 +117,18 @@ public struct ToggleStyleKind: Sendable, Equatable {
 private struct ToggleStyleKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = ToggleStyleKind.checkbox }
 extension EnvironmentValues { var toggleStyleKind: ToggleStyleKind { get { self[ToggleStyleKey.self] } set { self[ToggleStyleKey.self] = newValue } } }
 
-extension View {
+nonisolated extension View {
     public func toggleStyle(_ style: ToggleStyleKind) -> some View { transformEnvironment { $0.toggleStyleKind = style } }
 }
 
-public struct Toggle<Label: View>: PrimitiveView {
+public struct Toggle<Label: View> {
     let isOn: Binding<Bool>
     let label: Label
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> Label) { self.isOn = isOn; self.label = label() }
     public init(_ title: LocalizedStringKey, isOn: Binding<Bool>) where Label == Text { self.isOn = isOn; label = Text(title) }
     public init<S: StringProtocol>(_ title: S, isOn: Binding<Bool>) where Label == Text { self.isOn = isOn; label = Text(title) }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let kind = r.env.toggleStyleKind
         let on = isOn.wrappedValue
         let binding = isOn
@@ -141,9 +141,9 @@ public struct Toggle<Label: View>: PrimitiveView {
     }
 }
 
-struct ToggleMark: PrimitiveView {
+struct ToggleMark {
     let on: Bool, kind: ToggleStyleKind, color: Color, enabled: Bool
-    func makeNodes(_ r: Resolver) -> [Node] { [ToggleMarkNode(identity: r.identity, on: on, kind: kind, color: color)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [ToggleMarkNode(identity: r.identity, on: on, kind: kind, color: color)] }
 }
 
 @MainActor
@@ -173,13 +173,13 @@ final class ToggleMarkNode: Node {
 
 // MARK: - Slider
 
-public struct Slider<Label: View>: PrimitiveView {
+public struct Slider<Label: View> {
     let value: Binding<Double>
     let range: ClosedRange<Double>
     let step: Double?
     let onEditingChanged: (Bool) -> Void
 
-    public init(value: Binding<Double>, in range: ClosedRange<Double> = 0...1, onEditingChanged: @escaping (Bool) -> Void = { _ in }, @ViewBuilder label: () -> Label = { EmptyView() }) where Label == EmptyView {
+    public init(value: Binding<Double>, in range: ClosedRange<Double> = 0...1, onEditingChanged: @escaping (Bool) -> Void = { _ in }) where Label == EmptyView {
         self.value = value; self.range = range; step = nil; self.onEditingChanged = onEditingChanged
     }
     public init(value: Binding<Double>, in range: ClosedRange<Double>, step: Double, onEditingChanged: @escaping (Bool) -> Void = { _ in }) where Label == EmptyView {
@@ -192,7 +192,7 @@ public struct Slider<Label: View>: PrimitiveView {
         onEditingChanged = { _ in }
     }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = SliderNode(identity: r.identity, value: value.wrappedValue, range: range, step: step, enabled: r.env.isEnabled, tint: r.env.tintColor ?? Color(red: 0.2, green: 0.7, blue: 0.95))
         node.enabled = r.env.isEnabled
         let binding = value, edit = onEditingChanged
@@ -236,7 +236,7 @@ final class SliderNode: Node {
 
 // MARK: - Stepper
 
-public struct Stepper<Label: View>: View {
+public struct Stepper<Label: View> {
     let label: Label
     let onIncrement: () -> Void, onDecrement: () -> Void
     public init(@ViewBuilder label: () -> Label, onIncrement: @escaping () -> Void, onDecrement: @escaping () -> Void) {
@@ -263,17 +263,17 @@ public struct Stepper<Label: View>: View {
 
 // MARK: - ProgressView
 
-public struct ProgressView: PrimitiveView {
+public struct ProgressView {
     let fraction: Double?
     public init() { fraction = nil }
     public init(value: Double?, total: Double = 1) { fraction = value.map { $0 / max(total, 1e-9) } }
     public init(_ title: LocalizedStringKey) { fraction = nil }
     public init<V: BinaryFloatingPoint>(value: V, total: V = 1) { fraction = Double(value) / max(Double(total), 1e-9) }
-    func makeNodes(_ r: Resolver) -> [Node] { [ProgressNode(identity: r.identity, fraction: fraction, tint: r.env.tintColor ?? Color.accentColor)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [ProgressNode(identity: r.identity, fraction: fraction, tint: r.env.tintColor ?? Color.accentColor)] }
 }
 
-public struct ProgressViewStyleKind {}
-extension View { public func progressViewStyle(_ style: ProgressViewStyleKind) -> some View { self } }
+public struct ProgressViewStyleKind: Sendable { public static let linear = ProgressViewStyleKind(), circular = ProgressViewStyleKind(), automatic = ProgressViewStyleKind() }
+nonisolated extension View { public func progressViewStyle(_ style: ProgressViewStyleKind) -> some View { self } }
 
 @MainActor
 final class ProgressNode: Node {
@@ -300,7 +300,7 @@ final class ProgressNode: Node {
 
 // MARK: - Link
 
-public struct Link<Label: View>: View {
+public struct Link<Label: View> {
     let url: URL
     let label: Label
     public init(destination: URL, @ViewBuilder label: () -> Label) { url = destination; self.label = label() }
@@ -309,3 +309,16 @@ public struct Link<Label: View>: View {
         Button(action: { openURLHook(url) }) { label.foregroundColor(Color(red: 0.4, green: 0.7, blue: 1)) }.buttonStyle(.plain)
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension ButtonStyleConfiguration.Label: PrimitiveView {}
+extension Button: PrimitiveView {}
+extension Toggle: PrimitiveView {}
+extension ToggleMark: PrimitiveView {}
+extension Slider: PrimitiveView {}
+extension Stepper: View {}
+extension ProgressView: PrimitiveView {}
+extension Link: View {}
+extension PlainButtonStyle: ButtonStyle {}
+extension BorderlessButtonStyle: ButtonStyle {}
+extension DefaultButtonStyle: ButtonStyle {}

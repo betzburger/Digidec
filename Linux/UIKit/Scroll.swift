@@ -4,11 +4,6 @@
 import Foundation
 import CGtkCairo
 
-public struct ScrollAnchor: Sendable {
-    let y: CGFloat, x: CGFloat
-    public static let top = ScrollAnchor(y: 0, x: 0.5), center = ScrollAnchor(y: 0.5, x: 0.5), bottom = ScrollAnchor(y: 1, x: 0.5)
-    public static let leading = ScrollAnchor(y: 0.5, x: 0), trailing = ScrollAnchor(y: 0.5, x: 1)
-}
 public typealias UnitPointAlias = UnitPoint
 
 /// Verbindung zwischen ScrollViewReader und dem Rollknoten darin
@@ -30,13 +25,12 @@ public struct ScrollViewProxy {
         store.interaction[identity, default: [:]]["pendingScroll"] = (AnyHashable(id), anchor ?? UnitPoint(x: 0.5, y: 0.5))
         box.host?.setNeedsResolve()
     }
-    public func scrollTo<ID: Hashable>(_ id: ID, anchor: ScrollAnchor?) { scrollTo(id, anchor: anchor.map { UnitPoint(x: $0.x, y: $0.y) }) }
 }
 
-public struct ScrollViewReader<Content: View>: PrimitiveView {
+public struct ScrollViewReader<Content: View> {
     let content: (ScrollViewProxy) -> Content
     public init(@ViewBuilder content: @escaping (ScrollViewProxy) -> Content) { self.content = content }
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let box = ScrollProxyBox()
         box.store = r.store
         box.host = r.host
@@ -47,12 +41,12 @@ public struct ScrollViewReader<Content: View>: PrimitiveView {
     }
 }
 
-public struct ScrollView<Content: View>: PrimitiveView {
+public struct ScrollView<Content: View> {
     let axes: Axis.Set
     let content: Content
     public init(_ axes: Axis.Set = .vertical, showsIndicators: Bool = true, @ViewBuilder content: () -> Content) { self.axes = axes; self.content = content() }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = ScrollNode(identity: r.identity, axes: axes, store: r.store, host: r.host)
         node.children = [r.content(content)]
         r.env.scrollProxy?.scrollIdentity = r.identity
@@ -150,3 +144,7 @@ final class ScrollNode: Node {
         }
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension ScrollViewReader: PrimitiveView {}
+extension ScrollView: PrimitiveView {}

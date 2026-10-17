@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 
 /// Info-Fenster: Version, Lizenz (GPL-3.0-or-later), Quelltext, Quellen und Drittanbieter-Software, voller Lizenztext.
 /// Die Texte kommen aus den mitgelieferten Dateien `THIRD_PARTY.md` und `LICENSE` (siehe `LicenseDocument`).

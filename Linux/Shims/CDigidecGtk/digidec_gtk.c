@@ -20,7 +20,11 @@ static void on_released(GtkGestureClick *g, int n, double x, double y, gpointer 
 }
 static void on_motion(GtkEventControllerMotion *m, double x, double y, gpointer data) { Ctx *c = data; (void)m; if (c->cb.motion) c->cb.motion(c->user, x, y); }
 static void on_leave(GtkEventControllerMotion *m, gpointer data) { Ctx *c = data; (void)m; if (c->cb.leave) c->cb.leave(c->user); }
-static gboolean on_scroll(GtkEventControllerScroll *s, double dx, double dy, gpointer data) { Ctx *c = data; (void)s; return c->cb.scroll ? c->cb.scroll(c->user, dx, dy) : FALSE; }
+static gboolean on_scroll(GtkEventControllerScroll *s, double dx, double dy, gpointer data) {
+    Ctx *c = data;
+    unsigned state = (unsigned)gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(s));
+    return c->cb.scroll ? c->cb.scroll(c->user, dx, dy, state) : FALSE;
+}
 static gboolean on_key(GtkEventControllerKey *k, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
     Ctx *c = data; (void)k; (void)keycode;
     return c->cb.key ? c->cb.key(c->user, keyval, (unsigned)state, gdk_keyval_to_unicode(keyval)) : FALSE;

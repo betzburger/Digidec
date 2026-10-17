@@ -34,10 +34,10 @@ func menuRows(from nodes: [Node]) -> [MenuRow] {
     return rows
 }
 
-struct MenuPopupView: PrimitiveView {
+struct MenuPopupView {
     let rows: [MenuRow]
     let dismiss: () -> Void
-    func makeNodes(_ r: Resolver) -> [Node] { [MenuPopupNode(identity: r.identity, rows: rows, dismiss: dismiss, host: r.host)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [MenuPopupNode(identity: r.identity, rows: rows, dismiss: dismiss, host: r.host)] }
 }
 
 @MainActor
@@ -103,21 +103,21 @@ final class MenuPopupNode: Node {
 
 public struct MenuStyleKind: Sendable { public static let borderlessButton = MenuStyleKind(), button = MenuStyleKind(), automatic = MenuStyleKind() }
 public struct MenuIndicatorVisibility: Sendable { public static let hidden = MenuIndicatorVisibility(), visible = MenuIndicatorVisibility(), automatic = MenuIndicatorVisibility() }
-extension View {
+nonisolated extension View {
     public func menuStyle(_ style: MenuStyleKind) -> some View { transformEnvironment { $0.plainMenu = true } }
     public func menuIndicator(_ v: MenuIndicatorVisibility) -> some View { self }
 }
 private struct PlainMenuKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = false }
 extension EnvironmentValues { var plainMenu: Bool { get { self[PlainMenuKey.self] } set { self[PlainMenuKey.self] = newValue } } }
 
-public struct Menu<Label: View, Content: View>: PrimitiveView {
+public struct Menu<Label: View, Content: View> {
     let label: Label
     let content: Content
     public init(@ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) { self.content = content(); self.label = label() }
     public init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text(title) }
     public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> Content) where Label == Text { self.content = content(); label = Text(title) }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let plain = r.env.plainMenu
         let rowsNodes = r.resolve(content, key: 1)
         let host = r.host
@@ -147,7 +147,7 @@ public struct PickerStyleKind: Sendable, Equatable {
 }
 private struct PickerStyleKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = PickerStyleKind.menu }
 extension EnvironmentValues { var pickerStyleKind: PickerStyleKind { get { self[PickerStyleKey.self] } set { self[PickerStyleKey.self] = newValue } } }
-extension View { public func pickerStyle(_ style: PickerStyleKind) -> some View { transformEnvironment { $0.pickerStyleKind = style } } }
+nonisolated extension View { public func pickerStyle(_ style: PickerStyleKind) -> some View { transformEnvironment { $0.pickerStyleKind = style } } }
 
 private func normalized(_ value: Any) -> AnyHashable? {
     let mirror = Mirror(reflecting: value)
@@ -155,7 +155,7 @@ private func normalized(_ value: Any) -> AnyHashable? {
     return value as? AnyHashable
 }
 
-public struct Picker<Label: View, SelectionValue: Hashable, Content: View>: PrimitiveView {
+public struct Picker<Label: View, SelectionValue: Hashable, Content: View> {
     let label: Label
     let selection: Binding<SelectionValue>
     let content: Content
@@ -170,7 +170,7 @@ public struct Picker<Label: View, SelectionValue: Hashable, Content: View>: Prim
         self.selection = selection; self.content = content(); label = Text(title)
     }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let options = r.resolve(content, key: 1)
         func firstText(_ n: Node) -> String? {
             if let t = n as? TextNode { return t.spec.text }
@@ -267,7 +267,7 @@ final class SegmentedNode: Node {
 
 // MARK: - Kontextmenü
 
-extension View {
+nonisolated extension View {
     public func contextMenu<M: View>(@ViewBuilder menuItems: () -> M) -> some View {
         let items = menuItems()
         return modify { r, child in
@@ -275,14 +275,14 @@ extension View {
             let rowNodes = r.resolve(items, key: 2)
             let rows = menuRows(from: rowNodes)
             guard let host = r.host else { return n }
-            n.contextMenu = { point in
-                let layer = OverlayLayer(anchor: CGRect(origin: point, size: .zero), modal: false, placement: .topLeading, makeView: { MenuPopupView(rows: rows, dismiss: { }) }, onDismiss: { })
-                layer.makeView = { MenuPopupView(rows: rows, dismiss: { [unowned host] in host.dismiss(layer.id) }) }
-                layer.onDismiss = { [unowned host] in host.dismiss(layer.id) }
-                host.present(layer)
-            }
+            n.contextMenu = { point in host.presentMenu(rows: rows, at: point) }
             n.handlers = n.handlers ?? Handlers()
             return n
         }
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension MenuPopupView: PrimitiveView {}
+extension Menu: PrimitiveView {}
+extension Picker: PrimitiveView {}

@@ -71,6 +71,12 @@ public struct Font: Sendable, Hashable {
 
 /// Übersetzung der Schlüssel; der Kern setzt sie beim Start (liest Localizable.strings)
 nonisolated(unsafe) public var localizationHook: (String) -> String = { $0 }
+/// Rohes Rollereignis (dx, dy, GDK-Umschaltzustand) vor der Verteilung an die Knoten; true = verbraucht
+nonisolated(unsafe) public var rawScrollHook: ((CGFloat, CGFloat, Int) -> Bool)?
+/// Text in die Zwischenablage legen
+nonisolated(unsafe) public var clipboardHook: (String) -> Void = { _ in }
+/// Dateiauswahl: (Titel, speichern, Ordner, Vorschlag) → Pfad
+nonisolated(unsafe) public var fileDialogHook: (String, Bool, Bool, String?) -> String? = { _, _, _, _ in nil }
 /// Öffnen von Adressen und Ordnern im System
 nonisolated(unsafe) public var openURLHook: (URL) -> Void = { _ in }
 
@@ -79,6 +85,7 @@ public struct LocalizedStringKey: ExpressibleByStringLiteral, ExpressibleByStrin
     var arguments: [CVarArg]
 
     public init(stringLiteral value: String) { format = value; arguments = [] }
+    public init(_ value: String) { format = value.replacingOccurrences(of: "%", with: "%%"); arguments = [] }
 
     public struct StringInterpolation: StringInterpolationProtocol {
         var format = ""
@@ -99,7 +106,7 @@ public struct LocalizedStringKey: ExpressibleByStringLiteral, ExpressibleByStrin
     }
 }
 
-public struct Text: PrimitiveView {
+public struct Text {
     public enum TruncationMode: Sendable { case head, tail, middle }
     public enum Case: Sendable { case uppercase, lowercase }
 
@@ -143,7 +150,10 @@ public struct Text: PrimitiveView {
                         underline: underlined, strikethrough: struck)
     }
 
-    func makeNodes(_ r: Resolver) -> [Node] { [TextNode(identity: r.identity, spec: spec(r.env))] }
+}
+
+extension Text: PrimitiveView {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [TextNode(identity: r.identity, spec: spec(r.env))] }
 }
 
 private struct TextCaseKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue: Text.Case? = nil }

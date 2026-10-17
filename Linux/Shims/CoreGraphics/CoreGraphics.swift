@@ -140,3 +140,32 @@ public final class CGContext {
 // Schlüssel für PNG-Zusatzangaben (ImageIO)
 public let kCGImagePropertyPNGDictionary = "{PNG}"
 public let kCGImagePropertyPNGDescription = "Description"
+
+// MARK: - Affine Abbildung
+
+public struct CGAffineTransform: Equatable, Sendable {
+    public var a: CGFloat, b: CGFloat, c: CGFloat, d: CGFloat, tx: CGFloat, ty: CGFloat
+    public init(a: CGFloat, b: CGFloat, c: CGFloat, d: CGFloat, tx: CGFloat, ty: CGFloat) { self.a = a; self.b = b; self.c = c; self.d = d; self.tx = tx; self.ty = ty }
+    public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
+    public init(translationX x: CGFloat, y: CGFloat) { self.init(a: 1, b: 0, c: 0, d: 1, tx: x, ty: y) }
+    public init(scaleX x: CGFloat, y: CGFloat) { self.init(a: x, b: 0, c: 0, d: y, tx: 0, ty: 0) }
+    public init(rotationAngle r: CGFloat) { self.init(a: cos(r), b: sin(r), c: -sin(r), d: cos(r), tx: 0, ty: 0) }
+    public func concatenating(_ t: CGAffineTransform) -> CGAffineTransform {
+        CGAffineTransform(a: a * t.a + b * t.c, b: a * t.b + b * t.d, c: c * t.a + d * t.c, d: c * t.b + d * t.d,
+                          tx: tx * t.a + ty * t.c + t.tx, ty: tx * t.b + ty * t.d + t.ty)
+    }
+    public func translatedBy(x: CGFloat, y: CGFloat) -> CGAffineTransform { CGAffineTransform(translationX: x, y: y).concatenating(self) }
+    public func scaledBy(x: CGFloat, y: CGFloat) -> CGAffineTransform { CGAffineTransform(scaleX: x, y: y).concatenating(self) }
+}
+
+extension CGPoint {
+    public func applying(_ t: CGAffineTransform) -> CGPoint { CGPoint(x: t.a * x + t.c * y + t.tx, y: t.b * x + t.d * y + t.ty) }
+}
+
+extension CGRect {
+    public func applying(_ t: CGAffineTransform) -> CGRect {
+        let pts = [CGPoint(x: minX, y: minY), CGPoint(x: maxX, y: minY), CGPoint(x: minX, y: maxY), CGPoint(x: maxX, y: maxY)].map { $0.applying(t) }
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+}

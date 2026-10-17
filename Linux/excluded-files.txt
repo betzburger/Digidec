@@ -1,0 +1,4 @@
+# Dateien, die das Linux-Ziel nicht übersetzt (macOS-Programmstart und ähnliches). Ein Pfad je Zeile, relativ zu Sources/.
+App/DigidecApp.swift
+UI/MapSnapshot.swift
+UI/AssistantImage.swift

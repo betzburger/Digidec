@@ -4,10 +4,10 @@
 import Foundation
 import CGtkCairo
 
-public struct Canvas: PrimitiveView {
+public struct Canvas {
     let renderer: (inout GraphicsContext, CGSize) -> Void
     public init(opaque: Bool = false, rendersAsynchronously: Bool = false, renderer: @escaping (inout GraphicsContext, CGSize) -> Void) { self.renderer = renderer }
-    func makeNodes(_ r: Resolver) -> [Node] { [CanvasNode(identity: r.identity, renderer: renderer)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [CanvasNode(identity: r.identity, renderer: renderer)] }
 }
 
 @MainActor
@@ -41,13 +41,13 @@ public struct TimelineSchedule {
     public static var everyMinute: TimelineSchedule { TimelineSchedule(interval: 60) }
 }
 
-public struct TimelineView<Content: View>: PrimitiveView {
+public struct TimelineView<Content: View> {
     let schedule: TimelineSchedule
     let content: (TimelineViewDefaultContext) -> Content
     public init(_ schedule: TimelineSchedule, @ViewBuilder content: @escaping (TimelineViewDefaultContext) -> Content) {
         self.schedule = schedule; self.content = content
     }
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         r.host?.registerTimeline(interval: schedule.interval)
         return r.resolve(content(TimelineViewDefaultContext(date: Date())), key: 0)
     }
@@ -74,11 +74,11 @@ public struct GeometryProxy {
 
 public enum CoordinateSpace { case local, global }
 
-public struct GeometryReader<Content: View>: PrimitiveView {
+public struct GeometryReader<Content: View> {
     let content: (GeometryProxy) -> Content
     public init(@ViewBuilder content: @escaping (GeometryProxy) -> Content) { self.content = content }
 
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = GeometryNode(identity: r.identity)
         let identity = r.identity, env = r.env, content = self.content
         node.build = { [unowned r] size, origin in
@@ -106,3 +106,8 @@ final class GeometryNode: Node {
     }
     override func placeChildren() {}
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension Canvas: PrimitiveView {}
+extension TimelineView: PrimitiveView {}
+extension GeometryReader: PrimitiveView {}

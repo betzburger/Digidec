@@ -50,7 +50,7 @@ public final class UIHost {
     var dragActive = false
     var tooltip: (text: String, at: CGPoint)?
     var tooltipDue: Date?
-    var shortcuts: [(key: Character, command: Bool, enabled: Bool, node: Node)] = []
+    var shortcuts: [(key: Character, command: Bool, enabled: Bool, action: () -> Void)] = []
     var overlays: [OverlayLayer] = []
     var presentations: [Identity: UUID] = [:]
 
@@ -74,7 +74,7 @@ public final class UIHost {
 
     func registerTimeline(interval: TimeInterval) { timelineIntervals.append(interval) }
 
-    func registerShortcut(key: Character, command: Bool, enabled: Bool, node: Node) { shortcuts.append((Character(String(key).lowercased()), command, enabled, node)) }
+    func registerShortcut(key: Character, command: Bool, enabled: Bool, action: @escaping () -> Void) { shortcuts.append((Character(String(key).lowercased()), command, enabled, action)) }
 
     func resolveAndLayout() {
         timelineIntervals.removeAll()
@@ -245,7 +245,8 @@ public final class UIHost {
         setNeedsResolve()
     }
 
-    func scrolled(_ p: CGPoint, dx: CGFloat, dy: CGFloat) -> Bool {
+    func scrolled(_ p: CGPoint, dx: CGFloat, dy: CGFloat, state: Int = 0) -> Bool {
+        if let hook = rawScrollHook, hook(dx, dy, state) { return true }
         for n in chain(at: p) { if let s = n.handlers?.scroll, s(dx, dy) { return true } }
         return false
     }
@@ -253,7 +254,7 @@ public final class UIHost {
     func keyPressed(_ key: Character, command: Bool) -> Bool {
         let lower = Character(String(key).lowercased())
         for s in shortcuts where s.key == lower && s.command == command && s.enabled {
-            s.node.handlers?.tap?()
+            s.action()
             return true
         }
         if key == "\u{1b}", let last = overlays.last { last.onDismiss(); return true }
@@ -261,6 +262,14 @@ public final class UIHost {
     }
 
     // MARK: Ebenen
+
+    /// Zeigt ein Aufklappmenü am Punkt
+    func presentMenu(rows: [MenuRow], at point: CGPoint) {
+        let layer = OverlayLayer(anchor: CGRect(origin: point, size: .zero), modal: false, placement: .topLeading, makeView: { EmptyView() }, onDismiss: { })
+        layer.makeView = { MenuPopupView(rows: rows, dismiss: { [unowned self] in self.dismiss(layer.id) }) }
+        layer.onDismiss = { [unowned self] in self.dismiss(layer.id) }
+        present(layer)
+    }
 
     func present(_ layer: OverlayLayer) {
         overlays.append(layer)

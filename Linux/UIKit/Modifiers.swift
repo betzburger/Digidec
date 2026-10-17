@@ -10,12 +10,12 @@ extension EnvironmentValues {
 
 // MARK: - Stapel
 
-public struct VStack<Content: View>: PrimitiveView {
+public struct VStack<Content: View> {
     let alignment: HorizontalAlignment, spacing: CGFloat?, content: Content
     public init(alignment: HorizontalAlignment = .center, spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
         self.alignment = alignment; self.spacing = spacing; self.content = content()
     }
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = StackNode(identity: r.identity, axis: .vertical, alignment: Alignment(horizontal: alignment, vertical: .center), spacing: spacing ?? 8)
         let saved = r.env.stackAxis
         r.env.stackAxis = .vertical
@@ -25,12 +25,12 @@ public struct VStack<Content: View>: PrimitiveView {
     }
 }
 
-public struct HStack<Content: View>: PrimitiveView {
+public struct HStack<Content: View> {
     let alignment: VerticalAlignment, spacing: CGFloat?, content: Content
     public init(alignment: VerticalAlignment = .center, spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
         self.alignment = alignment; self.spacing = spacing; self.content = content()
     }
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = StackNode(identity: r.identity, axis: .horizontal, alignment: Alignment(horizontal: .center, vertical: alignment), spacing: spacing ?? 8)
         let saved = r.env.stackAxis
         r.env.stackAxis = .horizontal
@@ -43,31 +43,31 @@ public struct HStack<Content: View>: PrimitiveView {
 public typealias LazyVStack = VStack
 public typealias LazyHStack = HStack
 
-public struct ZStack<Content: View>: PrimitiveView {
+public struct ZStack<Content: View> {
     let alignment: Alignment, content: Content
     public init(alignment: Alignment = .center, @ViewBuilder content: () -> Content) { self.alignment = alignment; self.content = content() }
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = ZStackNode(identity: r.identity, alignment: alignment)
         node.children = r.resolve(content, key: 0)
         return [node]
     }
 }
 
-public struct Spacer: PrimitiveView {
+public struct Spacer {
     let minLength: CGFloat?
     public init(minLength: CGFloat? = nil) { self.minLength = minLength }
-    func makeNodes(_ r: Resolver) -> [Node] { [SpacerNode(identity: r.identity, minLength: minLength ?? 8, axis: r.env.stackAxis)] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [SpacerNode(identity: r.identity, minLength: minLength ?? 8, axis: r.env.stackAxis)] }
 }
 
 // MARK: - Allgemeine Modifikatoren
 
-struct Modified<Content: View>: PrimitiveView {
+struct Modified<Content: View> {
     let content: Content
     let make: @MainActor (Resolver, Node) -> Node
-    func makeNodes(_ r: Resolver) -> [Node] { [make(r, r.content(content))] }
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] { [make(r, r.content(content))] }
 }
 
-extension View {
+nonisolated extension View {
     func modify(_ make: @escaping @MainActor (Resolver, Node) -> Node) -> some View { Modified(content: self, make: make) }
 
     public func frame(width: CGFloat? = nil, height: CGFloat? = nil, alignment: Alignment = .center) -> some View {
@@ -229,9 +229,9 @@ final class AspectNode: WrapperNode {
 
 // MARK: - Divider
 
-public struct Divider: PrimitiveView {
+public struct Divider {
     public init() {}
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         [DividerNode(identity: r.identity, axis: r.env.stackAxis == .horizontal ? .vertical : .horizontal)]
     }
 }
@@ -249,3 +249,11 @@ final class DividerNode: Node {
         g.fill(Path(frame), with: .color(color))
     }
 }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension VStack: PrimitiveView {}
+extension HStack: PrimitiveView {}
+extension ZStack: PrimitiveView {}
+extension Spacer: PrimitiveView {}
+extension Modified: PrimitiveView {}
+extension Divider: PrimitiveView {}

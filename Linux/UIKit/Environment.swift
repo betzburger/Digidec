@@ -70,7 +70,6 @@ extension EnvironmentValues {
 
 // MARK: - @Environment
 
-@MainActor
 @propertyWrapper
 public struct Environment<Value>: DynamicProperty {
     let keyPath: KeyPath<EnvironmentValues, Value>
@@ -80,15 +79,15 @@ public struct Environment<Value>: DynamicProperty {
 
     public var wrappedValue: Value { (box.initial ?? EnvironmentValues())[keyPath: keyPath] }
 
-    func attach(_ context: AttachContext, index: Int) { box.initial = context.environment }
+    @MainActor func attach(_ context: AttachContext, index: Int) { box.initial = context.environment }
 }
 
 // MARK: - Umgebungsmodifikatoren
 
-struct EnvironmentModifier<Content: View>: PrimitiveView {
+struct EnvironmentModifier<Content: View> {
     let content: Content
     let change: (inout EnvironmentValues) -> Void
-    func makeNodes(_ r: Resolver) -> [Node] {
+    @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let saved = r.env
         change(&r.env)
         defer { r.env = saved }
@@ -96,7 +95,7 @@ struct EnvironmentModifier<Content: View>: PrimitiveView {
     }
 }
 
-extension View {
+nonisolated extension View {
     func transformEnvironment(_ change: @escaping (inout EnvironmentValues) -> Void) -> some View {
         EnvironmentModifier(content: self, change: change)
     }
@@ -148,3 +147,6 @@ extension View {
 }
 
 public struct TextSelectability: Sendable { public static let enabled = TextSelectability(); public static let disabled = TextSelectability() }
+
+// Konformitäten als Erweiterung, damit die Typen nicht auf den Hauptakteur isoliert werden (wie in SwiftUI)
+extension EnvironmentModifier: PrimitiveView {}

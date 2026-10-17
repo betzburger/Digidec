@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 
 private func packetAge(_ date: Date, now: Date) -> String {
     let s = max(0, Int(now.timeIntervalSince(date)))

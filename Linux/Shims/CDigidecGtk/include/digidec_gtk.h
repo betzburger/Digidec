@@ -13,7 +13,7 @@ typedef struct {
     void (*released)(void *user, int button, double x, double y);
     void (*motion)(void *user, double x, double y);
     void (*leave)(void *user);
-    int (*scroll)(void *user, double dx, double dy);
+    int (*scroll)(void *user, double dx, double dy, unsigned state);
     int (*key)(void *user, unsigned keyval, unsigned state, unsigned codepoint);
     void (*closed)(void *user);
     void (*tick)(void *user);
