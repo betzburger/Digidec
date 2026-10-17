@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+#if canImport(DigidecCore)
+@testable import DigidecCore
+#endif
 
 /// Prüfungen des DAB-Empfängers ohne Aufnahme (gemeinsam für den Prüfstand und die Logiktests)
 func dabSelfTests(_ check: (Bool, String) -> Void) {

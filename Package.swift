@@ -223,6 +223,7 @@ package.targets += [
             linkerSettings: [.linkedLibrary("avcodec"), .linkedLibrary("avutil")]),
     .target(name: "SwiftUI", dependencies: ["Combine"], path: "Linux/Shims/SwiftUI"),
     .target(name: "Network", path: "Linux/Shims/Network"),
+    .target(name: "AVTestShim", dependencies: ["CSndfile"], path: "Linux/Shims/AVTestShim"),
     .target(name: "CImageCodec", path: "Linux/Shims/CImageCodec", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("png"), .linkedLibrary("jpeg")]),
     .target(name: "CoreGraphics", path: "Linux/Shims/CoreGraphics"),
     .target(name: "ImageIO", dependencies: ["CoreGraphics", "CImageCodec"], path: "Linux/Shims/ImageIO"),
@@ -236,12 +237,24 @@ let linuxShims: [Target.Dependency] = ["os", "Accelerate", "Combine", "CryptoKit
 let uiOnly: [String] = ((try? String(contentsOfFile: packageRoot + "/Linux/ui-files.txt", encoding: .utf8)) ?? "")
     .split(whereSeparator: \.isNewline).map(String.init).filter { !$0.hasPrefix("#") && !$0.isEmpty }.map { "Sources/" + $0 }
 package.targets.removeAll { $0.name == "Digidec" }
-package.products = [.executable(name: "digidec-linux", targets: ["DigidecLinux"])]
-package.targets.append(.executableTarget(
-    name: "DigidecLinux",
-    dependencies: ["Fldigi", "FT8", "JS8", "Wspr", "Codec2", "Faad2", "Faad2DRM", "VoiceCore"] + linuxShims,
+package.products = [.executable(name: "digidec-linux", targets: ["DigidecLinux"]), .executable(name: "logic-tests", targets: ["LogicTests"])]
+let vendorTargets: [Target.Dependency] = ["Fldigi", "FT8", "JS8", "Wspr", "Codec2", "Faad2", "Faad2DRM", "VoiceCore"]
+// Kern: alles aus Sources/ außer der macOS-Oberfläche. `-enable-testing`, damit Frontend und Logiktests mit @testable auch die internen Typen sehen.
+package.targets.append(.target(
+    name: "DigidecCore",
+    dependencies: vendorTargets + linuxShims,
     path: ".",
     exclude: uiOnly,
-    sources: ["Sources", "Linux/App"]
+    sources: ["Sources"],
+    swiftSettings: [.unsafeFlags(["-enable-testing"])]
+))
+package.targets.append(.executableTarget(name: "DigidecLinux", dependencies: ["DigidecCore"] + vendorTargets + linuxShims, path: "Linux/App"))
+// Logiktests (Tools/LogicTests): gleiche Prüfungen wie am Mac. FakeSDRconnect braucht WebSocket aus Network.framework und fehlt hier.
+package.targets.append(.executableTarget(
+    name: "LogicTests",
+    dependencies: ["DigidecCore", "AVTestShim"] + vendorTargets + linuxShims,
+    path: "Tools/LogicTests",
+    exclude: ["run_logic_tests.sh", "FakeSDRconnect.swift"],
+    sources: ["main.swift", "DABSelfTest.swift", "FakeLLMServer.swift", "FakeRigctld.swift"]
 ))
 #endif

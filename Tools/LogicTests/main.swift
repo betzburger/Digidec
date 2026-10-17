@@ -9,8 +9,22 @@
 // müssen im Skript ergänzt werden.
 import Foundation
 import ImageIO
+#if canImport(Darwin)
 import Darwin
 import AVFoundation
+#else
+import Glibc
+import AVTestShim
+import VoiceCore
+@testable import DigidecCore
+
+// Linux: Unterschiede zu Apples Bibliotheken, die nur die Tests brauchen
+let sockStream = Int32(SOCK_STREAM.rawValue)
+extension CGImage { var size: CGSize { CGSize(width: width, height: height) } }
+#endif
+#if canImport(Darwin)
+let sockStream = SOCK_STREAM
+#endif
 
 /// Auswahl der Prüfgruppen: `LT_ONLY=dab,sdr` oder Argument `--only dab,sdr` (leer = alle); `--groups` listet sie auf.
 /// Neue Blöcke beginnen am Zeilenanfang mit `if want("gruppe") {`, damit sie sich einzeln und parallel ausführen lassen.
@@ -34,7 +48,7 @@ var skipped = 0
 /// `LT_TRACE=1`: jede Prüfung vor dem Ausführen nennen (ungepuffert), um einen Absturz einer Stelle zuzuordnen
 nonisolated(unsafe) let traceChecks = ProcessInfo.processInfo.environment["LT_TRACE"] != nil
 @MainActor func check(_ cond: @autoclosure () -> Bool, _ msg: String, file: String = #file, line: Int = #line) {
-    if traceChecks { fputs("· (Zeile \(line)) \(msg)\n", stderr) }
+    if traceChecks { FileHandle.standardError.write(Data("· (Zeile \(line)) \(msg)\n".utf8)) }
     checks += 1
     if !cond() {
         failures += 1
@@ -800,7 +814,7 @@ if want("rig") {
         var commands: [String] { lock.withLock { received } }
 
         init?() {
-            let s = socket(AF_INET, SOCK_STREAM, 0)
+            let s = socket(AF_INET, sockStream, 0)
             var one: Int32 = 1
             setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
             var addr = sockaddr_in()
@@ -2682,7 +2696,7 @@ if want("rig") {
         var listener: Int32 = -1
         var port: UInt16 = 0
         init() {
-            listener = socket(AF_INET, SOCK_STREAM, 0)
+            listener = socket(AF_INET, sockStream, 0)
             var one: Int32 = 1
             setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
             var addr = sockaddr_in()
@@ -10576,6 +10590,7 @@ if want("rig") {
     let rt = RigProfileList.decoded(from: RigProfileList(profiles: [RigProfile.sdrconnect()], activeID: nil).encoded())
     check(rt.profiles.first?.dialect == .sdrconnect, "SDRconnect: Vorlage übersteht Speichern und Laden")
 
+    #if canImport(Darwin)
     if let fake = FakeSDRconnect() {
         func wait(_ seconds: Double = 5, _ condition: () -> Bool) -> Bool {
             let end = Date().addingTimeInterval(seconds)
@@ -10617,6 +10632,9 @@ if want("rig") {
         check(wait(8) { probe.result != nil } && { if case .ok(let s)? = probe.result { return s.frequencyHz != nil && s.mode != nil } else { return false } }(), "SDRconnect: Verbindungstest meldet Frequenz und Mode")
         fake.stop()
     } else { skip("SDRconnect: der nachgebaute Server ließ sich nicht starten") }
+    #else
+    skip("SDRconnect: der nachgebaute Server braucht Network.framework (WebSocket); unter Linux nicht verfügbar")
+    #endif
     // Nicht erreichbar
     final class Closed: @unchecked Sendable { var result: RigProbeResult? }
     let closed = Closed()

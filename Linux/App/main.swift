@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Peter Betz und Mitwirkende
 import Foundation
+@testable import DigidecCore
 
 // Linux-Frontend (Entwurf): zunächst nur ein Lebenszeichen des Kerns, die Oberfläche folgt.
 print("Digidec \(AppVersion.short) (Linux)")

@@ -3,7 +3,11 @@
 // Nachgebauter OpenAI-kompatibler Server für die Logiktests (hört auf 127.0.0.1): beantwortet POST /v1/chat/completions als Ereignisstrom
 // oder mit einem Fehler und GET /v1/models; protokolliert Pfad, Kopfzeilen und Körper der letzten Anfrage. Nicht Teil der App.
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 final class FakeLLMServer: @unchecked Sendable {
     enum Behavior { case stream([String]), status(Int, String) }
@@ -22,7 +26,11 @@ final class FakeLLMServer: @unchecked Sendable {
 
     init?(_ behavior: Behavior) {
         self.behavior = behavior
+        #if canImport(Darwin)
         let s = socket(AF_INET, SOCK_STREAM, 0)
+        #else
+        let s = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        #endif
         guard s >= 0 else { return nil }
         var one: Int32 = 1
         setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
@@ -71,7 +79,11 @@ final class FakeLLMServer: @unchecked Sendable {
         }
         let path = request.split(separator: " ").dropFirst().first.map(String.init) ?? ""
         let current: Behavior = lock.withLock { _lastPath = path; _lastHeaders = headers; _lastBody = body; return behavior }
+        #if canImport(Darwin)
         func send(_ s: String) { _ = s.withCString { Darwin.send(c, $0, strlen($0), 0) } }
+        #else
+        func send(_ s: String) { _ = s.withCString { Glibc.send(c, $0, strlen($0), Int32(MSG_NOSIGNAL)) } }
+        #endif
         if path.hasSuffix("/models") {
             let json = #"{"data":[{"id":"gpt-fake","name":"Fake","architecture":{"input_modalities":["text","image"]}},{"id":"nur-text","architecture":{"input_modalities":["text"]}}]}"#
             send("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(json.utf8.count)\r\nConnection: close\r\n\r\n\(json)")

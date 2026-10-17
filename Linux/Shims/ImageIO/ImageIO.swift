@@ -59,3 +59,30 @@ public func CGImageDestinationFinalize(_ dest: CGImageDestination) -> Bool {
         cimg_write_png(dest.url.path, buf.baseAddress, Int32(image.width), Int32(image.height), Int32(channels), Int32(image.width * channels), dest.description) == 0
     }
 }
+
+// MARK: - Eigenschaften (nur PNG: Größe und Textkommentar „Description“)
+
+public let kCGImagePropertyPixelWidth = "PixelWidth"
+public let kCGImagePropertyPixelHeight = "PixelHeight"
+
+public func CGImageSourceCopyPropertiesAtIndex(_ source: CGImageSource, _ index: Int, _ options: CFDictionary?) -> CFDictionary? {
+    guard index == 0, let data = try? Data(contentsOf: source.url), data.count > 33,
+          Array(data.prefix(8)) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] else { return nil }
+    func u32(_ at: Int) -> Int { Int(data[at]) << 24 | Int(data[at + 1]) << 16 | Int(data[at + 2]) << 8 | Int(data[at + 3]) }
+    var result: [String: Any] = [kCGImagePropertyPixelWidth: u32(16), kCGImagePropertyPixelHeight: u32(20)]
+    var png: [String: Any] = [:]
+    var position = 8
+    while position + 12 <= data.count {
+        let length = u32(position)
+        let type = String(decoding: data[position + 4..<position + 8], as: UTF8.self)
+        let body = position + 8
+        if type == "tEXt", body + length <= data.count, let zero = data[body..<body + length].firstIndex(of: 0) {
+            let key = String(decoding: data[body..<zero], as: UTF8.self)
+            png[key] = String(decoding: data[(zero + 1)..<body + length], as: UTF8.self)
+        }
+        if type == "IEND" { break }
+        position = body + length + 4
+    }
+    result[kCGImagePropertyPNGDictionary] = png
+    return result
+}
