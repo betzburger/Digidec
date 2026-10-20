@@ -22,3 +22,8 @@ Local/
 release_public.sh
 *.zip
 
+
+# Linux-Build (build_linux.sh) und Python-Zwischendateien
+dist/
+__pycache__/
+*.pyc

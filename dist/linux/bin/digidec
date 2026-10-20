@@ -1,5 +1,0 @@
-#!/bin/sh
-# Startet Digidec aus seinem Verzeichnis (Daten liegen neben dem Programm)
-HERE="$(cd "$(dirname "$(readlink -f "$0")")/../lib/digidec" && pwd)"
-[ -d "$HERE/swift" ] && export LD_LIBRARY_PATH="$HERE/swift${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec "$HERE/digidec" "$@"
