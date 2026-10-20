@@ -69,6 +69,12 @@ public final class InputRecorder: @unchecked Sendable {
                 pendingURL = nil
                 var info = SF_INFO(frames: 0, samplerate: Int32(rate), channels: 1, format: Int32(SF_FORMAT_WAV | SF_FORMAT_PCM_16), sections: 0, seekable: 0)
                 file = sf_open(url.path, Int32(SFM_WRITE), &info)
+                if let file {
+                    // Übersteuerte Werte (|x| > 1) begrenzen statt umklappen; den WAV-Kopf nach jedem Block nachführen,
+                    // damit die Datei auch nach einem Absturz oder Stromausfall vollständig lesbar ist
+                    sf_command(file, Int32(SFC_SET_CLIPPING), nil, Int32(SF_TRUE))
+                    sf_command(file, Int32(SFC_SET_UPDATE_HEADER_AUTO), nil, Int32(SF_TRUE))
+                }
                 fileURL = file == nil ? nil : url
                 fileRate = rate
             }

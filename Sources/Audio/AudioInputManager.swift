@@ -93,6 +93,12 @@ public final class AudioInputManager: ObservableObject {
     #else
     private var deviceMonitor: Process?
     private var deviceDebounce: DispatchWorkItem?
+    /// Erneuter Startversuch nach einem Abbruch des Ton-Servers (PipeWire/PulseAudio neu gestartet, Gerät weg)
+    private var captureRetry: DispatchWorkItem?
+    private var shuttingDown = false
+    /// Neustart der Geräteüberwachung: Abstand wächst, wenn `pactl` gleich wieder endet (fehlt oder kein Ton-Server)
+    private var monitorStarted = Date.distantPast
+    private var monitorRestartDelay: TimeInterval = 3
     #endif
     private var ports: [USBSerialPortInfo] = []
     /// UID aus dem letzten Auftrag (vom Commander frisch ermittelt), gilt nur zusammen mit dessen Quelle
@@ -112,6 +118,11 @@ public final class AudioInputManager: ObservableObject {
             }
         }
         installDeviceListener()
+        #if !canImport(CoreAudio)
+        capture.onInterrupted = { [weak self] reason in
+            Task { @MainActor in self?.captureInterrupted(reason) }
+        }
+        #endif
     }
 
     public var selectedDeviceUID: String? { activeInput?.device.id }
@@ -247,6 +258,9 @@ public final class AudioInputManager: ObservableObject {
                     self.captureUID = nil
                     self.isRunning = false
                     self.setStatus(error.description, warning: true)
+                    #if !canImport(CoreAudio)
+                    self.scheduleCaptureRetry()
+                    #endif
                 }
             }
         }
@@ -358,6 +372,12 @@ public final class AudioInputManager: ObservableObject {
     public func cleanup() {
         levelTimer?.invalidate()
         fileSource?.stop()
+        #if !canImport(CoreAudio)
+        shuttingDown = true
+        captureRetry?.cancel()
+        deviceMonitor?.terminate()
+        deviceMonitor = nil
+        #endif
         capture.stopSynchronously()
     }
 
@@ -382,7 +402,8 @@ public final class AudioInputManager: ObservableObject {
         deviceListener = block
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, block)
         #else
-        // PulseAudio/PipeWire melden Änderungen der Quellen über `pactl subscribe`; mehrere Ereignisse in Folge zählen als eines
+        // PulseAudio/PipeWire melden Änderungen der Quellen über `pactl subscribe`; mehrere Ereignisse in Folge zählen als eines.
+        // Endet `pactl` (Ton-Server neu gestartet), wird es nach kurzer Pause neu gestartet und die Geräteliste neu gelesen.
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["pactl", "subscribe"]
@@ -390,15 +411,64 @@ public final class AudioInputManager: ObservableObject {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let text = String(decoding: handle.availableData, as: UTF8.self)
-            guard text.contains("source") || text.contains("card") else { return }
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                // Dateiende: ohne Abmelden käme der Rückruf endlos mit leeren Daten
+                handle.readabilityHandler = nil
+                Task { @MainActor in self?.deviceMonitorEnded() }
+                return
+            }
+            guard Self.isDeviceEvent(String(decoding: data, as: UTF8.self)) else { return }
             Task { @MainActor in self?.scheduleDevicesChanged() }
         }
-        do { try process.run(); deviceMonitor = process } catch { deviceMonitor = nil }
+        do { try process.run(); deviceMonitor = process; monitorStarted = Date() } catch { deviceMonitor = nil }
         #endif
     }
 
     #if !canImport(CoreAudio)
+    /// Nur Änderungen an Quellen, Karten und dem Server zählen; „source-output“ sind Aufnahmeströme (auch Digidecs eigener)
+    nonisolated static func isDeviceEvent(_ text: String) -> Bool {
+        text.split(whereSeparator: \.isNewline).contains { line in
+            line.contains(" on source #") || line.contains(" on card #") || line.contains(" on server")
+        }
+    }
+
+    private func deviceMonitorEnded() {
+        deviceMonitor = nil
+        guard !shuttingDown else { return }
+        // Lief die Überwachung eine Weile, war es ein Neustart des Ton-Servers: bald wieder versuchen; sonst immer seltener
+        monitorRestartDelay = Date().timeIntervalSince(monitorStarted) > 30 ? 3 : min(60, monitorRestartDelay * 2)
+        DispatchQueue.main.asyncAfter(deadline: .now() + monitorRestartDelay) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.shuttingDown, self.deviceMonitor == nil else { return }
+                self.installDeviceListener()
+                self.devicesChanged()
+            }
+        }
+    }
+
+    /// Der Lesefaden hat aufgehört (Ton-Server weg, Gerät entfernt): melden und neu verbinden
+    private func captureInterrupted(_ reason: String) {
+        guard !shuttingDown, sourceKind == .audio, captureUID != nil else { return }
+        captureUID = nil
+        isRunning = false
+        setStatus("Audio-Eingang unterbrochen (\(reason)) – verbinde neu …", warning: true)
+        scheduleCaptureRetry()
+    }
+
+    private func scheduleCaptureRetry() {
+        captureRetry?.cancel()
+        guard !shuttingDown else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.shuttingDown, self.sourceKind == .audio, !self.isRunning, self.captureUID == nil else { return }
+                self.resolveAndStart(force: true)
+            }
+        }
+        captureRetry = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
+    }
+
     private func scheduleDevicesChanged() {
         deviceDebounce?.cancel()
         let item = DispatchWorkItem { [weak self] in Task { @MainActor in self?.devicesChanged() } }

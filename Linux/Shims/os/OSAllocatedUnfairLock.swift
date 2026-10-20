@@ -4,19 +4,26 @@
 import Foundation
 
 public final class OSAllocatedUnfairLock<State>: @unchecked Sendable {
-    private var mutex = pthread_mutex_t()
+    /// Eigener Speicher mit fester Adresse: `&eigenschaft` als Zeiger garantiert Swift nicht, ein Mutex darf aber nicht wandern
+    private let mutex: UnsafeMutablePointer<pthread_mutex_t>
     private var state: State
 
     public init(initialState: State) {
         state = initialState
-        pthread_mutex_init(&mutex, nil)
+        mutex = .allocate(capacity: 1)
+        mutex.initialize(to: pthread_mutex_t())
+        pthread_mutex_init(mutex, nil)
     }
 
-    deinit { pthread_mutex_destroy(&mutex) }
+    deinit {
+        pthread_mutex_destroy(mutex)
+        mutex.deinitialize(count: 1)
+        mutex.deallocate()
+    }
 
     public func withLock<R>(_ body: (inout State) throws -> R) rethrows -> R {
-        pthread_mutex_lock(&mutex)
-        defer { pthread_mutex_unlock(&mutex) }
+        pthread_mutex_lock(mutex)
+        defer { pthread_mutex_unlock(mutex) }
         return try body(&state)
     }
 
@@ -28,12 +35,12 @@ public final class OSAllocatedUnfairLock<State>: @unchecked Sendable {
 extension OSAllocatedUnfairLock where State == Void {
     public convenience init() { self.init(initialState: ()) }
 
-    public func lock() { pthread_mutex_lock(&mutex) }
-    public func unlock() { pthread_mutex_unlock(&mutex) }
+    public func lock() { pthread_mutex_lock(mutex) }
+    public func unlock() { pthread_mutex_unlock(mutex) }
 
     public func withLock<R>(_ body: () throws -> R) rethrows -> R {
-        pthread_mutex_lock(&mutex)
-        defer { pthread_mutex_unlock(&mutex) }
+        pthread_mutex_lock(mutex)
+        defer { pthread_mutex_unlock(mutex) }
         return try body()
     }
 

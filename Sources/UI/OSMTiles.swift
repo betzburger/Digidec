@@ -95,6 +95,10 @@ final class TileStore: ObservableObject {
     }
 
     private func request(_ key: TileKey) {
+        if !drainInstalled {
+            let root = cacheRoot
+            Task.detached(priority: .background) { TileStore.pruneDiskCache(root: root) }
+        }
         if !drainInstalled { drainInstalled = true; tickHooks.append { [weak self] in MainActor.assumeIsolated { self?.drain() } }; if ProcessInfo.processInfo.environment["DIGIDEC_TRACE_MAP"] != nil { FileHandle.standardError.write(Data("hook installed \(tickHooks.count)\n".utf8)) } }
         if ProcessInfo.processInfo.environment["DIGIDEC_TRACE_MAP"] != nil { FileHandle.standardError.write(Data("request \(key) inflight=\(inflight.count) running=\(running)\n".utf8)) }
         guard !inflight.contains(key) else {
@@ -142,18 +146,56 @@ final class TileStore: ObservableObject {
         pump()
     }
 
+    /// Kacheln auf der Platte gelten 30 Tage; danach wird neu geladen (ohne Netz bleibt die alte Kachel in Gebrauch)
+    nonisolated static let maxTileAge: TimeInterval = 30 * 24 * 3600
+    /// Größe des Plattenzwischenspeichers; darüber werden die am längsten nicht benutzten Kacheln gelöscht
+    nonisolated static let maxCacheBytes = 512 * 1024 * 1024
+    nonisolated static let userAgent = "Digidec/\(AppVersion.short) (Linux; amateur radio decoder; +https://github.com/betzburger/Digidec)"
+
     nonisolated private static func fetch(key: TileKey, path: URL) async -> (tile: RasterTile?, network: Bool) {
-        if let data = try? Data(contentsOf: path), let tile = RasterTile(data: data, style: key.layer.style) { return (tile, false) }
+        let cached = (try? Data(contentsOf: path)).flatMap { RasterTile(data: $0, style: key.layer.style) }
+        let modified = (try? FileManager.default.attributesOfItem(atPath: path.path))?[.modificationDate] as? Date
+        if let cached, let modified, Date().timeIntervalSince(modified) < maxTileAge {
+            // Zugriff vermerken: so löscht das Aufräumen die zuletzt benutzten Kacheln zuletzt
+            touchAccess(path)
+            return (cached, false)
+        }
         var request = URLRequest(url: key.layer.url(z: key.z, x: key.x, y: key.y), timeoutInterval: 15)
-        request.setValue("Digidec/\(AppVersion.short) (Linux; amateur radio decoder; https://github.com/)", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200, let tile = RasterTile(data: data, style: key.layer.style) else { return (nil, false) }
+            guard (response as? HTTPURLResponse)?.statusCode == 200, let tile = RasterTile(data: data, style: key.layer.style) else { return (cached, false) }
             try? FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: path)
+            try? data.write(to: path, options: .atomic)
             return (tile, false)
         } catch {
-            return (nil, true)
+            return (cached, cached == nil)
+        }
+    }
+
+    /// Setzt die Zugriffszeit (atime) der Kachel auf jetzt, die Änderungszeit (Alter für die Erneuerung) bleibt
+    nonisolated private static func touchAccess(_ path: URL) {
+        // UTIME_NOW und UTIME_OMIT aus <sys/stat.h> (Makros, die Swift nicht übernimmt)
+        let utimeNow = (1 << 30) - 1, utimeOmit = (1 << 30) - 2
+        var times = [timespec(tv_sec: 0, tv_nsec: utimeNow), timespec(tv_sec: 0, tv_nsec: utimeOmit)]
+        _ = utimensat(AT_FDCWD, path.path, &times, 0)
+    }
+
+    /// Hält den Plattenzwischenspeicher unter `maxCacheBytes` (einmal je Programmstart, im Hintergrund)
+    nonisolated static func pruneDiskCache(root: URL, limit: Int = maxCacheBytes) {
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey, .contentAccessDateKey, .isRegularFileKey]) else { return }
+        var files: [(url: URL, size: Int, used: Date)] = []
+        var total = 0
+        for case let url as URL in walker {
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentAccessDateKey, .isRegularFileKey]), values.isRegularFile == true else { continue }
+            let size = values.fileSize ?? 0
+            total += size
+            files.append((url, size, values.contentAccessDate ?? .distantPast))
+        }
+        guard total > limit else { return }
+        // Auf drei Viertel der Grenze herunter, damit nicht bei jeder neuen Kachel aufgeräumt werden muss
+        for file in files.sorted(by: { $0.used < $1.used }) where total > limit * 3 / 4 {
+            if (try? FileManager.default.removeItem(at: file.url)) != nil { total -= file.size }
         }
     }
 }

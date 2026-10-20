@@ -11,7 +11,7 @@ public typealias UnitPointAlias = UnitPoint
 final class ScrollProxyBox {
     var scrollIdentity: Identity?
     var store: StateStore?
-    var host: UIHost?
+    weak var host: UIHost?
 }
 
 private struct ScrollProxyKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue: ScrollProxyBox? = nil }

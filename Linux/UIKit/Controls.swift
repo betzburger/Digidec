@@ -80,7 +80,9 @@ public struct Button<Label: View> {
     public init(_ title: LocalizedStringKey, role: ButtonRole?, action: @escaping () -> Void) where Label == Text { self.action = action; label = Text(title) }
 
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
-        let identity = r.identity, store = r.store, host = r.host, action = self.action, label = self.label
+        // Schwach: Die Abschlüsse liegen in Knoten, die dem Host gehören (sonst hält der Host sich über seinen Baum selbst am Leben)
+        weak var host = r.host
+        let identity = r.identity, store = r.store, action = self.action, label = self.label
         let enabled = r.env.isEnabled
         let buttonStyle = r.env.buttonStyle
         return r.refreshable { [unowned r] in
@@ -91,7 +93,8 @@ public struct Button<Label: View> {
             let body = style.make(ButtonStyleConfiguration(label: .init(view: label), isPressed: pressed && enabled))
             let node = ButtonNode(identity: identity, child: r.content(AnyView(body)))
             node.enabled = enabled
-            node.handlers = Handlers(tap: { if node.enabled { action() } }, press: { down in
+            // Schwach: die Handler gehören dem Knoten (ein starker Verweis hielte jeden alten Baum für immer fest)
+            node.handlers = Handlers(tap: { [weak node] in if node?.enabled == true { action() } }, press: { down in
                 store.interaction[identity, default: [:]]["pressed"] = down
                 host?.invalidate(identity)
             })
@@ -140,7 +143,7 @@ public struct Toggle<Label: View> {
         let content = r.env.labelsHidden ? AnyView(box) : AnyView(HStack(spacing: 6) { box; label })
         let node = ButtonNode(identity: r.identity, child: r.content(content))
         node.enabled = r.env.isEnabled
-        node.handlers = Handlers(tap: { if node.enabled { binding.wrappedValue.toggle() } })
+        node.handlers = Handlers(tap: { [weak node] in if node?.enabled == true { binding.wrappedValue.toggle() } })
         return [node]
     }
 }

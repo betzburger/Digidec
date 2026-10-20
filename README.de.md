@@ -2,7 +2,7 @@
 
 **Digidec** ist ein Decoder für Funkbetriebsarten auf dem Mac. Es liest das Empfangsaudio eines Funkgeräts oder SDR-Programms (über den USB-Audio-Codec des Geräts oder eine virtuelle Soundkarte) und macht daraus Text, Bilder, Listen und Karten: von Wetterfunk und Funkfernschreiben über Amateurfunk-Digimodes bis zu Flugzeugen, Schiffen und Radiosonden.
 
-> Status: **Alpha** (aktuell 0.105.0). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
+> Status: **Alpha** (aktuell 0.105.1). Es läuft auf dem Mac des Autors; vieles ist an Aufnahmen und Testsignalen geprüft, aber noch nicht im Dauerbetrieb. Fehler sind möglich. Es gibt **keine Gewährleistung** (siehe Lizenz).
 
 ## Neues Aussehen: Tasten, vier Farbthemes, analoges S-Meter
 
@@ -108,6 +108,8 @@ Weitere Merkmale: **Rufzeichen bei QRZ.com nachschlagen** (Knopf QRZ in den List
 ```
 
 Das baut Digidec im Release-Modus, legt `Digidec.app` im Projektordner an (ad-hoc signiert) und meldet das URL-Schema `digidec://` beim System an. Danach `Digidec.app` öffnen.
+
+**Linux** (Swift 6, GTK 4, PulseAudio/PipeWire): `./build_linux.sh` baut und installiert nach `~/.local`; danach `digidec` starten. Dieselbe Oberfläche wie am Mac, die Karte zeigt OpenStreetMap. Voraussetzungen, Unterschiede und SDR-Einrichtung: [`docs/linux/README.md`](docs/linux/README.md).
 
 ## Ausbreitungslineal
 

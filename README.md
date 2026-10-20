@@ -45,7 +45,7 @@ Digidec now looks like a piece of lab equipment:
 
 > [!WARNING]
 > ### ⚠️ Project Status: Early Alpha & Invitation to Test!
-> Digidec is currently in active **Alpha status (v0.105.0 Alpha)**. 
+> Digidec is currently in active **Alpha status (v0.105.1 Alpha)**. 
 > 
 > - **Many decoders and features have been mathematically verified against recordings and test vectors, but have not yet undergone extensive live on-air field testing.**
 > - Bugs, rough edges, and unexpected quirks may still occur. 
@@ -188,6 +188,8 @@ The build script compiles all dependencies, ad-hoc signs the app, and places `Di
 ```bash
 open Digidec.app
 ```
+
+**Linux** (Swift 6, GTK 4, PulseAudio/PipeWire): `./build_linux.sh` builds and installs to `~/.local`; then run `digidec`. Same interface as on the Mac, the map uses OpenStreetMap. Requirements, differences and SDR setup (in German): [`docs/linux/README.md`](docs/linux/README.md).
 
 ---
 

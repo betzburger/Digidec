@@ -9,6 +9,8 @@
 // müssen im Skript ergänzt werden.
 import Foundation
 import ImageIO
+import Accelerate
+import Network
 #if canImport(Darwin)
 import Darwin
 import AVFoundation
@@ -26,6 +28,17 @@ extension CGImage { var size: CGSize { CGSize(width: width, height: height) } }
 #if canImport(Darwin)
 let sockStream = SOCK_STREAM
 #endif
+
+/// Speist Samples in den Eingangsring einer Pipeline, schneller als Echtzeit, aber nie schneller, als die Pipeline abnimmt:
+/// Ein voller Ring verlöre Samples. Geprüft wird das Decodieren, nicht die Rechengeschwindigkeit des Rechners
+/// (unter Linux rechnet das Ersatzmodul für Accelerate langsamer als Apples Bibliothek).
+extension FloatRingBuffer {
+    func writePaced(_ samples: UnsafePointer<Float>, count: Int) {
+        let deadline = Date().addingTimeInterval(10)
+        while available > 0, available + count > capacity / 4, Date() < deadline { Thread.sleep(forTimeInterval: 0.001) }
+        write(samples, count: count)
+    }
+}
 
 /// Auswahl der Prüfgruppen: `LT_ONLY=dab,sdr` oder Argument `--only dab,sdr` (leer = alle); `--groups` listet sie auf.
 /// Neue Blöcke beginnen am Zeilenanfang mit `if want("gruppe") {`, damit sie sich einzeln und parallel ausführen lassen.
@@ -274,7 +287,7 @@ if want("audio") {
     pipeline.start(inputRate: 48000)
     Thread.sleep(forTimeInterval: 0.05)
     let block = [Float](repeating: 0.1, count: 24000)   // 0,5 s
-    pipeline.ring.write(block, count: block.count)
+    pipeline.ring.writePaced(block, count: block.count)
     Thread.sleep(forTimeInterval: 0.3)
     let got = counter.lock.withLock { counter.n }
     check(got > 3950 && got <= 4000, "Pipeline: 0,5 s bei 48 kHz -> ~4000 Samples bei 8 kHz, got \(got)")
@@ -678,7 +691,7 @@ if want("rtty") {
     var i = 0
     while i < samples.count {                      // in Häppchen, damit der 2-s-Ringpuffer nicht überläuft
         let n = min(24_000, samples.count - i)
-        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.08)
     }
@@ -728,6 +741,13 @@ if want("rig") {
     let err = RigctlClient.parse(["RPRT -11"])
     check(err.connected && err.frequencyHz == nil && err.mode == nil && err.isLSB == nil, "Fehlerantwort -> unbekannt")
     check(RigctlClient.parse(["4584700", "RPRT -1"]).mode == nil, "Mode-Fehler -> Mode unbekannt")
+    // Antworten zählen je Befehl: Ein Fehler beim ersten Befehl beendet das Lesen nicht vorzeitig (sonst bliebe die Antwort auf „m“ im Socket)
+    let fm = RigctlClient.frequencyAndModeAnswers
+    check(RigctlClient.answersComplete(["4584700", "LSB", "2800"], answers: fm), "rigctld: f + m vollständig")
+    check(!RigctlClient.answersComplete(["4584700", "LSB"], answers: fm), "rigctld: Breite fehlt noch")
+    check(!RigctlClient.answersComplete(["RPRT -11"], answers: fm), "rigctld: nach f-Fehler wird auf die Antwort zu m gewartet")
+    check(RigctlClient.answersComplete(["RPRT -11", "RPRT -11"], answers: fm) && RigctlClient.answersComplete(["RPRT -11", "USB", "2400"], answers: fm), "rigctld: Fehlerzeilen zählen je Befehl")
+    check(RigctlClient.answersComplete(["RPRT 0"], answers: [1]), "rigctld: F bzw. M mit RPRT 0")
     check(RigctlClient.defaultPort(for: .pcr1500) == 4532 && RigctlClient.defaultPort(for: .ft991a) == 4533
           || UserDefaults(suiteName: "com.peterbetz.pcr1500commander")?.integer(forKey: "rigctldPort") != 0,
           "Standardports 4532 / 4533")
@@ -922,7 +942,7 @@ if want("rtty") {
     rec.start(url: url)
     check(rec.isRecording, "Aufnahme läuft")
     let tone = (0..<24_000).map { Float(0.25 * sin(2 * Double.pi * 1000 * Double($0) / 48_000)) }
-    tone.withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: $0.count) }
+    tone.withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: $0.count) }
     Thread.sleep(forTimeInterval: 0.3)
     check(abs(rec.duration - 0.5) < 0.01, "Aufnahmedauer 0,5 s, got \(rec.duration)")
     check(rec.stop() == url && !rec.isRecording, "Aufnahme beendet")
@@ -979,7 +999,7 @@ if want("rtty") {
     var i = 0
     while i < samples.count {
         let n = min(8_000, samples.count - i)
-        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.05)
     }
@@ -1084,7 +1104,7 @@ if want("navtex") {
     var i = 0
     while i < samples.count {
         let n = min(48_000, samples.count - i)
-        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.12)
     }
@@ -1095,7 +1115,7 @@ if want("navtex") {
     check(out.text.contains("ZCZC LA42"), "Laufender Text über die Pipeline")
     // Abgeschaltet: kein Text
     decoder.setEnabled(false)
-    samples.prefix(48_000).withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: $0.count) }
+    samples.prefix(48_000).withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: $0.count) }
     Thread.sleep(forTimeInterval: 0.3)
     check(decoder.takeOutput().text.isEmpty, "Abgeschaltetes Modul decodiert nicht")
     pipeline.stop()
@@ -1240,7 +1260,7 @@ if want("cw") {
     var i = 0
     while i < samples.count {
         let n = min(48_000, samples.count - i)
-        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.12)
     }
@@ -1250,7 +1270,7 @@ if want("cw") {
     check(cwCopied(got, "DE DK0WCY TEST"), "Pipeline 48 kHz -> CW exakt, got \(got.debugDescription)")
     check((out.status?.wpm ?? 0) > 15, "Pipeline: Geschwindigkeit gemeldet")
     decoder.setEnabled(false)
-    samples.prefix(48_000).withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: $0.count) }
+    samples.prefix(48_000).withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: $0.count) }
     Thread.sleep(forTimeInterval: 0.3)
     check(decoder.takeOutput().segments.isEmpty, "Abgeschaltetes CW-Modul decodiert nicht")
     pipeline.stop()
@@ -1410,7 +1430,7 @@ if want("wefax") {
     var saved: [WefaxImage] = []
     while i < samples.count {
         let n = min(96_000, samples.count - i)
-        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        samples[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.15)
         let out = decoder.takeOutput()
@@ -1545,7 +1565,7 @@ if want("ft") {
     let chunk = 4_800   // 0,1 s
     while i < audio48.count {
         let n = min(chunk, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         clock.t = cycle - lead + Double(i) / 48_000
         Thread.sleep(forTimeInterval: 0.03)
@@ -1671,7 +1691,7 @@ if want("ft") {
     let chunk = 4_800
     while i < audio48.count {
         let n = min(chunk, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         clock.t = cycle - lead + Double(i) / 48_000
         Thread.sleep(forTimeInterval: 0.02)
@@ -1822,7 +1842,7 @@ if want("ft") {
     let chunk = 4_800
     while i < audio48.count {
         let n = min(chunk, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         clock.t = cycle - lead + Double(i) / 48_000
         Thread.sleep(forTimeInterval: 0.02)
@@ -3261,7 +3281,7 @@ if want("ft") {
     let chunk = 24_000
     while i < audio48.count {
         let n = min(chunk, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         clock.t = slot - lead + Double(i) / 48_000
         Thread.sleep(forTimeInterval: 0.03)   // Uhr darf der Audio-Verarbeitung nicht vorauslaufen (sonst DT-Fehler im Test)
@@ -3408,7 +3428,7 @@ if want("psk") {
     var i = 0
     while i < audio48.count {
         let n = min(4_800, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.004)
     }
@@ -3433,7 +3453,7 @@ if want("psk") {
     var text8 = ""
     while j < audio48b.count {
         let n = min(4_800, audio48b.count - j)
-        audio48b[j..<(j + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48b[j..<(j + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         j += n
         Thread.sleep(forTimeInterval: 0.004)
         text8 += decoder.takeOutput().text
@@ -3701,7 +3721,7 @@ if want("textmodes") {
         var text = ""
         while i < audio48.count {
             let n = min(9_600, audio48.count - i)
-            audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+            audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
             i += n
             Thread.sleep(forTimeInterval: 0.006)
             text += decoder.takeOutput().text
@@ -3782,6 +3802,43 @@ if want("textmodes") {
     }
 }
 
+
+// MARK: - MT63: Ausgabe unabhängig von der Blockaufteilung (die Rauschsperre entscheidet je Block von 1024 Samples)
+if want("textmodes") {
+    let msg = "CQ CQ DE DL1ABC PSE K"
+    if let sig = FldigiMT63Core.synthesize(msg, options: FldigiMT63Core.Options(), centerHz: 1500) {
+        // Festes Rauschen (eigener Zufallsgenerator), so dass die Rauschsperre tatsächlich mitentscheidet
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        func noise() -> Float {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Float(Int64(bitPattern: seed >> 11) % 2_000_001) / 1_000_000 - 1
+        }
+        let audio = ([Float](repeating: 0, count: 8_000) + sig.map { $0 * 0.5 } + [Float](repeating: 0, count: 8_000 * 6)).map { $0 + 0.35 * noise() }
+        func decode(_ chunk: (Int) -> Int) -> [UInt8] {
+            var bytes: [UInt8] = []
+            let core = FldigiMT63Core(options: FldigiMT63Core.Options(), centerHz: 1500) { bytes.append($0) }
+            var i = 0, call = 0
+            audio.withUnsafeBufferPointer { b in
+                while i < b.count {
+                    let n = min(chunk(call), b.count - i)
+                    core.process(UnsafeBufferPointer(rebasing: b[i..<(i + n)]))
+                    i += n; call += 1
+                }
+            }
+            core.flush()
+            return bytes
+        }
+        let reference = decode { _ in 1024 }
+        check(PSKDecoder.text(from: reference).contains("DL1ABC"), "MT63 mit Rauschen: Text \(PSKDecoder.text(from: reference).debugDescription)")
+        let sizes = [160, 333, 1000, 4096, 7]
+        let mismatches = sizes.filter { size in decode { _ in size } != reference }
+        check(mismatches.isEmpty, "MT63: gleiche Ausgabe bei jeder Blockgröße (abweichend: \(mismatches))")
+        check(decode { 37 + ($0 * 977) % 1500 } == reference, "MT63: gleiche Ausgabe bei wechselnden Blockgrößen wie aus der Pipeline")
+    } else {
+        check(false, "MT63: Testsignal nicht erzeugt")
+    }
+}
+
 // MARK: - Hell-Raster
 @MainActor func hellRasterTests() {
     let r = HellRasterModel()
@@ -3823,17 +3880,24 @@ if want("textmodes") {
             let x = Double(i) / 6, k = Int(x), f = Float(x - Double(k))
             audio48[i] = audio8[k] * (1 - f) + (k + 1 < audio8.count ? audio8[k + 1] : 0) * f
         }
-        Thread.sleep(forTimeInterval: 0.05)
+        // Sperre statt Pause: Start der Pipeline (leert den Ring) und Anlegen der Kerne laufen asynchron auf ihrer Warteschlange.
+        // Eine feste Pause reicht nicht, wenn die Warteschlange länger braucht – dann löschte `start` den Anfang des Signals.
+        _ = pipeline.deliveredSampleCount
         var i = 0
         while i < audio48.count {
             let n = min(9_600, audio48.count - i)
-            audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+            audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
             i += n
             Thread.sleep(forTimeInterval: 0.006)
         }
-        Thread.sleep(forTimeInterval: 0.5)
-        let out = which == 0 ? mtDecoder.takeOutput().text : olDecoder.takeOutput().text
-        check(out.contains(msg), "\(which == 0 ? "MT63" : "Olivia") über die Pipeline 48 kHz → 8 kHz, got \(out.debugDescription)")
+        // Auf den Text warten statt fest zu warten: wie lange das Decodieren hinter dem Einspeisen herläuft, hängt vom Rechner ab
+        var out = ""
+        let started = Date()
+        repeat {
+            Thread.sleep(forTimeInterval: 0.1)
+            out += which == 0 ? mtDecoder.takeOutput().text : olDecoder.takeOutput().text
+        } while !out.contains(msg) && Date().timeIntervalSince(started) < 20
+        check(out.contains(msg), "\(which == 0 ? "MT63" : "Olivia") über die Pipeline 48 kHz → 8 kHz, got \(out.debugDescription) nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
     }
     mtDecoder.setEnabled(false)
     olDecoder.setEnabled(false)
@@ -4098,7 +4162,7 @@ if want("dsc") {
     var got: [DSCCall] = []
     while i < audio48.count {
         let n = min(9_600, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.006)
         got += decoder.takeOutput().calls.map(\.call)
@@ -4303,7 +4367,7 @@ if want("ale") {
     var lastOffset = 0.0
     while i < audio48.count {
         let n = min(9_600, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.006)
         let o = decoder.takeOutput()
@@ -5571,6 +5635,154 @@ if want("web") {
     webServerTests()
 }
 
+// MARK: - Web-Server: Eingaben aus dem Browser, Herkunft, Frames
+if want("web") {
+    // Zahlen aus JSON-Befehlen: nur endlich und in plausiblem Bereich, sonst verworfen (früher: Int64(1e300) brach das Programm ab)
+    check(WebCommandValue.double(NSNumber(value: 14_074_000)) == 14_074_000 && WebCommandValue.double(NSNumber(value: -1500.5)) == -1500.5, "Browser-Zahl: gewöhnliche Werte bleiben")
+    check(WebCommandValue.double(NSNumber(value: 1e300)) == nil && WebCommandValue.double(NSNumber(value: -1e308)) == nil, "Browser-Zahl: riesige Werte verworfen")
+    check(WebCommandValue.double(NSNumber(value: Double.nan)) == nil && WebCommandValue.double(NSNumber(value: Double.infinity)) == nil, "Browser-Zahl: NaN und unendlich verworfen")
+    check(WebCommandValue.double("14074000") == nil && WebCommandValue.double(nil) == nil, "Browser-Zahl: Text und fehlender Wert verworfen")
+    check(WebCommandValue.int(NSNumber(value: 5)) == 5 && WebCommandValue.int(NSNumber(value: 1.6)) == 2 && WebCommandValue.int(NSNumber(value: -3)) == -3, "Browser-Ganzzahl: gerundet")
+    check(WebCommandValue.int(NSNumber(value: 1e300)) == nil && WebCommandValue.int(NSNumber(value: 2_000_000)) == nil, "Browser-Ganzzahl: außerhalb ±1 000 000 verworfen")
+    if let json = try? JSONSerialization.jsonObject(with: Data(#"{"hz":1e300,"zoom":4,"delta":-5}"#.utf8)) as? [String: Any] {
+        check(WebCommandValue.double(json["hz"]) == nil && WebCommandValue.int(json["zoom"]) == 4 && WebCommandValue.int(json["delta"]) == -5, "Browser-Zahl: aus echtem JSON")
+    } else { check(false, "Browser-Zahl: JSON nicht lesbar") }
+    check(DigidecState.webDialHz(1e300) == 100_000_000_000 && DigidecState.webDialHz(-5) == 100_000 && DigidecState.webDialHz(.nan) == 100_000, "Dial aus dem Browser: begrenzt, nie abbrechend")
+    check(DigidecState.webDialHz(14_074_000.4) == 14_074_000, "Dial aus dem Browser: gerundet")
+
+    // Herkunft des WebSocket-Handshakes (gegen Cross-Site WebSocket Hijacking)
+    func origin(_ origin: String?, host: String?) -> Bool {
+        var lines = ["GET /ws HTTP/1.1"]
+        if let host { lines.append("Host: \(host)") }
+        if let origin { lines.append("Origin: \(origin)") }
+        return WebRequestHeaders.originAllowed(headerLines: lines)
+    }
+    check(origin(nil, host: "127.0.0.1:8080"), "Origin: ohne Origin (kein Browser) erlaubt")
+    check(origin("http://127.0.0.1:8080", host: "127.0.0.1:8080") && origin("http://LocalHost:8080", host: "localhost:8080"), "Origin: eigene Seite erlaubt (Groß/klein egal)")
+    check(origin("http://192.168.1.20:8080", host: "192.168.1.20:8080") && origin("http://mac.local:8080", host: "mac.local:8080"), "Origin: Zugriff aus dem LAN erlaubt")
+    check(origin("http://[::1]:8080", host: "[::1]:8080"), "Origin: IPv6 erlaubt")
+    check(origin("http://radio.example", host: "radio.example:80") && origin("https://radio.example", host: "radio.example"), "Origin: Standardports 80/443")
+    check(!origin("http://evil.example", host: "127.0.0.1:8080") && !origin("https://evil.example:8080", host: "evil2.example:8080"), "Origin: fremde Seite abgelehnt")
+    check(!origin("http://localhost:8081", host: "localhost:8080"), "Origin: anderer Port abgelehnt")
+    check(!origin("null", host: "localhost:8080") && !origin("file:///tmp/x.html", host: "localhost:8080") && !origin("http://localhost:8080", host: nil), "Origin: null, Datei und fehlender Host abgelehnt")
+    check(WebRequestHeaders.headerValue("sec-websocket-key", in: ["GET / HTTP/1.1", "Sec-WebSocket-Key:  abc== "]) == "abc==", "Kopfzeile: Name ohne Groß/klein, Wert ohne Leerraum")
+
+    // Client-Frames: zu groß oder unbekannt = Protokollfehler (früher: Int(2^63) brach ab, unbekannte Opcodes blieben ewig im Puffer)
+    var huge = Data([0x81, 0xFF])
+    withUnsafeBytes(of: (UInt64(1) << 63).bigEndian) { huge.append(contentsOf: $0) }
+    huge.append(contentsOf: [1, 2, 3, 4])
+    let hugeFrame = WebSocketFrame.parseClientFrame(from: huge)
+    check(hugeFrame?.opcode == .close && hugeFrame?.consumedBytes == huge.count, "WebSocket: angekündigte 2^63 Bytes = Protokollfehler, kein Absturz")
+    var tooBig = Data([0x81, 0xFF])
+    withUnsafeBytes(of: UInt64(WebSocketFrame.maxClientPayload + 1).bigEndian) { tooBig.append(contentsOf: $0) }
+    check(WebSocketFrame.parseClientFrame(from: tooBig)?.opcode == .close, "WebSocket: Nutzlast über der Grenze = Protokollfehler")
+    let unknown = WebSocketFrame.parseClientFrame(from: Data([0x83, 0x80, 0, 0, 0, 0]))
+    check(unknown?.opcode == .close && unknown?.consumedBytes == 6, "WebSocket: unbekannter Opcode = Protokollfehler")
+    check(WebSocketFrame.parseClientFrame(from: Data([0x81, 0x85, 1, 2])) == nil, "WebSocket: unvollständiger Frame wartet")
+}
+
+// MARK: - Netzwerk: echte TCP-Verbindungen über NWListener/NWConnection (unter Linux das Ersatzmodul)
+if want("web") {
+    // Der Server antwortet und schließt, wie der Web-Server bei jeder HTTP-Anfrage. Früher stürzte das Ersatzmodul beim
+    // Schließen jeder Verbindung ab (inaktive Dispatch-Quelle freigegeben).
+    let serverQueue = DispatchQueue(label: "logictests.nw")
+    let params = NWParameters.tcp
+    params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
+    let ready = DispatchSemaphore(value: 0)
+    final class Served: @unchecked Sendable { let lock = NSLock(); var count = 0; var connections: [NWConnection] = [] }
+    let served = Served()
+    if let listener = try? NWListener(using: params) {
+        listener.stateUpdateHandler = { state in if case .ready = state { ready.signal() } }
+        listener.newConnectionHandler = { connection in
+            served.lock.withLock { served.connections.append(connection) }
+            connection.start(queue: serverQueue)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
+                // Größer als der Socket-Puffer: auch der Weg über die Schreibquelle (EAGAIN) wird benutzt
+                let body = Data(repeating: 0x41, count: 600_000)
+                connection.send(content: Data("HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\n\r\n".utf8) + body, completion: .contentProcessed { _ in
+                    connection.cancel()
+                    served.lock.withLock { served.count += 1 }
+                })
+            }
+        }
+        listener.start(queue: serverQueue)
+        if ready.wait(timeout: .now() + 5) == .success, let port = listener.port?.rawValue {
+            var complete = 0
+            for round in 0..<40 {
+                let s = socket(AF_INET, sockStream, 0)
+                var addr = sockaddr_in()
+                addr.sin_family = sa_family_t(AF_INET)
+                addr.sin_port = port.bigEndian
+                addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+                var tv = timeval(tv_sec: 5, tv_usec: 0)
+                setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+                let ok = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } } == 0
+                if ok {
+                    _ = "GET / HTTP/1.1\r\n\r\n".withCString { send(s, $0, strlen($0), 0) }
+                    var total = 0
+                    var buffer = [UInt8](repeating: 0, count: 65_536)
+                    // Jede fünfte Verbindung bricht der Client mitten in der Antwort ab
+                    while round % 5 != 4 || total < 100_000 {
+                        let n = buffer.withUnsafeMutableBytes { recv(s, $0.baseAddress, $0.count, 0) }
+                        if n <= 0 { break }
+                        total += n
+                    }
+                    if round % 5 == 4 || total > 600_000 { complete += 1 }
+                }
+                close(s)
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+            check(complete == 40, "Netzwerk: 40 Verbindungen beantwortet und geschlossen, auch mit Abbruch durch den Client (\(complete))")
+            check(served.lock.withLock { served.count } == 40, "Netzwerk: Server hat jede Verbindung ordentlich beendet (\(served.lock.withLock { served.count }))")
+            listener.cancel()
+            served.lock.withLock { served.connections.removeAll() }
+            Thread.sleep(forTimeInterval: 0.2)
+            check(true, "Netzwerk: Listener und Verbindungen ohne Absturz freigegeben")
+        } else {
+            check(false, "Netzwerk: Listener nicht bereit")
+        }
+    } else {
+        check(false, "Netzwerk: Listener nicht angelegt")
+    }
+}
+
+// MARK: - Linux: Geräteereignisse von PulseAudio/PipeWire
+#if !canImport(CoreAudio)
+if want("audio") {
+    check(AudioInputManager.isDeviceEvent("Event 'new' on source #63\n"), "pactl: neue Quelle zählt")
+    check(AudioInputManager.isDeviceEvent("Event 'remove' on card #3") && AudioInputManager.isDeviceEvent("Event 'change' on server #-1"), "pactl: Karte und Server zählen")
+    check(!AudioInputManager.isDeviceEvent("Event 'new' on source-output #12\nEvent 'change' on source-output #12"), "pactl: Aufnahmeströme (auch Digidecs eigener) zählen nicht")
+    check(!AudioInputManager.isDeviceEvent("Event 'change' on sink #1\nEvent 'new' on client #88"), "pactl: Ausgänge und Programme zählen nicht")
+    check(AudioInputManager.isDeviceEvent("Event 'new' on client #5\nEvent 'change' on source #2"), "pactl: mehrere Zeilen, eine davon zählt")
+}
+#endif
+
+// MARK: - Accelerate: reelle FFT hin und zurück (unter Linux das Ersatzmodul)
+if want("vdsp") {
+    for log2n in [1, 3, 8, 11] {
+        let n = 1 << log2n, h = n / 2
+        guard let setup = vDSP_create_fftsetup(vDSP_Length(log2n), FFTRadix(kFFTRadix2)) else { check(false, "vDSP: Plan \(n)"); continue }
+        let x = (0..<n).map { Float(sin(Double($0) * 0.37) + 0.25 * cos(Double($0) * 1.9)) }
+        var re = (0..<h).map { x[2 * $0] }, im = (0..<h).map { x[2 * $0 + 1] }
+        re.withUnsafeMutableBufferPointer { r in
+            im.withUnsafeMutableBufferPointer { i in
+                var split = DSPSplitComplex(realp: r.baseAddress!, imagp: i.baseAddress!)
+                vDSP_fft_zrip(setup, &split, 1, vDSP_Length(log2n), FFTDirection(FFT_FORWARD))
+                vDSP_fft_zrip(setup, &split, 1, vDSP_Length(log2n), FFTDirection(FFT_INVERSE))
+            }
+        }
+        vDSP_destroy_fftsetup(setup)
+        let scale = 1 / Float(2 * n)
+        var error: Float = 0
+        for k in 0..<h {
+            let even: Float = abs(re[k] * scale - x[2 * k])
+            let odd: Float = abs(im[k] * scale - x[2 * k + 1])
+            error = max(error, even, odd)
+        }
+        check(error < 1e-5, "vDSP: reelle FFT hin und zurück ergibt das 2N-fache (N = \(n), Fehler \(error))")
+    }
+}
+
 @MainActor func webServerTests() {
     // 1. WebSocket Frame Codec Tests (RFC 6455)
     let textData = Data("Hello Digidec Web Remote".utf8)
@@ -6368,7 +6580,7 @@ if want("skimmer") {
     var i = 0
     while i < audio48.count {
         let n = min(4_800, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         Thread.sleep(forTimeInterval: 0.004)
         let o = decoder.takeOutput()
@@ -6665,7 +6877,7 @@ if want("sonde") { sondeTests() }
         f.audio.withUnsafeBufferPointer { buf in
             while i < buf.count {
                 let n = min(Int(inputRate / 10), buf.count - i)
-                pipeline.ring.write(buf.baseAddress! + i, count: n)
+                pipeline.ring.writePaced(buf.baseAddress! + i, count: n)
                 i += n
                 Thread.sleep(forTimeInterval: 0.004)
                 got += decoder.takeOutput().telemetry
@@ -6994,7 +7206,7 @@ if want("sonde") { sondeMoreTests() }
     clean.withUnsafeBufferPointer { buf in
         while i < buf.count {
             let n = min(4_800, buf.count - i)
-            pipeline.ring.write(buf.baseAddress! + i, count: n)
+            pipeline.ring.writePaced(buf.baseAddress! + i, count: n)
             i += n
             Thread.sleep(forTimeInterval: 0.004)
             got += decoder.takeOutput().frames
@@ -12751,7 +12963,7 @@ if want("js8") {
     var results: [JS8Decoder.CycleResult] = []
     while i < audio48.count {
         let n = min(chunk, audio48.count - i)
-        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.write($0.baseAddress!, count: n) }
+        audio48[i..<(i + n)].withUnsafeBufferPointer { pipeline.ring.writePaced($0.baseAddress!, count: n) }
         i += n
         clock.t = cycle - lead + Double(i) / 48_000
         Thread.sleep(forTimeInterval: 0.03)

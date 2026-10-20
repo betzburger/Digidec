@@ -120,7 +120,7 @@ public struct Menu<Label: View, Content: View> {
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let plain = r.env.plainMenu
         let rowsNodes = r.resolve(content, key: 1)
-        let host = r.host
+        weak var host = r.host
         let enabled = r.env.isEnabled
         let style: AnyButtonStyle
         if plain { style = AnyButtonStyle(PlainButtonStyle()) } else if let s = r.env.buttonStyle { style = s } else { style = AnyButtonStyle(DefaultButtonStyle()) }
@@ -131,7 +131,7 @@ public struct Menu<Label: View, Content: View> {
         node.handlers = Handlers(tap: { [unowned node] in
             guard enabled, let host else { return }
             let id = UUID()
-            let layer = OverlayLayer(anchor: node.frame, modal: false, placement: .below, makeView: { MenuPopupView(rows: rows, dismiss: { host.overlays.removeAll { $0.id == id }; host.setNeedsResolve() }) }, onDismiss: { })
+            let layer = OverlayLayer(anchor: node.frame, modal: false, placement: .below, makeView: { MenuPopupView(rows: rows, dismiss: { [weak host] in host?.overlays.removeAll { $0.id == id }; host?.setNeedsResolve() }) }, onDismiss: { })
             layer.onDismiss = { [unowned host] in host.dismiss(layer.id) }
             host.present(layer)
         })
@@ -185,7 +185,7 @@ public struct Picker<Label: View, SelectionValue: Hashable, Content: View> {
         options.forEach(collect)
         let current = normalized(selection.wrappedValue)
         let binding = selection
-        let host = r.host
+        weak var host = r.host
         let enabled = r.env.isEnabled
         let apply: (AnyHashable?) -> Void = { tag in
             // Der gespeicherte Wert hat den Typ von `SelectionValue` oder sein Optional
@@ -275,7 +275,7 @@ nonisolated extension View {
             let rowNodes = r.resolve(items, key: 2)
             let rows = menuRows(from: rowNodes)
             guard let host = r.host else { return n }
-            n.contextMenu = { point in host.presentMenu(rows: rows, at: point) }
+            n.contextMenu = { [weak host] point in host?.presentMenu(rows: rows, at: point) }
             n.handlers = n.handlers ?? Handlers()
             return n
         }

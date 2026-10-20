@@ -32,10 +32,23 @@ enum LLMKeychain {
         let url = fileURL(provider)
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try Data(key.utf8).write(to: url, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-            return true
+            return writePrivate(Data(key.utf8), to: url)
         } catch { return false }
+    }
+
+    /// Schreibt die Datei so, dass sie zu keinem Zeitpunkt für andere lesbar ist: neue Datei mit 0600 anlegen, dann umbenennen
+    private static func writePrivate(_ data: Data, to url: URL) -> Bool {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(getpid()).tmp")
+        let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_TRUNC | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { return false }
+        let written = data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        let synced = fsync(fd) == 0
+        close(fd)
+        guard written == data.count, synced, rename(temporary.path, url.path) == 0 else {
+            unlink(temporary.path)
+            return false
+        }
+        return true
     }
 
     private static func fileURL(_ provider: LLMProvider) -> URL {
@@ -53,6 +66,10 @@ enum LLMKeychain {
         process.standardError = FileHandle.nullDevice
         process.standardInput = inp
         do { try process.run() } catch { return nil }
+        // Ohne laufenden Geheimnisdienst wartet `secret-tool` auf die D-Bus-Aktivierung (bis 25 s): nach 5 s aufgeben, dann gilt die Datei
+        let watchdog = DispatchWorkItem { [process] in if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: watchdog)
+        defer { watchdog.cancel() }
         if let input { inp.fileHandleForWriting.write(input) }
         try? inp.fileHandleForWriting.close()
         let data = out.fileHandleForReading.readDataToEndOfFile()

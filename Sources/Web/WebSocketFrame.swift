@@ -49,13 +49,18 @@ public enum WebSocketFrame {
         public let consumedBytes: Int
     }
 
-    /// Liest einen eingehenden Client-Frame aus einem Datenpuffer (Client-Frames sind nach RFC 6455 maskiert)
+    /// Größte Nutzlast, die ein Client senden darf (Befehle sind kurze JSON-Texte); größere Frames gelten als Protokollfehler
+    public static let maxClientPayload = 64 * 1024
+
+    /// Liest einen eingehenden Client-Frame aus einem Datenpuffer (Client-Frames sind nach RFC 6455 maskiert).
+    /// `nil` = noch unvollständig. Unbekannter Opcode oder zu große Nutzlast: ein `.close`-Frame, der den ganzen Puffer verbraucht.
     public static func parseClientFrame(from data: Data) -> ParsedFrame? {
         guard data.count >= 2 else { return nil }
         let b0 = data[data.startIndex]
         let b1 = data[data.startIndex + 1]
+        let protocolError = ParsedFrame(opcode: .close, payload: Data(), consumedBytes: data.count)
 
-        guard let opcode = Opcode(rawValue: b0 & 0x0F) else { return nil }
+        guard let opcode = Opcode(rawValue: b0 & 0x0F) else { return protocolError }
         let isMasked = (b1 & 0x80) != 0
         var payloadLen = UInt64(b1 & 0x7F)
         var offset = 2
@@ -74,6 +79,9 @@ public enum WebSocketFrame {
             }
             offset += 8
         }
+
+        // Sofort nach der Längenangabe prüfen: zu große Frames werden abgelehnt, bevor weitere Bytes erwartet werden
+        guard payloadLen <= UInt64(maxClientPayload) else { return protocolError }
 
         var maskKey: [UInt8] = [0, 0, 0, 0]
         if isMasked {

@@ -15,7 +15,7 @@ Die Bibliotheken von **Pawel Jalocha SP9VRC** werden wortgleich kopiert (`port_m
 ## Abweichungen (`ABWEICHUNG fldigi (Digidec)` im Code)
 
 1. **Einstellungen** kommen aus `fldigi_olivia_config` / `fldigi_mt63_config` statt aus `progdefaults` (Standardwerte wie fldigi: Olivia/Contestia 8 Töne, 500 Hz, Sync-Rand 8, Integration 4, 8-Bit an, Squelch an mit Pegel 5; MT63 1000 Hz kurz, kurze Integration, 8-Bit an). Die Anzeige (Wasserfall-S/N, Statuszeilen, Signalbrowser) entfällt.
-2. **Blöcke von 1024 Samples:** fldigi gibt dem Modem Blöcke von `fragmentsize = 1024`; die MT63-Bibliothek verträgt keine großen Blöcke (ihre Verzögerungsleitung ist auf einen Block ausgelegt). Die Rahmen teilen deshalb größere Eingaben.
+2. **Blöcke von 1024 Samples:** fldigi gibt dem Modem Blöcke von `fragmentsize = 1024`; die MT63-Bibliothek verträgt keine großen Blöcke (ihre Verzögerungsleitung ist auf einen Block ausgelegt). Die Rahmen teilen deshalb größere Eingaben. MT63 sammelt kleinere Stücke außerdem zu genau 1024 Samples (seit 0.105.1): Die Rauschsperre entscheidet je Block, mit wechselnden Blockgrößen hing die Ausgabe sonst vom Timing der Pipeline ab; `fldigi_mt63_flush` verarbeitet einen angefangenen Block zuerst.
 3. **Mehrere Exemplare** gleichzeitig sind möglich (kein file-static-Zustand, anders als bei CW und PSK).
 4. **Contestia:** wie in fldigi `contestia.cxx`: Sync-Schwelle in `rx_process()` mindestens 3, erste Trägerfrequenz `Bandbreite/2` statt Olivias `fc_offset`.
 5. **Testsignale** (nur für Tests, Digidec sendet nie): Sendeseite nach `olivia::tx_process()` / `mt63::tx_process()` ohne Starttöne. **MT63:** Der Vorspann (32 bzw. 64 Nullzeichen) wird gesendet; fldigi füllt damit nur die Verschachtelung, ohne Ausgabe.
@@ -24,3 +24,6 @@ Die Bibliotheken von **Pawel Jalocha SP9VRC** werden wortgleich kopiert (`port_m
 ## Prüfen
 
 Logiktests: Olivia (6 Betriebsarten, REV, Mitte, −10 dB S/N, falsche Tonzahl, Umstellen der Mitte), Contestia (4 Betriebsarten, −8 dB), MT63 (alle 6 Betriebsarten, 6 dB S/N), Squelch bei Rauschen, Pipeline 48 kHz → 8 kHz. Das Testsignal folgt der Sendeseite von fldigi, ist aber **nicht** mit dem Original-fldigi gegengeprüft und nicht an echtem Funkverkehr. `decode_file.sh <wav> --olivia olivia-8-500 --center 1500` und `--mt63 1000s` decodieren Aufnahmen offline.
+
+**Seit 0.105.1 (Digidec):** In `src/mt63/dsp.h` nullen `dspRedspAllocArray`, `dspAllocArray`, `dspAllocArray2D` und `dspSeq::EnsureSpace` neue Felder (`new type[n]()`); `EnsureSpace` gibt den alten Puffer frei (ging verloren) und legt die Größe in Elementen an. Grund: Die Senderseite las teils Speicher vor dem Beschreiben; das MT63-Testsignal enthielt dann je nach Speicherinhalt NaN (nachgestellt unter Linux, etwa jeder zweite Programmlauf).
+

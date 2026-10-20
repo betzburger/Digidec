@@ -79,6 +79,9 @@ public final class UIHost {
     // Eigene Textfelder
     var fieldSpecs: [Identity: NativeFieldSpec] = [:]
     var fields: [Identity: NativeField] = [:]
+    /// GTK zeichnet gerade (in `drawRetained`); Änderungen an echten Widgets warten bis zum nächsten Takt
+    var isDrawing = false
+    var fieldSyncPending = false
 
     var windowManager: WindowManager?
     var tickCount = 0
@@ -159,6 +162,28 @@ public final class UIHost {
         node.place(origin: origin, size: node.size(for: .fixed(fitted)))
     }
 
+    /// Das Fenster ist zerstört: GTK-Zeiger vergessen und den Ansichtsbaum samt Abonnements freigeben,
+    /// damit kein Rückruf mehr ein zerstörtes Widget erreicht und beobachtete Objekte nichts mehr auslösen
+    func shutdown() {
+        window = nil
+        drawingArea = nil
+        fixed = nil
+        fields.removeAll()
+        fieldSpecs.removeAll()
+        fieldHolders.removeAll()
+        overlays.removeAll()
+        hovered.removeAll()
+        pressedNode = nil
+        rootNode = nil
+        compositeIndex.removeAll()
+        dirty.removeAll()
+        timelineIntervals.removeAll()
+        timelineDue.removeAll()
+        shortcuts.removeAll()
+        store.removeAll()
+        closeHandler = nil
+    }
+
     /// Zeitgeber (16 ms): Hauptschlange bedienen, aufgelöste Änderungen und Zeitleisten verarbeiten
     func tick() {
         for hook in tickHooks { hook() }
@@ -178,6 +203,7 @@ public final class UIHost {
                 refreshCost = refreshCost * 0.8 + Date().timeIntervalSince(now) * 0.2
             }
         }
+        if fieldSyncPending { syncFields() }
         if let due = tooltipDue, now >= due, let tip = tooltip { tooltipDue = nil; addDamage(tooltipRect(tip)) }
         if needsDraw || !pendingDamage.isEmpty, let area = drawingArea {
             needsDraw = false
@@ -266,7 +292,9 @@ public final class UIHost {
     /// Zeichnen in die dauerhaft gehaltene Fläche des Fensters: nur der ungültige Bereich wird neu gemalt
     func drawRetained(cr: OpaquePointer, width: Int, height: Int, fresh: Bool) {
         let drawStart = Date()
+        isDrawing = true
         defer {
+            isDrawing = false
             let seconds = Date().timeIntervalSince(drawStart)
             drawCost = drawCost * 0.8 + seconds * 0.2
             if traceFrames { traceFrame(seconds) }

@@ -24,6 +24,7 @@ struct fldigi_mt63 {
 	double f_offset = 0;
 	int escape = 0;
 	bool flushbuffer = false;
+	std::vector<float> fragment;                  // Eingang bis zu einem vollen Block von 1024 Samples
 	fldigi_mt63_char_fn on_char;
 	void *ctx;
 
@@ -107,16 +108,31 @@ static void process_block(fldigi_mt63 *m, const float *samples, int len)
 	m->flushbuffer = true;
 }
 
-// ABWEICHUNG fldigi (Digidec): fldigi liefert dem Modem Blöcke von fragmentsize = 1024 Samples; die Bibliothek verträgt
-// keine großen Blöcke (ihre Verzögerungsleitung ist auf einen Block ausgelegt), deshalb wird hier geteilt.
+// ABWEICHUNG fldigi (Digidec): fldigi liefert dem Modem immer Blöcke von genau fragmentsize = 1024 Samples. Die Pipeline liefert
+// beliebig große Stücke; sie werden hier zu genau solchen Blöcken gesammelt. Das ist nötig, weil die Rauschsperre je Block entscheidet
+// (FEC_SNR am Blockende): Mit wechselnden Blockgrößen hinge die Ausgabe vom Timing ab. Große Blöcke verträgt die Bibliothek ohnehin nicht.
+static const int kFragment = 1024;
+
 extern "C" void fldigi_mt63_process(fldigi_mt63 *m, const float *samples, int len)
 {
-	while (len > 0) {
-		int n = len < 1024 ? len : 1024;
-		process_block(m, samples, n);
-		samples += n;
-		len -= n;
+	if (len <= 0) return;
+	// Vollständige Blöcke direkt aus der Eingabe, sobald der Rest vom letzten Aufruf aufgefüllt ist
+	if (!m->fragment.empty()) {
+		int need = kFragment - (int)m->fragment.size();
+		int take = len < need ? len : need;
+		m->fragment.insert(m->fragment.end(), samples, samples + take);
+		samples += take;
+		len -= take;
+		if ((int)m->fragment.size() < kFragment) return;
+		process_block(m, m->fragment.data(), kFragment);
+		m->fragment.clear();
 	}
+	while (len >= kFragment) {
+		process_block(m, samples, kFragment);
+		samples += kFragment;
+		len -= kFragment;
+	}
+	m->fragment.assign(samples, samples + len);
 }
 
 extern "C" void fldigi_mt63_set_center(fldigi_mt63 *m, double hz)
@@ -138,6 +154,12 @@ extern "C" void fldigi_mt63_get_status(const fldigi_mt63 *m, fldigi_mt63_status 
 extern "C" void fldigi_mt63_flush(fldigi_mt63 *m)       // mt63::rx_flush()
 {
 	int len = 512;
+	// Angefangenen Block zuerst verarbeiten (mit Stille zu einem vollen Block aufgefüllt)
+	if (!m->fragment.empty()) {
+		m->fragment.resize(kFragment, 0.0f);
+		process_block(m, m->fragment.data(), kFragment);
+		m->fragment.clear();
+	}
 	if (!m->flushbuffer) return;
 	if (m->emptyBuff->EnsureSpace(len) == -1) { m->flushbuffer = false; return; }
 	for (int j = 0; j < len; j++) m->emptyBuff->Data[j] = 0.0;

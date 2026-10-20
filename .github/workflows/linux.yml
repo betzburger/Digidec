@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Peter Betz und Mitwirkende
+# Linux: Programm und Logiktests bauen, Logiktests ausführen (ohne die lokalen Testaufnahmen in TestData/, diese Prüfungen werden übersprungen).
+name: Linux
+
+on:
+  push:
+    branches: [main, linux-port]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bibliotheken installieren
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libgtk-4-dev libpulse-dev libsndfile1-dev libpng-dev libjpeg-dev pkg-config
+
+      - name: Programm bauen
+        run: swift build -c release --product digidec-linux
+
+      - name: Logiktests bauen
+        run: swift build -c release --product logic-tests
+
+      - name: Logiktests ausführen
+        run: .build/release/logic-tests

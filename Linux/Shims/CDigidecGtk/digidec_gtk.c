@@ -3,11 +3,15 @@
 #include "digidec_gtk.h"
 #include <gtk/gtk.h>
 #include <string.h>
+#include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
 #include <execinfo.h>
+#include <glib-unix.h>
+#include <unistd.h>
+#include <stdint.h>
 
-typedef struct { DGCallbacks cb; void *user; } Ctx;
+typedef struct { DGCallbacks cb; void *user; guint tick_source; } Ctx;
 
 // Eigene Zeichenfläche: Die Oberfläche wird direkt in ein Bild gezeichnet und als Textur an die GPU gegeben.
 // (GtkDrawingArea reicht eine Aufzeichnungsfläche, die GTK danach noch einmal vollständig per CPU abspielt: doppelte Arbeit.)
@@ -45,7 +49,16 @@ static void dg_canvas_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
     g_object_unref(texture);
     g_bytes_unref(bytes);
 }
-static void dg_canvas_class_init(DGCanvasClass *klass) { GTK_WIDGET_CLASS(klass)->snapshot = dg_canvas_snapshot; }
+// Die dauerhaft gehaltene Bildfläche gehört dem Widget und geht mit ihm
+static void dg_canvas_finalize(GObject *object) {
+    DGCanvas *self = (DGCanvas *)object;
+    if (self->backing) { cairo_surface_destroy(self->backing); self->backing = NULL; }
+    G_OBJECT_CLASS(dg_canvas_parent_class)->finalize(object);
+}
+static void dg_canvas_class_init(DGCanvasClass *klass) {
+    GTK_WIDGET_CLASS(klass)->snapshot = dg_canvas_snapshot;
+    G_OBJECT_CLASS(klass)->finalize = dg_canvas_finalize;
+}
 static void dg_canvas_init(DGCanvas *self) { self->ctx = NULL; self->backing = NULL; self->bw = self->bh = 0; self->bscale = 0; }
 
 static void on_pressed(GtkGestureClick *g, int n, double x, double y, gpointer data) {
@@ -67,23 +80,132 @@ static gboolean on_key(GtkEventControllerKey *k, guint keyval, guint keycode, Gd
     Ctx *c = data; (void)k; (void)keycode;
     return c->cb.key ? c->cb.key(c->user, keyval, (unsigned)state, gdk_keyval_to_unicode(keyval)) : FALSE;
 }
-static gboolean on_close(GtkWindow *w, gpointer data) { Ctx *c = data; (void)w; if (c->cb.closed) c->cb.closed(c->user); return FALSE; }
 static gboolean on_tick(gpointer data) { Ctx *c = data; if (c->cb.tick) c->cb.tick(c->user); return G_SOURCE_CONTINUE; }
 
-typedef struct { void (*activate)(void *); void *user; } AppCtx;
-static void app_activate(GtkApplication *app, gpointer data) { AppCtx *c = data; (void)app; c->activate(c->user); }
+// Das Fenster wird zerstört (Schließen, Programmende): Takt anhalten, Swift ein letztes Mal benachrichtigen, danach keine Rückrufe mehr.
+// Der Kontext bleibt bestehen, weil Ereignis-Controller ihn bis zu ihrer eigenen Freigabe noch halten.
+static void on_destroy(GtkWidget *w, gpointer data) {
+    Ctx *c = data; (void)w;
+    if (c->tick_source) { g_source_remove(c->tick_source); c->tick_source = 0; }
+    void (*closed)(void *) = c->cb.closed;
+    memset(&c->cb, 0, sizeof c->cb);
+    if (closed) closed(c->user);
+}
 
-void *dg_app_new(const char *id, void (*activate)(void *user), void *user) {
-    GtkApplication *app = gtk_application_new(id, G_APPLICATION_DEFAULT_FLAGS);
-    AppCtx *c = malloc(sizeof *c); c->activate = activate; c->user = user;
+typedef struct { void (*activate)(void *); void (*open)(void *, const char *); void *user; } AppCtx;
+static void app_activate(GtkApplication *app, gpointer data) { AppCtx *c = data; (void)app; c->activate(c->user); }
+static void app_open(GApplication *app, GFile **files, gint n, const gchar *hint, gpointer data) {
+    AppCtx *c = data; (void)app; (void)hint;
+    for (gint i = 0; i < n; i++) {
+        char *uri = g_file_get_uri(files[i]);
+        if (c->open) c->open(c->user, uri);
+        g_free(uri);
+    }
+}
+static gboolean on_quit_signal(gpointer app) { g_application_quit(G_APPLICATION(app)); return G_SOURCE_CONTINUE; }
+
+// Haupt-Warteschlange von libdispatch in der GLib-Schleife bedienen (so wie CoreFoundation sie in den RunLoop einhängt):
+// libdispatch meldet neue Arbeit über einen eventfd. Ohne das liefen DispatchQueue.main und @MainActor nur im 16-ms-Takt.
+// Die Leerung schützt sich selbst gegen Wiedereintritt (verschachtelte Schleifen, z. B. Dateidialog).
+extern int _dispatch_get_main_queue_handle_4CF(void);
+extern void _dispatch_main_queue_callback_4CF(void *msg);
+static gboolean on_main_queue(gint fd, GIOCondition condition, gpointer data) {
+    (void)condition; (void)data;
+    // Ein Lesen setzt den Zähler des eventfd auf null (auch wenn er blockierend angelegt ist, ist er hier lesbar)
+    uint64_t value;
+    if (read(fd, &value, sizeof value) < 0) { /* schon von CoreFoundation gelesen: trotzdem leeren */ }
+    _dispatch_main_queue_callback_4CF(NULL);
+    return G_SOURCE_CONTINUE;
+}
+static void attach_main_queue(void) {
+    int fd = _dispatch_get_main_queue_handle_4CF();
+    if (fd >= 0) g_unix_fd_add(fd, G_IO_IN, on_main_queue, NULL);
+}
+
+void *dg_app_new(const char *id, void (*activate)(void *user), void (*open)(void *user, const char *uri), void *user) {
+    GtkApplication *app = gtk_application_new(id, G_APPLICATION_HANDLES_OPEN);
+    AppCtx *c = malloc(sizeof *c); c->activate = activate; c->open = open; c->user = user;
     g_signal_connect(app, "activate", G_CALLBACK(app_activate), c);
+    g_signal_connect(app, "open", G_CALLBACK(app_open), c);
+    // SIGTERM/SIGINT/SIGHUP beenden geordnet über die Hauptschleife (danach räumt das Programm auf)
+    g_unix_signal_add(SIGTERM, on_quit_signal, app);
+    g_unix_signal_add(SIGINT, on_quit_signal, app);
+    g_unix_signal_add(SIGHUP, on_quit_signal, app);
+    attach_main_queue();
     return app;
 }
 
-int dg_app_run(void *app) { return g_application_run(G_APPLICATION(app), 0, NULL); }
+int dg_app_run(void *app, int argc, char **argv) { return g_application_run(G_APPLICATION(app), argc, argv); }
+void dg_app_quit(void *app) { g_application_quit(G_APPLICATION(app)); }
+
+typedef struct { void (*callback)(void *user, const char *value); void *user; } ActionCtx;
+static void action_activated(GSimpleAction *action, GVariant *parameter, gpointer data) {
+    ActionCtx *c = data;
+    const char *value = NULL;
+    if (parameter && g_variant_is_of_type(parameter, G_VARIANT_TYPE_STRING)) {
+        value = g_variant_get_string(parameter, NULL);
+        g_simple_action_set_state(action, g_variant_new_string(value));
+    }
+    c->callback(c->user, value);
+}
+
+void dg_app_add_action(void *app, const char *name, const char *accel, const char *initial_state,
+                       void (*callback)(void *user, const char *value), void *user) {
+    GSimpleAction *action = initial_state
+        ? g_simple_action_new_stateful(name, G_VARIANT_TYPE_STRING, g_variant_new_string(initial_state))
+        : g_simple_action_new(name, NULL);
+    ActionCtx *c = malloc(sizeof *c); c->callback = callback; c->user = user;
+    g_signal_connect_data(action, "activate", G_CALLBACK(action_activated), c, (GClosureNotify)free, 0);
+    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(action));
+    g_object_unref(action);
+    if (accel) {
+        char detailed[128]; snprintf(detailed, sizeof detailed, "app.%s", name);
+        const char *accels[] = { accel, NULL };
+        gtk_application_set_accels_for_action(GTK_APPLICATION(app), detailed, accels);
+    }
+}
+
+void *dg_menu_new(void) { return g_menu_new(); }
+void dg_menu_append(void *menu, const char *label, const char *detailed_action) { g_menu_append(G_MENU(menu), label, detailed_action); }
+void dg_menu_append_section(void *menu, void *section) { g_menu_append_section(G_MENU(menu), NULL, G_MENU_MODEL(section)); g_object_unref(section); }
+void dg_menu_append_submenu(void *menu, const char *label, void *submenu) { g_menu_append_submenu(G_MENU(menu), label, G_MENU_MODEL(submenu)); g_object_unref(submenu); }
+
+void dg_window_set_menu(void *window, void *menu, const char *tooltip) {
+    GtkWidget *bar = gtk_header_bar_new();
+    gtk_widget_add_css_class(bar, "digidec-headerbar");
+    GtkWidget *button = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(button), "open-menu-symbolic");
+    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(button), G_MENU_MODEL(menu));
+    gtk_menu_button_set_primary(GTK_MENU_BUTTON(button), TRUE);   // F10 öffnet das Menü
+    gtk_widget_set_tooltip_text(button, tooltip);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(bar), button);
+    gtk_window_set_titlebar(GTK_WINDOW(window), bar);
+    g_object_unref(menu);
+}
+
+typedef struct { void (*callback)(void *user, int choice); void *user; } AlertCtx;
+static void alert_done(GObject *source, GAsyncResult *res, gpointer data) {
+    AlertCtx *c = data;
+    int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), res, NULL);
+    c->callback(c->user, choice);
+    free(c);
+}
+
+void dg_alert(void *window, const char *message, const char *detail, const char *first, const char *second,
+              void (*callback)(void *user, int choice), void *user) {
+    GtkAlertDialog *d = gtk_alert_dialog_new("%s", message);
+    gtk_alert_dialog_set_detail(d, detail);
+    const char *buttons[] = { first, second, NULL };
+    gtk_alert_dialog_set_buttons(d, buttons);
+    gtk_alert_dialog_set_default_button(d, 0);
+    gtk_alert_dialog_set_cancel_button(d, 1);
+    AlertCtx *c = malloc(sizeof *c); c->callback = callback; c->user = user;
+    gtk_alert_dialog_choose(d, GTK_WINDOW(window), NULL, alert_done, c);
+    g_object_unref(d);
+}
 
 DGWindow dg_window_new(void *app, const char *title, int width, int height, const DGCallbacks *callbacks, void *user) {
-    Ctx *c = malloc(sizeof *c); c->cb = *callbacks; c->user = user;
+    Ctx *c = calloc(1, sizeof *c); c->cb = *callbacks; c->user = user;
     GtkWidget *window = gtk_application_window_new(GTK_APPLICATION(app));
     gtk_window_set_title(GTK_WINDOW(window), title);
     gtk_window_set_default_size(GTK_WINDOW(window), width, height);
@@ -118,13 +240,14 @@ DGWindow dg_window_new(void *app, const char *title, int width, int height, cons
     g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), c);
     gtk_widget_add_controller(window, keys);
 
-    g_signal_connect(window, "close-request", G_CALLBACK(on_close), c);
-    g_timeout_add(16, on_tick, c);
+    g_signal_connect(window, "destroy", G_CALLBACK(on_destroy), c);
+    c->tick_source = g_timeout_add(16, on_tick, c);
     DGWindow w = { window, area, fixed };
     return w;
 }
 
 void dg_window_present(void *window) { gtk_window_present(GTK_WINDOW(window)); }
+void dg_window_close(void *window) { gtk_window_close(GTK_WINDOW(window)); }
 void dg_window_set_title(void *window, const char *title) { gtk_window_set_title(GTK_WINDOW(window), title); }
 void dg_queue_draw(void *widget) { gtk_widget_queue_draw(GTK_WIDGET(widget)); }
 

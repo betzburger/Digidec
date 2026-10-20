@@ -26,10 +26,13 @@ while [ $# -gt 0 ]; do
 done
 
 APP_ID="de.betz.digidec"
+ICON_SIZES="16 32 48 64 128 256 512"
 LIB="$PREFIX/lib/digidec"
 
 if [ "$UNINSTALL" = 1 ]; then
-    rm -rf "$LIB" "$PREFIX/bin/digidec" "$PREFIX/share/applications/$APP_ID.desktop" "$PREFIX/share/icons/hicolor/512x512/apps/$APP_ID.png"
+    rm -rf "$LIB" "$PREFIX/bin/digidec" "$PREFIX/share/applications/$APP_ID.desktop"
+    for s in $ICON_SIZES; do rm -f "$PREFIX/share/icons/hicolor/${s}x${s}/apps/$APP_ID.png"; done
+    command -v update-desktop-database >/dev/null && update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
     echo "Digidec aus $PREFIX entfernt."
     exit 0
 fi
@@ -52,7 +55,7 @@ swift build -c release --product digidec-linux --manifest-cache none
 OUT="$DIR/dist/linux"
 STAGE="$OUT/lib/digidec"
 rm -rf "$OUT"
-mkdir -p "$STAGE" "$OUT/bin" "$OUT/share/applications" "$OUT/share/icons/hicolor/512x512/apps"
+mkdir -p "$STAGE" "$OUT/bin" "$OUT/share/applications"
 
 echo "=== 2. Daten zusammenstellen ==="
 cp "$DIR/.build/release/digidec-linux" "$STAGE/digidec"
@@ -85,7 +88,10 @@ exec "\$HERE/digidec" "\$@"
 LAUNCH
 chmod +x "$OUT/bin/digidec"
 
-cp "$DIR/Resources/AppIcon-1024.png" "$OUT/share/icons/hicolor/512x512/apps/$APP_ID.png"
+for s in $ICON_SIZES; do
+    mkdir -p "$OUT/share/icons/hicolor/${s}x${s}/apps"
+    cp "$DIR/Resources/Linux/icons/AppIcon-$s.png" "$OUT/share/icons/hicolor/${s}x${s}/apps/$APP_ID.png"
+done
 cat > "$OUT/share/applications/$APP_ID.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
@@ -93,13 +99,15 @@ Name=Digidec
 GenericName=Digital Mode Decoder
 Comment=Decoder für Digital- und Datenfunk (FT8, RTTY, DRM, ADS-B, AIS, APRS und viele mehr)
 Comment[en]=Decoder for digital and data radio modes (FT8, RTTY, DRM, ADS-B, AIS, APRS and many more)
-Exec=digidec
+Exec=$PREFIX/bin/digidec %u
 Icon=$APP_ID
 Terminal=false
-Categories=HamRadio;AudioVideo;Audio;Network;
+Categories=Network;HamRadio;
 Keywords=radio;sdr;ft8;rtty;decoder;ham;amateur;
 StartupWMClass=$APP_ID
+MimeType=x-scheme-handler/digidec;
 DESKTOP
+command -v desktop-file-validate >/dev/null && desktop-file-validate "$OUT/share/applications/$APP_ID.desktop"
 
 echo "Fertig gebaut: $OUT"
 
@@ -111,6 +119,8 @@ if [ "$INSTALL" = 1 ]; then
     # Pfad im Starter bleibt relativ; Desktop-Datenbank auffrischen, falls vorhanden
     command -v update-desktop-database >/dev/null && update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
     command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+    # Aufträge `digidec://…` (wie die Commander am Mac) an Digidec leiten
+    command -v xdg-mime >/dev/null && xdg-mime default "$APP_ID.desktop" x-scheme-handler/digidec 2>/dev/null || true
     echo "Digidec ist installiert: $PREFIX/bin/digidec"
     case ":$PATH:" in *":$PREFIX/bin:"*) ;; *) echo "Hinweis: $PREFIX/bin gehört nicht zu \$PATH." ;; esac
 fi

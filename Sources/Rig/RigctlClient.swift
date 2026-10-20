@@ -129,7 +129,7 @@ public final class RigctlClient: @unchecked Sendable {
             let fd = openConnection(to: endpoint)
             guard fd >= 0 else { completion(.unreachable); return }
             defer { close(fd) }
-            guard let lines = exchange(fd: fd, command: "f\nm\n", expectedLines: 3) else { completion(.noAnswer); return }
+            guard let lines = exchange(fd: fd, command: "f\nm\n", answers: Self.frequencyAndModeAnswers) else { completion(.noAnswer); return }
             var state = parse(lines)
             state.host = endpoint.host
             state.port = endpoint.port
@@ -150,7 +150,7 @@ public final class RigctlClient: @unchecked Sendable {
             guard let fCommand = RigCommand.frequency(frequencyHz) else {
                 completion(.rejected("Frequenz außerhalb des Bereichs")); return
             }
-            guard let reply = exchange(fCommand, expectedLines: 1) else {
+            guard let reply = exchange(fCommand, answers: [1]) else {
                 closeSocket(); completion(.notConnected); return
             }
             guard reply.first == "RPRT 0" else {
@@ -160,7 +160,7 @@ public final class RigctlClient: @unchecked Sendable {
                 guard let mCommand = RigCommand.mode(mode, passbandHz: passbandHz, dialect: dialect) else {
                     completion(.rejected("Mode \(mode) nicht erlaubt oder bei \(dialect.title) unbekannt")); return
                 }
-                guard let modeReply = exchange(mCommand, expectedLines: 1) else {
+                guard let modeReply = exchange(mCommand, answers: [1]) else {
                     closeSocket(); completion(.notConnected); return
                 }
                 guard modeReply.first == "RPRT 0" else {
@@ -188,7 +188,7 @@ public final class RigctlClient: @unchecked Sendable {
                 return
             }
         }
-        guard let lines = exchange("f\nm\n", expectedLines: 3) else {
+        guard let lines = exchange("f\nm\n", answers: Self.frequencyAndModeAnswers) else {
             closeSocket()
             state = freshState(endpoint)
             publish()
@@ -222,12 +222,26 @@ public final class RigctlClient: @unchecked Sendable {
         }
     }
 
+    /// Antwortzeilen von `f` (Frequenz) und `m` (Mode, Breite)
+    static let frequencyAndModeAnswers = [1, 2]
+
     /// Befehle senden und Antwortzeilen lesen (Zeitlimit 1 s). `nil` bei Verbindungsfehler.
-    private func exchange(_ command: String, expectedLines: Int) -> [String]? {
-        Self.exchange(fd: fd, command: command, expectedLines: expectedLines)
+    private func exchange(_ command: String, answers: [Int]) -> [String]? {
+        Self.exchange(fd: fd, command: command, answers: answers)
     }
 
-    private static func exchange(fd: Int32, command: String, expectedLines: Int) -> [String]? {
+    /// Sind alle Antworten da? Je Befehl `answers[i]` Zeilen, oder eine einzelne „RPRT“-Zeile, wenn er fehlschlug.
+    /// So bleibt keine Antwort im Socket liegen und verschiebt die nächste Abfrage.
+    static func answersComplete(_ lines: [Substring], answers: [Int]) -> Bool {
+        var index = 0
+        for expected in answers {
+            guard index < lines.count else { return false }
+            index += lines[index].hasPrefix("RPRT") ? 1 : expected
+        }
+        return index <= lines.count
+    }
+
+    private static func exchange(fd: Int32, command: String, answers: [Int]) -> [String]? {
         let bytes = Array(command.utf8)
         let sent = bytes.withUnsafeBytes { send(fd, $0.baseAddress, $0.count, sendFlags) }
         guard sent == bytes.count else { return nil }
@@ -238,7 +252,7 @@ public final class RigctlClient: @unchecked Sendable {
         while Date() < deadline {
             let lines = String(decoding: buffer, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
             let complete = lines.dropLast()           // letzte Zeile evtl. unvollständig
-            if complete.count >= expectedLines || complete.contains(where: { $0.hasPrefix("RPRT") }) {
+            if answersComplete(Array(complete), answers: answers) {
                 return complete.map { String($0).trimmingCharacters(in: .whitespaces) }
             }
             let n = chunk.withUnsafeMutableBytes { recv(fd, $0.baseAddress, $0.count, 0) }

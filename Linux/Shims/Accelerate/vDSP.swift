@@ -127,7 +127,27 @@ public func vDSP_fft_zrip(_ setup: FFTSetup, _ c: UnsafePointer<DSPSplitComplex>
             }
         }
     } else {
-        fatalError("vDSP_fft_zrip rückwärts: nicht umgesetzt")
+        // Rückwärts: gepacktes Spektrum Y (realp[0] = Gleichanteil, imagp[0] = Nyquist) → Z = (Y(k) + Y*(h−k)) + i·(Y(k) − Y*(h−k))·e^{+2πik/N},
+        // dann komplexe Rückwärts-FFT der Länge h. Ergebnis wie bei Apple: gerade Werte in realp, ungerade in imagp, hin und zurück 2N-fach.
+        let y0 = re[0], yh = im[0]
+        re[0] = y0 + yh
+        im[0] = y0 - yh
+        let twoPi = 2 * Double.pi / Double(nReal)
+        if h > 1 {
+            for k in 1..<(h / 2 + 1) {
+                let k2 = h - k
+                let ar = re[k * stride], ai = im[k * stride]
+                let br = re[k2 * stride], bi = im[k2 * stride]
+                let sr = ar + br, si = ai - bi          // A = Y(k) + conj(Y(h−k))
+                let dr = ar - br, di = ai + bi          // D = Y(k) − conj(Y(h−k))
+                let wr = Float(cos(twoPi * Double(k))), wi = Float(sin(twoPi * Double(k)))
+                let br2 = dr * wr - di * wi, bi2 = dr * wi + di * wr   // B = D · e^{+iθ}
+                // Z(k) = A + i·B; Z(h−k) = conj(A) + i·conj(B)
+                re[k * stride] = sr - bi2; im[k * stride] = si + br2
+                if k2 != k { re[k2 * stride] = sr + bi2; im[k2 * stride] = -si + br2 }
+            }
+        }
+        p.transform(re, im, stride: stride, count: h, sign: 1)
     }
 }
 

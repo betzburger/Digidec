@@ -30,6 +30,8 @@ public final class LiveAudioCapture: @unchecked Sendable {
     private let workQueue = DispatchQueue(label: "com.peterbetz.digidec.audioWork", qos: .userInitiated)
     private let modeLock = OSAllocatedUnfairLock(initialState: ChannelMode.left)
     private var reader: Reader?
+    /// Die Aufnahme ist von selbst abgebrochen (Ton-Server beendet, Gerät entfernt); Grund als Text. Läuft auf dem Lesefaden.
+    public var onInterrupted: (@Sendable (String) -> Void)?
 
     public init(pipeline: AudioPipeline) {
         self.pipeline = pipeline
@@ -110,24 +112,33 @@ public final class LiveAudioCapture: @unchecked Sendable {
         }
 
         func start() {
+            let interrupted = owner.onInterrupted
             let thread = Thread { [self] in
                 var error: Int32 = 0
+                var failure: String?
                 while running.withLock({ $0 }) {
                     let bytes = LiveAudioCapture.framesPerBuffer * 4 * LiveAudioCapture.channels
-                    guard pa_simple_read(stream, raw, bytes, &error) >= 0 else { break }
+                    guard pa_simple_read(stream, raw, bytes, &error) >= 0 else {
+                        failure = String(cString: pa_strerror(error))
+                        break
+                    }
                     owner.handle(raw, frames: LiveAudioCapture.framesPerBuffer, mono: mono, left: monoLeft, right: monoRight)
                 }
                 pa_simple_free(stream)
                 finished.signal()
+                // Nur ein ungewollter Abbruch wird gemeldet, nicht das Anhalten über `stop`
+                if let failure, running.withLock({ $0 }) { interrupted?(failure) }
             }
             thread.name = "Digidec Audio-Eingang"
             thread.qualityOfService = .userInitiated
             thread.start()
         }
 
+        /// Hält den Lesefaden an. Ein Block dauert etwa 43 ms; hängt der Ton-Server, wird nach 2 s nicht länger gewartet
+        /// (der Faden gibt den Strom selbst frei, sobald `pa_simple_read` zurückkehrt) – Beenden und Gerätewechsel blockieren so nie.
         func stop() {
             running.withLock { $0 = false }
-            finished.wait()
+            _ = finished.wait(timeout: .now() + 2)
         }
     }
 

@@ -65,6 +65,13 @@ final class StateStore {
     }
 
     func touchInteraction(_ id: Identity) { interactionEpoch[id] = epoch }
+
+    /// Alles verwerfen (Fenster geschlossen): beendet auch die Abonnements der beobachteten Objekte
+    func removeAll() {
+        slots.removeAll()
+        interaction.removeAll()
+        interactionEpoch.removeAll()
+    }
 }
 
 // MARK: - @State

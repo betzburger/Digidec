@@ -33,7 +33,9 @@ private struct ControlSizeKey: EnvironmentKey { nonisolated(unsafe) static var d
 private struct OpenWindowKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = OpenWindowAction { _ in } }
 private struct DismissKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = DismissAction { } }
 private struct TintKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue: Color? = nil }
-private struct HostKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue: UIHost? = nil }
+/// Schwacher Verweis: Die Umgebung steckt in den Knoten des Hosts; ein starker Verweis hielte den Host über seinen eigenen Baum am Leben
+private struct WeakHost { weak var host: UIHost? }
+private struct HostKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = WeakHost() }
 private struct LabelsHiddenKey: EnvironmentKey { nonisolated(unsafe) static var defaultValue = false }
 
 public enum ColorScheme: Sendable { case light, dark }
@@ -64,7 +66,7 @@ extension EnvironmentValues {
     public var openWindow: OpenWindowAction { get { self[OpenWindowKey.self] } set { self[OpenWindowKey.self] = newValue } }
     public var dismiss: DismissAction { get { self[DismissKey.self] } set { self[DismissKey.self] = newValue } }
     var tintColor: Color? { get { self[TintKey.self] } set { self[TintKey.self] = newValue } }
-    var host: UIHost? { get { self[HostKey.self] } set { self[HostKey.self] = newValue } }
+    var host: UIHost? { get { self[HostKey.self].host } set { self[HostKey.self] = WeakHost(host: newValue) } }
     var labelsHidden: Bool { get { self[LabelsHiddenKey.self] } set { self[LabelsHiddenKey.self] = newValue } }
 }
 

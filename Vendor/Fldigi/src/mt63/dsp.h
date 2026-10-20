@@ -96,14 +96,16 @@ typedef short dspS16;
 
 // ----------------------------------------------------------------------------
 
+// ABWEICHUNG fldigi (Digidec): neue Felder werden genullt (`new type[n]()`). Die Bibliothek liest teils Speicher, bevor sie ihn
+// beschreibt (z. B. Verzögerungsleitungen des Senders); mit zufälligem Inhalt entstanden gelegentlich NaN im MT63-Testsignal.
 template <class type>inline int dspRedspAllocArray(type **Array, int Size) {
 	delete [] *Array;
-	*Array = new type[Size];
+	*Array = new type[Size]();
 	return (*Array == 0);
 }
 
 template <class type>inline int dspAllocArray(type **Array, int Size) {
-	*Array = new type[Size];
+	*Array = new type[Size]();
 	return (*Array == 0);
 }
 
@@ -127,7 +129,7 @@ template <class type> int dspAllocArray2D(type ***Array, int Size1, int Size2) {
 	for (i = 0; i < Size1; i++)
 		(*Array)[i] = NULL;
 	for (i = 0; i < Size1; i++) {
-		(*Array)[i] = new type [Size2 * sizeof(type)];
+		(*Array)[i] = new type [Size2 * sizeof(type)]();
 		if ((*Array)[i] == NULL)
 			goto Error;
 	}
@@ -180,7 +182,10 @@ template <class type> int dspSeq<type>::EnsureSpace(int ReqSpace)
 { 
 	if (ReqSpace <= Space) 
 		return 0;
-	Data = new type[ReqSpace * sizeof(type)];
+	// ABWEICHUNG fldigi (Digidec): alten Puffer freigeben (er ging bisher verloren) und den neuen nullen; der Inhalt wurde auch
+	// vorher nicht übernommen. Größe in Elementen (bisher das sizeof(type)-fache).
+	delete [] Data;
+	Data = new type[ReqSpace]();
 	if (Data == NULL) { 
 		Space = Len = 0; 
 		return -1; 

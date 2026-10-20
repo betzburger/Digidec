@@ -20,6 +20,11 @@ enum GtkStyle {
         entry selection, textview selection { background-color: \(rgba(p.vfdAmber, 0.45)); color: \(rgba(p.textBright)); }
         textview.digidec-editor, textview.digidec-editor text { background-color: \(rgba(p.bgDeep)); color: \(rgba(p.vfdGreen)); }
         scrolledwindow { border: 1px solid \(rgba(p.borderSubtle)); border-radius: 5px; }
+        headerbar.digidec-headerbar { background: \(rgba(p.bgDeep)); color: \(rgba(p.textBright)); box-shadow: inset 0 -1px \(rgba(p.borderSubtle));
+            min-height: 30px; padding: 0 4px; }
+        headerbar.digidec-headerbar:backdrop { color: \(rgba(p.textBright, 0.6)); }
+        headerbar.digidec-headerbar button { color: \(rgba(p.vfdAmber)); background: transparent; border: none; box-shadow: none; }
+        headerbar.digidec-headerbar button:hover { background: \(rgba(p.vfdAmber, 0.12)); }
         """
         LinuxApplication.installStyle(css)
     }

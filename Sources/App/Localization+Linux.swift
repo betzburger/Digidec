@@ -21,10 +21,19 @@ enum LinuxStrings {
 
     static func translate(_ key: String) -> String { table[key] ?? key }
 
-    /// Sprachcode aus der Umgebung („de_DE.UTF-8“ → „de“); unbekannt → Englisch nur, wenn ausdrücklich verlangt, sonst Ausgangssprache
+    /// Sprachcode: `DIGIDEC_LANG`, sonst die Wahl im Menü (`AppLanguage` = de/en, „system“ = Umgebung), sonst die Umgebung
+    /// („de_DE.UTF-8“ → „de“); ohne Angabe die Ausgangssprache Deutsch
     static var language: String {
         let env = ProcessInfo.processInfo.environment
-        for name in ["DIGIDEC_LANG", "LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"] {
+        if let forced = env["DIGIDEC_LANG"], !forced.isEmpty { return String(forced.prefix { $0.isLetter }) }
+        if let chosen = UserDefaults.standard.string(forKey: "AppLanguage"), chosen == "de" || chosen == "en" { return chosen }
+        return environmentLanguage
+    }
+
+    /// Sprache der Sitzung (Gebietsschema-Variablen); ohne Angabe Deutsch
+    static var environmentLanguage: String {
+        let env = ProcessInfo.processInfo.environment
+        for name in ["LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"] {
             if let value = env[name], !value.isEmpty, value != "C", value != "POSIX" {
                 return String(value.prefix { $0.isLetter })
             }

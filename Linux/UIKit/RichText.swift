@@ -65,8 +65,8 @@ extension RichTextView: PrimitiveView {
         buffer.node = node
         if let host = r.host {
             let buffer = self.buffer, menu = onMenu
-            node.contextMenu = { [weak node] point in
-                guard let node else { return }
+            node.contextMenu = { [weak node, weak host] point in
+                guard let node, let host else { return }
                 var rows: [MenuRow] = (menu?(buffer) ?? []).map { item in MenuRow(title: item.title, action: item.action) }
                 if buffer.selectedText != nil {
                     rows.append(MenuRow(title: "", separator: true))

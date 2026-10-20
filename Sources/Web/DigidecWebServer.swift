@@ -453,7 +453,7 @@ public final class DigidecWebServer: ObservableObject {
                 delegate?.selectModule(id: modId)
             }
         case "tuneOffset":
-            if let offsetHz = json["offsetHz"] as? Double {
+            if let offsetHz = WebCommandValue.double(json["offsetHz"]) {
                 delegate?.tuneOffset(hz: offsetHz)
             }
         case "setAudioStream":
@@ -469,20 +469,20 @@ public final class DigidecWebServer: ObservableObject {
         case "setMode":
             if let mode = json["mode"] as? String { delegate?.setMode(mode) }
         case "setFrequency":
-            if let hz = (json["hz"] as? NSNumber)?.doubleValue { delegate?.setFrequency(hz: hz) }
+            if let hz = WebCommandValue.double(json["hz"]) { delegate?.setFrequency(hz: hz) }
         case "setCenter":
-            if let hz = (json["hz"] as? NSNumber)?.doubleValue { delegate?.setCenter(hz: hz) }
+            if let hz = WebCommandValue.double(json["hz"]) { delegate?.setCenter(hz: hz) }
         case "setRFZoom":
-            if let z = (json["zoom"] as? NSNumber)?.intValue { delegate?.setRFZoom(z) }
+            if let z = WebCommandValue.int(json["zoom"]) { delegate?.setRFZoom(z) }
         case "setNFSpan":
-            if let hz = (json["hz"] as? NSNumber)?.doubleValue { delegate?.setNFSpan(hz) }
+            if let hz = WebCommandValue.double(json["hz"]) { delegate?.setNFSpan(hz) }
         case "setPreset":
             if let key = json["key"] as? String, let id = json["id"] as? String {
                 delegate?.setPreset(key: key, id: id)
                 broadcastPresets()
             }
         case "setRange":
-            if let d = (json["delta"] as? NSNumber)?.intValue { delegate?.setWaterfallRange(delta: d) }
+            if let d = WebCommandValue.int(json["delta"]) { delegate?.setWaterfallRange(delta: d) }
         case "setSDREnabled":
             if let enabled = json["enabled"] as? Bool {
                 delegate?.setSDREnabled(enabled)
@@ -492,8 +492,8 @@ public final class DigidecWebServer: ObservableObject {
                 delegate?.setSDRSource(kind: kind)
             }
         case "setSDRGain":
-            let lna = json["lna"] as? Int
-            let vga = json["vga"] as? Int
+            let lna = WebCommandValue.int(json["lna"])
+            let vga = WebCommandValue.int(json["vga"])
             delegate?.setSDRGain(lna: lna, vga: vga)
         case "setWaterfallMode":
             if let mode = json["mode"] as? String {
@@ -502,6 +502,55 @@ public final class DigidecWebServer: ObservableObject {
         default:
             break
         }
+    }
+}
+
+// MARK: - Zahlen aus Browser-Befehlen
+
+/// Zahlen aus den JSON-Befehlen des Browsers: nur endliche Werte in einem plausiblen Bereich (Frequenzen bis 1 THz,
+/// ganze Zahlen bis ±1 000 000). Alles andere wird verworfen, damit spätere Umwandlungen (`Int64(…)`) nie abbrechen.
+public enum WebCommandValue {
+    public static let maxMagnitude = 1e12
+    public static let maxInteger = 1_000_000
+
+    public static func double(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber else { return nil }
+        let d = number.doubleValue
+        return d.isFinite && abs(d) <= maxMagnitude ? d : nil
+    }
+
+    public static func int(_ value: Any?) -> Int? {
+        guard let d = double(value), abs(d) <= Double(maxInteger) else { return nil }
+        return Int(d.rounded())
+    }
+}
+
+// MARK: - Kopfzeilen
+
+/// Auswertung der HTTP-Kopfzeilen einer Anfrage
+public enum WebRequestHeaders {
+    /// Wert einer Kopfzeile (Name ohne Beachtung der Groß-/Kleinschreibung)
+    public static func headerValue(_ name: String, in lines: [String]) -> String? {
+        let prefix = name.lowercased() + ":"
+        guard let line = lines.first(where: { $0.lowercased().hasPrefix(prefix) }) else { return nil }
+        return String(line.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Ohne `Origin` (kein Browser, z. B. Werkzeuge) erlaubt; sonst muss „Rechner:Port“ des Origin dem `Host` der Anfrage gleichen.
+    /// So kann nur die eigene Dashboard-Seite den WebSocket öffnen, keine beliebige andere Seite im Browser des Nutzers.
+    public static func originAllowed(headerLines lines: [String]) -> Bool {
+        guard let origin = headerValue("Origin", in: lines) else { return true }
+        guard let host = headerValue("Host", in: lines),
+              let url = URL(string: origin), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let originHost = url.host, let requestHost = URL(string: "\(scheme)://\(host)"), let requestName = requestHost.host
+        else { return false }
+        let defaultPort = scheme == "https" ? 443 : 80
+        return normalized(originHost) == normalized(requestName) && (url.port ?? defaultPort) == (requestHost.port ?? defaultPort)
+    }
+
+    /// Rechnername ohne Klammern der IPv6-Schreibweise, klein geschrieben
+    private static func normalized(_ host: String) -> String {
+        host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
     }
 }
 
@@ -529,6 +578,9 @@ private final class WebConnection: @unchecked Sendable {
     var onUpgrade: (@Sendable () -> Void)?
     private var buffer = Data()
     private let lock = NSLock()
+    private var closed = false
+    /// Größe des HTTP-Kopfes, ab der die Anfrage abgelehnt wird
+    static let maxHeaderBytes = 16 * 1024
 
     init(id: UUID, connection: NWConnection, onClose: @escaping @Sendable () -> Void, onClientMessage: @escaping @Sendable (String) -> Void) {
         self.id = id
@@ -550,7 +602,13 @@ private final class WebConnection: @unchecked Sendable {
         readNext()
     }
 
+    /// Schließt die Verbindung; `onClose` läuft genau einmal, auch wenn Netzwerk und Gegenseite zugleich schließen
     func close() {
+        lock.lock()
+        let first = !closed
+        closed = true
+        lock.unlock()
+        guard first else { return }
         connection.cancel()
         onClose()
     }
@@ -609,7 +667,10 @@ private final class WebConnection: @unchecked Sendable {
 
         if !isWebSocket {
             // Prüfen auf HTTP Request
-            guard let headerEnd = cur.range(of: Data("\r\n\r\n".utf8)) else { return }
+            guard let headerEnd = cur.range(of: Data("\r\n\r\n".utf8)) else {
+                if cur.count > Self.maxHeaderBytes { close() }
+                return
+            }
             let requestData = cur.subdata(in: cur.startIndex..<headerEnd.upperBound)
             guard let requestStr = String(data: requestData, encoding: .utf8) else {
                 close(); return
@@ -620,6 +681,8 @@ private final class WebConnection: @unchecked Sendable {
             lock.unlock()
 
             handleHttpRequest(requestStr)
+            // Frames, die der Browser gleich hinter dem Upgrade geschickt hat, nicht liegen lassen
+            if isWebSocket { handleIncomingData(Data()) }
         } else {
             // Eingehende WebSocket Frames verarbeiten
             while true {
@@ -667,6 +730,12 @@ private final class WebConnection: @unchecked Sendable {
                 }
             }
             guard let key = wsKey else { close(); return }
+            // Fremde Webseiten dürfen sich nicht verbinden (Cross-Site WebSocket Hijacking): Origin muss zum Host passen
+            guard WebRequestHeaders.originAllowed(headerLines: lines) else {
+                connection.send(content: Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8),
+                                completion: .contentProcessed { [weak self] _ in self?.close() })
+                return
+            }
             
             // Handshake Response nach RFC 6455
             let magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"

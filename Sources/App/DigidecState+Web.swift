@@ -104,14 +104,18 @@ extension DigidecState: WebHostDelegate {
     public var webModeChoices: [String] {
         if webOwnsDevice { return [] }
         if webUsesSDR { return SDRMode.allCases.map(\.hamlibName) }
-        if rig.hasRig, rig.state.frequencyHz != nil { return ["USB", "LSB", "CW", "AM", "FM"] }
+        if webRigTunable { return ["USB", "LSB", "CW", "AM", "FM"] }
         return []
     }
+
+    /// Der Browser darf ein Funkgerät hinter rigctld nur abstimmen, wenn die App es auch dürfte (QSY AUTO, `rigCanTune`)
+    /// und dessen Frequenz bekannt ist.
+    var webRigTunable: Bool { rigCanTune && rig.state.frequencyHz != nil }
 
     public var webFrequencyEditable: Bool {
         if webOwnsDevice { return false }
         if webUsesSDR { return true }
-        return rig.hasRig && rig.state.frequencyHz != nil
+        return webRigTunable
     }
 
     public func setMode(_ mode: String) {
@@ -121,7 +125,7 @@ extension DigidecState: WebHostDelegate {
                 sdr.select(mode: m)
                 if m != .wfm { sdr.deemphasis = false }
             }
-        } else if rig.hasRig, let f = rig.state.frequencyHz, f > 0, webModeChoices.contains(mode) {
+        } else if webRigTunable, let f = rig.state.frequencyHz, f > 0, webModeChoices.contains(mode) {
             rig.tune(to: RigTuneTarget(dialHz: Int64(f), mode: mode))
         }
     }
@@ -130,18 +134,23 @@ extension DigidecState: WebHostDelegate {
         guard hz.isFinite, hz > 0, !webOwnsDevice else { return }
         if webUsesSDR {
             sdrController.tune(frequencyHz: hz)
-        } else if rig.hasRig, rig.state.frequencyHz != nil {
-            rig.tune(to: RigTuneTarget(dialHz: Int64(max(100_000, hz.rounded())), mode: rig.state.mode ?? "USB"))
+        } else if webRigTunable {
+            rig.tune(to: RigTuneTarget(dialHz: Self.webDialHz(hz), mode: rig.state.mode ?? "USB"))
         }
     }
 
+    /// Frequenz aus dem Browser als Dial-Wert: gerundet und auf 100 kHz … 100 GHz begrenzt (die Umwandlung kann so nie abbrechen)
+    nonisolated static func webDialHz(_ hz: Double) -> Int64 {
+        guard hz.isFinite else { return 100_000 }
+        return Int64(min(100_000_000_000, max(100_000, hz.rounded())))
+    }
+
     public func tuneOffset(hz: Double) {
-        guard !webOwnsDevice else { return }
+        guard hz.isFinite, abs(hz) <= 100_000_000_000, !webOwnsDevice else { return }
         if webUsesSDR {
             sdrController.tune(frequencyHz: sdr.frequencyHz + hz)
-        } else if let cur = rig.state.frequencyHz {
-            let newHz = max(100_000, Int64(cur) + Int64(hz))
-            rig.tune(to: RigTuneTarget(dialHz: newHz, mode: rig.state.mode ?? "USB"))
+        } else if webRigTunable, let cur = rig.state.frequencyHz {
+            rig.tune(to: RigTuneTarget(dialHz: Self.webDialHz(Double(cur) + hz), mode: rig.state.mode ?? "USB"))
         }
     }
 
