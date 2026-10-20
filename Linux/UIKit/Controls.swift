@@ -105,7 +105,7 @@ public enum ButtonRole: Sendable { case destructive, cancel }
 @MainActor
 final class ButtonNode: WrapperNode {
     override func draw(_ g: inout GraphicsContext, clip: CGRect) {
-        if !enabled { cairo_push_group(g.cr); child?.draw(&g, clip: clip); cairo_pop_group_to_source(g.cr); cairo_paint_with_alpha(g.cr, 0.45) }
+        if !enabled, let child { g.drawOpacityGroup(alpha: 0.45, bounds: child.subtreeBounds().intersection(clip)) { inner in child.draw(&inner, clip: clip) } }
         else { child?.draw(&g, clip: clip) }
     }
 }

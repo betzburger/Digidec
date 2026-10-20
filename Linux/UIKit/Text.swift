@@ -194,6 +194,7 @@ enum TextEngine {
     struct Key: Hashable { var spec: TextSpec; var width: Int }
     struct Metrics { var size: CGSize; var baseline: CGFloat }
     private static var cache: [Key: Metrics] = [:]
+    private static var layouts: [Key: OpaquePointer] = [:]
 
     /// Absolute Zeilenhöhe wie bei den Systemschriften des Mac (ca. 1,19 × Schriftgröße)
     static func lineHeight(_ size: CGFloat) -> CGFloat { (size * 1.19).rounded() }
@@ -262,8 +263,23 @@ enum TextEngine {
         var fitting = spec
         // Passt der Text, wird nie gekürzt (Pango kürzt sonst bei Zeichenabstand schon bei exakt passender Breite)
         if spec.lineLimit != nil, measure(spec, width: nil).size.width <= rect.width + 0.5 { fitting.lineLimit = nil }
-        let layout = makeLayout(cr, fitting, scale: 1, width: fitting.lineLimit == nil ? rect.width + 1 : rect.width)
-        defer { g_object_unref(UnsafeMutableRawPointer(layout)) }
+        // Fertig umbrochene Layouts bleiben erhalten; die Farbe gehört nicht zum Schlüssel
+        let layoutWidth = fitting.lineLimit == nil ? rect.width + 1 : rect.width
+        var neutral = fitting
+        neutral.color = Color(white: 0)
+        let key = Key(spec: neutral, width: Int((layoutWidth * 4).rounded()))
+        let layout: OpaquePointer
+        if let cached = layouts[key] {
+            layout = cached
+            pango_cairo_update_layout(cr, layout)
+        } else {
+            layout = makeLayout(cr, fitting, scale: 1, width: layoutWidth)
+            if layouts.count >= 3000 {
+                for (_, old) in layouts { g_object_unref(UnsafeMutableRawPointer(old)) }
+                layouts.removeAll(keepingCapacity: true)
+            }
+            layouts[key] = layout
+        }
         cairo_set_source_rgba(cr, spec.color.red, spec.color.green, spec.color.blue, spec.color.alpha)
         cairo_move_to(cr, rect.minX, rect.minY)
         pango_cairo_show_layout(cr, layout)

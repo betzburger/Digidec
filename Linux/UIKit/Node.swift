@@ -168,7 +168,29 @@ class Node {
     }
 
     final func drawChildren(_ g: inout GraphicsContext, clip: CGRect) {
-        for c in children where c.frame.intersects(clip) || c.frame.isEmpty { c.draw(&g, clip: clip) }
+        for c in children {
+            // Kinder dürfen über den Rahmen ihres Elternknotens hinausragen: ausgesondert wird nach den Grenzen des ganzen Teilbaums
+            let b = Node.drawBounds[ObjectIdentifier(c)] ?? c.frame
+            if b.intersects(clip) || b.isEmpty { c.draw(&g, clip: clip) }
+        }
+    }
+
+    /// Grenzen der Teilbäume für das Aussondern beim Zeichnen; wird vor jedem Zeichnen neu aufgebaut
+    nonisolated(unsafe) static var drawBounds: [ObjectIdentifier: CGRect] = [:]
+
+    @discardableResult
+    final func buildDrawBounds() -> CGRect {
+        var r = frame
+        for c in children { let b = c.buildDrawBounds(); if !b.isEmpty { r = r.isEmpty ? b : r.union(b) } }
+        Node.drawBounds[ObjectIdentifier(self)] = r
+        return r
+    }
+
+    /// Umschließendes Rechteck dieses Knotens und aller Nachfahren (Kinder dürfen über den Rahmen hinausragen)
+    final func subtreeBounds() -> CGRect {
+        var r = frame
+        for c in children { let b = c.subtreeBounds(); if !b.isEmpty { r = r.isEmpty ? b : r.union(b) } }
+        return r
     }
 
     /// Alle Knoten an einem Punkt, der tiefste zuerst
@@ -229,15 +251,17 @@ final class CompositeNode: Node {
         }
     }
 
-    /// Löst den Inhalt neu auf; `true`, wenn die Größe gleich blieb (dann genügt Neuplatzieren und Zeichnen)
-    func refresh() -> Bool {
-        guard let rebuild else { return true }
+    /// Löst den Inhalt neu auf; `stable` ist wahr, wenn die Größe gleich blieb (dann genügt Neuplatzieren und Zeichnen).
+    /// `previous` sind die bisherigen Kinder, für den Vergleich zwischen altem und neuem Bild.
+    func refresh() -> (stable: Bool, previous: [Node]) {
+        guard let rebuild else { return (true, children) }
         let old = frame.size
+        let previous = children
         children = rebuild()
         clearSizeCaches()
         let new = size(for: lastProposal)
-        if new == old { placeChildren(); return true }
-        return false
+        if new == old { placeChildren(); return (true, previous) }
+        return (false, previous)
     }
 }
 
@@ -308,7 +332,12 @@ final class Resolver {
         return [node]
     }
 
+    /// Ansichtstypen ohne Eigenschaftshüllen (@State & Co.): Für sie lohnt die Reflexion nicht, die Felder eines Typs sind fest
+    nonisolated(unsafe) private static var withoutDynamicProperties = Set<ObjectIdentifier>()
+
     private func attachDynamicProperties<V: View>(_ view: V) {
+        let typeKey = ObjectIdentifier(V.self)
+        if Resolver.withoutDynamicProperties.contains(typeKey) { return }
         let id = identity
         let context = AttachContext(store: store, identity: id, environment: env, invalidate: { [weak self] in self?.host?.invalidate(id) })
         var index = 0
@@ -318,6 +347,7 @@ final class Resolver {
                 index += 1
             }
         }
+        if index == 0 { Resolver.withoutDynamicProperties.insert(typeKey) }
     }
 
     /// Hilfsfunktion für Modifikatoren: Kind auflösen und als einzelnen Knoten liefern (mehrere werden gestapelt)

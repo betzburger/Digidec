@@ -105,7 +105,7 @@ extension UIHost {
     func createWindow(app: UnsafeMutableRawPointer, size: CGSize, onClose: @escaping () -> Void = {}) {
         self.size = size
         var callbacks = DGCallbacks()
-        callbacks.draw = { u, cr, w, h in MainActor.assumeIsolated { host(from: u).draw(cr: cr!, width: Int(w), height: Int(h)) } }
+        callbacks.draw = { u, cr, w, h, fresh in MainActor.assumeIsolated { host(from: u).drawRetained(cr: cr!, width: Int(w), height: Int(h), fresh: fresh != 0) } }
         callbacks.pressed = { u, button, x, y in
             MainActor.assumeIsolated {
                 let h = host(from: u)
@@ -197,12 +197,16 @@ extension UIHost {
         var waitUntil = Date()
         let env = ProcessInfo.processInfo.environment
         let size = CGSize(width: Double(env["DIGIDEC_SNAPSHOT_WIDTH"] ?? "") ?? 1500, height: Double(env["DIGIDEC_SNAPSHOT_HEIGHT"] ?? "") ?? 960)
-        self.size = size
+        // DIGIDEC_SCRIPT_LIVE: Ereignisse laufen im echten Fenster (mit seinem eigenen Zeichenweg) statt in einer Offscreen-Fläche
+        let live = env["DIGIDEC_SCRIPT_LIVE"] != nil
+        if !live { self.size = size }
         Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [self] timer in
             MainActor.assumeIsolated {
-                drawOffscreen(size: size)
+                if !live { drawOffscreen(size: size) }
                 guard Date() >= waitUntil, !commands.isEmpty else { return }
-                let parts = commands.removeFirst().split(separator: " ").map(String.init)
+                let line = commands.removeFirst()
+                lastScriptCommand = line
+                let parts = line.split(separator: " ").map(String.init)
                 func number(_ i: Int) -> CGFloat { i < parts.count ? CGFloat(Double(parts[i]) ?? 0) : 0 }
                 switch parts.first ?? "" {
                 case "wait": waitUntil = Date().addingTimeInterval(Double(number(1)))

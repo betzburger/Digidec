@@ -173,53 +173,103 @@ public struct GraphicsContext {
 
 // MARK: - Weichzeichner
 
-/// Dreifacher Kastenfilter auf einem ARGB32-Bild (nähert den Gauß-Filter mit Standardabweichung `radius` an)
+/// Kastenbreiten (Kovesi) für drei Durchgänge, die den Gauß-Filter mit Standardabweichung `sigma` annähern
+private func boxRadii(sigma: Double) -> [Int] {
+    let ideal = (12 * sigma * sigma / 3 + 1).squareRoot()
+    var low = Int(ideal.rounded(.down)); if low % 2 == 0 { low -= 1 }
+    low = max(low, 1)
+    let high = low + 2
+    let m = Int((12 * sigma * sigma - 3 * Double(low * low) - 12 * Double(low) - 9) / (-4 * Double(low) - 4))
+    return (0..<3).map { ($0 < m ? low : high) }.filter { $0 >= 1 }.map { ($0 - 1) / 2 }
+}
+
+/// Ein Durchgang des Kastenfilters über `count` Elemente mit Schrittweite `step` (Ränder zählen als 0), ganzzahlig und ohne Zwischenfelder
+@inline(__always)
+private func boxLine(_ src: UnsafePointer<UInt8>, _ dst: UnsafeMutablePointer<UInt8>, count: Int, step: Int, radius r: Int) {
+    let window = 2 * r + 1
+    var sum = 0
+    for k in 0..<min(r + 1, count) { sum += Int(src[k * step]) }
+    // Division durch Multiplikation mit Kehrwert (16.16), mit Rundung
+    let inv = (1 << 16) / window
+    let half = 1 << 15
+    for i in 0..<count {
+        dst[i * step] = UInt8(truncatingIfNeeded: min(255, (sum * inv + half) >> 16))
+        let add = i + r + 1, drop = i - r
+        if add < count { sum += Int(src[add * step]) }
+        if drop >= 0 { sum -= Int(src[drop * step]) }
+    }
+}
+
+/// Weichzeichner auf einem Bild mit `channels` Bytes je Pixel (ARGB32: 4, A8: 1); die Ränder zählen als transparent,
+/// die Ebene muss also genug Rand haben (≥ 3σ).
+func boxBlur(_ data: UnsafeMutablePointer<UInt8>, width w: Int, height h: Int, stride: Int, channels: Int, sigma: Double) {
+    let radii = boxRadii(sigma: max(sigma, 0.1))
+    let scratch = UnsafeMutablePointer<UInt8>.allocate(capacity: stride * h)
+    defer { scratch.deallocate() }
+    for r in radii {
+        // waagerecht: data → scratch, senkrecht: scratch → data
+        for y in 0..<h {
+            for c in 0..<channels { boxLine(data + y * stride + c, scratch + y * stride + c, count: w, step: channels, radius: r) }
+        }
+        for x in 0..<w {
+            for c in 0..<channels { boxLine(scratch + x * channels + c, data + x * channels + c, count: h, step: stride, radius: r) }
+        }
+    }
+}
+
 func blurImage(_ surface: OpaquePointer, radius: Double) {
     cairo_surface_flush(surface)
     guard let data = cairo_image_surface_get_data(surface) else { return }
     let w = Int(cairo_image_surface_get_width(surface)), h = Int(cairo_image_surface_get_height(surface))
     let stride = Int(cairo_image_surface_get_stride(surface))
-    let sigma = max(radius, 0.1)
-    // Kastenbreiten für drei Durchgänge (Kovesi)
-    let ideal = (12 * sigma * sigma / 3 + 1).squareRoot()
-    var low = Int(ideal.rounded(.down)); if low % 2 == 0 { low -= 1 }
-    let high = low + 2
-    let m = Int((12 * sigma * sigma - 3 * Double(low * low) - 12 * Double(low) - 9) / (-4 * Double(low) - 4))
-    let sizes = (0..<3).map { $0 < m ? low : high }
-    var a = [Float](repeating: 0, count: max(w, h) * 4), b = a
-    func pass(_ r: Int, horizontal: Bool) {
-        let lines = horizontal ? h : w, length = horizontal ? w : h
-        let window = Float(2 * r + 1)
-        for line in 0..<lines {
-            for i in 0..<length {
-                let o = horizontal ? line * stride + i * 4 : i * stride + line * 4
-                for c in 0..<4 { a[i * 4 + c] = Float(data[o + c]) }
-            }
-            for c in 0..<4 {
-                var sum: Float = 0
-                for k in -r...r { sum += a[min(max(k, 0), length - 1) * 4 + c] }
-                for i in 0..<length {
-                    b[i * 4 + c] = sum / window
-                    sum += a[min(i + r + 1, length - 1) * 4 + c] - a[max(i - r, 0) * 4 + c]
-                }
-            }
-            for i in 0..<length {
-                let o = horizontal ? line * stride + i * 4 : i * stride + line * 4
-                for c in 0..<4 { data[o + c] = UInt8(max(0, min(255, b[i * 4 + c].rounded()))) }
-            }
-        }
-    }
-    for size in sizes where size >= 1 {
-        let r = (size - 1) / 2
-        pass(r, horizontal: true)
-        pass(r, horizontal: false)
-    }
+    boxBlur(data, width: w, height: h, stride: stride, channels: 4, sigma: radius)
     cairo_surface_mark_dirty(surface)
 }
 
+/// Fertig weichgezeichnete Schattenmasken (A8), ausgewählt nach dem Inhalt der Silhouette: gleiche Silhouette → keine neue Rechnung
+final class ShadowMask {
+    let surface: OpaquePointer
+    init(_ s: OpaquePointer) { surface = s }
+    deinit { cairo_surface_destroy(surface) }
+}
+
+enum ShadowCache {
+    struct Key: Hashable { var hash: UInt64; var w: Int32; var h: Int32; var sigma: Double }
+    /// Schlüssel über den Fingerabdruck des Knotenbaums: spart auch das Zeichnen der Silhouette
+    struct NodeKey: Hashable { var signature: Int; var fx: Int; var fy: Int; var w: Int32; var h: Int32; var sigma: Double }
+    nonisolated(unsafe) private static var byNode: [NodeKey: ShadowMask] = [:]
+    static func lookup(_ key: NodeKey) -> ShadowMask? { byNode[key] }
+    static func store(_ key: NodeKey, _ mask: ShadowMask) { byNode[key] = mask }
+    nonisolated(unsafe) private static var entries: [Key: ShadowMask] = [:]
+    nonisolated(unsafe) private static var bytes = 0
+    private static let limit = 24 << 20
+
+    static func lookup(_ key: Key) -> ShadowMask? { entries[key] }
+    static func store(_ key: Key, _ mask: ShadowMask) {
+        let size = Int(key.w) * Int(key.h)
+        if bytes + size > limit { entries.removeAll(keepingCapacity: true); byNode.removeAll(keepingCapacity: true); bytes = 0 }
+        entries[key] = mask
+        bytes += size
+    }
+
+    /// FNV-1a über das Bild, wortweise
+    static func hash(_ data: UnsafePointer<UInt8>, stride: Int, width: Int, height: Int) -> UInt64 {
+        var h: UInt64 = 0xcbf29ce484222325
+        for y in 0..<height {
+            let row = UnsafeRawPointer(data + y * stride)
+            let words = width / 8
+            for i in 0..<words { h = (h ^ row.loadUnaligned(fromByteOffset: i * 8, as: UInt64.self)) &* 0x100000001b3 }
+            for i in (words * 8)..<width { h = (h ^ UInt64(data[y * stride + i])) &* 0x100000001b3 }
+        }
+        return h
+    }
+}
+
 extension GraphicsContext {
-    /// Schatten für beliebigen Inhalt: Silhouette des Inhalts in `color`, weichgezeichnet (σ = radius / 2) und um (x, y) versetzt
-    public func drawShadow(color: Color, radius: CGFloat, x: CGFloat, y: CGFloat, content: (inout GraphicsContext) -> Void) {
+    /// Schatten für beliebigen Inhalt: Silhouette des Inhalts in `color`, weichgezeichnet (σ = radius / 2) und um (x, y) versetzt.
+    /// Mit `bounds` (Ausdehnung des Inhalts in Benutzerkoordinaten) wird die Silhouette direkt in eine A8-Maske gezeichnet;
+    /// ohne sie über eine Aufzeichnung, deren Ausdehnung erst ermittelt werden muss.
+    public func drawShadow(color: Color, radius: CGFloat, x: CGFloat, y: CGFloat, bounds: CGRect? = nil, signature: Int? = nil, content: (inout GraphicsContext) -> Void) {
         guard color.alpha > 0 else { return }
         var scaleX = 1.0, scaleY = 1.0
         cairo_surface_get_device_scale(cairo_get_target(cr), &scaleX, &scaleY)
@@ -229,32 +279,109 @@ extension GraphicsContext {
         cairo_matrix_init_scale(&factor, scaleX, scaleY)
         var layerMatrix = cairo_matrix_t()
         cairo_matrix_multiply(&layerMatrix, &user, &factor)
-        guard let recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nil) else { return }
-        defer { cairo_surface_destroy(recording) }
-        let layerCr = cairo_create(recording)!
-        cairo_set_matrix(layerCr, &layerMatrix)
-        var inner = GraphicsContext(cairo: layerCr, size: canvasSize)
-        content(&inner)
-        cairo_destroy(layerCr)
-        var inkX = 0.0, inkY = 0.0, inkW = 0.0, inkH = 0.0
-        cairo_recording_surface_ink_extents(recording, &inkX, &inkY, &inkW, &inkH)
-        guard inkW > 0, inkH > 0 else { return }
         let sigma = max(0.1, Double(radius) / 2 * max(scaleX, scaleY))
         let pad = (sigma * 3).rounded(.up) + 2
-        let x0 = (inkX - pad).rounded(.down), y0 = (inkY - pad).rounded(.down)
-        let w = Int32((inkW + 2 * pad).rounded(.up)), h = Int32((inkH + 2 * pad).rounded(.up))
-        guard let image = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h) else { return }
-        defer { cairo_surface_destroy(image) }
-        let imageCr = cairo_create(image)!
-        cairo_set_source_rgba(imageCr, color.red, color.green, color.blue, color.alpha)
-        cairo_mask_surface(imageCr, recording, -x0, -y0)
-        cairo_destroy(imageCr)
-        if sigma > 0.3 { blurImage(image, radius: sigma) }
+
+        var x0 = 0.0, y0 = 0.0
+        var w: Int32 = 0, h: Int32 = 0
+        var recording: OpaquePointer?
+        var silhouette: OpaquePointer?
+        var nodeKey: ShadowCache.NodeKey?
+        defer { if let recording { cairo_surface_destroy(recording) } }
+
+        if let bounds {
+            // Ausdehnung in Ebenenpunkten (Gerätepunkte mal Gerätefaktor)
+            var minX = Double.infinity, minY = Double.infinity, maxX = -Double.infinity, maxY = -Double.infinity
+            for corner in [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.maxX, y: bounds.minY), CGPoint(x: bounds.minX, y: bounds.maxY), CGPoint(x: bounds.maxX, y: bounds.maxY)] {
+                var px = Double(corner.x), py = Double(corner.y)
+                cairo_matrix_transform_point(&layerMatrix, &px, &py)
+                minX = min(minX, px); maxX = max(maxX, px); minY = min(minY, py); maxY = max(maxY, py)
+            }
+            guard maxX > minX, maxY > minY, maxX - minX < 8192, maxY - minY < 8192 else { return }
+            x0 = (minX - pad).rounded(.down); y0 = (minY - pad).rounded(.down)
+            w = Int32((maxX - minX + 2 * pad).rounded(.up)); h = Int32((maxY - minY + 2 * pad).rounded(.up))
+            if let signature {
+                let key = ShadowCache.NodeKey(signature: signature, fx: Int(((minX - minX.rounded(.down)) * 8).rounded()), fy: Int(((minY - minY.rounded(.down)) * 8).rounded()), w: w, h: h, sigma: sigma)
+                nodeKey = key
+                if let mask = ShadowCache.lookup(key) {
+                    cairo_save(cr)
+                    cairo_identity_matrix(cr)
+                    cairo_scale(cr, 1 / scaleX, 1 / scaleY)
+                    cairo_set_source_rgba(cr, color.red, color.green, color.blue, color.alpha)
+                    cairo_mask_surface(cr, mask.surface, x0 + Double(x) * scaleX, y0 + Double(y) * scaleY)
+                    cairo_restore(cr)
+                    return
+                }
+            }
+            guard let image = cairo_image_surface_create(CAIRO_FORMAT_A8, w, h) else { return }
+            silhouette = image
+            let imageCr = cairo_create(image)!
+            var shift = cairo_matrix_t()
+            cairo_matrix_init_translate(&shift, -x0, -y0)
+            var matrix = cairo_matrix_t()
+            cairo_matrix_multiply(&matrix, &layerMatrix, &shift)
+            cairo_set_matrix(imageCr, &matrix)
+            var inner = GraphicsContext(cairo: imageCr, size: canvasSize)
+            content(&inner)
+            cairo_destroy(imageCr)
+        } else {
+            guard let rec = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nil) else { return }
+            recording = rec
+            let layerCr = cairo_create(rec)!
+            cairo_set_matrix(layerCr, &layerMatrix)
+            var inner = GraphicsContext(cairo: layerCr, size: canvasSize)
+            content(&inner)
+            cairo_destroy(layerCr)
+            var inkX = 0.0, inkY = 0.0, inkW = 0.0, inkH = 0.0
+            cairo_recording_surface_ink_extents(rec, &inkX, &inkY, &inkW, &inkH)
+            guard inkW > 0, inkH > 0 else { return }
+            x0 = (inkX - pad).rounded(.down); y0 = (inkY - pad).rounded(.down)
+            w = Int32((inkW + 2 * pad).rounded(.up)); h = Int32((inkH + 2 * pad).rounded(.up))
+            guard let image = cairo_image_surface_create(CAIRO_FORMAT_A8, w, h) else { return }
+            silhouette = image
+            let imageCr = cairo_create(image)!
+            cairo_set_source_rgba(imageCr, 0, 0, 0, 1)
+            cairo_mask_surface(imageCr, rec, -x0, -y0)
+            cairo_destroy(imageCr)
+        }
+        guard let silhouette else { return }
+
+        cairo_surface_flush(silhouette)
+        let stride = Int(cairo_image_surface_get_stride(silhouette))
+        let mask: ShadowMask
+        if let data = cairo_image_surface_get_data(silhouette) {
+            let key = ShadowCache.Key(hash: ShadowCache.hash(data, stride: stride, width: Int(w), height: Int(h)), w: w, h: h, sigma: sigma)
+            if let cached = ShadowCache.lookup(key) {
+                cairo_surface_destroy(silhouette)
+                mask = cached
+            } else {
+                if sigma > 0.3 {
+                    boxBlur(data, width: Int(w), height: Int(h), stride: stride, channels: 1, sigma: sigma)
+                    cairo_surface_mark_dirty(silhouette)
+                }
+                mask = ShadowMask(silhouette)
+                ShadowCache.store(key, mask)
+            }
+            if let nodeKey { ShadowCache.store(nodeKey, mask) }
+        } else { cairo_surface_destroy(silhouette); return }
         cairo_save(cr)
         cairo_identity_matrix(cr)
         cairo_scale(cr, 1 / scaleX, 1 / scaleY)
-        cairo_set_source_surface(cr, image, x0 + Double(x) * scaleX, y0 + Double(y) * scaleY)
-        cairo_paint(cr)
+        cairo_set_source_rgba(cr, color.red, color.green, color.blue, color.alpha)
+        cairo_mask_surface(cr, mask.surface, x0 + Double(x) * scaleX, y0 + Double(y) * scaleY)
+        cairo_restore(cr)
+    }
+
+    /// Gruppe für Deckkraft: Die Zwischenfläche deckt nur `bounds` ab (sonst die ganze Beschnittfläche, oft das ganze Fenster)
+    func drawOpacityGroup(alpha: Double, bounds: CGRect, content: (inout GraphicsContext) -> Void) {
+        cairo_save(cr)
+        cairo_rectangle(cr, bounds.minX, bounds.minY, bounds.width, bounds.height)
+        cairo_clip(cr)
+        cairo_push_group(cr)
+        var inner = self
+        content(&inner)
+        cairo_pop_group_to_source(cr)
+        cairo_paint_with_alpha(cr, alpha)
         cairo_restore(cr)
     }
 }

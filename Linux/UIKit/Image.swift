@@ -64,47 +64,75 @@ final class ImageNode: Node {
     }
 }
 
+/// Die in Cairo-Format umgerechnete Fassung eines `CGImage`: bleibt erhalten, solange das Bild gleich bleibt
+private final class ConvertedImage {
+    weak var image: CGImage?
+    let surface: OpaquePointer
+    init(image: CGImage, surface: OpaquePointer) { self.image = image; self.surface = surface }
+    deinit { cairo_surface_destroy(surface) }
+}
+nonisolated(unsafe) private var convertedImages: [ObjectIdentifier: ConvertedImage] = [:]
+
+/// Cairo ARGB32 (Bytes B G R A, vormultipliziert) aus den Rohdaten des Bildes
+private func makeSurface(for image: CGImage) -> OpaquePointer? {
+    guard let data = image.dataProvider?.data else { return nil }
+    let w = image.width, h = image.height
+    guard w > 0, h > 0, let surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, Int32(w), Int32(h)), let out = cairo_image_surface_get_data(surface) else { return nil }
+    let stride = Int(cairo_image_surface_get_stride(surface))
+    let bpp = image.bitsPerPixel / 8
+    let rowBytes = image.bytesPerRow
+    let alpha = image.alphaInfo
+    // Lage der Kanäle im Quellpixel
+    let first = alpha == .first || alpha == .noneSkipFirst || alpha == .premultipliedFirst
+    let rOff = first ? 1 : 0, gOff = first ? 2 : 1, bOff = first ? 3 : 2
+    let aOff: Int? = first ? (alpha == .noneSkipFirst ? nil : 0) : ((alpha == .last || alpha == .premultipliedLast) ? 3 : nil)
+    data.withUnsafeBytes { raw in
+        guard let src = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+        for y in 0..<h {
+            guard (y + 1) * rowBytes <= raw.count || y * rowBytes + w * bpp <= raw.count else { break }
+            var s = src + y * rowBytes
+            var d = out + y * stride
+            if bpp == 1 {
+                for _ in 0..<w { let v = s.pointee; d[0] = v; d[1] = v; d[2] = v; d[3] = 255; s += 1; d += 4 }
+            } else if let aOff {
+                for _ in 0..<w {
+                    let af = UInt32(s[aOff])
+                    d[0] = UInt8(UInt32(s[bOff]) * af / 255); d[1] = UInt8(UInt32(s[gOff]) * af / 255); d[2] = UInt8(UInt32(s[rOff]) * af / 255); d[3] = UInt8(af)
+                    s += bpp; d += 4
+                }
+            } else {
+                for _ in 0..<w { d[0] = s[bOff]; d[1] = s[gOff]; d[2] = s[rOff]; d[3] = 255; s += bpp; d += 4 }
+            }
+        }
+    }
+    cairo_surface_mark_dirty(surface)
+    return surface
+}
+
 extension GraphicsContext {
     /// Zeichnet ein Rasterbild in `rect` (RGBA/Grau/RGB wie `CGImage` es liefert)
     public func drawImage(_ image: CGImage, in rect: CGRect, nearest: Bool = false) {
-        guard rect.width > 0, rect.height > 0, let data = image.dataProvider?.data else { return }
-        let w = image.width, h = image.height
-        var pixels = [UInt8](repeating: 0, count: w * h * 4)
-        let bpp = image.bitsPerPixel / 8
-        let alpha = image.alphaInfo
-        data.withUnsafeBytes { raw in
-            let src = raw.bindMemory(to: UInt8.self)
-            for y in 0..<h {
-                for x in 0..<w {
-                    let o = y * image.bytesPerRow + x * bpp
-                    let d = (y * w + x) * 4
-                    var r: UInt8, gr: UInt8, b: UInt8, a: UInt8 = 255
-                    if bpp == 1 { r = src[o]; gr = r; b = r }
-                    else {
-                        switch alpha {
-                        case .first, .noneSkipFirst, .premultipliedFirst: r = src[o + 1]; gr = src[o + 2]; b = src[o + 3]; a = alpha == .noneSkipFirst ? 255 : src[o]
-                        default: r = src[o]; gr = src[o + 1]; b = src[o + 2]; a = (alpha == .last || alpha == .premultipliedLast) ? src[o + 3] : 255
-                        }
-                    }
-                    // Cairo ARGB32: Bytes B G R A, vormultipliziert
-                    let af = UInt16(a)
-                    pixels[d] = UInt8(UInt16(b) * af / 255); pixels[d + 1] = UInt8(UInt16(gr) * af / 255); pixels[d + 2] = UInt8(UInt16(r) * af / 255); pixels[d + 3] = a
-                }
-            }
+        guard rect.width > 0, rect.height > 0 else { return }
+        let key = ObjectIdentifier(image)
+        let surface: OpaquePointer
+        if let cached = convertedImages[key], cached.image === image { surface = cached.surface }
+        else {
+            guard let made = makeSurface(for: image) else { return }
+            if convertedImages.count >= 16 { convertedImages = convertedImages.filter { $0.value.image != nil } }
+            if convertedImages.count >= 16 { convertedImages.removeAll() }
+            convertedImages[key] = ConvertedImage(image: image, surface: made)
+            surface = made
         }
-        pixels.withUnsafeMutableBytes { buffer in
-            guard let surface = cairo_image_surface_create_for_data(buffer.baseAddress!.assumingMemoryBound(to: UInt8.self), CAIRO_FORMAT_ARGB32, Int32(w), Int32(h), Int32(w * 4)) else { return }
-            cairo_save(cr)
-            cairo_rectangle(cr, rect.minX, rect.minY, rect.width, rect.height)
-            cairo_clip(cr)
-            cairo_translate(cr, rect.minX, rect.minY)
-            cairo_scale(cr, rect.width / CGFloat(w), rect.height / CGFloat(h))
-            cairo_set_source_surface(cr, surface, 0, 0)
-            cairo_pattern_set_filter(cairo_get_source(cr), nearest ? CAIRO_FILTER_NEAREST : CAIRO_FILTER_BILINEAR)
-            cairo_paint(cr)
-            cairo_restore(cr)
-            cairo_surface_destroy(surface)
-        }
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        cairo_save(cr)
+        cairo_rectangle(cr, rect.minX, rect.minY, rect.width, rect.height)
+        cairo_clip(cr)
+        cairo_translate(cr, rect.minX, rect.minY)
+        cairo_scale(cr, rect.width / w, rect.height / h)
+        cairo_set_source_surface(cr, surface, 0, 0)
+        cairo_pattern_set_filter(cairo_get_source(cr), nearest ? CAIRO_FILTER_NEAREST : CAIRO_FILTER_BILINEAR)
+        cairo_paint(cr)
+        cairo_restore(cr)
     }
 }
 

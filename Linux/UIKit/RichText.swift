@@ -17,6 +17,10 @@ public final class RichTextBuffer {
     var revision = 0
     public var family = "Noto Sans Mono,Adwaita Mono,monospace"
     weak var node: RichTextNode?
+    var cachedLayout: OpaquePointer?
+    var cachedRevision = -1
+    var cachedWidth: CGFloat = -1
+    var cachedHeight: CGFloat = 0
 
     /// Markiert die Stelle und rollt sie ins Bild
     @MainActor public func reveal(range: Range<Int>) { node?.reveal(range: range) }
@@ -81,11 +85,21 @@ final class RichTextNode: Node {
     let buffer: RichTextBuffer
     let inset: CGFloat
     weak var host: UIHost?
-    private var layout: OpaquePointer?
-    private var layoutRevision = -1
-    private var layoutWidth: CGFloat = -1
-    private var contentHeight: CGFloat = 0
+    // Das Layout gehört dem Puffer: Die Ansicht wird oft neu aufgebaut, der Umbruch langer Texte soll dabei erhalten bleiben
+    private var layout: OpaquePointer? { get { buffer.cachedLayout } set { buffer.cachedLayout = newValue } }
+    private var layoutRevision: Int { get { buffer.cachedRevision } set { buffer.cachedRevision = newValue } }
+    private var layoutWidth: CGFloat { get { buffer.cachedWidth } set { buffer.cachedWidth = newValue } }
+    private var contentHeight: CGFloat { get { buffer.cachedHeight } set { buffer.cachedHeight = newValue } }
     private var dragAnchor: Int?
+    /// Stand beim letzten Zeichnen (für den Vergleich mit dem neuen Stand); nil, solange noch nicht gezeichnet
+    var drawnSignature: Int?
+
+    func signature() -> Int {
+        var h = Hasher()
+        h.combine(ObjectIdentifier(buffer)); h.combine(buffer.revision); h.combine(buffer.selection?.lowerBound); h.combine(buffer.selection?.upperBound)
+        h.combine(buffer.scrollOffset); h.combine(buffer.followsEnd); h.combine(inset)
+        return h.finalize()
+    }
 
     init(identity: Identity, buffer: RichTextBuffer, inset: CGFloat, host: UIHost?) {
         self.buffer = buffer; self.inset = inset; self.host = host
@@ -215,6 +229,7 @@ final class RichTextNode: Node {
         cairo_move_to(cr, origin.x, origin.y)
         pango_cairo_show_layout(cr, layout)
         cairo_restore(cr)
+        drawnSignature = signature()
         // Rollbalken
         if contentHeight > frame.height + 1 {
             let h = max(24, frame.height * frame.height / contentHeight)

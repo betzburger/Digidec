@@ -137,6 +137,9 @@ struct ShapeView<S: Shape, F: ShapeStyle, T: ShapeStyle> {
     }
 }
 
+nonisolated(unsafe) let shapeProfile = ProcessInfo.processInfo.environment["DIGIDEC_TRACE_SHAPES"] != nil
+nonisolated(unsafe) var shapeProfileData: [String: (Double, Int)] = [:]
+
 /// Knoten für Formen: füllt den vorgeschlagenen Platz (ohne Vorschlag 10 × 10 wie in SwiftUI nicht ganz, aber ausreichend)
 @MainActor
 final class ShapeNode: Node {
@@ -157,6 +160,17 @@ final class ShapeNode: Node {
     }
 
     override func draw(_ g: inout GraphicsContext, clip: CGRect) {
+        if shapeProfile {
+            let t0 = DispatchTime.now().uptimeNanoseconds
+            drawShape(&g)
+            let dt = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+            let key = String(format: "%@ %.0fx%.0f fill=%@ stroke=%@ lw=%.1f", String(describing: type(of: shape)), frame.width, frame.height, fill.map { String(describing: type(of: $0)) } ?? "-", stroke.map { String(describing: type(of: $0)) } ?? "-", lineWidth)
+            shapeProfileData[key, default: (0, 0)].0 += dt
+            shapeProfileData[key, default: (0, 0)].1 += 1
+        } else { drawShape(&g) }
+    }
+
+    private func drawShape(_ g: inout GraphicsContext) {
         let rect = frame
         if let fill { g.fill(shape.path(in: rect), with: fill.shading(in: rect)) }
         if let stroke {

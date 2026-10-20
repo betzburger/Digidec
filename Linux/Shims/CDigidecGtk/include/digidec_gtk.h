@@ -8,7 +8,8 @@
 #include <cairo.h>
 
 typedef struct {
-    void (*draw)(void *user, cairo_t *cr, int width, int height);
+    /// `fresh`: Die Fläche ist neu (oder hat die Größe gewechselt) und muss vollständig gezeichnet werden; sonst enthält sie noch das letzte Bild
+    void (*draw)(void *user, cairo_t *cr, int width, int height, int fresh);
     void (*pressed)(void *user, int button, double x, double y);
     void (*released)(void *user, int button, double x, double y);
     void (*motion)(void *user, double x, double y);

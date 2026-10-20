@@ -50,6 +50,14 @@ Ersatzmodule: `os` (Sperren), `Accelerate` (vDSP: FFT, Skalarprodukte, Fenster �
 
 Die Instrumente (S-Meter, Tasten) teilen sich den Zeichencode mit dem Mac (`Sources/Instruments/*Painter.swift`).
 
+## Leistung
+
+Die Oberfläche zeichnet in eine dauerhaft gehaltene Bildfläche (`DGCanvas`, GTK-Widget mit eigener Textur) und malt nur Bereiche neu, deren Ansichten sich
+sichtbar geändert haben (`Linux/UIKit/Damage.swift`). Schatten, Textlayouts und Bitmaps werden zwischengespeichert; unter Last drosselt der Host die
+Live-Aktualisierung selbst. Messen und Prüfen: `DIGIDEC_TRACE_FRAMES=1` (Zeichenzeit je Bild, Schadensfläche), `DIGIDEC_TRACE_SHAPES=1`,
+`DIGIDEC_TRACE_DAMAGE=1` (warum ein Bereich neu gezeichnet wird), `DIGIDEC_VERIFY_DAMAGE=1` (vergleicht jedes Teilbild mit einem Vollbild),
+`DIGIDEC_SCRIPT_LIVE=1` (Skript im echten Fenster), `DIGIDEC_FULL_REDRAW=1` (Teilzeichnen aus).
+
 ## Was unter Linux anders ist
 
 - **Ton aus/ein:** PulseAudio-Schnittstelle (läuft mit PipeWire): `PullAudioOutput`, `VoicePlayer`, `LiveAudioCapture`. Geräteliste über `pactl`.

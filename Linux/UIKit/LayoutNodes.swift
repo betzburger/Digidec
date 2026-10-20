@@ -298,10 +298,7 @@ final class DecorNode: WrapperNode {
             child.draw(&g, clip: clip)
         case .opacity(let a):
             if a >= 0.999 { child.draw(&g, clip: clip); return }
-            cairo_push_group(cr)
-            child.draw(&g, clip: clip)
-            cairo_pop_group_to_source(cr)
-            cairo_paint_with_alpha(cr, a)
+            g.drawOpacityGroup(alpha: a, bounds: child.subtreeBounds().intersection(clip.insetBy(dx: -1, dy: -1)).insetBy(dx: -1, dy: -1)) { inner in child.draw(&inner, clip: clip) }
         case .clip(let radius):
             cairo_save(cr)
             let shape = radius > 0 ? Path(roundedRect: frame, cornerRadius: radius) : Path(frame)
@@ -314,7 +311,7 @@ final class DecorNode: WrapperNode {
             child.draw(&g, clip: clip.intersection(frame))
             cairo_restore(cr)
         case .shadow(let color, let radius, let x, let y):
-            g.drawShadow(color: color, radius: radius, x: x, y: y) { inner in child.draw(&inner, clip: clip.insetBy(dx: -radius * 3 - abs(x), dy: -radius * 3 - abs(y))) }
+            g.drawShadow(color: color, radius: radius, x: x, y: y, bounds: child.subtreeBounds(), signature: child.appearanceSignature()) { inner in child.draw(&inner, clip: .infinite) }  // die Silhouette wird zwischengespeichert und muss vollständig sein
             child.draw(&g, clip: clip)
         case .rotate(let angle):
             cairo_save(cr)

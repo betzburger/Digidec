@@ -37,12 +37,32 @@ public final class UIHost {
     var fixed: UnsafeMutableRawPointer?
     var fieldHolders: [FieldHolder] = []
     var needsResolve = true
-    var needsDraw = true
+    /// Vollständiges Neuzeichnen angefordert (jede Änderung, deren Ausmaß unbekannt ist)
+    var needsDraw = true { didSet { if needsDraw { fullRedraw = true } } }
+    private var fullRedraw = true
+    /// Bereich, der seit dem letzten Zeichnen ungültig wurde (nur Teilauffrischungen); `.null` = keiner
+    private var pendingDamage: [CGRect] = []
+    private static let diffDamage = ProcessInfo.processInfo.environment["DIGIDEC_NO_DIFF"] == nil
+    private static let partialAllowed = ProcessInfo.processInfo.environment["DIGIDEC_FULL_REDRAW"] == nil
+    /// Rand um geänderte Ansichten für Schatten und Leuchten, die über den Rahmen hinausragen
+    private static let damageMargin: CGFloat = 40
+    private var shownTooltipRect = CGRect.null
+    /// Gleitende Kosten (Sekunden) von Auffrischen und Zeichnen; daraus ergibt sich, wie oft Live-Änderungen höchstens umgesetzt werden
+    private var drawCost: TimeInterval = 0
+    private var refreshCost: TimeInterval = 0
+    private var lastDirtyRefresh = Date.distantPast
     var timelineIntervals: [Identity: TimeInterval] = [:]
     var timelineDue: [Identity: Date] = [:]
     var dirty = Set<Identity>()
     var compositeIndex: [Identity: CompositeNode] = [:]
     private var lastResolve = Date.distantPast
+    private var frameTimes: [TimeInterval] = []
+    var lastScriptCommand = ""
+    private var verifiedFrames = 0
+    private var verifyMismatches = 0
+    private var damageArea = 0.0
+    private var damageRects: [String: Int] = [:]
+    private var frameWindowStart = Date()
 
     // Eingabe
     var pointer = CGPoint.zero
@@ -81,7 +101,7 @@ public final class UIHost {
     }
 
     /// Die Ansicht mit dieser Identität neu auflösen (nur ihren Teilbaum)
-    func invalidate(_ id: Identity) { dirty.insert(id); needsDraw = true }
+    func invalidate(_ id: Identity) { dirty.insert(id) }
 
     func registerShortcut(key: Character, command: Bool, enabled: Bool, action: @escaping () -> Void) { shortcuts.append((Character(String(key).lowercased()), command, enabled, action)) }
 
@@ -146,19 +166,30 @@ public final class UIHost {
         tickCount += 1
         if tickCount % 120 == 0, ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil { FileHandle.standardError.write(Data("tick \(tickCount) hooks \(tickHooks.count)\n".utf8)) }
         let t = Date()
-        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+        RunLoop.main.run(mode: .default, before: .distantPast)
         if ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil, Date().timeIntervalSince(t) > 0.05 { FileHandle.standardError.write(Data(String(format: "RunLoop %.0f ms\n", Date().timeIntervalSince(t) * 1000).utf8)) }
         let now = Date()
         if needsResolve { resolveAndLayout(); needsDraw = true }
         else {
             for (id, due) in timelineDue where now >= due { dirty.insert(id); timelineDue[id] = now.addingTimeInterval(timelineIntervals[id] ?? 1) }
-            if !dirty.isEmpty { refreshDirty() }
+            if !dirty.isEmpty, now.timeIntervalSince(lastDirtyRefresh) >= refreshThrottle {
+                lastDirtyRefresh = now
+                refreshDirty()
+                refreshCost = refreshCost * 0.8 + Date().timeIntervalSince(now) * 0.2
+            }
         }
-        if let due = tooltipDue, now >= due, let hit = tooltip { _ = hit; tooltipDue = nil; needsDraw = true }
-        if needsDraw, let area = drawingArea {
+        if let due = tooltipDue, now >= due, let tip = tooltip { tooltipDue = nil; addDamage(tooltipRect(tip)) }
+        if needsDraw || !pendingDamage.isEmpty, let area = drawingArea {
             needsDraw = false
             dg_queue_draw(area)
         }
+    }
+
+    /// Kürzester Abstand zwischen zwei Auffrischungen: Bis 12 ms Gesamtkosten läuft alles ungebremst; wird es teurer, bleibt
+    /// mindestens die Hälfte der Zeit frei für Eingaben (höchstens 120 ms)
+    private var refreshThrottle: TimeInterval {
+        let cost = drawCost + refreshCost
+        return cost > 0.012 ? min(0.12, cost * 2) : 0
     }
 
     /// Löst nur die als geändert gemeldeten Ansichten neu auf; ändert sich dabei eine Größe, wird neu platziert (ohne neu aufzulösen)
@@ -168,26 +199,51 @@ public final class UIHost {
         var relayout = false
         for id in ids {
             guard let node = compositeIndex[id] else { continue }
-            if !node.refresh() { relayout = true }
+            let result = node.refresh()
+            if !result.stable { relayout = true }
+            else if Self.diffDamage { addDamage(old: result.previous, new: node.children) }
+            else { for n in result.previous + node.children { addDamage(n.subtreeBounds()) } }
             node.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } }
         }
         if relayout, let root = rootNode {
             root.clearSizeCaches()
             root.place(origin: .zero, size: size)
             for layer in overlays { layout(layer) }
+            needsDraw = true
         }
         syncFields()
-        needsDraw = true
+    }
+
+    /// Meldet einen Bereich als geändert (samt Rand für Schatten). Rechtecke, die sich berühren oder zusammen kaum mehr Fläche
+    /// brauchen als einzeln, werden vereinigt; weit auseinanderliegende bleiben getrennt.
+    func addDamage(_ rect: CGRect) {
+        guard !rect.isNull, rect.width > 0 || rect.height > 0 else { return }
+        var r = rect.insetBy(dx: -Self.damageMargin, dy: -Self.damageMargin)
+        var merged = true
+        while merged {
+            merged = false
+            for (i, e) in pendingDamage.enumerated() {
+                let u = e.union(r)
+                if e.intersects(r) || u.width * u.height <= 1.3 * (e.width * e.height + r.width * r.height) {
+                    r = u; pendingDamage.remove(at: i); merged = true; break
+                }
+            }
+        }
+        pendingDamage.append(r)
+        if pendingDamage.count > 12 { pendingDamage = [pendingDamage.dropFirst().reduce(pendingDamage[0]) { $0.union($1) }] }
     }
 
     // MARK: Zeichnen
 
     func draw(cr: OpaquePointer, width: Int, height: Int) {
+        let drawStart = Date()
+        defer { if traceFrames { traceFrame(Date().timeIntervalSince(drawStart)) } }
         let newSize = CGSize(width: width, height: height)
         if newSize != size || rootNode == nil {
             size = newSize
             resolveAndLayout()
         }
+        prepareDrawBounds()
         var g = GraphicsContext(cairo: cr, size: size)
         cairo_set_source_rgba(cr, background.red, background.green, background.blue, 1)
         cairo_paint(cr)
@@ -205,6 +261,167 @@ public final class UIHost {
             }
         }
         if let tip = tooltip, tooltipDue == nil { drawTooltip(&g, tip) }
+    }
+
+    /// Zeichnen in die dauerhaft gehaltene Fläche des Fensters: nur der ungültige Bereich wird neu gemalt
+    func drawRetained(cr: OpaquePointer, width: Int, height: Int, fresh: Bool) {
+        let drawStart = Date()
+        defer {
+            let seconds = Date().timeIntervalSince(drawStart)
+            drawCost = drawCost * 0.8 + seconds * 0.2
+            if traceFrames { traceFrame(seconds) }
+        }
+        let newSize = CGSize(width: width, height: height)
+        if newSize != size || rootNode == nil {
+            size = newSize
+            resolveAndLayout()
+            fullRedraw = true
+        }
+        if fresh || !overlays.isEmpty || !Self.partialAllowed { fullRedraw = true }
+        let bounds = CGRect(origin: .zero, size: size)
+        let regions: [CGRect] = fullRedraw ? [bounds] : pendingDamage.map { $0.integral.intersection(bounds) }.filter { !$0.isNull && $0.width > 0 && $0.height > 0 }
+        fullRedraw = false
+        pendingDamage = []
+        guard !regions.isEmpty else { return }
+        paint(cr: cr, regions: regions, bounds: bounds, remember: true)
+        if Self.verifyDamage, !(regions.count == 1 && regions[0] == bounds) { verify(cr: cr, regions: regions) }
+    }
+
+    private func prepareDrawBounds() {
+        Node.drawBounds.removeAll(keepingCapacity: true)
+        rootNode?.buildDrawBounds()
+        for layer in overlays { layer.node?.buildDrawBounds() }
+    }
+
+    private func paint(cr: OpaquePointer, regions: [CGRect], bounds: CGRect, remember: Bool) {
+        prepareDrawBounds()
+        var g = GraphicsContext(cairo: cr, size: size)
+        for region in regions {
+            if remember, traceFrames { damageArea += Double(region.width * region.height) / Double(max(1, size.width * size.height)); damageRects[String(format: "%.0f,%.0f %.0fx%.0f", region.minX, region.minY, region.width, region.height), default: 0] += 1 }
+            cairo_save(cr)
+            cairo_rectangle(cr, region.minX, region.minY, region.width, region.height)
+            cairo_clip(cr)
+            cairo_set_source_rgba(cr, background.red, background.green, background.blue, 1)
+            cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE)
+            cairo_paint(cr)
+            cairo_set_operator(cr, CAIRO_OPERATOR_OVER)
+            rootNode?.draw(&g, clip: region.insetBy(dx: -Self.damageMargin, dy: -Self.damageMargin))
+            if region == bounds {
+                for layer in overlays {
+                    if layer.modal { g.fill(Path(bounds), with: .color(Color(white: 0, opacity: 0.45))) }
+                    if let node = layer.node {
+                        g.drawShadow(color: Color(white: 0, opacity: 0.5), radius: 12, x: 0, y: 4, bounds: node.frame) { inner in
+                            inner.fill(Path(roundedRect: node.frame, cornerRadius: 8), with: .color(background.opacity(1)))
+                        }
+                        node.draw(&g, clip: bounds)
+                    }
+                }
+            }
+            cairo_restore(cr)
+        }
+        if remember { shownTooltipRect = .null }
+        if let tip = tooltip, tooltipDue == nil {
+            let rect = tooltipRect(tip)
+            if remember { shownTooltipRect = rect }
+            // Nur dort malen, wo darunter gerade neu gezeichnet wurde: sonst addiert sich der durchscheinende Rand von Bild zu Bild
+            let touched = regions.filter { $0.intersects(rect.insetBy(dx: -2, dy: -2)) }
+            if !touched.isEmpty {
+                cairo_save(cr)
+                for r in touched { cairo_rectangle(cr, r.minX, r.minY, r.width, r.height) }
+                cairo_clip(cr)
+                drawTooltip(&g, tip)
+                cairo_restore(cr)
+            }
+        }
+    }
+
+    /// Selbstprüfung (`DIGIDEC_VERIFY_DAMAGE`): zeichnet das Bild zusätzlich vollständig und meldet Abweichungen vom Teilbild
+    private static let verifyDamage = ProcessInfo.processInfo.environment["DIGIDEC_VERIFY_DAMAGE"] != nil
+    private func verify(cr: OpaquePointer, regions: [CGRect]) {
+        let target = cairo_get_target(cr)!
+        cairo_surface_flush(target)
+        guard let a = cairo_image_surface_get_data(target) else { return }
+        let w = Int(cairo_image_surface_get_width(target)), h = Int(cairo_image_surface_get_height(target)), stride = Int(cairo_image_surface_get_stride(target))
+        var sx = 1.0, sy = 1.0
+        cairo_surface_get_device_scale(target, &sx, &sy)
+        guard let scratch = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, Int32(w), Int32(h)) else { return }
+        defer { cairo_surface_destroy(scratch) }
+        cairo_surface_set_device_scale(scratch, sx, sy)
+        let scr = cairo_create(scratch)!
+        paint(cr: scr, regions: [CGRect(origin: .zero, size: size)], bounds: CGRect(origin: .zero, size: size), remember: false)
+        cairo_destroy(scr)
+        cairo_surface_flush(scratch)
+        guard let b = cairo_image_surface_get_data(scratch) else { return }
+        // Ein zweites Vollbild zeigt, welche Pixel von Bild zu Bild schwanken (Canvas mit Zufall oder Uhr): die zählen nicht
+        let scratch2 = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, Int32(w), Int32(h))!
+        defer { cairo_surface_destroy(scratch2) }
+        cairo_surface_set_device_scale(scratch2, sx, sy)
+        let scr2 = cairo_create(scratch2)!
+        paint(cr: scr2, regions: [CGRect(origin: .zero, size: size)], bounds: CGRect(origin: .zero, size: size), remember: false)
+        cairo_destroy(scr2)
+        cairo_surface_flush(scratch2)
+        guard let c = cairo_image_surface_get_data(scratch2) else { return }
+        verifiedFrames += 1
+        if verifiedFrames % 200 == 0 { FileHandle.standardError.write(Data("VERIFY \(verifiedFrames) Teilbilder geprüft, \(verifyMismatches) mit Abweichung\n".utf8)) }
+        var count = 0, minX = Int.max, minY = Int.max, maxX = 0, maxY = 0
+        for y in 0..<h {
+            let ra = a + y * stride, rb = b + y * stride, rc = c + y * stride
+            for x in 0..<w {
+                let i = x * 4
+                let differs = abs(Int(ra[i]) - Int(rb[i])) > 8 || abs(Int(ra[i + 1]) - Int(rb[i + 1])) > 8 || abs(Int(ra[i + 2]) - Int(rb[i + 2])) > 8
+                let stable = abs(Int(rb[i]) - Int(rc[i])) <= 3 && abs(Int(rb[i + 1]) - Int(rc[i + 1])) <= 3 && abs(Int(rb[i + 2]) - Int(rc[i + 2])) <= 3
+                if differs && stable { count += 1; minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y) }
+            }
+        }
+        if count > 0 {
+            verifyMismatches += 1
+            if verifyMismatches <= 2 {
+                let p = CGPoint(x: Double(minX) / sx + 0.5, y: Double(minY) / sy + 0.5)
+                var found: [String] = []
+                var nodes: [Node] = []
+                rootNode?.walk { n in if n.frame.insetBy(dx: -2, dy: -2).contains(p) { nodes.append(n) } }
+                nodes.sort { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+                found = nodes.prefix(6).map { "\(type(of: $0)) \($0.frame)" + (($0 as? TextNode).map { " „\($0.spec.text)“ \($0.spec.font.size)pt" } ?? "") }
+                FileHandle.standardError.write(Data("VERIFY-Knoten bei \(p), letzter Skriptbefehl: \(lastScriptCommand):\n  \(found.joined(separator: "\n  "))\n".utf8))
+                let i = minY * stride + minX * 4
+                FileHandle.standardError.write(Data("  Teilbild \(a[i]),\(a[i+1]),\(a[i+2]) Vollbild \(b[i]),\(b[i+1]),\(b[i+2])\n".utf8))
+            }
+            let r = { (v: Int, s: Double) in Int(Double(v) / s) }
+            FileHandle.standardError.write(Data("VERIFY \(count) px abweichend in (\(r(minX, sx)),\(r(minY, sy))–\(r(maxX, sx)),\(r(maxY, sy))), neu gezeichnet: \(regions.map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height))" })\n".utf8))
+        }
+    }
+
+    private var traceFrames: Bool { Self.frameTrace }
+    private static let frameTrace = ProcessInfo.processInfo.environment["DIGIDEC_TRACE_FRAMES"] != nil
+    private func traceFrame(_ seconds: TimeInterval) {
+        frameTimes.append(seconds)
+        let now = Date()
+        if now.timeIntervalSince(frameWindowStart) >= 2 {
+            let sorted = frameTimes.sorted()
+            let avg = frameTimes.reduce(0, +) / Double(frameTimes.count)
+            FileHandle.standardError.write(Data(String(format: "frames %d in 2 s, draw avg %.1f ms, p95 %.1f ms, max %.1f ms\n", frameTimes.count, avg * 1000, sorted[Int(Double(sorted.count - 1) * 0.95)] * 1000, (sorted.last ?? 0) * 1000).utf8))
+            if shapeProfile {
+                var total = 0.0
+                for (_, v) in shapeProfileData { total += v.0 }
+                FileHandle.standardError.write(Data(String(format: "shapes total %.0f ms per 2 s\n", total).utf8))
+                for (k, v) in shapeProfileData.sorted(by: { $0.value.0 > $1.value.0 }).prefix(10) { FileHandle.standardError.write(Data(String(format: "  %7.1f ms  %5d calls  %@\n", v.0, v.1, k).utf8)) }
+                shapeProfileData.removeAll()
+            }
+            FileHandle.standardError.write(Data(String(format: "  damage avg %.0f %% of window\n", damageArea / Double(frameTimes.count) * 100).utf8))
+            for (k, v) in damageRects.sorted(by: { $0.value > $1.value }).prefix(5) { FileHandle.standardError.write(Data("    \(v)x \(k)\n".utf8)) }
+            damageArea = 0; damageRects.removeAll()
+            frameTimes.removeAll(keepingCapacity: true)
+            frameWindowStart = now
+        }
+    }
+
+    private func tooltipSpec(_ tip: (text: String, at: CGPoint)) -> TextSpec {
+        TextSpec(text: tip.text, font: .system(size: 11), color: Color(white: 0.95), lineLimit: nil, tracking: 0, minScale: 1, alignment: .leading, underline: false, strikethrough: false)
+    }
+
+    private func tooltipRect(_ tip: (text: String, at: CGPoint)) -> CGRect {
+        let m = TextEngine.measure(tooltipSpec(tip), width: 360)
+        return CGRect(x: min(tip.at.x + 12, size.width - m.size.width - 16), y: min(tip.at.y + 18, size.height - m.size.height - 12), width: m.size.width + 12, height: m.size.height + 8)
     }
 
     private func drawTooltip(_ g: inout GraphicsContext, _ tip: (text: String, at: CGPoint)) {
@@ -235,11 +452,13 @@ public final class UIHost {
         let nodes = chain(at: p)
         var now: [Identity: Node] = [:]
         for n in nodes where n.handlers?.hover != nil { now[n.identity] = n }
+        // Handler ändern ihren Zustand über @State & Co. und melden damit selbst, was neu gezeichnet werden muss
         for n in nodes { n.handlers?.motion?(p) }
         for (id, n) in hovered where now[id] == nil { n.handlers?.hover?(false) }
         for (id, n) in now where hovered[id] == nil { n.handlers?.hover?(true) }
         hovered = now
-        // Hilfetext nach kurzer Ruhe
+        // Hilfetext nach kurzer Ruhe; neu zeichnen nur, wenn einer zu sehen war
+        if !shownTooltipRect.isNull { addDamage(shownTooltipRect); shownTooltipRect = .null }
         tooltip = nil
         if let help = nodes.first(where: { $0.handlers?.help != nil })?.handlers?.help, pressedNode == nil, overlays.isEmpty {
             tooltip = (help, p)
@@ -249,18 +468,19 @@ public final class UIHost {
             if !dragActive, hypot(p.x - start.x, p.y - start.y) >= drag.minimumDistance { dragActive = true }
             if dragActive { drag.changed?(DragValue(location: p, startLocation: start)) }
         }
-        needsDraw = true
+        if !overlays.isEmpty { needsDraw = true }
     }
 
     func pointerLeft() {
         for (_, n) in hovered { n.handlers?.hover?(false) }
         hovered.removeAll()
+        if !shownTooltipRect.isNull { addDamage(shownTooltipRect); shownTooltipRect = .null }
         tooltip = nil
-        needsDraw = true
     }
 
     func pressed(_ p: CGPoint, button: Int) {
         pointer = p
+        if !shownTooltipRect.isNull { addDamage(shownTooltipRect); shownTooltipRect = .null }
         tooltip = nil
         let nodes = chain(at: p)
         if let top = overlays.last, !(top.node?.frame.contains(p) ?? false) {

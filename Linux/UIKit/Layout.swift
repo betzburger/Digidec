@@ -99,8 +99,11 @@ struct LayoutView<L: Layout, Content: View> {
     }
 }
 
+/// Knoten, die nur Kinder anordnen und selbst nichts zeichnen (für den Bildvergleich)
+protocol PureLayoutNode {}
+
 @MainActor
-final class CustomLayoutNode<L: Layout>: Node {
+final class CustomLayoutNode<L: Layout>: Node, PureLayoutNode {
     let layout: L
     init(identity: Identity, layout: L) { self.layout = layout; super.init(identity: identity) }
     private var subviews: LayoutSubviews { LayoutSubviews(items: children.map { LayoutSubview(node: $0) }) }

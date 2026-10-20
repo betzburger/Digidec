@@ -3,14 +3,51 @@
 #include "digidec_gtk.h"
 #include <gtk/gtk.h>
 #include <string.h>
+#include <math.h>
 #include <stdlib.h>
 #include <execinfo.h>
 
 typedef struct { DGCallbacks cb; void *user; } Ctx;
 
-static void on_draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data) {
-    Ctx *c = data; if (c->cb.draw) c->cb.draw(c->user, cr, w, h);
+// Eigene Zeichenfläche: Die Oberfläche wird direkt in ein Bild gezeichnet und als Textur an die GPU gegeben.
+// (GtkDrawingArea reicht eine Aufzeichnungsfläche, die GTK danach noch einmal vollständig per CPU abspielt: doppelte Arbeit.)
+typedef struct { GtkWidget parent; Ctx *ctx; cairo_surface_t *backing; int bw, bh; double bscale; } DGCanvas;
+typedef struct { GtkWidgetClass parent_class; } DGCanvasClass;
+G_DEFINE_TYPE(DGCanvas, dg_canvas, GTK_TYPE_WIDGET)
+
+static void dg_canvas_snapshot(GtkWidget *widget, GtkSnapshot *snapshot) {
+    DGCanvas *self = (DGCanvas *)widget;
+    int w = gtk_widget_get_width(widget), h = gtk_widget_get_height(widget);
+    if (w <= 0 || h <= 0 || !self->ctx || !self->ctx->cb.draw) return;
+    double scale = 1;
+    GtkNative *native = gtk_widget_get_native(widget);
+    if (native) { GdkSurface *surface = gtk_native_get_surface(native); if (surface) scale = gdk_surface_get_scale(surface); }
+    int pw = (int)ceil(w * scale), ph = (int)ceil(h * scale);
+    // Das Bild bleibt zwischen den Frames erhalten: gezeichnet wird nur, was sich geändert hat
+    int fresh = 0;
+    if (!self->backing || self->bw != pw || self->bh != ph || self->bscale != scale) {
+        if (self->backing) cairo_surface_destroy(self->backing);
+        self->backing = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, pw, ph);
+        cairo_surface_set_device_scale(self->backing, pw / (double)w, ph / (double)h);
+        self->bw = pw; self->bh = ph; self->bscale = scale;
+        fresh = 1;
+    }
+    cairo_t *cr = cairo_create(self->backing);
+    self->ctx->cb.draw(self->ctx->user, cr, w, h, fresh);
+    cairo_destroy(cr);
+    cairo_surface_flush(self->backing);
+    int stride = cairo_image_surface_get_stride(self->backing);
+    // Die Textur bekommt eine Kopie, weil das Bild im nächsten Frame weiter verändert wird
+    GBytes *bytes = g_bytes_new(cairo_image_surface_get_data(self->backing), (gsize)stride * ph);
+    GdkTexture *texture = gdk_memory_texture_new(pw, ph, GDK_MEMORY_B8G8R8A8_PREMULTIPLIED, bytes, stride);
+    graphene_rect_t bounds = GRAPHENE_RECT_INIT(0, 0, w, h);
+    gtk_snapshot_append_texture(snapshot, texture, &bounds);
+    g_object_unref(texture);
+    g_bytes_unref(bytes);
 }
+static void dg_canvas_class_init(DGCanvasClass *klass) { GTK_WIDGET_CLASS(klass)->snapshot = dg_canvas_snapshot; }
+static void dg_canvas_init(DGCanvas *self) { self->ctx = NULL; self->backing = NULL; self->bw = self->bh = 0; self->bscale = 0; }
+
 static void on_pressed(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     Ctx *c = data; (void)n;
     if (c->cb.pressed) c->cb.pressed(c->user, (int)gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(g)), x, y);
@@ -51,14 +88,14 @@ DGWindow dg_window_new(void *app, const char *title, int width, int height, cons
     gtk_window_set_title(GTK_WINDOW(window), title);
     gtk_window_set_default_size(GTK_WINDOW(window), width, height);
     GtkWidget *overlay = gtk_overlay_new();
-    GtkWidget *area = gtk_drawing_area_new();
+    GtkWidget *area = g_object_new(dg_canvas_get_type(), NULL);
+    ((DGCanvas *)area)->ctx = c;
     gtk_widget_set_hexpand(area, TRUE); gtk_widget_set_vexpand(area, TRUE); gtk_widget_set_focusable(area, TRUE);
     gtk_overlay_set_child(GTK_OVERLAY(overlay), area);
     GtkWidget *fixed = gtk_fixed_new();
     gtk_widget_set_can_target(fixed, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), fixed);
     gtk_window_set_child(GTK_WINDOW(window), overlay);
-    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area), on_draw, c, NULL);
 
     GtkGesture *click = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
