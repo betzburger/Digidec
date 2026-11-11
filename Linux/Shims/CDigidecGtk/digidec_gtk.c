@@ -81,6 +81,11 @@ static gboolean on_key(GtkEventControllerKey *k, guint keyval, guint keycode, Gd
     return c->cb.key ? c->cb.key(c->user, keyval, (unsigned)state, gdk_keyval_to_unicode(keyval)) : FALSE;
 }
 static gboolean on_tick(gpointer data) { Ctx *c = data; if (c->cb.tick) c->cb.tick(c->user); return G_SOURCE_CONTINUE; }
+static gboolean on_frame(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
+    Ctx *c = data; (void)w; (void)clock;
+    if (c->cb.frame) c->cb.frame(c->user);
+    return G_SOURCE_CONTINUE;
+}
 
 // Das Fenster wird zerstört (Schließen, Programmende): Takt anhalten, Swift ein letztes Mal benachrichtigen, danach keine Rückrufe mehr.
 // Der Kontext bleibt bestehen, weil Ereignis-Controller ihn bis zu ihrer eigenen Freigabe noch halten.
@@ -242,6 +247,8 @@ DGWindow dg_window_new(void *app, const char *title, int width, int height, cons
 
     g_signal_connect(window, "destroy", G_CALLBACK(on_destroy), c);
     c->tick_source = g_timeout_add(16, on_tick, c);
+    // Bildtakt: Auffrischen und Zeichnen im Gleichschritt mit dem Monitor (die Rückrufe enden mit dem Widget)
+    gtk_widget_add_tick_callback(area, on_frame, c, NULL);
     DGWindow w = { window, area, fixed };
     return w;
 }

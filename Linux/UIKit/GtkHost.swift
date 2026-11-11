@@ -138,7 +138,8 @@ extension UIHost {
             }
         }
         callbacks.closed = { u in MainActor.assumeIsolated { host(from: u).closeHandler?() } }
-        callbacks.tick = { u in MainActor.assumeIsolated { host(from: u).tick() } }
+        callbacks.tick = { u in MainActor.assumeIsolated { host(from: u).timerTick() } }
+        callbacks.frame = { u in MainActor.assumeIsolated { host(from: u).frameTick() } }
         closeHandler = onClose
         let w = dg_window_new(app, title, Int32(size.width), Int32(size.height), &callbacks, Unmanaged.passUnretained(self).toOpaque())
         window = w.window

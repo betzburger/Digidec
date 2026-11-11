@@ -11707,6 +11707,23 @@ if want("sdr") {
     cu.mode = .lsb
     let la = run(ssb, cu, offset: 500_000)
     check(level(la, 2000) > 0.1 && level(la, 1500) / level(la, 2000) < 0.003, "SDR LSB: Ton im unteren Seitenband, oberes um mehr als 50 dB unterdrückt")
+    // Breites USB (DRM): 12 kHz Durchlassbereich, Signal bei 1 … 11 kHz im Audio; der SSB-Zweig rechnet dann mit 48 statt 12 kS/s
+    check(SDRMode.usb.bandwidthChoices.contains(12_000) && SDRMode.usb.bandwidthChoices.contains(20_000) && SDRMode.lsb.bandwidthChoices.contains(12_000), "SDR USB/LSB: Breiten ab 12 kHz wählbar (DRM)")
+    var wide = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    for f in [1000.0, 6000, 8000, 11000] { wide.addCarrier(offsetHz: 500_000 + f, amplitude: 0.05) }
+    wide.addCarrier(offsetHz: 500_000 - 8000, amplitude: 0.05)
+    wide.addNoise(sigma: 0.002)
+    var cwide = SDRChannelConfig(mode: .usb); cwide.agc = false; cwide.bandwidthHz = 12_000
+    let wideA = run(wide, cwide, offset: 500_000)
+    let wref = level(wideA, 1000)
+    check(wref > 0.05, "SDR USB 12 kHz: Ton bei 1 kHz hörbar (\(wref))")
+    check([6000.0, 8000, 11000].allSatisfy { abs(level(wideA, $0) / wref - 1) < 0.2 }, "SDR USB 12 kHz: Töne bei 6, 8 und 11 kHz im Durchlass (±1,6 dB)")
+    // Sperrbereich getrennt messen (Summen der Durchlasstöne, 6 + 8 kHz, fielen sonst als Intermodulation auf 14 kHz)
+    var wideStop = SDRTestSignal(sampleRate: fs, seconds: 1.5)
+    for f in [1000.0, 14000, 20000] { wideStop.addCarrier(offsetHz: 500_000 + f, amplitude: 0.05) }
+    wideStop.addNoise(sigma: 0.002)
+    let wideB = run(wideStop, cwide, offset: 500_000)
+    check(level(wideB, 14000) / level(wideB, 1000) < 0.01 && level(wideB, 20000) / level(wideB, 1000) < 0.01, "SDR USB 12 kHz: 14 und 20 kHz um mehr als 40 dB gesperrt")
     // CW: der Träger auf der angezeigten Frequenz wird als 700-Hz-Ton hörbar
     var cw = SDRTestSignal(sampleRate: fs, seconds: 1.5)
     cw.addCarrier(offsetHz: -400_000, amplitude: 0.1)
@@ -13621,6 +13638,41 @@ if want("drm") {
               && sv?.audio?.mode == 0 && last?.facBad == 0 && units >= 66 && frames == units * 5 && last?.date != nil,
               "DRM echt (Spark, Modus B): Dienst „\(sv?.label ?? "")“, AAC \(sv?.audio?.sampleRate ?? 0) Hz mono, FAC \(last?.facGood ?? 0)/\(last?.facBad ?? 0), SDC \(last?.sdcGood ?? 0)/\(last?.sdcBad ?? 0), \(units) Audio-Überrahmen (\(frames) AAC-Rahmen)")
     } else { skip("DRM echt: TestData/DRM/drm_b_spark_real_48k.wav liegt nicht lokal vor") }
+    // Dieselbe Aufnahme als USB-Aussendung im I/Q-Fenster des eingebauten SDR-Empfängers (240 kS/s, 8 Bit): breites USB-Filter, dann der DRM-Empfänger
+    if let wav = try? VoiceWAV.read(root.appendingPathComponent("TestData/DRM/drm_b_spark_real_48k.wav")) {
+        let audio = wav.samples.map { Float($0) / 32768 }
+        let rms = (audio.reduce(0) { $0 + Double($1) * Double($1) } / Double(audio.count)).squareRoot()
+        var air = SDRTestSignal(sampleRate: 240_000, seconds: Double(audio.count) / 48_000)
+        air.addSSB(offsetHz: 50_000, audio: audio, audioRate: 48_000, amplitude: Float(0.2 / (2.0.squareRoot() * rms)))
+        air.addNoise(sigma: 0.002)
+        // Die Aufnahme liegt um 12 kHz im Audio; bei 12 kHz Filterbreite wird der Dial 6 kHz höher gestellt (wie bei QSY AUTO: Signal bei etwa 1 … 11 kHz)
+        for (bw, shift) in [(20_000.0, 0.0), (12_000.0, 6_000.0)] {
+            var cfg = SDRChannelConfig(mode: .usb); cfg.bandwidthHz = bw
+            let demod = SDRDemodulator(sampleRate: 240_000, config: cfg)
+            demod.setOffset(50_000 + shift)
+            var pcm = [Float]()
+            let bytes = air.quantized()
+            bytes.withUnsafeBufferPointer { b in
+                var i = 0
+                while i < b.count { let e = min(i + 262_144, b.count); demod.process(UnsafeBufferPointer(rebasing: b[i..<e]), audio: &pcm); i = e }
+            }
+            let rx = DRMReceiver()
+            var last: DRMStatus?
+            var units = 0
+            rx.onEvent = { e in
+                switch e {
+                case .status(let s): last = s
+                case .audio: units += 1
+                case .text: break
+                }
+            }
+            var i = 0
+            while i < pcm.count { let j = min(i + 4800, pcm.count); rx.process(Array(pcm[i..<j])); i = j }
+            let sv = last?.services.first
+            check(last?.locked == true && last?.mode == .b && sv?.label == "Spark" && units >= 50,
+                  "DRM über SDR-USB \(Int(bw / 1000)) kHz: gesperrt \(last?.locked ?? false), Modus \(last?.mode?.letter ?? "-"), Dienst „\(sv?.label ?? "")“, FAC \(last?.facGood ?? 0)/\(last?.facBad ?? 0), \(units) Audio-Überrahmen")
+        }
+    }
     // MARK: xHE-AAC (USAC) in DRM
     // Konfiguration: DRM-Kurzform ↔ UsacConfig, mit erfundenen Fällen quer durch alle Zweige
     do {
@@ -14120,6 +14172,60 @@ if want("theme") {
     check(amberLUT != before && WaterfallColorMap.lut == before && before == WaterfallColorMap.makeLUT(stops: AppTheme.night.palette.waterfall.map { ($0.0, ($0.1.r, $0.1.g, $0.1.b)) }),
           "Farbtabelle: Wechsel und Rückkehr; Nacht entspricht der Standardtabelle")
     check(RGB(1, 1, 1).contrast(with: RGB(0, 0, 0)) > 20.9 && approx(RGB(0.5, 0.5, 0.5).contrast(with: RGB(0.5, 0.5, 0.5)), 1, 0.0001), "Kontrastverhältnis: Schwarz/Weiß 21, gleiche Farbe 1")
+}
+
+if want("sdrpacer") {
+    // Taktpuffer des HF-Wasserfalls (SDRRowPacer): Zeilen in Schüben rein, einzeln im Zeilentakt raus
+    let dt = 0.04
+    func row(_ i: Int) -> [Float] { [Float(i)] }
+    // Schübe wie gemessen: abwechselnd eine und zwei Zeilen, Abrufe alle 10 ms (Zeitgeber der Ansicht)
+    var p = SDRRowPacer(interval: dt)
+    var produced = 0, released: [(t: Double, v: Float)] = []
+    var t = 0.0
+    var nextBurst = 0.0, burstIndex = 0
+    while t < 20 {
+        if t >= nextBurst {
+            let n = burstIndex % 3 == 0 ? 2 : 1
+            p.push((0..<n).map { _ in produced += 1; return row(produced) }, now: t)
+            nextBurst += dt * Double(n)
+            burstIndex += 1
+        }
+        for r in p.release(now: t) { released.append((t, r[0])) }
+        t += 0.01
+    }
+    let order = zip(released, released.dropFirst()).allSatisfy { $1.v == $0.v + 1 }
+    check(released.first?.v == 1 && order && produced - released.count <= 3, "Taktpuffer: keine Zeile verloren oder vertauscht (\(released.count) von \(produced))")
+    let steady = released.dropFirst(10)
+    let gaps = zip(steady, steady.dropFirst()).map { $1.t - $0.t }
+    let multi = Dictionary(grouping: steady, by: { ($0.t * 100).rounded() }).values.filter { $0.count > 1 }.count
+    check(multi == 0 && (gaps.max() ?? 1) <= 0.0501 && (gaps.min() ?? 0) >= 0.0299, "Taktpuffer: je Abruf höchstens eine Zeile, Abstände 30–50 ms trotz Schüben (min \(String(format: "%.0f", (gaps.min() ?? 0) * 1000)), max \(String(format: "%.0f", (gaps.max() ?? 0) * 1000)) ms)")
+    // Rollfortschritt: 0 bei Freigabe, 1 nach einem Takt
+    var q = SDRRowPacer(interval: dt)
+    q.push([row(1), row(2)], now: 0)
+    check(q.release(now: 0.02).isEmpty, "Taktpuffer: erste Zeile nach einer Lücke wartet einen Takt (Polster)")
+    let first = q.release(now: 0.04)
+    check(first.count == 1 && abs(q.progress(at: 0.04)) < 1e-9 && abs(q.progress(at: 0.06) - 0.5) < 0.01 && q.progress(at: 0.2) == 1, "Taktpuffer: Rollfortschritt 0 → 0,5 → 1 über einen Takt")
+    // Nach einer Pause beginnt der Takt neu (keine Aufholjagd)
+    _ = q.release(now: 0.08)
+    q.push([row(3), row(4), row(5)], now: 2)
+    check(q.release(now: 2).isEmpty && q.release(now: 2.04).count == 1, "Taktpuffer: nach einer Pause neuer Takt statt Nachholen")
+    // Großer Stau wird auf zwei Zeilen abgebaut
+    var r = SDRRowPacer(interval: dt)
+    r.push((1...10).map(row), now: 0)
+    let burst = r.release(now: 0)
+    check(burst.count == 8 && r.queue.count == 2, "Taktpuffer: Stau von 10 Zeilen wird bis auf 2 abgebaut")
+    // Uhrendrift: Quelle 3 % schneller bzw. langsamer, der Puffer bleibt begrenzt und läuft nicht dauerhaft leer
+    for rate in [1.03, 0.97] {
+        var d = SDRRowPacer(interval: dt)
+        var tt = 0.0, nextRow = 0.0, maxQueue = 0, n = 0, out = 0
+        while tt < 60 {
+            if tt >= nextRow { n += 1; d.push([row(n)], now: tt); nextRow += dt / rate }
+            out += d.release(now: tt).count
+            if tt > 5 { maxQueue = max(maxQueue, d.queue.count) }
+            tt += 0.01
+        }
+        check(maxQueue <= 3 && n - out <= 3, "Taktpuffer: Uhrendrift \(Int((rate - 1) * 100)) %: Rückstand höchstens 3 Zeilen (\(maxQueue)), alle Zeilen gezeigt")
+    }
 }
 
 print("\(checks) Prüfungen, \(failures) Fehler")

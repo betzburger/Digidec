@@ -44,13 +44,17 @@ public final class UIHost {
     private var pendingDamage: [CGRect] = []
     private static let diffDamage = ProcessInfo.processInfo.environment["DIGIDEC_NO_DIFF"] == nil
     private static let partialAllowed = ProcessInfo.processInfo.environment["DIGIDEC_FULL_REDRAW"] == nil
-    /// Rand um geänderte Ansichten für Schatten und Leuchten, die über den Rahmen hinausragen
-    private static let damageMargin: CGFloat = 40
+    /// Rand um geänderte Bereiche für Kantenglättung; was Knoten darüber hinaus zeichnen (Schatten, Striche, Glyphen), steckt
+    /// schon in ihren Grenzen (`Node.inkBounds`)
+    private static let damageMargin: CGFloat = CGFloat(Double(ProcessInfo.processInfo.environment["DIGIDEC_DAMAGE_MARGIN"] ?? "") ?? 2)
     private var shownTooltipRect = CGRect.null
     /// Gleitende Kosten (Sekunden) von Auffrischen und Zeichnen; daraus ergibt sich, wie oft Live-Änderungen höchstens umgesetzt werden
     private var drawCost: TimeInterval = 0
     private var refreshCost: TimeInterval = 0
     private var lastDirtyRefresh = Date.distantPast
+    private var lastFrameTick = Date.distantPast
+    /// DIGIDEC_TRACE_FRAMES: Gründe für Vollbilder je 2 s (Fehlersuche)
+    private var fullReasons: [String: Int] = [:]
     var timelineIntervals: [Identity: TimeInterval] = [:]
     var timelineDue: [Identity: Date] = [:]
     var dirty = Set<Identity>()
@@ -103,6 +107,12 @@ public final class UIHost {
         if timelineDue[identity] == nil { timelineDue[identity] = Date().addingTimeInterval(interval) }
     }
 
+    /// Angehaltene Zeitleiste (`.animation(paused: true)`): keine Aktualisierungen mehr
+    func unregisterTimeline(identity: Identity) {
+        timelineIntervals[identity] = nil
+        timelineDue[identity] = nil
+    }
+
     /// Die Ansicht mit dieser Identität neu auflösen (nur ihren Teilbaum)
     func invalidate(_ id: Identity) { dirty.insert(id) }
 
@@ -138,9 +148,7 @@ public final class UIHost {
         needsResolve = false
         lastResolve = Date()
         timelineDue = timelineDue.filter { timelineIntervals[$0.key] != nil }
-        compositeIndex.removeAll(keepingCapacity: true)
-        node.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } }
-        for layer in overlays { layer.node?.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } } }
+        rebuildCompositeIndex()
         syncFields()
     }
 
@@ -184,7 +192,20 @@ public final class UIHost {
         closeHandler = nil
     }
 
-    /// Zeitgeber (16 ms): Hauptschlange bedienen, aufgelöste Änderungen und Zeitleisten verarbeiten
+    /// Bildtakt des Fensters: Die Oberfläche frischt sich im Gleichschritt mit dem Monitor auf, Änderungen erscheinen im selben
+    /// Bildwechsel. Mit einem freien 16-ms-Zeitgeber liefen Takt und Bildwechsel (16,7 ms) gegeneinander, Bewegungen hakten.
+    func frameTick() {
+        lastFrameTick = Date()
+        tick()
+    }
+
+    /// Zeitgeber: springt nur ein, solange kein Bildtakt kommt (Fenster verdeckt), damit Zeitgeber und Zustandsänderungen
+    /// trotzdem verarbeitet werden
+    func timerTick() {
+        if Date().timeIntervalSince(lastFrameTick) > 0.1 { tick() }
+    }
+
+    /// Ein Takt: Hauptschlange bedienen, aufgelöste Änderungen und Zeitleisten verarbeiten
     func tick() {
         for hook in tickHooks { hook() }
         if tickCount == 5, ProcessInfo.processInfo.environment["DIGIDEC_TRACE_MAP"] != nil { FileHandle.standardError.write(Data("hooks \(tickHooks.count)\n".utf8)) }
@@ -194,7 +215,7 @@ public final class UIHost {
         RunLoop.main.run(mode: .default, before: .distantPast)
         if ProcessInfo.processInfo.environment["DIGIDEC_TRACE"] != nil, Date().timeIntervalSince(t) > 0.05 { FileHandle.standardError.write(Data(String(format: "RunLoop %.0f ms\n", Date().timeIntervalSince(t) * 1000).utf8)) }
         let now = Date()
-        if needsResolve { resolveAndLayout(); needsDraw = true }
+        if needsResolve { resolveAndLayout(); needsDraw = true; if traceFrames { fullReasons["resolve", default: 0] += 1 } }
         else {
             for (id, due) in timelineDue where now >= due { dirty.insert(id); timelineDue[id] = now.addingTimeInterval(timelineIntervals[id] ?? 1) }
             if !dirty.isEmpty, now.timeIntervalSince(lastDirtyRefresh) >= refreshThrottle {
@@ -226,10 +247,17 @@ public final class UIHost {
         for id in ids {
             guard let node = compositeIndex[id] else { continue }
             let result = node.refresh()
-            if !result.stable { relayout = true }
-            else if Self.diffDamage { addDamage(old: result.previous, new: node.children) }
+            if !result.stable { relayout = true; if traceFrames { fullReasons["unstable \(node.viewType.map { String(describing: $0).prefix(80) } ?? "?") \(node.frame.size) -> \(node.size(for: node.lastProposal))", default: 0] += 1 } }
+            else if Self.diffDamage {
+                let before = pendingDamage
+                addDamage(old: result.previous, new: node.children)
+                if traceFrames, pendingDamage != before {
+                    let big = pendingDamage.filter { r in !before.contains(r) }.map { $0.width * $0.height }.max() ?? 0
+                    if big > size.width * size.height * 0.2 { fullReasons["big damage \(node.viewType.map { String(describing: $0).prefix(80) } ?? "?") \(node.frame.size)", default: 0] += 1 }
+                }
+            }
             else { for n in result.previous + node.children { addDamage(n.subtreeBounds()) } }
-            node.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } }
+            indexComposites(in: node)
         }
         if relayout, let root = rootNode {
             root.clearSizeCaches()
@@ -240,8 +268,22 @@ public final class UIHost {
         syncFields()
     }
 
-    /// Meldet einen Bereich als geändert (samt Rand für Schatten). Rechtecke, die sich berühren oder zusammen kaum mehr Fläche
-    /// brauchen als einzeln, werden vereinigt; weit auseinanderliegende bleiben getrennt.
+    /// Verzeichnis Identität → Knoten aus dem tatsächlich angezeigten Baum (Hauptansicht und Ebenen)
+    private func rebuildCompositeIndex() {
+        compositeIndex.removeAll(keepingCapacity: true)
+        if let rootNode { indexComposites(in: rootNode) }
+        for layer in overlays { if let n = layer.node { indexComposites(in: n) } }
+    }
+
+    /// Meldet die auffrischbaren Knoten eines neu eingesetzten Teilbaums an. Regel: Wer Knoten in den angezeigten Baum einsetzt
+    /// (Auffrischen, GeometryReader beim Platzieren), meldet sie hier an; Änderungen finden ihre Ansicht nur über dieses Verzeichnis.
+    func indexComposites(in node: Node) {
+        node.walk { if let c = $0 as? CompositeNode { compositeIndex[c.identity] = c } }
+    }
+
+    /// Meldet einen Bereich als geändert (samt Rand für Schatten). Rechtecke, die vereinigt kaum mehr Fläche brauchen als einzeln,
+    /// werden zusammengefasst; alle anderen bleiben getrennt, auch wenn sie sich berühren. (Berühren allein genügte früher: Mit dem
+    /// Schattenrand berühren sich Spektrum links und Abstimmfeld rechts, und ihr umschließendes Rechteck war das ganze Fenster.)
     func addDamage(_ rect: CGRect) {
         guard !rect.isNull, rect.width > 0 || rect.height > 0 else { return }
         var r = rect.insetBy(dx: -Self.damageMargin, dy: -Self.damageMargin)
@@ -250,13 +292,26 @@ public final class UIHost {
             merged = false
             for (i, e) in pendingDamage.enumerated() {
                 let u = e.union(r)
-                if e.intersects(r) || u.width * u.height <= 1.3 * (e.width * e.height + r.width * r.height) {
+                if u.width * u.height <= 1.3 * (e.width * e.height + r.width * r.height) {
                     r = u; pendingDamage.remove(at: i); merged = true; break
                 }
             }
         }
         pendingDamage.append(r)
-        if pendingDamage.count > 12 { pendingDamage = [pendingDamage.dropFirst().reduce(pendingDamage[0]) { $0.union($1) }] }
+        // Zu viele Rechtecke: jeweils das Paar vereinigen, das dabei am wenigsten Fläche hinzugewinnt. Alles in ein Rechteck zu
+        // fassen hieße bei verstreuten Änderungen (Wasserfall oben links, SDR-Karte unten rechts) ein Vollbild in jedem Takt.
+        while pendingDamage.count > 12 {
+            var best = (i: 0, j: 1, cost: CGFloat.infinity)
+            for i in 0..<pendingDamage.count {
+                for j in (i + 1)..<pendingDamage.count {
+                    let a = pendingDamage[i], b = pendingDamage[j], u = a.union(b)
+                    let cost = u.width * u.height - a.width * a.height - b.width * b.height
+                    if cost < best.cost { best = (i, j, cost) }
+                }
+            }
+            pendingDamage[best.i] = pendingDamage[best.i].union(pendingDamage[best.j])
+            pendingDamage.remove(at: best.j)
+        }
     }
 
     // MARK: Zeichnen
@@ -305,9 +360,19 @@ public final class UIHost {
             resolveAndLayout()
             fullRedraw = true
         }
-        if fresh || !overlays.isEmpty || !Self.partialAllowed { fullRedraw = true }
+        if fresh || !overlays.isEmpty || !Self.partialAllowed { fullRedraw = true; if traceFrames { fullReasons[fresh ? "fresh" : "overlay", default: 0] += 1 } }
         let bounds = CGRect(origin: .zero, size: size)
-        let regions: [CGRect] = fullRedraw ? [bounds] : pendingDamage.map { $0.integral.intersection(bounds) }.filter { !$0.isNull && $0.width > 0 && $0.height > 0 }
+        // Bereiche auf ganze Gerätepixel runden: Bei gebrochener Skalierung (1,6) läge eine ganze logische Koordinate mitten in einem
+        // Pixel, der Ausschnitt würde dort weichgezeichnet und das Randpixel mit dem alten Bild gemischt (sichtbare Nähte)
+        var sx = 1.0, sy = 1.0
+        if let target = cairo_get_target(cr) { cairo_surface_get_device_scale(target, &sx, &sy) }
+        func aligned(_ r: CGRect) -> CGRect {
+            guard !r.isNull else { return r }
+            let x0 = (r.minX * sx).rounded(.down) / sx, y0 = (r.minY * sy).rounded(.down) / sy
+            let x1 = (r.maxX * sx).rounded(.up) / sx, y1 = (r.maxY * sy).rounded(.up) / sy
+            return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+        }
+        let regions: [CGRect] = fullRedraw ? [bounds] : pendingDamage.map { aligned($0.intersection(bounds)) }.filter { !$0.isNull && $0.width > 0 && $0.height > 0 }
         fullRedraw = false
         pendingDamage = []
         guard !regions.isEmpty else { return }
@@ -403,6 +468,9 @@ public final class UIHost {
         }
         if count > 0 {
             verifyMismatches += 1
+            if verifyMismatches == 3, let dir = ProcessInfo.processInfo.environment["DIGIDEC_VERIFY_DUMP"] {
+                cairo_surface_write_to_png(target, dir + "/teil.png"); cairo_surface_write_to_png(scratch, dir + "/voll.png"); cairo_surface_write_to_png(scratch2, dir + "/voll2.png")
+            }
             if verifyMismatches <= 2 {
                 let p = CGPoint(x: Double(minX) / sx + 0.5, y: Double(minY) / sy + 0.5)
                 var found: [String] = []
@@ -435,6 +503,9 @@ public final class UIHost {
                 for (k, v) in shapeProfileData.sorted(by: { $0.value.0 > $1.value.0 }).prefix(10) { FileHandle.standardError.write(Data(String(format: "  %7.1f ms  %5d calls  %@\n", v.0, v.1, k).utf8)) }
                 shapeProfileData.removeAll()
             }
+            FileHandle.standardError.write(Data(String(format: "  cost draw %.1f ms, refresh %.1f ms, throttle %.0f ms\n", drawCost * 1000, refreshCost * 1000, refreshThrottle * 1000).utf8))
+            for (k, v) in fullReasons.sorted(by: { $0.value > $1.value }).prefix(6) { FileHandle.standardError.write(Data("  full \(v)x \(k)\n".utf8)) }
+            fullReasons.removeAll()
             FileHandle.standardError.write(Data(String(format: "  damage avg %.0f %% of window\n", damageArea / Double(frameTimes.count) * 100).utf8))
             for (k, v) in damageRects.sorted(by: { $0.value > $1.value }).prefix(5) { FileHandle.standardError.write(Data("    \(v)x \(k)\n".utf8)) }
             damageArea = 0; damageRects.removeAll()

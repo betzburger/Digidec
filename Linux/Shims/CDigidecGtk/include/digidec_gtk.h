@@ -17,7 +17,11 @@ typedef struct {
     int (*scroll)(void *user, double dx, double dy, unsigned state);
     int (*key)(void *user, unsigned keyval, unsigned state, unsigned codepoint);
     void (*closed)(void *user);
+    /// Zeitgeber (16 ms): läuft immer, auch bei verdecktem Fenster
     void (*tick)(void *user);
+    /// Bildtakt des Fensters (GdkFrameClock, einmal je Bildwechsel des Monitors, vor dem Zeichnen); bleibt aus, solange der
+    /// Compositor keine Bilder anfordert (Fenster verdeckt, andere Arbeitsfläche)
+    void (*frame)(void *user);
 } DGCallbacks;
 
 typedef struct { void *window; void *area; void *fixed; } DGWindow;

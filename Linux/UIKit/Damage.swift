@@ -37,6 +37,48 @@ private func hashPath(_ path: Path, into h: inout Hasher) {
 }
 
 extension Node {
+    /// Erweitert die Grenzen `r` (Rahmen samt Kindern) um das, was dieser Knoten über sie hinaus zeichnet. Vorher lag pauschal
+    /// ein Rand von 40 pt um jede Änderung; der zog Nachbarn mit ins Neuzeichnen (beim Wasserfall Werkzeugleiste und Abstimmfeld).
+    /// Die Werte folgen den Zeichenroutinen: `drawShadow` malt bis 3 σ mit σ = Radius/2 (also 1,5 × Radius) zuzüglich Versatz.
+    func inkBounds(_ r: CGRect) -> CGRect {
+        guard !r.isNull else { return r }
+        switch self {
+        case let n as DecorNode:
+            switch n.kind {
+            case .shadow(_, let radius, let x, let y):
+                let spread = abs(radius) * 1.5 + 2
+                return r.union(r.offsetBy(dx: x, dy: y).insetBy(dx: -spread, dy: -spread))
+            case .blur(let radius):
+                let spread = abs(radius) * 1.5 + 2
+                return r.insetBy(dx: -spread, dy: -spread)
+            case .clip, .clipPath:
+                return r.intersection(n.frame.insetBy(dx: -1, dy: -1))
+            case .rotate:
+                // Drehung um die Mitte des Rahmens: Kreis um die Mitte, der alle Ecken enthält
+                let c = CGPoint(x: n.frame.midX, y: n.frame.midY)
+                let reach = [r.minX, r.maxX].flatMap { x in [r.minY, r.maxY].map { y in hypot(x - c.x, y - c.y) } }.max() ?? 0
+                return r.union(CGRect(x: c.x - reach, y: c.y - reach, width: 2 * reach, height: 2 * reach)).insetBy(dx: -1, dy: -1)
+            case .scale(let sx, let sy):
+                let c = CGPoint(x: n.frame.midX, y: n.frame.midY), ax = max(1, abs(sx)), ay = max(1, abs(sy))
+                let scaled = CGRect(x: c.x + (r.minX - c.x) * ax, y: c.y + (r.minY - c.y) * ay, width: r.width * ax, height: r.height * ay)
+                return r.union(scaled).insetBy(dx: -1, dy: -1)
+            default:
+                return r
+            }
+        case let n as ShapeNode:
+            // Striche liegen mittig auf dem Umriss (nach innen versetzte bleiben im Rahmen); Kantenglättung 1 pt
+            guard n.stroke != nil, !n.inset else { return r.insetBy(dx: -1, dy: -1) }
+            let half = (n.strokeStyle?.lineWidth ?? n.lineWidth) / 2 + 1
+            return r.insetBy(dx: -half, dy: -half)
+        case let n as TextNode:
+            // Glyphen dürfen über die Zeilenbox ragen (Unterlängen, Akzente, Kursive)
+            let over = max(2, n.spec.font.size * 0.25)
+            return r.insetBy(dx: -over, dy: -over)
+        default:
+            return r
+        }
+    }
+
     /// Fasst alles zusammen, was dieser Knoten selbst (ohne Kinder) zum Bild beiträgt; `false`, wenn das nicht sicher bekannt ist
     func ownSignature(_ h: inout Hasher, shown: Bool, origin: CGPoint = .zero) -> Bool {
         switch self {
@@ -49,6 +91,13 @@ extension Node {
         case let n as RichTextNode:
             // Der alte Knoten zählt mit dem Stand, den er zuletzt gezeigt hat; der neue mit dem aktuellen
             h.combine(shown ? (n.drawnSignature ?? n.signature()) : n.signature())
+            return true
+        case let n as SliderNode:
+            h.combine(n.value); h.combine(n.range.lowerBound); h.combine(n.range.upperBound); h.combine(n.step); h.combine(n.tint)
+            return true
+        case is TextFieldNode, is MaskNode:
+            // Eingabefeld: ein eigenes GTK-Widget, auf der Fläche zeichnet der Knoten nichts. Maske: zeichnet nur ihre Kinder
+            // (Inhalt und Maskenform), die einzeln verglichen werden; ihre Lage steckt im Rahmen.
             return true
         case let n as DividerNode:
             h.combine(n.axis == .horizontal)

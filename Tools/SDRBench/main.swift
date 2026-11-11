@@ -142,6 +142,24 @@ func selftest() {
         check(db(tone(e, 3500) / tone(e, 300)) < -40, String(format: "USB: 3,5 kHz außerhalb des Durchlassbereichs (%.1f dB)", db(tone(e, 3500) / tone(e, 300))))
     }
     do {
+        // Breites USB (DRM: 12 kHz Durchlassbereich, Signal bei 1 … 11 kHz im Audio) rechnet mit 48 kS/s
+        var s = SDRTestSignal(sampleRate: fs, seconds: 2)
+        for f in [1000.0, 6000, 8000, 11000, 14000, 17000] { s.addCarrier(offsetHz: 500_000 + f, amplitude: 0.05) }
+        s.addCarrier(offsetHz: 500_000 - 8000, amplitude: 0.05)       // unteres Seitenband
+        s.addNoise(sigma: 0.002)
+        var c = SDRChannelConfig(mode: .usb); c.agc = false; c.bandwidthHz = 12_000
+        let w = run(s, config: c, offset: 500_000)
+        let ref = tone(w, 1000)
+        check(ref > 0.05, String(format: "USB 12 kHz: Ton bei 1 kHz hörbar (%.3f)", ref))
+        for f in [6000.0, 8000, 11000] {
+            check(abs(db(tone(w, f) / ref)) < 1.5, String(format: "USB 12 kHz: Ton bei %.0f Hz im Durchlass (%.1f dB gegen 1 kHz)", f, db(tone(w, f) / ref)))
+        }
+        for f in [14000.0, 17000] {
+            check(db(tone(w, f) / ref) < -40, String(format: "USB 12 kHz: Ton bei %.0f Hz gesperrt (%.1f dB)", f, db(tone(w, f) / ref)))
+        }
+        check(db(tone(w, 8000) / ref) > -3 && db(tone(w, 8000) / ref) < 3, "USB 12 kHz: 8 kHz Pegel plausibel")
+    }
+    do {
         // AGC: schwaches und starkes Signal erreichen ähnlichen Pegel
         var weak = SDRTestSignal(sampleRate: fs, seconds: 3), strong = SDRTestSignal(sampleRate: fs, seconds: 3)
         weak.addCarrier(offsetHz: 400_000 + 1000, amplitude: 0.01); weak.addNoise(sigma: 0.002)

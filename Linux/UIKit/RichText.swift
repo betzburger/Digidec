@@ -32,15 +32,22 @@ public final class RichTextBuffer {
         let start = text.utf8.count
         text += s
         runs.append(Run(range: start..<(start + s.utf8.count), color: color, size: size, weight: weight, tag: tag))
-        revision &+= 1
+        changed()
     }
 
-    public func clear() { text = ""; runs = []; selection = nil; scrollOffset = 0; followsEnd = true; revision &+= 1 }
+    public func clear() { text = ""; runs = []; selection = nil; scrollOffset = 0; followsEnd = true; changed() }
 
     /// Farben der Abschnitte nach einem Themewechsel neu setzen
     public func recolor(_ transform: (Run) -> Color) {
         runs = runs.map { var r = $0; r.color = transform(r); return r }
+        changed()
+    }
+
+    /// Neuer Stand: Die Fläche der Ansicht als geändert melden. Text kommt meist ohne Neuaufbau der Ansicht hinzu (Rückruf des
+    /// Decoders); ohne diese Meldung erschiene er erst, wenn zufällig etwas anderes diesen Bereich neu zeichnen lässt.
+    private func changed() {
         revision &+= 1
+        MainActor.assumeIsolated { node?.contentChanged() }
     }
 
     public var selectedText: String? {
@@ -93,6 +100,11 @@ final class RichTextNode: Node {
     private var dragAnchor: Int?
     /// Stand beim letzten Zeichnen (für den Vergleich mit dem neuen Stand); nil, solange noch nicht gezeichnet
     var drawnSignature: Int?
+
+    func contentChanged() {
+        guard let host, host.rootNode != nil else { return }
+        host.addDamage(frame)
+    }
 
     func signature() -> Int {
         var h = Hasher()

@@ -195,6 +195,9 @@ struct TuningPanel: View {
                 .buttonStyle(.plain)
                 .help("NF-Mittenfrequenz (Klick setzt auf Standard 1.000 Hz zurück)")
             }
+            // Feste Zeilenhöhe: Bei schmaler Karte darf ein Wert schrumpfen, aber nie umbrechen. Ein Umbruch änderte die Höhe
+            // der Karte im Messtakt (Linux: „1 0 0 5 H z“ senkrecht, mit neuem Layout und Vollbild bei jedem Wechsel).
+            .frame(height: 14)
         }
     }
 
@@ -203,9 +206,13 @@ struct TuningPanel: View {
             Text(LocalizedStringKey(label))
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .foregroundColor(RadioTheme.textDim)
+                .lineLimit(1)
+                .fixedSize()
             Text(value)
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundColor(RadioTheme.vfdCyan)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .help(label == "S/N" ? "S/N wie in fldigi (Messfenster zwischen Mark und Space; bei starken Signalen niedrig)" : "")
     }

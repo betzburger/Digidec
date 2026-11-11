@@ -70,7 +70,7 @@ public enum SDRMode: String, CaseIterable, Identifiable, Codable, Sendable {
         case .wfm: return [150_000, 180_000, 200_000, 230_000, 256_000]
         case .nfm: return [8_000, 12_500, 25_000, 40_000]
         case .am: return [6_000, 10_000, 15_000]
-        case .usb, .lsb: return [2_400, 3_000, 4_000, 5_000]
+        case .usb, .lsb: return [2_400, 3_000, 4_000, 5_000, 12_000, 16_000, 20_000]
         case .cw, .cwr: return [250, 500, 1_000, 2_000]
         }
     }
@@ -127,7 +127,10 @@ public final class SDRDemodulator {
     static let channelRate = 240_000.0
     /// UKW-Rundfunk rechnet mit 480 kS/s: die 57-kHz-Hilfsträger des Multiplexsignals (RDS) brauchen die Bandbreite
     static let wfmRate = 480_000.0
+    /// Rechenrate des schmalen SSB-Zweigs (Sprache, Telegrafie, Schmalband-Digitalverfahren)
     static let ssbRate = 12_000.0
+    /// Ab dieser Obergrenze des Durchlassbereichs (Hz) rechnet SSB mit der Audiorate (DRM u. a.: Signal bis 20 kHz im Audio)
+    static let ssbWideLimit = 5_500.0
 
     public let sampleRate: Double
     public private(set) var config: SDRChannelConfig
@@ -153,6 +156,8 @@ public final class SDRDemodulator {
     private var chanFilter: ComplexStreamFIR?
     private var bpRI: StreamFIR?, bpIQ: StreamFIR?, bpII: StreamFIR?, bpRQ: StreamFIR?
     private var ssbToAudio: SampleRateConverter?
+    /// Rechenrate des aktuellen SSB-Zweigs: 12 kS/s, bei breitem Durchlassbereich 48 kS/s ohne Zwischenstufe
+    private var ssbRate = SDRDemodulator.ssbRate
     private var aI: [Float] = [], aQ: [Float] = [], fI: [Float] = [], fQ: [Float] = []
     private var t1: [Float] = [], t2: [Float] = [], t3: [Float] = [], t4: [Float] = []
     private var dem: [Float] = []
@@ -267,8 +272,10 @@ public final class SDRDemodulator {
             let transition = max(1_500, half * 0.35)
             chanFilter = ComplexStreamFIR(taps: SDRFilterDesign.lowpass(passband: half / Self.audioRate, stopband: min(half + transition, 23_500) / Self.audioRate, attenuationDB: 55))
         case .usb, .lsb, .cw, .cwr:
-            toSSBConv = ComplexRateConverter(inputRate: Self.channelRate, outputRate: Self.ssbRate)
-            ssbToAudio = SampleRateConverter(inputRate: Self.ssbRate, outputRate: Self.audioRate)
+            let wide = (c.mode == .usb || c.mode == .lsb) && c.ssbLowCutHz + c.bandwidthHz > Self.ssbWideLimit
+            ssbRate = wide ? Self.audioRate : Self.ssbRate
+            toSSBConv = ComplexRateConverter(inputRate: Self.channelRate, outputRate: ssbRate)
+            ssbToAudio = wide ? nil : SampleRateConverter(inputRate: Self.ssbRate, outputRate: Self.audioRate)
             let center: Double, half: Double
             switch c.mode {
             case .usb: half = c.bandwidthHz / 2; center = c.ssbLowCutHz + half
@@ -276,8 +283,9 @@ public final class SDRDemodulator {
             case .cw: half = c.bandwidthHz / 2; center = c.cwPitchHz
             default: half = c.bandwidthHz / 2; center = -c.cwPitchHz
             }
-            let transition = max(80, min(300, c.bandwidthHz * 0.15))
-            let bp = SDRFilterDesign.complexBandpass(halfWidth: half / Self.ssbRate, transition: transition / Self.ssbRate, center: center / Self.ssbRate, attenuationDB: 55, maximum: 1501)
+            // Breite Filter (DRM): sanftere Flanke, damit die Taps bei 48 kS/s überschaubar bleiben
+            let transition = wide ? 600 : max(80, min(300, c.bandwidthHz * 0.15))
+            let bp = SDRFilterDesign.complexBandpass(halfWidth: half / ssbRate, transition: transition / ssbRate, center: center / ssbRate, attenuationDB: 55, maximum: 1501)
             bpRI = StreamFIR(taps: bp.re); bpIQ = StreamFIR(taps: bp.im)
             bpII = StreamFIR(taps: bp.im); bpRQ = StreamFIR(taps: bp.re)
         }
@@ -444,9 +452,9 @@ public final class SDRDemodulator {
         appendOutput(out, to: &audio)
     }
 
-    // SSB und CW: auf 12 kS/s, komplexer Bandpass, Realteil, Verstärkungsregelung, zurück auf 48 kS/s
+    // SSB und CW: auf 12 kS/s (breit: 48 kS/s), komplexer Bandpass, Realteil, Verstärkungsregelung, zurück auf 48 kS/s
     private func demodulateSSB(audio: inout [Float]) {
-        guard let conv = toSSBConv, let a = bpRI, let b = bpIQ, let c = bpII, let d = bpRQ, let up = ssbToAudio else { return }
+        guard let conv = toSSBConv, let a = bpRI, let b = bpIQ, let c = bpII, let d = bpRQ else { return }
         conv.process(i: cI, q: cQ, outI: &aI, outQ: &aQ)
         guard !aI.isEmpty else { return }
         a.process(aI, into: &t1)      // I * hr
@@ -463,7 +471,7 @@ public final class SDRDemodulator {
         vDSP_svesq(yr, 1, &ps, vDSP_Length(n))
         vDSP_svesq(yi, 1, &pt, vDSP_Length(n))
         let p = Double(ps + pt) / Double(n)
-        let blockSeconds = Double(n) / Self.ssbRate
+        let blockSeconds = Double(n) / ssbRate
         let tau = p > powerAvg ? 0.008 : 0.025
         powerAvg += (p - powerAvg) * min(1.0, blockSeconds / tau)
         let db = 10 * log10(max(powerAvg, 1e-12))
@@ -472,8 +480,8 @@ public final class SDRDemodulator {
         metrics.squelchOpen = squelchIsOpen
         // Verstärkungsregelung: schneller Anstieg (5 ms), langsamer Abfall (400 ms)
         if config.agc {
-            let attack = Float(1 - exp(-1 / (0.005 * Self.ssbRate)))
-            let decay = Float(1 - exp(-1 / (0.4 * Self.ssbRate)))
+            let attack = Float(1 - exp(-1 / (0.005 * ssbRate)))
+            let decay = Float(1 - exp(-1 / (0.4 * ssbRate)))
             var env = agcEnv
             for k in 0..<n {
                 let m = (yr[k] * yr[k] + yi[k] * yi[k]).squareRoot()
@@ -484,8 +492,13 @@ public final class SDRDemodulator {
         } else {
             for k in 0..<n { yr[k] *= 10 }
         }
-        var a48 = [Float]()
-        yr.withUnsafeBufferPointer { b in up.process(b) { a48.append(contentsOf: $0) } }
+        var a48: [Float]
+        if let up = ssbToAudio {
+            a48 = []
+            yr.withUnsafeBufferPointer { b in up.process(b) { a48.append(contentsOf: $0) } }
+        } else {
+            a48 = yr        // schon 48 kS/s
+        }
         for k in a48.indices { a48[k] = clamp(a48[k], 1) }
         appendOutput(a48, to: &audio)
     }

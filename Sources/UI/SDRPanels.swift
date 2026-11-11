@@ -30,6 +30,8 @@ final class SDRSpectrumModel: ObservableObject {
     private var dbRows: [[Float]] = []
     private var needsRedraw = false
     private var timer: Timer?
+    /// Gibt die Zeilen einzeln im Zeilentakt frei und liefert den Rollzeitraum für das weiche Rollen
+    private var pacer = SDRRowPacer()
     private var themeObserver: NSObjectProtocol?
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
@@ -49,10 +51,11 @@ final class SDRSpectrumModel: ObservableObject {
         }
     }
 
-    /// Zeilen mit 25 Hz holen, solange die Ansicht sichtbar ist
+    /// Zeilen holen, solange die Ansicht sichtbar ist. Der Zeitgeber läuft schneller als der Zeilentakt, damit jede Zeile pünktlich
+    /// einzeln erscheint: Mit 25 Hz kamen mal eine, mal zwei Zeilen auf einmal (Abstände 30–100 ms statt 40), der Wasserfall ruckelte.
     func start() {
         guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 25, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 100, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.update() }
         }
     }
@@ -60,10 +63,16 @@ final class SDRSpectrumModel: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        pacer.reset()
     }
 
+    /// Wie weit die neueste Zeile ins Bild gerollt ist (0…1), für das weiche Rollen der Ansicht
+    func scrollProgress(at date: Date) -> CGFloat { CGFloat(pacer.progress(at: date.timeIntervalSinceReferenceDate)) }
+
     private func update() {
-        let rows = rowSource()
+        let now = Date().timeIntervalSinceReferenceDate
+        pacer.push(rowSource(), now: now)
+        let rows = pacer.release(now: now)
         guard !rows.isEmpty || needsRedraw else { return }
         for raw in rows {
             if raw.count != columns && raw.count > 0 {
@@ -96,11 +105,12 @@ final class SDRSpectrumModel: ObservableObject {
     private func paint(row: [Float], at r: Int) {
         let lut = WaterfallColorMap.lut
         let lo = floorDB - 6
+        let range = rangeDB   // @Published nicht je Bildpunkt lesen
         let width = columns
         pixels.withUnsafeMutableBufferPointer { p in
             let base = p.baseAddress! + r * width
             let count = min(width, row.count)
-            for i in 0..<count { base[i] = lut[WaterfallColorMap.index(db: row[i], floorDB: lo, rangeDB: rangeDB)] }
+            for i in 0..<count { base[i] = lut[WaterfallColorMap.index(db: row[i], floorDB: lo, rangeDB: range)] }
         }
     }
 
@@ -286,26 +296,26 @@ struct SDRSpectrumView: View {
 
     @ViewBuilder
     private func waterfallImage(range: ClosedRange<Double>, fullRange: ClosedRange<Double>) -> some View {
-        if let image = model.value.image {
-            let fSpan = fullRange.upperBound - fullRange.lowerBound
-            let vSpan = range.upperBound - range.lowerBound
-            let imgW = Double(image.width)
-            let imgH = Double(image.height)
-            if zoom == .x1 || vSpan >= fSpan || fSpan <= 0 {
-                Image(decorative: image, scale: 1).resizable().interpolation(.medium)
-            } else {
-                let cropX = max(0, min(imgW, ((range.lowerBound - fullRange.lowerBound) / fSpan) * imgW))
-                let cropW = max(1, min(imgW - cropX, (vSpan / fSpan) * imgW))
-                let cropRect = CGRect(x: cropX, y: 0, width: cropW, height: imgH)
-                if let cropped = image.cropping(to: cropRect) {
-                    Image(decorative: cropped, scale: 1).resizable().interpolation(.medium)
-                } else {
-                    Image(decorative: image, scale: 1).resizable().interpolation(.medium)
-                }
-            }
+        if let bitmap = waterfallBitmap(range: range, fullRange: fullRange) {
+            SDRWaterfallImage(model: model.value, image: bitmap.image, rows: bitmap.rows, running: isRunning)
         } else {
             Rectangle().fill(RadioTheme.bgDeep)
         }
+    }
+
+    private var isRunning: Bool { if case .running = controller.status { return true } else { return false } }
+
+    /// Sichtbarer Ausschnitt des Wasserfallbildes (beim Zoomen nur der gezeigte Frequenzbereich)
+    private func waterfallBitmap(range: ClosedRange<Double>, fullRange: ClosedRange<Double>) -> (image: CGImage, rows: Int)? {
+        guard let image = model.value.image else { return nil }
+        let fSpan = fullRange.upperBound - fullRange.lowerBound
+        let vSpan = range.upperBound - range.lowerBound
+        if zoom == .x1 || vSpan >= fSpan || fSpan <= 0 { return (image, image.height) }
+        let imgW = Double(image.width)
+        let cropX = max(0, min(imgW, ((range.lowerBound - fullRange.lowerBound) / fSpan) * imgW))
+        let cropW = max(1, min(imgW - cropX, (vSpan / fSpan) * imgW))
+        let cropped = image.cropping(to: CGRect(x: cropX, y: 0, width: cropW, height: Double(image.height))) ?? image
+        return (cropped, image.height)
     }
 
     /// Rechtsklick: das Signal an der Mausposition vermessen und dem KI-Assistenten vorlegen
@@ -347,12 +357,16 @@ struct SDRSpectrumView: View {
                 }
             }
 
-            Spacer(minLength: 8)
+            // Die Anzeige (mit Mausfrequenz beim Überfahren des Wasserfalls) bekommt nur den Platz, der neben den Tasten übrig bleibt,
+            // und wird notfalls gekürzt: So bleiben alle Tasten der Zeile stehen, egal wie lang der Text gerade ist.
             Text(readout)
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundColor(RadioTheme.textMuted)
                 .lineLimit(1)
-            Spacer(minLength: 8)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 8)
+                .layoutPriority(-1)
 
             Menu {
                 ForEach(SDRWaterfallResolution.allCases) { r in
@@ -418,12 +432,14 @@ struct SDRSpectrumView: View {
         return "\(b)"
     }
 
+    /// Über dem Wasserfall: die Frequenz unter dem Zeiger (gleich lang wie die Ruheanzeige, damit sie in den freien Platz passt);
+    /// sonst Abstimmfrequenz und Betriebsart bzw. Kanalbank, beim Zoomen mit Spanne
     private var readout: String {
+        if let h = hoverHz { return "▸ " + SDRFormat.frequency(h) + " MHz" }
         var s = bank.isActive ? "\(bank.slots.filter(\.enabled).count) Kanäle" : SDRFormat.frequency(settings.frequencyHz) + " MHz " + settings.mode.title
         if zoom != .x1 {
             s += " · Span " + SDRFormat.stepName(visibleSpan)
         }
-        if let h = hoverHz { s += " · ▸ " + SDRFormat.frequency(h) }
         return s
     }
 
@@ -493,6 +509,32 @@ struct SDRSpectrumView: View {
 final class SDRHoverState {
     static let shared = SDRHoverState()
     var hovering = false
+}
+
+/// Wasserfallbild, weich rollend (HF-Wasserfall, DAB): Das Bild ist eine Zeile höher als die Fläche und rückt in jedem
+/// Bildwechsel um den Bruchteil einer Zeile vor, den der Taktpuffer vorgibt (`SDRRowPacer`). Kommt eine neue Zeile, steht sie
+/// zunächst knapp über dem sichtbaren Rand, alles andere genau dort, wo es eben war; der Übergang ist nahtlos. Ganze Zeilensprünge
+/// im 25-Hz-Takt ruckelten auf 60-Hz-Bildschirmen sichtbar (jede Zeile stand abwechselnd 33 oder 50 ms).
+struct SDRWaterfallImage: View {
+    let model: SDRSpectrumModel
+    let image: CGImage
+    /// Zeilen des ungeschnittenen Bildes (Höhe einer Zeile in der Ansicht)
+    let rows: Int
+    /// Ohne laufenden Empfang ruht die Zeitleiste
+    let running: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            let rowHeight = geo.size.height / CGFloat(max(1, rows - 1))
+            TimelineView(.animation(minimumInterval: nil, paused: !running)) { context in
+                let progress = model.scrollProgress(at: context.date)
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium)
+                    .frame(width: geo.size.width, height: geo.size.height + rowHeight)
+                    .offset(y: -(1 - progress) * rowHeight)
+            }
+        }
+        .clipped()
+    }
 }
 
 /// Hält das Modell in einer StateObject-Hülle (das Modell braucht den Controller zum Anlegen)
@@ -636,14 +678,12 @@ struct RFSpectrumGraph: View {
                     return CGPoint(x: x, y: y)
                 }
 
+                let points = Self.polyline(first...last, width: size.width, point: point)
                 var line = Path()
-                let p0 = point(first)
+                let p0 = points[0]
                 line.move(to: CGPoint(x: min(0, p0.x), y: p0.y))
-                line.addLine(to: p0)
-                for i in (first + 1)...last {
-                    line.addLine(to: point(i))
-                }
-                let pLast = point(last)
+                for p in points { line.addLine(to: p) }
+                let pLast = points[points.count - 1]
                 line.addLine(to: CGPoint(x: max(size.width, pLast.x), y: pLast.y))
 
                 var fill = line
@@ -658,9 +698,10 @@ struct RFSpectrumGraph: View {
                     let v = CGFloat((spectrum[i] - bottom) / (top - bottom))
                     return CGPoint(x: x, y: size.height * (1 - min(1, max(0, v))))
                 }
+                let points = Self.polyline(0...(count - 1), width: size.width, point: point)
                 var line = Path()
-                line.move(to: point(0))
-                for i in 1..<count { line.addLine(to: point(i)) }
+                line.move(to: points[0])
+                for p in points.dropFirst() { line.addLine(to: p) }
                 var fill = line
                 fill.addLine(to: CGPoint(x: size.width, y: size.height))
                 fill.addLine(to: CGPoint(x: 0, y: size.height))
@@ -671,6 +712,40 @@ struct RFSpectrumGraph: View {
         }
         .background(RadioTheme.bgDeep)
         .overlay(alignment: .bottom) { Rectangle().fill(RadioTheme.borderSubtle).frame(height: 1) }
+    }
+
+    /// Punkte der Spektrumlinie. Liegen mehr Werte als Punkte nebeneinander (bis 32.768 FFT-Punkte auf einigen hundert Punkten
+    /// Breite), bleiben je Spalte nur Höchst- und Tiefstwert in ihrer Reihenfolge: dasselbe Band, ein Bruchteil der Zeichenarbeit.
+    static func polyline(_ indices: ClosedRange<Int>, width: CGFloat, point: (Int) -> CGPoint) -> [CGPoint] {
+        guard CGFloat(indices.count) > width else { return indices.map(point) }
+        var result: [CGPoint] = []
+        result.reserveCapacity(Int(width) * 2 + 4)
+        var column = Int.min
+        var top = CGPoint.zero, bottom = CGPoint.zero
+        var topFirst = true
+        func flush() {
+            guard column != Int.min else { return }
+            if top == bottom { result.append(top) }
+            else if topFirst { result.append(top); result.append(bottom) }
+            else { result.append(bottom); result.append(top) }
+        }
+        for i in indices {
+            let p = point(i)
+            let c = Int(p.x.rounded(.down))
+            if c != column {
+                flush()
+                column = c
+                top = p; bottom = p; topFirst = true
+            } else if p.y < top.y {
+                top = p
+                topFirst = false
+            } else if p.y > bottom.y {
+                bottom = p
+                topFirst = true
+            }
+        }
+        flush()
+        return result
     }
 }
 

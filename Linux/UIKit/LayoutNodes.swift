@@ -107,12 +107,18 @@ final class SpacerNode: Node {
     let minLength: CGFloat
     let axis: Axis?
     init(identity: Identity, minLength: CGFloat, axis: Axis?) { self.minLength = minLength; self.axis = axis; super.init(identity: identity) }
+    /// Nimmt, was vorgeschlagen wird (mindestens `minLength`). Auf einen unendlichen Vorschlag antwortet er mit unendlicher Länge wie in
+    /// SwiftUI: Daran misst der Stapel die Flexibilität. Mit der Mindestlänge galt er als starr, bekam nur einen Anteil statt des
+    /// ganzen Rests, und Zeilen blieben in breiten Fenstern schmaler als das Fenster (Kopfzeile mittig statt Logo links).
     override func computeSize(_ p: Proposal) -> CGSize {
+        func length(_ v: CGFloat?) -> CGFloat {
+            guard let v else { return minLength }
+            return v.isInfinite ? .infinity : max(minLength, v)
+        }
         switch axis {
-        case .horizontal?: return CGSize(width: max(minLength, (p.width?.isFinite ?? false) ? p.width! : 0), height: 0)
-        case .vertical?: return CGSize(width: 0, height: max(minLength, (p.height?.isFinite ?? false) ? p.height! : 0))
-        case nil:
-            return CGSize(width: max(minLength, (p.width?.isFinite ?? false) ? p.width! : 0), height: max(minLength, (p.height?.isFinite ?? false) ? p.height! : 0))
+        case .horizontal?: return CGSize(width: length(p.width), height: 0)
+        case .vertical?: return CGSize(width: 0, height: length(p.height))
+        case nil: return CGSize(width: length(p.width), height: length(p.height))
         }
     }
 }

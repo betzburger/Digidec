@@ -82,10 +82,22 @@ public struct GraphicsContext {
 
     // MARK: Zeichnen
 
+    /// Ab so vielen Elementen zeichnet Cairo mit schneller Kantenglättung: Bei dichten Linienzügen (Spektren mit Tausenden Punkten)
+    /// ist kein Unterschied zu sehen, die Standardglättung kostet dort aber das Vier- bis Zehnfache (8192 Punkte: 25 ms statt 4,5 ms)
+    private static let denseElements = 512
+
+    private func withDenseAntialias(_ path: Path, _ draw: () -> Void) {
+        guard path.elements.count >= Self.denseElements else { draw(); return }
+        let previous = cairo_get_antialias(cr)
+        cairo_set_antialias(cr, CAIRO_ANTIALIAS_FAST)
+        draw()
+        cairo_set_antialias(cr, previous)
+    }
+
     public func fill(_ path: Path, with shading: Shading) {
         apply(path)
         source(shading)
-        cairo_fill(cr)
+        withDenseAntialias(path) { cairo_fill(cr) }
     }
 
     public func stroke(_ path: Path, with shading: Shading, lineWidth: CGFloat = 1) {
@@ -107,7 +119,7 @@ public struct GraphicsContext {
         case .bevel: cairo_set_line_join(cr, CAIRO_LINE_JOIN_BEVEL)
         }
         if !style.dash.isEmpty { style.dash.map { Double($0) }.withUnsafeBufferPointer { cairo_set_dash(cr, $0.baseAddress, Int32($0.count), 0) } } else { cairo_set_dash(cr, nil, 0, 0) }
-        cairo_stroke(cr)
+        withDenseAntialias(path) { cairo_stroke(cr) }
     }
 
     public func clip(to path: Path) {

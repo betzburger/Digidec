@@ -34,9 +34,13 @@ final class CanvasNode: Node {
 public struct TimelineViewDefaultContext { public var date: Date }
 
 public struct TimelineSchedule {
+    /// Abstand der Aktualisierungen; 0 = in jedem Bildwechsel des Fensters (wie `.animation` in SwiftUI)
     let interval: TimeInterval
-    public static var animation: TimelineSchedule { TimelineSchedule(interval: 1.0 / 30) }
-    public static func animation(minimumInterval: TimeInterval? = nil, paused: Bool = false) -> TimelineSchedule { TimelineSchedule(interval: max(minimumInterval ?? 1.0 / 30, 1.0 / 60)) }
+    var paused = false
+    public static var animation: TimelineSchedule { .animation() }
+    public static func animation(minimumInterval: TimeInterval? = nil, paused: Bool = false) -> TimelineSchedule {
+        TimelineSchedule(interval: max(0, minimumInterval ?? 0), paused: paused)
+    }
     public static func periodic(from start: Date, by interval: TimeInterval) -> TimelineSchedule { TimelineSchedule(interval: interval) }
     public static var everyMinute: TimelineSchedule { TimelineSchedule(interval: 60) }
 }
@@ -48,7 +52,8 @@ public struct TimelineView<Content: View> {
         self.schedule = schedule; self.content = content
     }
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
-        r.host?.registerTimeline(identity: r.identity, interval: schedule.interval)
+        if schedule.paused { r.host?.unregisterTimeline(identity: r.identity) }
+        else { r.host?.registerTimeline(identity: r.identity, interval: schedule.interval) }
         let content = self.content
         return r.refreshable { [unowned r] in r.resolve(content(TimelineViewDefaultContext(date: Date())), key: 0) }
     }
@@ -81,6 +86,7 @@ public struct GeometryReader<Content: View> {
 
     @MainActor func makeNodes(_ r: Resolver) -> [Node] {
         let node = GeometryNode(identity: r.identity)
+        node.host = r.host
         let identity = r.identity, env = r.env, content = self.content
         node.build = { [unowned r] size, origin in
             let savedIdentity = r.identity, savedEnv = r.env
@@ -95,6 +101,7 @@ public struct GeometryReader<Content: View> {
 @MainActor
 final class GeometryNode: Node {
     var build: ((CGSize, CGPoint) -> Node)?
+    weak var host: UIHost?
     override func computeSize(_ p: Proposal) -> CGSize {
         CGSize(width: p.width.flatMap { $0.isFinite ? $0 : nil } ?? 10, height: p.height.flatMap { $0.isFinite ? $0 : nil } ?? 10)
     }
@@ -102,6 +109,9 @@ final class GeometryNode: Node {
         frame = CGRect(origin: origin, size: size)
         if let child = build?(size, origin) {
             children = [child]
+            // Der Inhalt entsteht bei jedem Platzieren neu (Layout, Scrollen, Auffrischen eines Vorfahren): die neuen Knoten anmelden,
+            // sonst erreichen spätere Änderungen nur die abgehängten alten und dieser Teil der Oberfläche steht still
+            host?.indexComposites(in: child)
             child.place(origin: origin, size: child.size(for: .fixed(size)))
         }
     }

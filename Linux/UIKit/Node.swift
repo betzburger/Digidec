@@ -144,6 +144,9 @@ class Node {
 
     func computeSize(_ proposal: Proposal) -> CGSize { .zero }
 
+    /// Die gemerkten Größen: Antworten dieses Knotens auf die Vorschläge des letzten Layouts
+    final var measuredSizes: [Proposal: CGSize] { sizeCache }
+
     /// Verwirft die gemerkten Größen dieses Knotens und aller Nachfahren (nach einer Änderung von Inhalten)
     final func clearSizeCaches() {
         sizeCache.removeAll(keepingCapacity: true)
@@ -182,15 +185,17 @@ class Node {
     final func buildDrawBounds() -> CGRect {
         var r = frame
         for c in children { let b = c.buildDrawBounds(); if !b.isEmpty { r = r.isEmpty ? b : r.union(b) } }
+        r = inkBounds(r)
         Node.drawBounds[ObjectIdentifier(self)] = r
         return r
     }
 
-    /// Umschließendes Rechteck dieses Knotens und aller Nachfahren (Kinder dürfen über den Rahmen hinausragen)
+    /// Bereich, den dieser Knoten samt Nachfahren beim Zeichnen berühren kann (Kinder dürfen über den Rahmen hinausragen;
+    /// Schatten, Unschärfe, Striche und Glyphen über ihren Rahmen, siehe `inkBounds`)
     final func subtreeBounds() -> CGRect {
         var r = frame
         for c in children { let b = c.subtreeBounds(); if !b.isEmpty { r = r.isEmpty ? b : r.union(b) } }
-        return r
+        return inkBounds(r)
     }
 
     /// Alle Knoten an einem Punkt, der tiefste zuerst
@@ -230,6 +235,8 @@ class WrapperNode: Node {
 final class CompositeNode: Node {
     var rebuild: (() -> [Node])?
     var lastProposal = Proposal.unspecified
+    /// Ansichtstyp (nur für Fehlersuche)
+    var viewType: Any.Type?
 
     override func computeSize(_ p: Proposal) -> CGSize {
         lastProposal = p
@@ -256,11 +263,15 @@ final class CompositeNode: Node {
     func refresh() -> (stable: Bool, previous: [Node]) {
         guard let rebuild else { return (true, children) }
         let old = frame.size
+        let previousSizes = measuredSizes
         let previous = children
         children = rebuild()
         clearSizeCaches()
-        let new = size(for: lastProposal)
-        if new == old { placeChildren(); return (true, previous) }
+        // Stabil, wenn der Knoten auf jeden Vorschlag des letzten Layouts gleich antwortet: Dann käme das Elternteil zum selben
+        // Ergebnis. Der Rahmen allein taugt nicht als Vergleich, ein gestauchter Knoten (Fenster schmaler als gewünscht) ist kleiner
+        // als seine Wunschgröße und galt sonst bei jeder Änderung als gewachsen, mit neuem Layout und Vollbild in jedem Takt.
+        let stable = previousSizes.isEmpty ? size(for: lastProposal) == old : previousSizes.allSatisfy { size(for: $0.key) == $0.value }
+        if stable { placeChildren(); return (true, previous) }
         return (false, previous)
     }
 }
@@ -306,6 +317,7 @@ final class Resolver {
             return p.makeNodes(self)
         }
         let node = CompositeNode(identity: identity)
+        node.viewType = V.self
         let savedIdentity = identity, savedEnv = env
         node.rebuild = { [self] in
             let outerIdentity = identity, outerEnv = env
@@ -339,7 +351,9 @@ final class Resolver {
         let typeKey = ObjectIdentifier(V.self)
         if Resolver.withoutDynamicProperties.contains(typeKey) { return }
         let id = identity
-        let context = AttachContext(store: store, identity: id, environment: env, invalidate: { [weak self] in self?.host?.invalidate(id) })
+        // Nur den Host halten, nicht den Resolver: Abonnements im Zustandsspeicher überleben die Auflösung, in der sie entstanden
+        // (der Resolver ist danach frei, und Änderungen beobachteter Objekte kämen sonst nie mehr an)
+        let context = AttachContext(store: store, identity: id, environment: env, invalidate: { [weak host] in host?.invalidate(id) })
         var index = 0
         for child in Mirror(reflecting: view).children {
             if let p = child.value as? any DynamicProperty {

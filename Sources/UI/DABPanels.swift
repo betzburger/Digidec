@@ -426,7 +426,7 @@ struct DABSpectrumPanel: View {
                     VStack(spacing: 0) {
                         RFSpectrumGraph(spectrum: model.value.spectrum, floorDB: model.value.floorDB, rangeDB: model.value.rangeDB).frame(height: 54)
                         if let image = model.value.image {
-                            Image(decorative: image, scale: 1).resizable().interpolation(.medium)
+                            SDRWaterfallImage(model: model.value, image: image, rows: image.height, running: isRunning)
                         } else {
                             Rectangle().fill(RadioTheme.bgDeep)
                         }
@@ -447,4 +447,6 @@ struct DABSpectrumPanel: View {
         .onAppear { model.value.start() }
         .onDisappear { model.value.stop() }
     }
+
+    private var isRunning: Bool { if case .running = controller.status { return true } else { return false } }
 }
