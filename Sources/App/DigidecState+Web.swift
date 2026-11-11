@@ -139,11 +139,8 @@ extension DigidecState: WebHostDelegate {
         }
     }
 
-    /// Frequenz aus dem Browser als Dial-Wert: gerundet und auf 100 kHz … 100 GHz begrenzt (die Umwandlung kann so nie abbrechen)
-    nonisolated static func webDialHz(_ hz: Double) -> Int64 {
-        guard hz.isFinite else { return 100_000 }
-        return Int64(min(100_000_000_000, max(100_000, hz.rounded())))
-    }
+    /// Frequenz aus dem Browser als Dial-Wert (Prüfung in `WebInputLimits`)
+    nonisolated static func webDialHz(_ hz: Double) -> Int64 { WebInputLimits.dialHz(hz) }
 
     public func tuneOffset(hz: Double) {
         guard hz.isFinite, abs(hz) <= 100_000_000_000, !webOwnsDevice else { return }

@@ -5647,8 +5647,8 @@ if want("web") {
     if let json = try? JSONSerialization.jsonObject(with: Data(#"{"hz":1e300,"zoom":4,"delta":-5}"#.utf8)) as? [String: Any] {
         check(WebCommandValue.double(json["hz"]) == nil && WebCommandValue.int(json["zoom"]) == 4 && WebCommandValue.int(json["delta"]) == -5, "Browser-Zahl: aus echtem JSON")
     } else { check(false, "Browser-Zahl: JSON nicht lesbar") }
-    check(DigidecState.webDialHz(1e300) == 100_000_000_000 && DigidecState.webDialHz(-5) == 100_000 && DigidecState.webDialHz(.nan) == 100_000, "Dial aus dem Browser: begrenzt, nie abbrechend")
-    check(DigidecState.webDialHz(14_074_000.4) == 14_074_000, "Dial aus dem Browser: gerundet")
+    check(WebInputLimits.dialHz(1e300) == 100_000_000_000 && WebInputLimits.dialHz(-5) == 100_000 && WebInputLimits.dialHz(.nan) == 100_000, "Dial aus dem Browser: begrenzt, nie abbrechend")
+    check(WebInputLimits.dialHz(14_074_000.4) == 14_074_000, "Dial aus dem Browser: gerundet")
 
     // Herkunft des WebSocket-Handshakes (gegen Cross-Site WebSocket Hijacking)
     func origin(_ origin: String?, host: String?) -> Bool {
