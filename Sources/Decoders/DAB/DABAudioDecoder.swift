@@ -35,7 +35,7 @@ public final class DABAACDecoder: @unchecked Sendable {
 
     /// Eine Zugriffseinheit decodieren; Rückgabe: Abtastwerte, bei Stereo abwechselnd links und rechts (FAAD2 liefert im Float-Format bereits −1 … 1)
     public func decode(_ au: [UInt8]) -> [Float] {
-        guard let h = handle else { return [] }
+        guard let h = handle, !au.isEmpty else { return [] }
         var info = NeAACDecFrameInfo()
         var data = au
         guard let out = NeAACDecDecode(h, &info, &data, UInt(data.count)), info.error == 0, info.samples > 0 else { return [] }

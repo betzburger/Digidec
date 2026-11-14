@@ -136,7 +136,7 @@ public final class DRMSignalGenerator {
                 mscStream += interleave(cells)
                 frameNumber += 1
             }
-            var mscPos = 0, sdcPos = 0
+            let mscPos = 0, sdcPos = 0
             var facPositions: [Int: Int] = [:]
             for (i, c) in map.facCells.enumerated() { facPositions[c.symbol * nCar + c.index] = i }
             var sdcIndex: [Int: Int] = [:]

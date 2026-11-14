@@ -605,7 +605,6 @@ public final class DRMReceiver {
     private func decodeFrame(at first: Int) {
         guard let map = map else { return }
         let m = mode
-        let F = m.symbolsPerFrame
         let rel = first - rowBase
         let est = estimate(rowsRe: rowsRe, rowsIm: rowsIm, first: rel, frameAlign: frameAlign - rowBase, kLo: kLo, map: map, rowBase: rowBase)
         // Takt nachführen aus der Phasensteigung der Kanalschätzung (Verzögerung des Hauptpfades)

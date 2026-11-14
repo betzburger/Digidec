@@ -879,6 +879,11 @@ int MT63rx::Preset(double freq, int BandWidth, int LongInterleave, int Integ,
 	if (dspRedspAllocArray(&FreqPipe, TrackPipeLen)) goto Error;
 	dspClearArray(FreqPipe, TrackPipeLen);
 	TrackPipePtr = 0;
+	// ABWEICHUNG fldigi (Digidec): die gleitenden Mittelwerte vorbelegen. fldigi liest AverFreq und AverSymb im ersten
+	// Durchlauf von SyncProcess(), bevor sie zum ersten Mal berechnet sind (nicht initialisierter Speicher).
+	AverFreq = 0.0;
+	AverSymb.re = 0.0;
+	AverSymb.im = 0.0;
 
 	SymbFitPos = ScanMargin * DataCarrSepar;
 	SyncLocked = 0;
@@ -1353,7 +1358,10 @@ void MT63rx::DataProcess(dspCmpx *EvenSlice, dspCmpx *OddSlice, double FreqOfs, 
 //  printf("Symbol vectors:\n");
 	incr = (TimeDist * DataCarrSepar) & WindowLenMask;	// correct FFT dspPhase shift
 	p = (TimeDist * DataScanFirst) & WindowLenMask;	// due to time shift by
-	for (c = DataScanFirst, i = 0; i < DataScanLen; ) {	// TimeDist
+	// ABWEICHUNG fldigi (Digidec): Startindex auf die FFT-Länge begrenzen. DataScanFirst ist unbegrenzt (z. B. MT63-500 bei Mitte 1500 Hz:
+	// 608 bei 512 Punkten; bei tiefer Mitte negativ), fldigi liest damit beim ersten Träger des Suchrands außerhalb von FFTbuff
+	// (vom Speicherprüfer gemeldet). Alle folgenden Indizes maskiert schon das Original; ebenso ScanFirst und die Phase p.
+	for (c = DataScanFirst & WindowLenMask, i = 0; i < DataScanLen; ) {	// TimeDist
 // printf("%2d,%3d:",i,c);
 // printf("  [%6.3f,%6.3f]  [%6.3f,%6.3f]",
 //	 FFTbuff[c].re,FFTbuff[c].im,

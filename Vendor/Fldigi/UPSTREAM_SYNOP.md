@@ -15,7 +15,7 @@ Erkennt Wettermeldungen im RTTY-Text und gibt sie als Klartext aus („Temperatu
 
 | Digidec | fldigi 4.2.13 | Änderung |
 |---|---|---|
-| `src/synop.cpp` | `src/synop-src/synop.cxx` | 3 Stellen, siehe unten |
+| `src/synop.cpp` | `src/synop-src/synop.cxx` | 4 Stellen, siehe unten |
 | `src/synop.h`, `re.h`, `strutil.h`, `coordinate.h`, `locator.h`, `field_def.h`, `record_loader.h` | `src/include/…` | unverändert |
 | `src/re.cpp`, `src/strutil.cpp` | `src/misc/re.cxx`, `strutil.cxx` | + `#include "digidec_compat.h"` |
 | `src/coordinate.cpp` | `src/misc/coordinate.cxx` | unverändert |
@@ -37,6 +37,8 @@ Digidec tut das auch, damit die rund 100 SYNOP-Muster exakt gleich greifen.
    Jetzt wird ohne gesetzten Abschnitt nicht nach Priorität gefiltert.
 3. **Fehler in fldigi behoben:** `DayHourMin2Tm()` rechnet die UTC-Felder mit `mktime()` um, das sie als Ortszeit deutet. In MESZ wurde so aus 18 UTC „17:00“.
    Jetzt `timegm()`.
+4. `enum section_t` hat den festen Grundtyp `int`: Der Decoder benutzt −1 als „kein Abschnitt“; ohne festen Grundtyp liegt −1 außerhalb
+   des Wertebereichs der Aufzählung (undefiniertes Verhalten, vom UB-Prüfer gemeldet). Keine Änderung am Ablauf.
 
 ## Verhalten (wie fldigi)
 

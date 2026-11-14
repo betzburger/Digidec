@@ -19,7 +19,41 @@ final class DRMXHEDecoder {
     /// Letzter Status des Systemdecoders (für die Fehlersuche)
     private(set) var lastStatus: OSStatus = 0
 
-    private final class Feed { var data: [UInt8] = []; var offered = false; var desc = AudioStreamPacketDescription() }
+    /// Gibt es auf diesem System einen xHE-AAC-Decoder? (macOS bringt ihn mit; unter Linux hängt es von libfdk-aac ab)
+    static var isAvailable: Bool { true }
+    /// Hinweis für die Oberfläche, wenn kein Decoder da ist
+    static var unavailableReason: String { "" }
+
+    /// Eingabe für den Rückruf des Wandlers. Puffer und Paketbeschreibung liegen in eigenem, festem Speicher: der Wandler behält die
+    /// Zeiger über den Rückruf hinaus, Zeiger in ein Swift-Feld oder eine Klassenvariable gälten nur innerhalb des jeweiligen Zugriffs.
+    private final class Feed {
+        private(set) var bytes: UnsafeMutableRawPointer
+        private var capacity: Int
+        var count = 0
+        var offered = false
+        let desc: UnsafeMutablePointer<AudioStreamPacketDescription>
+
+        init() {
+            capacity = 4096
+            bytes = .allocate(byteCount: capacity, alignment: 16)
+            desc = .allocate(capacity: 1)
+            desc.initialize(to: AudioStreamPacketDescription())
+        }
+
+        deinit { bytes.deallocate(); desc.deallocate() }
+
+        func load(_ au: [UInt8]) {
+            if au.count > capacity {
+                bytes.deallocate()
+                capacity = au.count * 2
+                bytes = .allocate(byteCount: capacity, alignment: 16)
+            }
+            au.withUnsafeBytes { bytes.copyMemory(from: $0.baseAddress!, byteCount: au.count) }
+            count = au.count
+            offered = false
+            desc.pointee = AudioStreamPacketDescription(mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(au.count))
+        }
+    }
     private let feed = Feed()
 
     /// Aus den SDC-Angaben (Typ 9); nil, wenn die Konfiguration nicht lesbar ist oder der Decoder sie nicht annimmt
@@ -74,9 +108,7 @@ final class DRMXHEDecoder {
             guard au[0] & 0x80 != 0 else { skipped += 1; return silence }
             needIndependent = false
         }
-        feed.data = au
-        feed.offered = false
-        feed.desc = AudioStreamPacketDescription(mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(au.count))
+        feed.load(au)
         var pcm = [Float](repeating: 0, count: granule * channels)
         var frames = UInt32(granule)
         let ch = channels
@@ -85,13 +117,11 @@ final class DRMXHEDecoder {
             let f = Unmanaged<Feed>.fromOpaque(user!).takeUnretainedValue()
             if f.offered { ioPackets.pointee = 0; return 1 }
             f.offered = true
-            f.data.withUnsafeMutableBytes { raw in
-                ioData.pointee.mNumberBuffers = 1
-                ioData.pointee.mBuffers.mNumberChannels = 0
-                ioData.pointee.mBuffers.mDataByteSize = UInt32(raw.count)
-                ioData.pointee.mBuffers.mData = raw.baseAddress
-            }
-            withUnsafeMutablePointer(to: &f.desc) { outDesc?.pointee = $0 }
+            ioData.pointee.mNumberBuffers = 1
+            ioData.pointee.mBuffers.mNumberChannels = 0
+            ioData.pointee.mBuffers.mDataByteSize = UInt32(f.count)
+            ioData.pointee.mBuffers.mData = f.bytes
+            outDesc?.pointee = f.desc
             ioPackets.pointee = 1
             return noErr
         }
@@ -99,7 +129,6 @@ final class DRMXHEDecoder {
             list.mBuffers.mData = out.baseAddress
             return AudioConverterFillComplexBuffer(conv, provide, Unmanaged.passUnretained(feed).toOpaque(), &frames, &list, nil)
         }
-        feed.data = []
         lastStatus = status
         if (status != noErr && status != 1) || frames == 0 { failed += 1; loss(); return silence }
         decoded += 1
@@ -110,7 +139,7 @@ final class DRMXHEDecoder {
 import Foundation
 import CXHEDecode
 
-/// xHE-AAC-Zugriffseinheiten (USAC) mit libavcodec (FFmpeg) in Töne verwandeln. Gleiche Schnittstelle wie die Fassung für macOS (AudioToolbox).
+/// xHE-AAC-Zugriffseinheiten (USAC) mit libfdk-aac (zur Laufzeit geladen, siehe Linux/Shims/CXHEDecode) in Töne verwandeln. Gleiche Schnittstelle wie die Fassung für macOS (AudioToolbox).
 /// Die Konfiguration kommt als AudioSpecificConfig (siehe `DRMXHEConfig.audioSpecificConfig`).
 final class DRMXHEDecoder {
     private var decoder: OpaquePointer?
@@ -124,6 +153,11 @@ final class DRMXHEDecoder {
     private(set) var failed = 0
     /// Letzter Rückgabewert des Decoders (für die Fehlersuche)
     private(set) var lastStatus: Int32 = 0
+
+    /// Gibt es auf diesem System einen xHE-AAC-Decoder? (libfdk-aac wird zur Laufzeit gesucht, siehe Linux/Shims/CXHEDecode)
+    static var isAvailable: Bool { xhe_available() != 0 }
+    /// Hinweis für die Oberfläche, wenn kein Decoder da ist
+    static var unavailableReason: String { "xHE-AAC: libfdk-aac ist nicht installiert (Paket „fdk-aac“ bzw. „libfdk-aac2“)" }
 
     convenience init?(param: DRMAudioParam) {
         guard param.coding == .xheaac, param.mode == 0 || param.mode == 2,

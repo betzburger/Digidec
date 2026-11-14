@@ -897,7 +897,9 @@ public:
 // ----------------------------------------------------------------------------
 
 /// Synop section number.
-enum section_t {
+// ABWEICHUNG fldigi (Digidec): fester Grundtyp int. Der Decoder benutzt -1 als „kein Abschnitt“ (CtxtDerived::m_currSection);
+// ohne festen Grundtyp liegt -1 außerhalb des Wertebereichs der Aufzählung (undefiniertes Verhalten, vom UB-Prüfer gemeldet).
+enum section_t : int {
 	SECTION_ZCZC_DLM=0,
 	SECTION_HEAD_GRP,
 	SECTION_IDENTLOC,   // 000

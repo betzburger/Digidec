@@ -925,14 +925,24 @@ void thor::eval_s2n()
 
 	val = 20*log10(sig / noise);
 
-	size_t i = 0;
-	for (i = 0; i < sizeof(snvals) / sizeof(*snvals) - 1; i++)
-		if (val >= snvals[i].val && val < snvals[i+1].val)
-			break;
-	s2n = (int)ceil(
-		snvals[i].s2n +
-		(snvals[i+1].s2n - snvals[i].s2n) * (val - snvals[i].val)/(snvals[i+1].val - snvals[i].val)
-			);
+	// ABWEICHUNG fldigi (Digidec): Werte außerhalb der Tabelle auf deren Enden begrenzen. fldigi verlässt die Schleife dann mit
+	// i = letzter Eintrag und liest snvals[i+1] hinter dem Tabellenende (vom Speicherprüfer gemeldet; betrifft sehr starke,
+	// rauschfreie und sehr schwache Signale, die S/N-Angabe war dann zufällig).
+	const size_t last = sizeof(snvals) / sizeof(*snvals) - 1;
+	if (!(val >= snvals[0].val)) {
+		s2n = snvals[0].s2n;
+	} else if (val >= snvals[last].val) {
+		s2n = snvals[last].s2n;
+	} else {
+		size_t i = 0;
+		for (i = 0; i < last - 1; i++)
+			if (val >= snvals[i].val && val < snvals[i+1].val)
+				break;
+		s2n = (int)ceil(
+			snvals[i].s2n +
+			(snvals[i+1].s2n - snvals[i].s2n) * (val - snvals[i].val)/(snvals[i+1].val - snvals[i].val)
+				);
+	}
 
 	metric = CLAMP(3 * val, 0.0, 100.0);
 

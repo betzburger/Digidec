@@ -180,6 +180,19 @@ public final class FloatRingBuffer: @unchecked Sendable {
         }
     }
 
+    /// Die ältesten Abtastwerte verwerfen, bis höchstens `keep` übrig sind (Rückstau abbauen). Ohne Allokation, also auch im Ton-Rückruf
+    /// erlaubt. Rückgabe: Anzahl der verworfenen Werte (sie zählen nicht als Überlauf).
+    @discardableResult
+    public func discard(keeping keep: Int) -> Int {
+        lock.withLockUnchecked {
+            let n = fill - max(0, keep)
+            guard n > 0 else { return 0 }
+            readIndex = (readIndex + n) % capacity
+            fill -= n
+            return n
+        }
+    }
+
     public func clear() {
         lock.withLockUnchecked {
             readIndex = 0

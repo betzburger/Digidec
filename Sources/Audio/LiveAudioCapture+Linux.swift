@@ -122,6 +122,8 @@ public final class LiveAudioCapture: @unchecked Sendable {
                         failure = String(cString: pa_strerror(error))
                         break
                     }
+                    // Nach `stop` nichts mehr an den Besitzer geben: hat `stop` das Warten nach 2 s aufgegeben, kann er schon freigegeben sein
+                    guard running.withLock({ $0 }) else { break }
                     owner.handle(raw, frames: LiveAudioCapture.framesPerBuffer, mono: mono, left: monoLeft, right: monoRight)
                 }
                 pa_simple_free(stream)

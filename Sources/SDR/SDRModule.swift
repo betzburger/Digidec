@@ -208,12 +208,45 @@ public final class SDRSpeaker: @unchecked Sendable {
     private var duplicated: [Float] = []
     private var running = false
 
+    #if canImport(AVFoundation)
+    private var configurationObserver: NSObjectProtocol?
+    #endif
+
     public init() {
         scratch = .allocate(capacity: 2 * chunkFrames)
         scratch.initialize(repeating: 0, count: 2 * chunkFrames)
+        #if canImport(AVFoundation)
+        // Wechselt das Ausgabegerät (Kopfhörer, anderes Standardgerät, andere Abtastrate), hält die Engine an und meldet das hier:
+        // ohne Neustart bliebe der Ton stumm, bis man das Mithören aus- und wieder einschaltet.
+        configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            self?.restartAfterConfigurationChange()
+        }
+        #endif
     }
 
-    deinit { scratch.deallocate() }
+    deinit {
+        #if canImport(AVFoundation)
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        #endif
+        scratch.deallocate()
+    }
+
+    #if canImport(AVFoundation)
+    /// Nach einem Gerätewechsel: Knoten neu an den Mischer hängen (dessen Ausgangsformat kann sich geändert haben) und weiterlaufen
+    private func restartAfterConfigurationChange() {
+        guard running, let n = node, !engine.isRunning else { return }
+        engine.connect(n, to: engine.mainMixerNode, format: AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!)
+        ring.clear()
+        do {
+            try engine.start()
+        } catch {
+            // Kein Ausgabegerät mehr: sauber anhalten, der nächste start() baut neu auf
+            engine.detach(n)
+            node = nil
+            running = false
+        }
+    }
+    #endif
 
     public var volume: Float {
         get { gain.withLock { $0 } }
@@ -235,10 +268,7 @@ public final class SDRSpeaker: @unchecked Sendable {
                   let left = buffers[0].mData?.assumingMemoryBound(to: Float.self),
                   let right = buffers[1].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
             // Staut sich zu viel an (Takte von Gerät und Ausgang laufen auseinander): auf eine kurze Verzögerung zurück
-            if ring.available > 28_800 {
-                var skip = [Float](repeating: 0, count: ring.available - 9_600)
-                _ = skip.withUnsafeMutableBufferPointer { ring.read(into: $0.baseAddress!, maxCount: $0.count) }
-            }
+            if ring.available > 28_800 { ring.discard(keeping: 9_600) }
             let g = gain.withLock { $0 }
             var done = 0
             let total = Int(frames)
@@ -271,10 +301,7 @@ public final class SDRSpeaker: @unchecked Sendable {
         nonisolated(unsafe) let scratchBuffer = scratch
         let out = PullAudioOutput(sampleRate: 48_000, channels: 2) { buffer, frames in
             // Staut sich zu viel an (Takte von Gerät und Ausgang laufen auseinander): auf eine kurze Verzögerung zurück
-            if ring.available > 28_800 {
-                var skip = [Float](repeating: 0, count: ring.available - 9_600)
-                _ = skip.withUnsafeMutableBufferPointer { ring.read(into: $0.baseAddress!, maxCount: $0.count) }
-            }
+            if ring.available > 28_800 { ring.discard(keeping: 9_600) }
             let g = gain.withLock { $0 }
             var done = 0
             while done < frames {

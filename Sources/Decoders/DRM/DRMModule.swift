@@ -138,7 +138,7 @@ public final class DRMDecoder: @unchecked Sendable {
             for frame in unit.frames {
                 if let p = decoder.decode(frame) { pcm += p } else {
                     bad += 1
-                    pcm += [Float](repeating: 0, count: (unit.param.outputRate * 80 / 1000) * decoder.channels)
+                    pcm += [Float](repeating: 0, count: decoder.samplesPerFrame * decoder.channels)
                 }
             }
             lock.withLockUnchecked {
@@ -160,7 +160,8 @@ public final class DRMDecoder: @unchecked Sendable {
 
     private func handleXHE(_ unit: DRMAudioUnit) {
         guard let decoder = xhe else {
-            lock.withLockUnchecked { snapshot.unsupportedReason = "xHE-AAC: Konfiguration nicht lesbar oder vom Systemdecoder nicht angenommen" }
+            let reason = DRMXHEDecoder.isAvailable ? "xHE-AAC: Konfiguration nicht lesbar oder vom Systemdecoder nicht angenommen" : DRMXHEDecoder.unavailableReason
+            lock.withLockUnchecked { snapshot.unsupportedReason = reason }
             return
         }
         var pcm: [Float] = []

@@ -7,7 +7,10 @@
 
 typedef struct xhe_decoder xhe_decoder;
 
-/// Öffnet den Decoder mit der AudioSpecificConfig (USAC). NULL, wenn FFmpeg sie nicht annimmt.
+/// 1, wenn libfdk-aac gefunden wurde und alle benötigten Funktionen bietet (sonst gibt es kein xHE-AAC), sonst 0.
+int xhe_available(void);
+
+/// Öffnet den Decoder mit der AudioSpecificConfig (USAC). NULL, wenn libfdk-aac fehlt oder die Konfiguration nicht annimmt.
 xhe_decoder *xhe_open(const uint8_t *asc, int ascLength, int sampleRate, int channels);
 
 /// Decodiert eine Zugriffseinheit; schreibt verschachtelte Gleitkommawerte (L R L R …) nach `out` (höchstens `maxFrames` Rahmen).

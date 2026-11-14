@@ -45,8 +45,14 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
     /// Serielle Anschlüsse, an denen ein solcher Stick hängen könnte (Namen unter /dev).
     public static func candidatePaths() -> [String] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: "/dev")) ?? []
-        return names.filter { $0.hasPrefix("cu.usbserial") || $0.hasPrefix("cu.SLAB_USBtoUART") || $0.hasPrefix("cu.usbmodem") }
-            .sorted().map { "/dev/" + $0 }
+        #if canImport(Darwin)
+        let prefixes = ["cu.usbserial", "cu.SLAB_USBtoUART", "cu.usbmodem"]
+        #else
+        // Linux: USB-Seriell-Wandler (FTDI, CP210x) heißen ttyUSB…, CDC-Geräte ttyACM…
+        let prefixes = ["ttyUSB", "ttyACM"]
+        #endif
+        return names.filter { name in prefixes.contains { name.hasPrefix($0) } }
+            .sorted { $0.compare($1, options: .numeric) == .orderedAscending }.map { "/dev/" + $0 }
     }
 
     // MARK: - Pakete
@@ -61,7 +67,11 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
         let deadline = Date().addingTimeInterval(timeout)
         while true {
             let first = try port.read(count: 1, timeout: max(0.01, deadline.timeIntervalSinceNow))
-            guard first[0] == Self.startByte else { continue }
+            guard first[0] == Self.startByte else {
+                // Dauerstrom ohne Startbyte (falsches Gerät, falsche Baudrate): nicht endlos lesen
+                if Date() >= deadline { throw VoiceError.timeout }
+                continue
+            }
             let header = try port.read(count: 3, timeout: max(0.05, deadline.timeIntervalSinceNow))
             let length = Int(header[0]) << 8 | Int(header[1])
             guard length < 1024 else { throw VoiceError.protocolError("Paketlänge \(length)") }
@@ -125,9 +135,13 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         try configure(profile)
         try send(type: 0x01, payload: [0x01, UInt8(frame.bytes.count * 8)] + frame.bytes)
+        let deadline = Date().addingTimeInterval(1.0)
         while true {
             let packet = try receive()
-            guard packet.type == 0x02, packet.payload.count >= 2, packet.payload[0] == 0x00 else { continue }
+            guard packet.type == 0x02, packet.payload.count >= 2, packet.payload[0] == 0x00 else {
+                if Date() >= deadline { throw VoiceError.timeout }      // nur fremde Pakete: nicht endlos warten
+                continue
+            }
             let count = Int(packet.payload[1])
             guard packet.payload.count >= 2 + count * 2 else { throw VoiceError.protocolError("Sprachpaket zu kurz") }
             return (0..<count).map { Int16(bitPattern: UInt16(packet.payload[2 + $0 * 2]) << 8 | UInt16(packet.payload[3 + $0 * 2])) }
@@ -147,9 +161,13 @@ public final class AMBE3000Stick: VoiceDecoder, @unchecked Sendable {
         }
         try send(type: 0x02, payload: payload)
         let size = VoiceFrame.byteCount
+        let deadline = Date().addingTimeInterval(1.0)
         while true {
             let packet = try receive()
-            guard packet.type == 0x01, packet.payload.count >= 2 + size, packet.payload[0] == 0x01 else { continue }
+            guard packet.type == 0x01, packet.payload.count >= 2 + size, packet.payload[0] == 0x01 else {
+                if Date() >= deadline { throw VoiceError.timeout }
+                continue
+            }
             guard let frame = VoiceFrame(bytes: Array(packet.payload[2..<2 + size])) else {
                 throw VoiceError.protocolError("Kanalpaket")
             }
