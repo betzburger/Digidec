@@ -22,7 +22,7 @@ struct VoiceStickSettings: View {
                     .frame(width: 56, alignment: .leading)
                 Picker("", selection: $output.stickPort) {
                     Text("keiner").tag("")
-                    ForEach(ports, id: \.self) { Text($0.replacingOccurrences(of: "/dev/cu.", with: "")).tag($0) }
+                    ForEach(ports, id: \.self) { Text($0.replacingOccurrences(of: "/dev/cu.", with: "").replacingOccurrences(of: "/dev/", with: "")).tag($0) }
                     if !output.stickPort.isEmpty, !ports.contains(output.stickPort) { Text(output.stickPort).tag(output.stickPort) }
                 }
                 .labelsHidden()

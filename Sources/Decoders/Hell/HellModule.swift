@@ -4,9 +4,7 @@ import Foundation
 import Combine
 import SwiftUI
 #if canImport(AppKit)
-#if canImport(AppKit)
 import AppKit
-#endif
 #else
 import CoreGraphics
 import ImageIO
@@ -14,12 +12,8 @@ import UniformTypeIdentifiers
 #endif
 import os
 
-#if canImport(AppKit)
-/// Anzeigebild des Hell-Rasters (unter macOS ein NSImage, unter Linux das CGImage selbst)
+/// Anzeigebild des Hell-Rasters (unter Linux ist NSImage der gleichnamige Ersatztyp der eigenen Oberfläche)
 public typealias HellRasterImage = NSImage
-#else
-public typealias HellRasterImage = NSImage
-#endif
 
 // MARK: - Raster
 

@@ -945,9 +945,12 @@ struct SDRControlView: View {
     }
 
     private var bandwidthRow: some View {
-        HStack(spacing: RadioMetrics.keySpacing) {
+        // Mehr als vier Breiten (UKW: 5, SSB mit den breiten DRM-Filtern: 7) stehen in zwei Reihen, sonst werden die Tasten zu schmal für ihre Beschriftung
+        let count = settings.mode.bandwidthChoices.count
+        let columns = count > 4 ? (count + 1) / 2 : max(1, count)
+        return HStack(spacing: RadioMetrics.keySpacing) {
             label("BREITE").frame(width: 44, alignment: .leading)
-            ButtonGrid(columns: .fill(max(1, settings.mode.bandwidthChoices.count))) {
+            ButtonGrid(columns: .fill(columns)) {
                 ForEach(settings.mode.bandwidthChoices, id: \.self) { b in
                     Button(Self.bwText(b)) { settings.bandwidthHz = b }
                         .buttonStyle(ModeButtonStyle(isSelected: settings.bandwidthHz == b))

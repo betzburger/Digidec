@@ -45,7 +45,7 @@ Digidec now looks like a piece of lab equipment:
 
 > [!WARNING]
 > ### ⚠️ Project Status: Early Alpha & Invitation to Test!
-> Digidec is currently in active **Alpha status (v0.105.1 Alpha)**. 
+> Digidec is currently in active **Alpha status (v0.105.6 Alpha)**. 
 > 
 > - **Many decoders and features have been mathematically verified against recordings and test vectors, but have not yet undergone extensive live on-air field testing.**
 > - Bugs, rough edges, and unexpected quirks may still occur. 

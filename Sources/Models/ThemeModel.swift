@@ -7,7 +7,7 @@ import Observation
 /// Ansichten, die ihre Farben in einer Zeichenfläche (Canvas) oder in AppKit lesen, rufen dafür zusätzlich `ThemeModel.shared.theme` im Aufbau ab.
 @Observable
 public final class ThemeModel: @unchecked Sendable {
-    nonisolated(unsafe) public static let shared = ThemeModel()
+    public static let shared = ThemeModel()
     public static let notification = Notification.Name("DigidecThemeChanged")
     private static let key = "appTheme"
 

@@ -200,6 +200,16 @@ if want("audio") {
     let big = (0..<20).map(Float.init)    // Block größer als Kapazität
     rb.write(big, count: 20)
     check(rb.read(into: &dst, maxCount: 8) == 8 && dst == Array(big[12..<20]), "Ring: übergroßer Block behält Ende")
+    // Rückstau abbauen (Ton-Rückruf, ohne Allokation): die ältesten Werte fallen weg, die neuesten bleiben in Reihenfolge; zählt nicht als Überlauf
+    let lost = rb.droppedSamples
+    rb.write([1, 2, 3, 4, 5, 6], count: 6)        // liegt über dem Ende des Speichers (Lesestelle steht nach den Blöcken oben nicht bei 0)
+    check(rb.discard(keeping: 2) == 4 && rb.available == 2 && rb.droppedSamples == lost, "Ring: Rückstau bis auf 2 verworfen")
+    check(rb.read(into: &dst, maxCount: 8) == 2 && Array(dst[0..<2]) == [5, 6], "Ring: nach dem Verwerfen die neuesten, got \(Array(dst[0..<2]))")
+    rb.write([7, 8, 9], count: 3)
+    check(rb.discard(keeping: 5) == 0 && rb.available == 3, "Ring: weniger als der Rest, nichts verworfen")
+    check(rb.discard(keeping: -1) == 3 && rb.available == 0, "Ring: negativer Rest leert den Ring")
+    rb.write([10, 11], count: 2)
+    check(rb.read(into: &dst, maxCount: 8) == 2 && Array(dst[0..<2]) == [10, 11], "Ring: nach dem Leeren weiter benutzbar")
 }
 
 // MARK: - Audio: Kanalwahl
@@ -13710,6 +13720,8 @@ if want("drm") {
         }
         check(ratesOK, "xHE-AAC: alle neun Abtastraten (9,6 bis 48 kHz und eine Ausnahmerate) stehen richtig in der AudioSpecificConfig")
         // Nimmt der Systemdecoder alle in DRM erlaubten Rate/Kanal/SBR-Kombinationen an? (4:1-SBR bei 9,6 und 12 kHz hätte einen Kern unter 3 kHz und fehlt)
+        // Unter Linux nur mit installiertem libfdk-aac prüfbar (wird zur Laufzeit geladen; fehlt z. B. im CI-Container)
+        if !DRMXHEDecoder.isAvailable { skip("xHE-AAC: kein Decoder auf diesem System (\(DRMXHEDecoder.unavailableReason))") }
         var accepted = 0, refused = 0
         for rate in [9_600, 12_000, 16_000, 19_200, 24_000, 32_000, 38_400, 48_000] {
             for pair in [false, true] {
@@ -13721,7 +13733,7 @@ if want("drm") {
                 }
             }
         }
-        check(refused == 0 && accepted >= 60, "xHE-AAC: Systemdecoder nimmt \(accepted) von 64 Kombinationen aus Rate, Mono/Stereo und Kern/SBR-Verhältnis an (4:1 bei höchstens 12 kHz nicht)")
+        if DRMXHEDecoder.isAvailable { check(refused == 0 && accepted >= 60, "xHE-AAC: Systemdecoder nimmt \(accepted) von 64 Kombinationen aus Rate, Mono/Stereo und Kern/SBR-Verhältnis an (4:1 bei höchstens 12 kHz nicht)") }
     }
     // SDC-Eintrag Typ 9 mit xHE-AAC
     do {

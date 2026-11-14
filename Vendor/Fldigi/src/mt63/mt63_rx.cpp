@@ -7,11 +7,19 @@
 // Die Sendeseite (nur Testsignal) folgt mt63::tx_process().
 // ----------------------------------------------------------------------------
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 #include <vector>
 #include "fldigi_mt63.h"
 #include "dsp.h"
 #include "mt63base.h"
+
+// ABWEICHUNG fldigi (Digidec): Objekte der Bibliothek in genulltem Speicher anlegen. Ihre Konstruktoren belegen nur die Zeiger vor;
+// einige Zustandsgrößen werden gelesen, bevor sie gesetzt sind (MT63rx::AverFreq/AverSymb im ersten Durchlauf von SyncProcess(),
+// FFT.Size im Sender vor dem ersten FFT.Preset()). So hängt nichts vom zufälligen Inhalt des Speichers ab.
+template <class T> static T *zeroed_new() { void *mem = calloc(1, sizeof(T)); return mem ? new (mem) T : nullptr; }
+template <class T> static void zeroed_delete(T *p) { if (!p) return; p->~T(); free(p); }
 
 struct fldigi_mt63 {
 	fldigi_mt63_config cfg;
@@ -62,8 +70,8 @@ extern "C" fldigi_mt63 *fldigi_mt63_create(const fldigi_mt63_config *cfg, double
 	m->frequency = center_hz;
 	m->on_char = on_char;
 	m->ctx = ctx;
-	m->Rx = new MT63rx;
-	m->InpLevel = new dspLevelMonitor;
+	m->Rx = zeroed_new<MT63rx>();
+	m->InpLevel = zeroed_new<dspLevelMonitor>();
 	m->InpBuff = new double_buff;
 	m->emptyBuff = new double_buff;
 	m->rx_init();                         // fldigi: restart() + rx_init() beim Moduswechsel
@@ -73,8 +81,8 @@ extern "C" fldigi_mt63 *fldigi_mt63_create(const fldigi_mt63_config *cfg, double
 extern "C" void fldigi_mt63_destroy(fldigi_mt63 *m)
 {
 	if (!m) return;
-	delete m->Rx;
-	delete m->InpLevel;
+	zeroed_delete(m->Rx);
+	zeroed_delete(m->InpLevel);
 	delete m->InpBuff;
 	delete m->emptyBuff;
 	delete m;
@@ -184,7 +192,10 @@ extern "C" void fldigi_mt63_flush(fldigi_mt63 *m)       // mt63::rx_flush()
 // ----------------------------------------------------------------------------
 extern "C" int fldigi_mt63_synthesize(const fldigi_mt63_config *cfg, const char *text, double center_hz, float *out, int max_samples)
 {
-	MT63tx Tx;
+	// Der Sender liegt in genulltem Speicher statt auf dem Stapel (siehe zeroed_new)
+	MT63tx *TxPtr = zeroed_new<MT63tx>();
+	if (!TxPtr) return -1;
+	MT63tx &Tx = *TxPtr;
 	// fldigi ruft Tx->Preset() zweimal auf (restart() und tx_init()). MT63tx::Preset() liest FFT.Size schon vor
 	// FFT.Preset(): beim ersten Aufruf ist die Maske unbestimmt und dspPhaseCorr[] falsch, erst der zweite stimmt.
 	Tx.Preset(center_hz, cfg->bandwidth_hz, cfg->long_interleave ? 1 : 0);
@@ -213,6 +224,7 @@ extern "C" int fldigi_mt63_synthesize(const fldigi_mt63_config *cfg, const char 
 	while (--flush) { Tx.SendChar(0); emitBlock(true); }                // Nachspann
 	Tx.SendJam();
 	emitBlock(true);
+	zeroed_delete(TxPtr);
 	if ((int)samples.size() > max_samples) return -1;
 	memcpy(out, samples.data(), samples.size() * sizeof(float));
 	return (int)samples.size();

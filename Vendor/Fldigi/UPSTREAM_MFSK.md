@@ -37,3 +37,8 @@ Erzeugt von `port_mfsk.py`: die Funktionen werden wörtlich herausgezogen (Klamm
 - Logiktests: alle Betriebsarten außer MFSK4, DominoEX Micro, Thor Micro, IFKP 0,5 und FSQ 1,5 (sehr langsam) im Rundlauf, Mitte (1000, 2200 Hz), AFC (8 Hz Versatz), Umstellen von Mitte und Betriebsart, Rauschen (MFSK16 0 dB, MFSK32 6 dB, DominoEX 11 3 dB, Thor 16 0 dB), Squelch, IFKP 2,0 und FSQ 6 mit 6 dB S/N, Throb 4 mit 6 dB, Pipeline 48 kHz → 8000/11025/12000/16000 Hz. Hell: Rundlauf aller Betriebsarten (Spalten, Tinte verdoppelt sich mit dem Text), Spaltenlänge, Wiederholung, Mitte, Rauschen, Tafeldarstellung, Squelch, Raster-Bild.
 - Das Testsignal folgt der Sendeseite von fldigi (dieselben Funktionen), ist aber **nicht** mit dem Original-fldigi gegengeprüft und **nicht** an echtem Funkverkehr. Gleiche Fehler auf Sende- und Empfangsseite würden sich aufheben.
 - `Tools/DecodeFile/decode_file.sh <aufnahme.wav> --mfsk mfsk16 --center 1500` decodiert Aufnahmen offline.
+
+**Seit 0.105.6 (Digidec), Fehler in fldigi behoben:** `thor::eval_s2n()` (`thor_rx.cpp`) las bei Messwerten außerhalb der Tabelle `snvals`
+(unter 12,6 oder ab 32,8, also bei sehr schwachen und bei sehr starken, rauschfreien Signalen) hinter dem Tabellenende; die S/N-Angabe war
+dann zufällig. Jetzt wird auf den ersten bzw. letzten Tabellenwert begrenzt (−9 bzw. +20 dB). Gefunden mit den Logiktests unter
+AddressSanitizer.

@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Peter Betz und Mitwirkende
 # Übersetzt Vendor/Fldigi (C++ und GNU-Regex in C), Vendor/FT8 (ft8mon), Vendor/Wspr (wsprd), Vendor/JS8 (JS8Call) und Vendor/Codec2 außerhalb von SwiftPM für Logiktests und Werkzeuge.
 # Aufruf: Tools/build_fldigi.sh <ausgabeordner>
-# Objekte werden nur neu übersetzt, wenn die Quelldatei neuer ist (Änderungen an Headern: Ordner obj löschen); die Modul-Map wird nur bei Änderung neu geschrieben.
+# Objekte werden nur neu übersetzt, wenn die Quelldatei neuer ist oder sich ein Header geändert hat (dann alle); die Modul-Map wird nur bei Änderung neu geschrieben.
 # Ergebnis: <ausgabeordner>/obj/*.o und <ausgabeordner>/module/module.modulemap (Module „Fldigi“, „FT8“, „Wspr“, „JS8“ und „Codec2“ wie im Package)
 set -euo pipefail
 ROOT="${0:A:h:h}"
@@ -11,6 +11,24 @@ OUT="$1"
 F="$ROOT/Vendor/Fldigi"
 INC=(-I$F/include -I$F/src -I$F/src/common -I$F/src/rtty -I$F/src/synop -I$F/src/misc -I$F/src/navtex -I$F/src/cw -I$F/src/wefax -I$F/src/psk -I$F/src/mt63 -I$F/src/olivia -I$F/src/mfsk -I$F/mt63data -I$F/compat)
 mkdir -p "$OUT/obj" "$OUT/module"
+# Geänderte Header: Die Schleifen unten vergleichen nur die Quelldatei mit ihrem Objekt. Ist irgendeine eingebundene Datei (Header, .inc,
+# Tabellen) eines der Vendor-Teile neuer als der letzte Bau, werden alle Objekte verworfen – sonst bleiben Objekte mit altem Header-Stand
+# liegen (so geschehen nach der Änderung an mt63/dsp.h in 0.105.1: das alte dsp.o ließ eine MT63-Prüfung je nach Speicherinhalt scheitern).
+STAMP="$OUT/obj/.headers"
+HEADERS=($ROOT/Vendor/{Fldigi,FT8,Wspr,JS8,Codec2}/**/*.(h|hpp|hh|inc|dat)(N.))
+if [[ -f "$STAMP" ]]; then
+    for h in $HEADERS; do
+        if [[ "$h" -nt "$STAMP" ]]; then
+            echo "build_fldigi: ${h#$ROOT/} ist neuer als der letzte Bau, alle Objekte werden neu übersetzt"
+            rm -f -- "$OUT"/obj/*.o(N)
+            break
+        fi
+    done
+else
+    # Erster Lauf mit dieser Prüfung: vorhandene Objekte haben einen unbekannten Header-Stand
+    rm -f -- "$OUT"/obj/*.o(N)
+fi
+touch "$STAMP"
 if [[ ! -f "$OUT/obj/regex.o" || $F/src/compat/regex.c -nt "$OUT/obj/regex.o" ]]; then cc -O2 -w -I$F/src -c $F/src/compat/regex.c -o "$OUT/obj/regex.o"; fi
 for c in $F/src/**/*.cpp; do
     if [[ ! -f "$OUT/obj/${c:h:t}_${c:t:r}.o" || "$c" -nt "$OUT/obj/${c:h:t}_${c:t:r}.o" ]]; then clang++ -std=c++17 -O2 -w $INC -c "$c" -o "$OUT/obj/${c:h:t}_${c:t:r}.o"; fi

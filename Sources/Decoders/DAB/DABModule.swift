@@ -129,7 +129,30 @@ public final class DABPlayer: @unchecked Sendable {
     /// Abgriff des Tons für den Web-Fernzugriff (unabhängig von Lautstärke und Stummschaltung der App)
     public let webTap = PCMTap()
 
-    public init() {}
+    #if canImport(AVFoundation)
+    private var configurationObserver: NSObjectProtocol?
+    #endif
+
+    public init() {
+        #if canImport(AVFoundation)
+        // Wechselt das Ausgabegerät (Kopfhörer, anderes Standardgerät, andere Abtastrate), hält die Engine an und meldet das hier.
+        // Die Ausgabe wird dann verworfen; der nächste Block in write() baut sie für das neue Gerät wieder auf.
+        configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
+            // Nicht im Faden der Meldung sperren: er gehört der Engine, und write() ruft unter der Sperre in die Engine
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                self.lock.lock(); defer { self.lock.unlock() }
+                if self.running, !self.engine.isRunning { self.stopLocked() }
+            }
+        }
+        #endif
+    }
+
+    deinit {
+        #if canImport(AVFoundation)
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        #endif
+    }
 
     public var volume: Float {
         get { gain.withLock { volumeValue } }
@@ -145,7 +168,7 @@ public final class DABPlayer: @unchecked Sendable {
     public func takePeak() -> Float { gain.withLock { defer { peakValue = 0 }; return peakValue } }
 
     private func start(channels c: Int, rate r: Int) {
-        stop()
+        stopLocked()
         channels = c
         rate = r
         let capacity = r * c * 2
@@ -195,7 +218,14 @@ public final class DABPlayer: @unchecked Sendable {
         #endif
     }
 
+    /// Ausgabe anhalten (von jedem Faden aus; write() baut sie beim nächsten Block wieder auf)
     public func stop() {
+        lock.lock(); defer { lock.unlock() }
+        stopLocked()
+    }
+
+    /// Nur unter `lock` aufrufen
+    private func stopLocked() {
         guard running else { return }
         running = false
         #if canImport(AVFoundation)
@@ -220,10 +250,7 @@ public final class DABPlayer: @unchecked Sendable {
         for x in samples { peak = max(peak, abs(x)) }
         gain.withLock { peakValue = max(peakValue, peak) }
         // Rückstau (Takte von Sender und Ausgabegerät laufen auseinander): auf kurze Verzögerung zurück
-        if ring.available > r * c / 2 {
-            var skip = [Float](repeating: 0, count: ring.available - r * c / 5)
-            _ = skip.withUnsafeMutableBufferPointer { ring.read(into: $0.baseAddress!, maxCount: $0.count) }
-        }
+        if ring.available > r * c / 2 { ring.discard(keeping: (r / 5) * c) }
         samples.withUnsafeBufferPointer { ring.write($0.baseAddress!, count: $0.count) }
     }
 

@@ -4,6 +4,7 @@
 // (ihre Lizenz ist mit der GPL nicht verträglich); wer sie installiert hat (Paket „fdk-aac“/„libfdk-aac“), bekommt xHE-AAC.
 #include "cxhedecode.h"
 #include <dlfcn.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -32,25 +33,34 @@ struct api {
     open_fn open; config_raw_fn config; fill_fn fill; decode_fn decode; info_fn info; close_fn close;
 };
 
-static int load_api(struct api *a) {
-    static void *lib = NULL;
-    static struct api cached;
-    static int ok = -1;
-    if (ok >= 0) { if (ok) *a = cached; return ok; }
+static struct api cached;
+static int cached_ok = 0;
+static pthread_once_t load_once = PTHREAD_ONCE_INIT;
+
+static void load_library(void) {
+    void *lib = NULL;
     const char *names[] = {"libfdk-aac.so.2", "libfdk-aac.so", NULL};
     for (int i = 0; names[i] && !lib; i++) lib = dlopen(names[i], RTLD_NOW | RTLD_LOCAL);
-    ok = 0;
-    if (lib) {
-        cached.open = (open_fn)dlsym(lib, "aacDecoder_Open");
-        cached.config = (config_raw_fn)dlsym(lib, "aacDecoder_ConfigRaw");
-        cached.fill = (fill_fn)dlsym(lib, "aacDecoder_Fill");
-        cached.decode = (decode_fn)dlsym(lib, "aacDecoder_DecodeFrame");
-        cached.info = (info_fn)dlsym(lib, "aacDecoder_GetStreamInfo");
-        cached.close = (close_fn)dlsym(lib, "aacDecoder_Close");
-        ok = cached.open && cached.config && cached.fill && cached.decode && cached.info && cached.close;
-    }
-    if (ok) *a = cached;
-    return ok;
+    if (!lib) return;
+    cached.open = (open_fn)dlsym(lib, "aacDecoder_Open");
+    cached.config = (config_raw_fn)dlsym(lib, "aacDecoder_ConfigRaw");
+    cached.fill = (fill_fn)dlsym(lib, "aacDecoder_Fill");
+    cached.decode = (decode_fn)dlsym(lib, "aacDecoder_DecodeFrame");
+    cached.info = (info_fn)dlsym(lib, "aacDecoder_GetStreamInfo");
+    cached.close = (close_fn)dlsym(lib, "aacDecoder_Close");
+    cached_ok = cached.open && cached.config && cached.fill && cached.decode && cached.info && cached.close;
+}
+
+/// Bibliothek einmal laden (auch wenn mehrere Fäden zugleich einen Decoder öffnen)
+static int load_api(struct api *a) {
+    pthread_once(&load_once, load_library);
+    if (cached_ok) *a = cached;
+    return cached_ok;
+}
+
+int xhe_available(void) {
+    struct api a;
+    return load_api(&a);
 }
 
 struct xhe_decoder {
@@ -76,7 +86,7 @@ xhe_decoder *xhe_open(const uint8_t *asc, int ascLength, int sampleRate, int cha
 }
 
 int xhe_decode(xhe_decoder *d, const uint8_t *au, int length, float *out, int maxFrames) {
-    if (!d || length <= 0) return -1;
+    if (!d || !au || !out || length <= 0 || maxFrames <= 0) return -1;
     UCHAR *buffer[1] = {(UCHAR *)au};
     UINT size[1] = {(UINT)length};
     UINT valid = (UINT)length;
@@ -88,6 +98,7 @@ int xhe_decode(xhe_decoder *d, const uint8_t *au, int length, float *out, int ma
     if (status != AAC_DEC_OK) return -1;
     CStreamInfo *info = d->api.info(d->handle);
     if (!info || info->frameSize <= 0 || info->numChannels < 1) return -1;
+    if ((long)info->frameSize * info->numChannels > (long)(sizeof pcm / sizeof pcm[0])) return -1;
     int frames = info->frameSize < maxFrames ? info->frameSize : maxFrames;
     int channels = info->numChannels;
     for (int i = 0; i < frames; i++)

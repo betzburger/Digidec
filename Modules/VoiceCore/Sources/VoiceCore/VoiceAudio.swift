@@ -13,13 +13,37 @@ public final class VoicePlayer: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private let format: AVAudioFormat
+    private let lock = NSLock()
+    private var started = false
+    private var configurationObserver: NSObjectProtocol?
 
     public init() {
         format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(VoiceFrame.sampleRate), channels: 1, interleaved: false)!
         engine.attach(node)
+        // Wechselt das Ausgabegerät (Kopfhörer, anderes Standardgerät), hält die Engine an und meldet das hier:
+        // ohne Neustart bliebe die Sprache stumm, bis das Modul neu gestartet wird.
+        configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
+            // Nicht im Faden der Meldung sperren (er gehört der Engine)
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                self.lock.lock(); defer { self.lock.unlock() }
+                guard self.started, !self.engine.isRunning else { return }
+                do { try self.startLocked() } catch { self.started = false }
+            }
+        }
+    }
+
+    deinit {
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
     }
 
     public func start() throws {
+        lock.lock(); defer { lock.unlock() }
+        try startLocked()
+        started = true
+    }
+
+    private func startLocked() throws {
         // Die macOS-27-Fassungen mit Fehlermeldung sind hier nicht erreichbar; die alten Aufrufe laufen ab macOS 14 (nur Hinweise des Compilers)
         engine.connect(node, to: engine.mainMixerNode, format: format)
         try engine.start()
@@ -27,6 +51,8 @@ public final class VoicePlayer: @unchecked Sendable {
     }
 
     public func stop() {
+        lock.lock(); defer { lock.unlock() }
+        started = false
         node.stop()
         engine.stop()
     }
@@ -38,6 +64,9 @@ public final class VoicePlayer: @unchecked Sendable {
               let channel = buffer.floatChannelData?[0] else { return }
         for (index, sample) in samples.enumerated() { channel[index] = Float(sample) / 32768 }
         buffer.frameLength = AVAudioFrameCount(samples.count)
+        lock.lock(); defer { lock.unlock() }
+        // Ohne laufende Engine (angehalten oder Gerät gerade weg) nichts einreihen: der Spielerknoten würde es nach dem Neustart verspätet abspielen
+        guard started, engine.isRunning else { return }
         node.scheduleBuffer(buffer, completionHandler: nil)
     }
 }

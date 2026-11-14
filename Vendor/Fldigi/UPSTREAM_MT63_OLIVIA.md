@@ -6,7 +6,7 @@ Die Bibliotheken von **Pawel Jalocha SP9VRC** werden wortgleich kopiert (`port_m
 
 | Datei | Herkunft |
 |---|---|
-| `src/mt63/dsp.cpp`, `dsp.h`, `mt63base.cpp`, `mt63base.h` | fldigi `mt63/dsp.cxx`, `include/dsp.h`, `mt63/mt63base.cxx`, `include/mt63base.h` – unverändert |
+| `src/mt63/dsp.cpp`, `dsp.h`, `mt63base.cpp`, `mt63base.h` | fldigi `mt63/dsp.cxx`, `include/dsp.h`, `mt63/mt63base.cxx`, `include/mt63base.h` – unverändert bis auf die unten genannten Stellen |
 | `mt63data/*.dat` | fldigi `mt63/*.dat` (Symbolform, Verschachtelungsmuster) – unverändert; nur außerhalb von `src/`, damit SwiftPM sie nicht als Quellen sucht |
 | `src/olivia/jalocha/*.h` | fldigi `include/jalocha/*.h` (MFSK-Sender/-Empfänger, nur Header) – unverändert |
 | `src/mt63/mt63_rx.cpp`, `include/fldigi_mt63.h` | Rahmen nach `mt63.cxx` (`rx_init`, `rx_process`, `rx_flush`, `restart`, `set_freq`); C-Schnittstelle |
@@ -27,3 +27,15 @@ Logiktests: Olivia (6 Betriebsarten, REV, Mitte, −10 dB S/N, falsche Tonzahl, 
 
 **Seit 0.105.1 (Digidec):** In `src/mt63/dsp.h` nullen `dspRedspAllocArray`, `dspAllocArray`, `dspAllocArray2D` und `dspSeq::EnsureSpace` neue Felder (`new type[n]()`); `EnsureSpace` gibt den alten Puffer frei (ging verloren) und legt die Größe in Elementen an. Grund: Die Senderseite las teils Speicher vor dem Beschreiben; das MT63-Testsignal enthielt dann je nach Speicherinhalt NaN (nachgestellt unter Linux, etwa jeder zweite Programmlauf).
 
+**Seit 0.105.6 (Digidec), Fehler in fldigi behoben:** `MT63rx::DataProcess()` (`mt63base.cpp`) begann die Trägerschleife mit dem unbegrenzten
+`DataScanFirst` und las beim ersten Träger des Suchrands außerhalb von `FFTbuff` (MT63-500 bei Mitte 1500 Hz: Index 608 bei 512 Punkten; bei
+tiefer Mitte negativ). Jetzt `DataScanFirst & WindowLenMask`, wie das Original alle folgenden Indizes behandelt. Gefunden mit den Logiktests
+unter AddressSanitizer; betroffen war nur ein Träger des Suchrands, kein Datenträger.
+
+**Seit 0.105.6 (Digidec):** `MT63rx::Preset()` belegt `AverFreq` und `AverSymb` mit 0 vor (`SyncProcess()` liest beide im ersten Durchlauf,
+bevor sie berechnet sind), und `mt63_rx.cpp` legt `MT63rx`, `dspLevelMonitor` und den Sender des Testsignals in genulltem Speicher an
+(`zeroed_new`; der Sender liest `FFT.Size` vor dem ersten `FFT.Preset()`). Vorsorge gegen Abhängigkeit vom Speicherinhalt; ein Fehlbild war
+damit nicht verbunden.
+
+**Hinweis zu den Prüfungen:** `rand()` in `MT63tx::SendJam()` und im Verschachteler macht das Testsignal vom Vorlauf des Programms abhängig
+(erstes Zeichen des Vorspanns wechselt); die Prüfungen vergleichen deshalb nur den Nutztext.

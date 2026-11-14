@@ -11,6 +11,8 @@ final class DRMAudioDecoder {
     /// Ausgang: 1 oder 2 Kanäle (der DRM-Modus von FAAD2 liefert immer Stereo; bei Mono sind beide gleich)
     let channels: Int
     let outputRate: Int
+    /// Abtastwerte je Kanal und Rahmen am Ausgang: 960 im AAC-Kern (80 ms bei 12 kHz, 40 ms bei 24 kHz), mit SBR doppelt so viele
+    var samplesPerFrame: Int { 960 * outputRate / param.sampleRate }
 
     init?(param: DRMAudioParam) {
         guard param.coding == .aac, param.sampleRate == 12_000 || param.sampleRate == 24_000, let h = faaddrm_NeAACDecOpen() else { return nil }
@@ -21,10 +23,12 @@ final class DRMAudioDecoder {
         case 1: mode = UInt8(DRMCH_SBR_PS_STEREO)
         default: mode = param.sbr ? UInt8(DRMCH_SBR_STEREO) : UInt8(DRMCH_STEREO)
         }
+        // NeAACDecInitDRM schließt den übergebenen Decoder und legt einen neuen an: `h` ist danach ungültig, es gilt nur noch `hh`.
+        // Rückgabe 0 = in Ordnung (der Typ ist `char`, ein Fehler ist 1 und nie negativ).
         var hh: NeAACDecHandle? = h
         let rc = faaddrm_NeAACDecInitDRM(&hh, UInt(param.sampleRate), mode)
-        guard rc >= 0, hh != nil else { faaddrm_NeAACDecClose(h); return nil }
-        handle = hh
+        guard rc == 0, let opened = hh else { if let hh { faaddrm_NeAACDecClose(hh) }; return nil }
+        handle = opened
         channels = param.mode == 0 ? 1 : 2
         outputRate = param.outputRate
     }

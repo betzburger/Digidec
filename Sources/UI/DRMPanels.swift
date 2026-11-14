@@ -139,7 +139,9 @@ struct DRMTuningPanel: View {
                 led("SDC", on: s.sdcGood > 0, color: RadioTheme.vfdCyan)
                 led("TON", on: controller.audioPeak > 0.005, color: RadioTheme.vfdAmber)
             }
-            PagerLevelBar(level: s.locked ? min(1, max(0, (s.snr + 5) / 40)) : 0)
+            // PagerLevelBar ist ein Pegelbalken: voll bei 0,5, rot (Übersteuerung) über 0,45. Ein guter Rauschabstand ist kein Alarm,
+            // deshalb endet die Skala hier bei 0,44 (grün, 88 % der Breite bei 35 dB und mehr).
+            PagerLevelBar(level: s.locked ? min(1, max(0, (s.snr + 5) / 40)) * 0.44 : 0)
                 .frame(height: 8)
                 .help("Signal-Rausch-Verhältnis der Zellen (−5 … 35 dB)")
             HStack {
